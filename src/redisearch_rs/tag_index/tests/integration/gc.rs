@@ -23,7 +23,7 @@
 use inverted_index::DocId;
 use tag_index::{InMemoryMode, TagIndex};
 
-use crate::util::{as_tag, commit_mem, index_mem, scan, unique_id};
+use crate::util::{as_tag, commit_mem, gc_mem, index_mem, scan, unique_id};
 
 /// Build a memory-mode index holding `tags`, each carrying documents `1..=n`.
 /// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
@@ -116,6 +116,57 @@ fn gc_drops_a_tag_that_lost_every_document() {
     assert!(
         info.block_count_delta < 0,
         "the dropped list's blocks must be subtracted from the spec's block count"
+    );
+}
+
+/// Dropping a tag has to give its suffix-trie bytes back. The suffix entries own
+/// allocations outside their trie nodes — the tag term and each entry's member list —
+/// and the trie's own counter cannot see those, so a `delete` that failed to discount
+/// them would leave `mem_usage` permanently overstated after every GC pass.
+#[test]
+fn gc_drops_a_tag_and_gives_its_suffix_bytes_back() {
+    let mut idx = TagIndex::<InMemoryMode>::new(true);
+    let empty = idx.mem_usage();
+
+    index_mem(&mut idx, &[b"team"], 1);
+    commit_mem(&mut idx, &[b"team"]);
+    let indexed = idx.mem_usage();
+    assert!(indexed > empty, "indexing the tag has to cost something");
+
+    gc_mem(&mut idx, b"team", |_| false);
+
+    assert!(idx.find_value(b"team").is_none(), "the tag is dropped");
+    assert_eq!(
+        idx.mem_usage(),
+        empty,
+        "the last tag is gone from both tries, so the reported overhead must be back \
+         where it started"
+    );
+}
+
+/// The same, with a second tag left in place: dropping one tag must reduce the figure
+/// without taking the surviving tag's bytes with it.
+#[test]
+fn gc_dropping_one_of_two_tags_reduces_the_reported_overhead() {
+    let mut idx = TagIndex::<InMemoryMode>::new(true);
+    index_mem(&mut idx, &[b"keep"], 1);
+    commit_mem(&mut idx, &[b"keep"]);
+    let with_survivor_alone = idx.mem_usage();
+
+    index_mem(&mut idx, &[b"drop"], 2);
+    commit_mem(&mut idx, &[b"drop"]);
+    let with_both = idx.mem_usage();
+
+    gc_mem(&mut idx, b"drop", |_| false);
+
+    assert!(idx.find_value(b"keep").is_some(), "the other tag survives");
+    assert!(
+        idx.mem_usage() < with_both,
+        "dropping a tag must reduce the reported overhead"
+    );
+    assert!(
+        idx.mem_usage() >= with_survivor_alone,
+        "the surviving tag's own bytes must not be discounted along with the dropped one"
     );
 }
 

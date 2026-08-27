@@ -189,6 +189,15 @@ pub(crate) struct TagSuffixIndex {
     /// The suffix entries
     entries: TrieMap<SuffixData>,
     /// Total [`SuffixData::nested_mem_usage`] over every entry.
+    ///
+    /// Tracked here because [`TrieMap::mem_usage`] cannot report it: the trie's own counter
+    /// moves only when a node is added or removed, whereas an entry's payload allocations
+    /// change while its node stays put — [`add`](Self::add) pushes onto the member list of
+    /// an entry a shorter term already created, and [`delete`](Self::delete) takes a term
+    /// away without emptying the entry.
+    ///
+    /// Written by [`insert_tracked`](Self::insert_tracked) and [`delete`](Self::delete),
+    /// which are therefore the only two places allowed to mutate [`entries`](Self::entries).
     nested_mem_usage: usize,
 }
 
@@ -310,11 +319,17 @@ impl TagSuffixIndex {
         let mut deleted_term = None;
 
         for j in 0..tag.len() {
-            let data = self.entries.find_mut(&tag[j..]);
+            let key = &tag[j..];
+            let data = self.entries.find_mut(key);
             debug_assert!(data.is_some(), "all suffixes must exist");
             // A missing entry means this trie and the values trie disagree; skip
             // it rather than panicking inside the garbage collector.
             let Some(data) = data else { continue };
+
+            // Measured around the mutation, as `insert_tracked` does, rather than
+            // derived from `tag.len()`: whatever the payload gives up is whatever it
+            // stops reporting.
+            let before = data.nested_mem_usage();
 
             if j == 0 {
                 deleted_term = data.full_term.take();
@@ -328,9 +343,22 @@ impl TagSuffixIndex {
                 data.members.swap_remove(deleted_index);
             }
 
+            // Read while `data` is still borrowed, so the borrow can end before the
+            // removal below needs `self.entries` again.
+            let is_now_empty = data.full_term.is_none() && data.members.is_empty();
+            let after = data.nested_mem_usage();
+            debug_assert!(
+                after <= before,
+                "deleting only ever makes a payload give allocations up"
+            );
+            self.nested_mem_usage -= before - after;
+
             // Don't keep empty `members`.
-            if data.full_term.is_none() && data.members.is_empty() {
-                self.entries.remove(&tag[j..]);
+            if is_now_empty {
+                let removed = self.entries.remove(key).expect("found just above");
+                // Down to the member list: the guard above established that the term
+                // is already gone, and `after` did not count it either.
+                self.nested_mem_usage -= removed.nested_mem_usage();
             }
         }
 
@@ -605,8 +633,8 @@ mod tests {
         );
     }
 
-    /// The early return for an already-indexed term must not count its allocations twice
-    /// — nor, since it allocates a term it then drops, count them at all.
+    /// The early return for an already-indexed term allocates nothing — it sits above
+    /// `OwnedTerm::new` — so it must leave the figure exactly where it was.
     #[test]
     fn a_duplicate_add_leaves_the_figure_untouched() {
         let mut idx = TagSuffixIndex::new();
@@ -655,6 +683,7 @@ mod tests {
             1,
             "`at` still references `cat`"
         );
+        assert_counter_is_exact(&idx);
     }
 
     /// Deleting a term drops only the references pointing at that term, keeping
@@ -676,5 +705,97 @@ mod tests {
         assert_eq!(at.members().count(), 1);
         let t = idx.find(b"t").expect("shared suffix kept for `bat`");
         assert_eq!(t.members().count(), 1);
+        assert_counter_is_exact(&idx);
+    }
+
+    /// Deleting the only indexed term must give every byte back: each entry is removed,
+    /// so both the trie's own counter and the payload counter return to their baselines.
+    /// Any decrement `delete` forgets leaves a residue here.
+    #[test]
+    fn add_then_delete_round_trips_the_figure() {
+        let mut idx = TagSuffixIndex::new();
+        let empty = idx.mem_usage();
+
+        add(&mut idx, b"hello");
+        assert!(idx.mem_usage() > empty, "indexing has to cost something");
+
+        delete(&mut idx, b"hello");
+
+        assert_eq!(
+            idx.mem_usage(),
+            empty,
+            "every entry is gone, so the figure must be back where it started"
+        );
+        assert_eq!(idx.nested_mem_usage, 0);
+        assert_counter_is_exact(&idx);
+    }
+
+    /// Deleting a term whose suffixes other terms still share frees its own term
+    /// allocation and the entries unique to it, but not the shared entries' member lists.
+    #[test]
+    fn deleting_a_shared_term_gives_up_its_term_bytes() {
+        let mut idx = TagSuffixIndex::new();
+        // "cat" and "bat" share the suffixes "at" and "t".
+        add(&mut idx, b"cat");
+        let payload_with_cat_alone = idx.nested_mem_usage;
+        add(&mut idx, b"bat");
+        let with_both = idx.mem_usage();
+
+        delete(&mut idx, b"cat");
+
+        let freed = with_both - idx.mem_usage();
+        assert!(
+            freed >= b"cat\0".len(),
+            "the term allocation alone accounts for {} bytes, but only {freed} were freed",
+            b"cat\0".len()
+        );
+        // Compared against the payload counter rather than the whole figure: `remove` does
+        // not re-merge trie nodes, so the node bytes left behind by holding both terms do
+        // not have to match a trie that only ever held one. The payloads do — "bat" is as
+        // long as "cat", and the shared entries never exceeded their initial capacity.
+        assert_eq!(
+            idx.nested_mem_usage, payload_with_cat_alone,
+            "one three-byte term and three member lists, whichever term it is"
+        );
+        assert_counter_is_exact(&idx);
+    }
+
+    /// Deleting a key that is only a suffix of an indexed term frees nothing: the entry
+    /// owns no term, and its member still belongs to the term that is staying.
+    #[test]
+    fn deleting_a_suffix_only_entry_frees_nothing() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"cat");
+        let before = idx.mem_usage();
+
+        delete(&mut idx, b"at");
+
+        assert_eq!(idx.mem_usage(), before);
+        assert_counter_is_exact(&idx);
+    }
+
+    /// The shape of a counter that decrements by too little: a figure that creeps up over
+    /// repeated churn even though the index keeps returning to the same contents.
+    #[test]
+    fn repeated_add_and_delete_cycles_do_not_drift() {
+        let mut idx = TagSuffixIndex::new();
+        // A second, untouched term so the cycles run against a non-empty trie.
+        add(&mut idx, b"resident");
+
+        add(&mut idx, b"transient");
+        delete(&mut idx, b"transient");
+        let after_first_cycle = idx.mem_usage();
+
+        for _ in 0..3 {
+            add(&mut idx, b"transient");
+            delete(&mut idx, b"transient");
+
+            assert_eq!(
+                idx.mem_usage(),
+                after_first_cycle,
+                "the reported figure drifted across an add/delete cycle"
+            );
+            assert_counter_is_exact(&idx);
+        }
     }
 }
