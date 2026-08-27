@@ -489,8 +489,16 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     expected_inverted_index = build_inverted_index_dict_for_documents(expected_results)
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
-    time.sleep(0.5)
-    env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
+    # Active expiration runs on Redis's background cycle, so a fixed sleep can be too
+    # short under CI load. Poll for the expected post-expiration state instead of
+    # assuming a single fixed delay is always enough.
+    actual_results = transform_document_list_to_dict(env.cmd('FT.SEARCH', 'idx', '*'))
+    for _ in range(20):
+        if actual_results == expected_results:
+            break
+        time.sleep(0.1)
+        actual_results = transform_document_list_to_dict(env.cmd('FT.SEARCH', 'idx', '*'))
+    env.assertEqual(actual_results, expected_results)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
          .apply(sort_document_names).equal([len(expected_docs), *expected_docs]))
