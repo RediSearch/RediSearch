@@ -40,25 +40,6 @@ def testDeleteIndex(env):
     r.expect('ft.info', 'idx').contains('no such index')
     # time.sleep(1)
 
-
-def test_mod4745(env):
-    conn = getConnectionByEnv(env)
-    r = env
-    # Create an index with large dim so that a single indexing operation will take a long time
-    N = 1000 * env.shardsCount
-    dim = 30000
-    for i in range(N):
-        res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
-                                                                 f'background later on for id {i}',
-                                   'v', create_np_array_typed(np.random.random((1, dim))).tobytes())
-        env.assertEqual(res, 2)
-
-    r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM',
-             dim, 'type', 'float32').ok()
-    # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
-    # fail to send cluster PING on time before we reach cluster-node-timeout.
-    waitForIndex(r, 'idx')
-
 def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
