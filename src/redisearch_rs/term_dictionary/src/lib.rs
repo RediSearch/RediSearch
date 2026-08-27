@@ -98,8 +98,8 @@ pub enum InsertOutcome {
 /// Term dictionary used by the FT.SEARCH index (`sp->terms`).
 ///
 /// Maps each indexed term to its [`TermEntry`]. Inserts go through
-/// [`Self::add_term`], [`Self::replace_term`], or the primitive
-/// [`Self::insert`]; each documents its own accumulation semantics.
+/// [`Self::add_term`] or [`Self::replace_term`]; each documents its own
+/// accumulation semantics.
 ///
 /// All terms and lookup patterns are case-folded internally — see the
 /// [module docs](self) for the case-folding contract.
@@ -138,9 +138,10 @@ impl TermDictionary {
     }
 
     /// Primitive overwrite — distinct from [`Self::replace_term`] in that
-    /// it does NOT accumulate [`TermEntry::num_docs`]. Useful for bulk seeding and for
-    /// re-installing a fully formed entry; production indexing paths
-    /// should use [`Self::add_term`] / [`Self::replace_term`].
+    /// it does NOT accumulate [`TermEntry::num_docs`]. Seeds a dictionary
+    /// with fully formed entries; production indexing goes through
+    /// [`Self::add_term`] / [`Self::replace_term`].
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn insert(&mut self, term: &str, entry: TermEntry) -> Option<TermEntry> {
         self.inner.insert(&unicode::tolower_cow(term), entry)
     }

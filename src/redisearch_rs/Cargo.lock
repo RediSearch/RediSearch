@@ -3105,6 +3105,7 @@ name = "term_dictionary"
 version = "0.0.1"
 dependencies = [
  "string_utils",
+ "term_dictionary",
  "trie_rs",
  "workspace_hack",
 ]
