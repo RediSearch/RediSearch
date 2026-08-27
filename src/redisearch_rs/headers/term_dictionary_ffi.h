@@ -33,8 +33,8 @@ typedef enum TermDictionaryDecrResult {
 } TermDictionaryDecrResult;
 
 /**
- * Outcome of [`TermDictionary_AddTerm`], [`TermDictionary_ReplaceTerm`]
- * and [`TermDictionary_Insert`].
+ * Outcome of [`TermDictionary_AddTerm`] and
+ * [`TermDictionary_ReplaceTerm`].
  *
  * The discriminants are those of the C terms trie's `TRIE_OK_NEW` and
  * `TRIE_OK_UPDATED`, so a call site that swaps
@@ -64,8 +64,8 @@ typedef enum TermDictionaryInsertOutcome {
  * Term dictionary used by the FT.SEARCH index (`sp->terms`).
  *
  * Maps each indexed term to its [`TermEntry`]. Inserts go through
- * [`Self::add_term`], [`Self::replace_term`], or the primitive
- * [`Self::insert`]; each documents its own accumulation semantics.
+ * [`Self::add_term`] or [`Self::replace_term`]; each documents its own
+ * accumulation semantics.
  *
  * All terms and lookup patterns are case-folded internally — see the
  * [module docs](self) for the case-folding contract.
@@ -216,32 +216,6 @@ void TermDictionary_Free(struct TermDictionary *t);
  * Panics if `term` is not valid UTF-8.
  */
 int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t len, float *out_score, size_t *out_num_docs);
-
-/**
- * Primitive overwrite: install `(score, num_docs)` for `(term, len)`,
- * replacing any prior entry without accumulating. Intended for bulk
- * seeding; production indexing should use [`TermDictionary_AddTerm`] /
- * [`TermDictionary_ReplaceTerm`]. The term is case-folded internally.
- *
- * Reports [`TermDictionaryInsertOutcome::Updated`] when a prior entry
- * was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
- *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
- * - No other access to `t` may occur concurrently with this call —
- *   neither another mutator nor a read-only call such as
- *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
- *   alive.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
- */
-enum TermDictionaryInsertOutcome TermDictionary_Insert(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
 
 /**
  * Iterate over every term in the dictionary in lexicographical order.

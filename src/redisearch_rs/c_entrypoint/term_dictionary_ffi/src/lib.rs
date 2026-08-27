@@ -22,8 +22,8 @@
 //! ([`TermDictionary_Get`], [`TermDictionary_Len`],
 //! [`TermDictionary_MemUsage`] and the iterate functions) may run
 //! concurrently with each other, while [`TermDictionary_AddTerm`],
-//! [`TermDictionary_ReplaceTerm`], [`TermDictionary_Insert`],
-//! [`TermDictionary_Remove`], [`TermDictionary_DecrementNumDocs`] and
+//! [`TermDictionary_ReplaceTerm`], [`TermDictionary_Remove`],
+//! [`TermDictionary_DecrementNumDocs`] and
 //! [`TermDictionary_Free`] require exclusive access — no other call on
 //! the same dictionary, and no live iterator obtained from it. An
 //! iterator itself is single-threaded: it may not be advanced or freed
@@ -74,8 +74,8 @@ pub struct TermDictionaryIterator<'td> {
     current: Option<String>,
 }
 
-/// Outcome of [`TermDictionary_AddTerm`], [`TermDictionary_ReplaceTerm`]
-/// and [`TermDictionary_Insert`].
+/// Outcome of [`TermDictionary_AddTerm`] and
+/// [`TermDictionary_ReplaceTerm`].
 ///
 /// The discriminants are those of the C terms trie's `TRIE_OK_NEW` and
 /// `TRIE_OK_UPDATED`, so a call site that swaps
@@ -350,51 +350,6 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
         return TermDictionaryInsertOutcome::Unsupported;
     };
     dict.replace_term(term, score, num_docs).into()
-}
-
-/// Primitive overwrite: install `(score, num_docs)` for `(term, len)`,
-/// replacing any prior entry without accumulating. Intended for bulk
-/// seeding; production indexing should use [`TermDictionary_AddTerm`] /
-/// [`TermDictionary_ReplaceTerm`]. The term is case-folded internally.
-///
-/// Reports [`TermDictionaryInsertOutcome::Updated`] when a prior entry
-/// was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
-///   [`NewTermDictionary`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
-/// - No other access to `t` may occur concurrently with this call —
-///   neither another mutator nor a read-only call such as
-///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
-///   alive.
-///
-/// # Panics
-///
-/// Panics if `term` is not valid UTF-8.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermDictionary_Insert(
-    t: *mut TermDictionary,
-    term: *const c_char,
-    len: usize,
-    score: f32,
-    num_docs: usize,
-) -> TermDictionaryInsertOutcome {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
-
-    // SAFETY: caller is to ensure `t` is a valid, non-null pointer to a
-    // TermDictionary, with no outstanding iterators.
-    let dict = unsafe { &mut *t };
-    // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { storable_term(term, len, "term") }) else {
-        return TermDictionaryInsertOutcome::Unsupported;
-    };
-    match dict.insert(term, TermEntry { score, num_docs }) {
-        Some(_) => TermDictionaryInsertOutcome::Updated,
-        None => TermDictionaryInsertOutcome::New,
-    }
 }
 
 /// Remove the entry for `(term, len)`. Returns 1 if a term was removed,

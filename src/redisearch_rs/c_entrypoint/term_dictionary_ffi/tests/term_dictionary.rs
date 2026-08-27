@@ -63,25 +63,6 @@ fn replace_term_overwrites_score_but_accumulates_num_docs() {
 }
 
 #[test]
-fn insert_overwrites_without_accumulating() {
-    let t = NewTermDictionary();
-
-    // Safety: `t` is a live dictionary; the term pointer/len come from a valid `&str`.
-    let first = unsafe { TermDictionary_Insert(t, "bike".as_ptr().cast(), "bike".len(), 5.0, 3) };
-    assert_eq!(first, TermDictionaryInsertOutcome::New);
-
-    // Safety: `t` is a live dictionary; the term pointer/len come from a valid `&str`.
-    let second = unsafe { TermDictionary_Insert(t, "bike".as_ptr().cast(), "bike".len(), 1.0, 4) };
-    assert_eq!(second, TermDictionaryInsertOutcome::Updated);
-
-    let (score, num_docs) = get(t, "bike").unwrap();
-    assert_eq!(score, 1.0, "primitive insert overwrites score");
-    assert_eq!(num_docs, 4, "primitive insert does NOT accumulate num_docs");
-
-    free(t);
-}
-
-#[test]
 fn get_reports_absent_term() {
     let t = NewTermDictionary();
     add(t, "bike", 1.0, 1);
@@ -202,7 +183,7 @@ fn add_term_applies_the_c_trie_eligibility_rules() {
 }
 
 #[test]
-fn replace_and_insert_reject_the_same_terms_as_add() {
+fn replace_rejects_the_same_terms_as_add() {
     for (term, storable) in eligibility_cases() {
         if storable {
             continue;
@@ -213,12 +194,8 @@ fn replace_and_insert_reject_the_same_terms_as_add() {
         // Safety: `t` is a live dictionary; the term pointer/len come from a valid `&str`.
         let replaced =
             unsafe { TermDictionary_ReplaceTerm(t, term.as_ptr().cast(), term.len(), 1.0, 1) };
-        // Safety: as above.
-        let inserted =
-            unsafe { TermDictionary_Insert(t, term.as_ptr().cast(), term.len(), 1.0, 1) };
 
         assert_eq!(replaced, TermDictionaryInsertOutcome::Unsupported);
-        assert_eq!(inserted, TermDictionaryInsertOutcome::Unsupported);
         // Safety: `t` is a live dictionary.
         assert_eq!(unsafe { TermDictionary_Len(t) }, 0);
 
