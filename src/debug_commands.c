@@ -248,8 +248,9 @@ static uint64_t SyncPoint_NextEventSeq(void) {
 
 void SyncPoint_PublishMaxSeq(_Atomic uint64_t *target, uint64_t seq) {
   uint64_t cur = atomic_load(target);
-  while (cur < seq && !atomic_compare_exchange_weak(target, &cur, seq)) {
-  }
+  do {
+    if (cur >= seq) return;
+  } while (!atomic_compare_exchange_weak(target, &cur, seq));
 }
 
 // Internal helper: find sync point by name

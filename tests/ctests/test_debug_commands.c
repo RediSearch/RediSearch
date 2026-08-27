@@ -17,13 +17,24 @@ int test_syncPointPublishMaxSeqDoesNotRegress() {
   SyncPoint_PublishMaxSeq(&seq, 10);
   SyncPoint_PublishMaxSeq(&seq, 5);
 
-  ASSERT_EQUAL(atomic_load(&seq), 10);
+  uint64_t actual = atomic_load(&seq);
+  if (actual != 10) {
+    fprintf(stderr, "%s:%d: %llu != 10\n", __FILE__, __LINE__, (unsigned long long)actual);
+    return -1;
+  }
+  numAsserts++;
+
   return 0;
+}
+
+static void runDebugCommandTests(void) {
+  TESTFUNC(test_syncPointPublishMaxSeqDoesNotRegress)
+}
+#else
+static void runDebugCommandTests(void) {
 }
 #endif
 
 TEST_MAIN({
-#ifdef ENABLE_ASSERT
-  TESTFUNC(test_syncPointPublishMaxSeqDoesNotRegress);
-#endif
-});
+  runDebugCommandTests();
+})
