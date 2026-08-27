@@ -22,14 +22,11 @@
 //! underlying automaton applies the identical fold itself.) Callers never
 //! fold themselves.
 //!
-//! Folding is [`unicode::tolower_cow`]: each [`char`] lowered independently,
-//! matching RediSearch's C `unicode_tolower` (libnu-backed, context-free
-//! per-codepoint); the equivalence is pinned by the differential tests in
-//! `string_utils`. This is intentionally *not* Unicode default
-//! case folding: terms enter the dictionary already lower-cased by the C
-//! tokenizer, and re-folding must be byte-identical so the Rust and C paths
-//! agree on the stored key. Default folding would diverge on codepoints like
-//! `ß` (→ `ss`) or `ς` (→ `σ`), splitting a term across two keys.
+//! Folding is [`unicode::tolower_cow`], which owns the equivalence to the
+//! C fold. It is deliberately *not* Unicode default case folding: terms
+//! reach the dictionary already lower-cased, so re-folding has to be
+//! byte-identical or the same term lands under two keys — default folding
+//! diverges on codepoints like `ß` (→ `ss`) and `ς` (→ `σ`).
 //!
 //! Iteration outputs are already folded by construction — the keys were
 //! folded at insert — and are returned as-is.
