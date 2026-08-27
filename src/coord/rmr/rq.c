@@ -81,6 +81,15 @@ void RQ_Done(MRWorkQueue *q) {
   uv_mutex_unlock(&q->lock);
 }
 
+// To be called from the event loop thread: register an in-flight logical
+// request that shares an already-scheduled job (so it was never RQ_Push'ed),
+// balancing the RQ_Done it will eventually call.
+void RQ_IncrPending(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  ++q->pending;
+  uv_mutex_unlock(&q->lock);
+}
+
 #ifdef ENABLE_ASSERT
 int RQ_Debug_GetPending(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);

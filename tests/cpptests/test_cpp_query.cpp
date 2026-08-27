@@ -22,6 +22,7 @@ extern "C" {
 #include "query_test_utils.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
+#include "query_request.h"
 #include "rmalloc.h"
 
 #include "gtest/gtest.h"
@@ -122,6 +123,10 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC(redisCtx, "idx", args.data(), args.size(), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
+  // This direct QAST test bypasses the QueryRequest that owns timeout state in production.
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  ctx.timeout = &timeout;
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));

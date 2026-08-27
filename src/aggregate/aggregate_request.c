@@ -1669,6 +1669,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
+  // Capture the background-scan-OOM warning flag while the spec is guaranteed
+  // alive (main-thread command handling). The reply path reads only this
+  // capture — it may run after the last strong spec reference was released.
+  AREQ_QueryProcessingCtx(req)->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&index->scan_failed_OOM);
   // Borrow the request timeout onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer used by query execution and result processors.

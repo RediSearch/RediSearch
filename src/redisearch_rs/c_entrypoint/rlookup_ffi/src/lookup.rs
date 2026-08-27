@@ -16,7 +16,7 @@ use rlookup::JsonDocumentFormat;
 use rlookup::{DocumentLoader, HashDocumentFormat};
 use rlookup::{
     IndexSpec, IndexSpecCache, LoadFieldProfile, OpaqueRLookup, OpaqueRLookupRow, RLookup,
-    RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
+    RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow,
 };
 use std::{
     borrow::Cow,
@@ -446,12 +446,15 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
 
 /// Returns the number of visible fields in this RLookupRow.
 ///
+/// Keys named after the schema rule's special fields (score, lang, payload)
+/// carry `RLOOKUP_F_HIDDEN` from creation (see the spec cache's rule names),
+/// so excluding `RLOOKUP_F_HIDDEN` also excludes them.
+///
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
 /// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
 /// 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
-/// 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -462,7 +465,6 @@ pub unsafe extern "C" fn RLookup_GetLength(
     skip_field_index_len: size_t,
     required_flags: u32,
     excluded_flags: u32,
-    rule: *const ffi::SchemaRule,
 ) -> size_t {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
@@ -483,20 +485,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
 
-    let rule = if rule.is_null() {
-        None
-    } else {
-        // Safety: ensured by caller (4.)
-        Some(unsafe { SchemaRule::from_raw(rule) })
-    };
-
-    row.get_length_no_alloc(
-        lookup,
-        required_flags,
-        excluded_flags,
-        rule,
-        skip_field_index,
-    )
+    row.get_length_no_alloc(lookup, required_flags, excluded_flags, skip_field_index)
 }
 
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
@@ -529,11 +518,23 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
 /// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
+/// Takes ownership of one reference to the cache: the lookup releases it
+/// (via `IndexSpecCache_Decref`) when the cache is replaced or the lookup is
+/// cleaned up, so the caller must not release that reference themselves.
+///
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
-/// 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
+/// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`], and
+///    the caller must transfer an owned reference to it (see above).
+/// 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
+///    being pointed to, and everything reachable through it, MUST NOT get
+///    mutated: its `fields` pointer MUST point to a valid array of `nfields`
+///    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
+///    those entries (e.g. `fieldName`) MUST stay valid with string fields
+///    NUL-terminated, and each special document-field name (`lang_field`,
+///    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
+///    string.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

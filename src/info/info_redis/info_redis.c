@@ -20,7 +20,10 @@
 #include "util/units.h"
 #include "module_init_ffi.h"
 #include "info/info_redis/types/blocked_queries.h"
+#include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "obfuscation/obfuscation_api.h"
+#include "query_request.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
@@ -469,14 +472,10 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
   }
   // Assumes no other thread is currently accessing the active-threads container
   DLLIST_FOREACH(node, &(activeQueries->queries)) {
-    BlockedQueryNode *at = DLLIST_ITEM(node, BlockedQueryNode, llnode);
-    IndexSpec *sp = StrongRef_Get(at->spec);
-    // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
-    if (!sp) {
-      continue;
-    }
-    RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
+    QueryRequest *at = DLLIST_ITEM(node, QueryRequest, registryInfo.node);
+    char buffer[MAX_OBFUSCATED_INDEX_NAME];
+    RedisModule_InfoBeginDictField(ctx, QueryRequest_ReportIndexName(at, buffer));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->registryInfo.cycle_start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
@@ -487,13 +486,13 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     return;
   }
   DLLIST_FOREACH(node, &(activeQueries->cursors)) {
-    BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
-    IndexSpec *spec = StrongRef_Get(at->spec);
+    QueryRequest *at = DLLIST_ITEM(node, QueryRequest, registryInfo.node);
     char buffer[21]; // 20 is the max length of a uint64_t
-    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorInfo.id);
     RedisModule_InfoBeginDictField(ctx, buffer);
-    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
+    char nameBuffer[MAX_OBFUSCATED_INDEX_NAME];
+    RedisModule_InfoAddFieldCString(ctx, "index", QueryRequest_ReportIndexName(at, nameBuffer));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->registryInfo.cycle_start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
