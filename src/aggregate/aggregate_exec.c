@@ -2106,13 +2106,17 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return NULL;
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
-  bool useClockDeadline = r->reqConfig.queryTimeoutMS > 0 &&
-                          (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-                           !RunInThread(ctx));
+  // EXPLAIN always builds the plan inline, so it cannot use the blocked-client
+  // callback required by RETURN_STRICT.
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+    QueryRequestTimeout_UpdateConfig(&r->base.timeout, r->reqConfig.timeoutPolicy,
+                                     r->reqConfig.queryTimeoutMS);
+  }
   // Take a read lock on the spec (to avoid conflicts with the GC).
   // released in `AREQ_Free`.
   RedisSearchCtx_LockSpecRead(sctx);
-  if (prepareExecutionPlan(r, status, useClockDeadline) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, status, true) != REDISMODULE_OK) {
     AREQ_Free(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
@@ -2517,11 +2521,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // without one (single-cursor hybrid) are not user-reachable.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
-    // reset it to QUEUE for the queued re-read; the BG job advances it back
-    // to PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its
-    // cursor, so the freeze cannot swallow this store on a live cursor.)
-    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -2549,6 +2548,11 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     QueryRequestTimeout_BeginCycle(
         &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE after selecting the new cycle's source; the BG job
+    // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
+    // depletes its cursor, so the freeze cannot swallow this store on a live cursor.
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
                                    DIST_THREADPOOL);
   }
@@ -2558,11 +2562,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // the blocked-client timer with reply/timeout callbacks.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so reset
-    // it to QUEUE for the queued re-read; cursorRead_ctx advances it back to
-    // PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its cursor, so
-    // the freeze cannot swallow this store on a live cursor.)
-    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -2590,6 +2589,11 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     QueryRequestTimeout_BeginCycle(
         &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE after selecting the new cycle's source; cursorRead_ctx
+    // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
+    // depletes its cursor, so the freeze cannot swallow this store on a live cursor.
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, &req->base, replyCallback,
                                               timeoutCallback, timeoutMS);
