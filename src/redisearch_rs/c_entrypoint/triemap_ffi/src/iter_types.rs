@@ -22,11 +22,7 @@ pub enum TrieMapIteratorImpl<'tm> {
     // Boxing to reduce the size of overall enum, since the contains variant
     // is much larger than the others due to how much space `memchr::memmem::Finder`
     // takes on the stack.
-    //
-    // Both lifetime parameters collapse to `'tm` at the FFI boundary: the
-    // trie reference and the target byte slice originate from the same
-    // C-side scope.
-    Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, 'tm, *mut c_void>>),
+    Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, *mut c_void>>),
     Wildcard(WildcardLendingIter<'tm, 'tm, *mut c_void>),
 }
 
@@ -54,7 +50,7 @@ impl<'tm> LendingIterator for TrieMapIteratorImpl<'tm> {
             TrieMapIteratorImpl::Plain(iter) => LendingIterator::next(iter),
             TrieMapIteratorImpl::Filtered(iter, should_yield) => iter.find(&mut *should_yield),
             TrieMapIteratorImpl::Contains(iter) => {
-                let iter: &mut trie_rs::iter::ContainsLendingIter<'_, '_, *mut c_void> = &mut *iter;
+                let iter: &mut trie_rs::iter::ContainsLendingIter<'_, *mut c_void> = &mut *iter;
                 LendingIterator::next(iter)
             }
             TrieMapIteratorImpl::Wildcard(iter) => LendingIterator::next(iter),

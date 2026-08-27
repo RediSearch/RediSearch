@@ -57,6 +57,21 @@ fn non_empty_contains() {
     assert_eq!(contains(&trie, b"ban"), vec!["ban".as_bytes(), b"banana"]);
 }
 
+#[test]
+fn iterator_outlives_the_target_buffer() {
+    let mut trie = TrieMap::new();
+    trie.insert(b"apple", 1);
+    trie.insert(b"banana", 2);
+
+    // The inner scope drops the target before the iterator is used.
+    let iter = {
+        let target = b"an".to_vec();
+        trie.contains_iter(&target)
+    };
+    let keys: Vec<Vec<u8>> = iter.map(|(k, _)| k).collect();
+    assert_eq!(keys, vec![b"banana".to_vec()]);
+}
+
 mod property_based {
     #![cfg(not(miri))]
 

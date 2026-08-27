@@ -127,7 +127,7 @@ impl<Data> StrTrieMap<Data> {
     /// Yield every entry whose key contains `target` as a substring.
     /// Empty `target` yields every entry — the empty string is a substring
     /// of every key.
-    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
+    pub fn contains_iter(&self, target: &str) -> iter::ContainsIter<'_, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
 

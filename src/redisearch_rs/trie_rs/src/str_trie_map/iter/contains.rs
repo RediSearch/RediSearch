@@ -16,15 +16,15 @@ use crate::{TrieMap, iter, str_trie_map::iter::unfiltered::key_to_string};
 /// every key.
 ///
 /// See [`crate::iter::ContainsIter`] for the underlying traversal.
-pub struct ContainsIter<'tm, 'p, Data: 'tm>(iter::ContainsIter<'tm, 'p, Data>);
+pub struct ContainsIter<'tm, Data: 'tm>(iter::ContainsIter<'tm, Data>);
 
-impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
-    pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &'p str) -> Self {
+impl<'tm, Data: 'tm> ContainsIter<'tm, Data> {
+    pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &str) -> Self {
         Self(trie.contains_iter(target.as_bytes()))
     }
 }
 
-impl<'tm, 'p, Data: 'tm> Iterator for ContainsIter<'tm, 'p, Data> {
+impl<'tm, Data: 'tm> Iterator for ContainsIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
