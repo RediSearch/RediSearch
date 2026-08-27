@@ -1363,68 +1363,6 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
-/**
- * Validate SORTBY for disk indexes.
- * In disk/flex mode, FT.SEARCH SORTBY is only allowed on vector score
- * (distance) fields. FT.AGGREGATE SORTBY is unrestricted (sort keys load via
- * the disk async loader).
- * Must be called after QAST_Iterate so that metricRequests is populated.
- *
- * Current flex assumptions (asserted):
- * - FT.SEARCH allows only a single SORTBY field
- * - KNN is allowed only once per query, yielding a single vector score field
- *
- * @param req The AREQ to validate
- * @param status Error details set here
- * @return REDISMODULE_OK if valid, REDISMODULE_ERR otherwise
- */
-static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
-  // Skip validation if disk is not enabled
-  if (!SearchDisk_IsEnabledForValidation()) {
-    return REDISMODULE_OK;
-  }
-
-  // SORTBY in aggregations is allowed on disk: the arrange step loads the sort
-  // keys through the disk async loader. The restriction (and the single-field
-  // asserts) below apply to FT.SEARCH only, so this early-return must precede
-  // them — a multi-field aggregate SORTBY would trip the asserts.
-  if (IsAggregate(req)) {
-    return REDISMODULE_OK;
-  }
-
-  // Skip if no SORTBY
-  if (!HasSortBy(req)) {
-    return REDISMODULE_OK;
-  }
-
-  // If HasSortBy is true, arrange step and sortKeys must exist
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-  RS_LOG_ASSERT(arng && arng->sortKeys && array_len(arng->sortKeys) == 1,
-                "Flex mode expects exactly one SORTBY field");
-
-  // Get the metric requests from the AST (vector score fields)
-  MetricRequest *metricRequests = req->ast.metricRequests;
-  size_t numMetrics = array_len(metricRequests);
-
-  // In flex mode, KNN is allowed only once, so at most one vector score field
-  RS_LOG_ASSERT(numMetrics <= 1, "Flex mode expects at most one vector score field");
-
-  // If there's no vector score field, or the sort key doesn't match it, block
-  const char *sortKey = arng->sortKeys[0];
-  bool isVectorScoreField = (numMetrics == 1) &&
-                            metricRequests[0].metric_name &&
-                            (strcasecmp(sortKey, metricRequests[0].metric_name) == 0);
-
-  if (!isVectorScoreField) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-      "SORTBY in Redis Flex is restricted to sorting results by vector distance in vector queries. "
-      "Otherwise, results are always sorted by the default document score.");
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
 int prepareExecutionPlan(AREQ *req, QueryError *status) {
@@ -1465,12 +1403,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   }
 
   if (QueryError_HasError(status)) {
-    return REDISMODULE_ERR;
-  }
-
-  // Validate SORTBY for disk indexes - must be after QAST_Iterate so that
-  // vector score field names are populated in metricRequests
-  if (validateSortbyForDiskIndex(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1894,14 +1826,36 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+// FT.SEARCH SORTBY on a schema field puts the async loader in the pipeline:
+// the arrange step loads any sort key missing from the lookup, and flex has
+// no SORTABLE fields to make one unnecessary. Vector-distance keys are
+// written into the lookup by the iterator, and count-only searches
+// short-circuit the arrange step with a counter — neither loads.
+static bool searchSortbyNeedsLoader(AREQ *r, const IndexSpec *spec) {
+  if (IsCount(r)) {
+    return false;
+  }
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(r));
+  if (!arng) {
+    return false;
+  }
+  for (size_t i = 0; i < array_len(arng->sortKeys); i++) {
+    const char *key = arng->sortKeys[i];
+    if (IndexSpec_GetFieldWithLength(spec, key, strlen(key))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Reject disk (flex) requests whose pipeline would carry the async loader when
  * execution is about to happen inline on the main thread: the loader blocks on
  * prefetch completions delivered by the main thread, so inline execution would
  * deadlock. Aggregations nearly always load fields, so all of them are
  * rejected (a predictable error beats a plan-shape-dependent one); searches
- * load fields unless NOCONTENT / RETURN 0 was given, so those stay usable in
- * MULTI/Lua.
+ * load fields unless NOCONTENT / RETURN 0 was given without a schema-field
+ * SORTBY, so those stay usable in MULTI/Lua.
  *
  * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
  * the request must be rejected, REDISMODULE_OK otherwise.
@@ -1915,6 +1869,11 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
   if (IsAggregate(r)) {
     error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
             "scripts) is not supported in Redis Flex";
+  } else if (IsSearch(r) && searchSortbyNeedsLoader(r, sctx->spec)) {
+    // Precedes the field-return check: NOCONTENT/RETURN 0 is not a sufficient
+    // workaround when a sort key still has to load.
+    error = "FT.SEARCH with SORTBY on a schema field in a context that cannot "
+            "block (MULTI/EXEC or Lua scripts) is not supported in Redis Flex";
   } else if (IsSearch(r) &&
              (!(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS) ||
               AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_LOAD))) {
