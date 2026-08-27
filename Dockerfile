@@ -23,7 +23,10 @@ COPY . .
 WORKDIR /project/.install
 RUN bash retry.sh bash -l -eo pipefail install_script.sh
 WORKDIR /project
-RUN bash .install/retry.sh bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
+# `cargo miri setup` validates MIRI during image build, but its generated
+# sysroot is sensitive to runtime Cargo/rustc settings and can poison CI.
+RUN bash .install/retry.sh bash -l -eo pipefail .install/test_deps/install_rust_deps.sh && \
+    rm -rf "$HOME/.cache/miri"
 # Expose newly-installed Rust and Python tools via PATH
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
