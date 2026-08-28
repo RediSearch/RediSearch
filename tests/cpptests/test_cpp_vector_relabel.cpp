@@ -41,13 +41,13 @@ extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisMo
                                    RedisModuleString **changedFields, size_t numChangedFields);
 
 // FLOAT32 DIM 4 -- the blob is 16 bytes, matching expBlobSize.
-static const char *kVecA = "aaaabbbbccccdddd";
-static const char *kVecB = "eeeeffffgggghhhh";
+static const char *const kVecA = "aaaabbbbccccdddd";
+static const char *const kVecB = "eeeeffffgggghhhh";
 // Read as four float32s, kVecA and kVecB happen to be nearly parallel (their
 // components share a ~1:4:16:64 ratio), so cosine cannot tell them apart -- the
 // distance between them is 2e-10. kVecC is kVecA byte-reversed, which keeps the same
 // magnitudes but puts it 0.94 away under cosine. Use it wherever direction matters.
-static const char *kVecC = "ddddccccbbbbaaaa";
+static const char *const kVecC = "ddddccccbbbbaaaa";
 
 class VectorRelabelTest : public ::testing::Test {
 protected:
@@ -166,7 +166,7 @@ protected:
   // The strings are built directly rather than via RMCK::RString: that is a
   // scope guard whose destructor frees the string, so collecting temporaries
   // into a vector would leave it holding freed pointers.
-  t_docId reindexWithChangeSet(const char *key, std::vector<std::string> changed) {
+  t_docId reindexWithChangeSet(const char *key, const std::vector<std::string> &changed) {
     std::vector<RedisModuleString *> fields;
     for (const std::string &f : changed) {
       fields.push_back(RedisModule_CreateString(nullptr, f.c_str(), f.size()));

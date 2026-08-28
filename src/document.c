@@ -742,7 +742,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
     return 0;
   }
-  const char *curr_vec = (char *)fdata->vector;
+  const char *curr_vec = (const char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
