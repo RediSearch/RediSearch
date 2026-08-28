@@ -8,7 +8,10 @@
 */
 
 //! [`LendingStrIter`] is the same traversal as the [`Iterator`] view of each
-//! [`StrTrieMap`] iterator, so the two must agree entry for entry.
+//! [`StrTrieMap`] iterator, so the two must agree entry for entry. Agreement
+//! alone cannot catch a key the traversal assembled wrongly — both views would
+//! report it identically — so the walks that assemble one from a filtered
+//! traversal are also pinned against literal keys.
 
 use trie_rs::str_trie_map::{
     StrTrieMap,
@@ -80,6 +83,27 @@ fn lending_and_owning_views_agree() {
     assert_eq!(lent(trie.prefixed_iter("kiwi")), Vec::new());
     assert_eq!(lent(SuffixedIter::<i32>::empty()), Vec::new());
     assert_eq!(lent(ContainsIter::<i32>::empty()), Vec::new());
+}
+
+/// The filtering walks pick their key out of a traversal that also visits
+/// non-matching keys, so the key each one lends is pinned here rather than
+/// only compared against the view that shares that traversal.
+#[test]
+fn filtering_walks_lend_the_key_they_matched_on() {
+    let trie = seeded();
+
+    assert_eq!(
+        lent(trie.suffixed_iter("apple")),
+        vec![("apple".to_owned(), 0), ("pineapple".to_owned(), 4)]
+    );
+    assert_eq!(
+        lent(trie.wildcard_iter("*apple")),
+        vec![("apple".to_owned(), 0), ("pineapple".to_owned(), 4)]
+    );
+    assert_eq!(
+        lent(trie.fuzzy_iter("aple", 1)),
+        vec![("apple".to_owned(), 0)]
+    );
 }
 
 /// A wildcard pattern past every NFA bitset width falls back to filtering
