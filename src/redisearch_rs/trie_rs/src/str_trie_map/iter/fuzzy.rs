@@ -70,7 +70,7 @@ impl<'tm, Data: 'tm> FuzzyIter<'tm, Data> {
 impl<'tm, Data: 'tm> LendingStrIter<'tm> for FuzzyIter<'tm, Data> {
     type Data = Data;
 
-    fn next(&mut self) -> Option<(&str, &'tm Data)> {
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
         let data = self.advance()?;
         Some((self.key(), data))
     }
@@ -80,7 +80,7 @@ impl<'tm, Data: 'tm> Iterator for FuzzyIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (key, data) = LendingStrIter::next(self)?;
+        let (key, data) = self.next_borrowed()?;
         Some((key.to_owned(), data))
     }
 }

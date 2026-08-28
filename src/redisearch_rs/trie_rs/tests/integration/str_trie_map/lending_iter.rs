@@ -33,7 +33,7 @@ fn seeded() -> StrTrieMap<i32> {
 /// compared with [`owned`].
 fn lent<'tm, I: LendingStrIter<'tm, Data = i32>>(mut iter: I) -> Vec<(String, i32)> {
     let mut out = Vec::new();
-    while let Some((key, value)) = iter.next() {
+    while let Some((key, value)) = iter.next_borrowed() {
         out.push((key.to_owned(), *value));
     }
     out
@@ -135,7 +135,7 @@ fn a_boxed_iterator_still_lends() {
     let mut erased: Box<dyn LendingStrIter<'_, Data = i32>> = Box::new(trie.prefixed_iter("apple"));
 
     let mut hits = Vec::new();
-    while let Some((key, value)) = erased.next() {
+    while let Some((key, value)) = erased.next_borrowed() {
         hits.push((key.to_owned(), *value));
     }
 

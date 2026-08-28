@@ -64,7 +64,7 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
 impl<'tm, Data: 'tm> LendingStrIter<'tm> for SuffixedIter<'tm, Data> {
     type Data = Data;
 
-    fn next(&mut self) -> Option<(&str, &'tm Data)> {
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
         let data = self.advance()?;
         Some((key_to_str(self.iter.key()), data))
     }
@@ -74,7 +74,7 @@ impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (key, data) = LendingStrIter::next(self)?;
+        let (key, data) = self.next_borrowed()?;
         Some((key.to_owned(), data))
     }
 }

@@ -34,7 +34,7 @@ fn seeded() -> TermDictionary {
 /// compared with [`owned`].
 fn lent<'td, I: LendingStrIter<'td, Data = TermEntry>>(mut iter: I) -> Vec<(String, TermEntry)> {
     let mut out = Vec::new();
-    while let Some((term, entry)) = iter.next() {
+    while let Some((term, entry)) = iter.next_borrowed() {
         out.push((term.to_owned(), entry.clone()));
     }
     out

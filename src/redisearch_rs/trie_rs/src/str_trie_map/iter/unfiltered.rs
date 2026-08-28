@@ -28,7 +28,7 @@ impl<'a, Data> Iter<'a, Data> {
 impl<'a, Data: 'a> LendingStrIter<'a> for Iter<'a, Data> {
     type Data = Data;
 
-    fn next(&mut self) -> Option<(&str, &'a Data)> {
+    fn next_borrowed(&mut self) -> Option<(&str, &'a Data)> {
         let data = self.0.advance()?;
         Some((key_to_str(self.0.key()), data))
     }
@@ -38,7 +38,7 @@ impl<'a, Data: 'a> Iterator for Iter<'a, Data> {
     type Item = (String, &'a Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (key, data) = LendingStrIter::next(self)?;
+        let (key, data) = self.next_borrowed()?;
         Some((key.to_owned(), data))
     }
 }

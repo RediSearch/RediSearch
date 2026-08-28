@@ -706,7 +706,7 @@ pub unsafe extern "C" fn TermDictionaryIterator_Next(
     // live TermDictionaryIterator.
     let iterator = unsafe { &mut *it };
 
-    let Some((next_term, entry)) = iterator.iter.next() else {
+    let Some((next_term, entry)) = iterator.iter.next_borrowed() else {
         return 0;
     };
 

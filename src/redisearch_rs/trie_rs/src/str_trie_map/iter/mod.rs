@@ -52,7 +52,7 @@ pub trait LendingStrIter<'tm> {
     /// The key is borrowed from the iterator's own traversal buffer, so it
     /// is only valid until the next call to this method (or until the
     /// iterator is dropped).
-    fn next(&mut self) -> Option<(&str, &'tm Self::Data)>;
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Self::Data)>;
 }
 
 /// Read a trie byte key back as a [`str`]. Keys enter the
