@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+chrono.workspace = true
 tracing_redismodule.workspace = true
 tracing = { workspace = true }
 ffi.workspace = true

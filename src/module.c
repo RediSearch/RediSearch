@@ -2896,10 +2896,21 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
+    // `shouldSort`: ProcessKNNSearchReply never accumulated the shards'
+    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is sized
+    // MAX(K, offset+count) on this path (see setKNNSpecialCase), so the merge
+    // above dropped nothing and its count is exactly the number of matching
+    // documents, min(K, global matches).
+    rCtx->totalReplies = heap_count(rCtx->pq);
+  } else {
+    // SORTBY by the distance field: processSearchReply already summed each
+    // shard's total_results, i.e. sum_i min(K, matches_i). rCtx->pq here is only
+    // a response window sized MIN(K, offset+count), so its count is not a hit
+    // count. Clamping the sum to K is exact: if every shard has at most K
+    // matches the sum *is* the global match count, and otherwise both the sum
+    // and the global match count are >= K.
+    rCtx->totalReplies = MIN(reducerSpecialCaseCtx->knn.k, rCtx->totalReplies);
   }
-  // We can always get at most K results
-  rCtx->totalReplies = heap_count(rCtx->pq);
-
 }
 
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
@@ -4176,7 +4187,19 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     return REDISMODULE_ERR;
   }
   // Apply configuration redis has loaded from the configuration file
-  RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  // Some numeric config setters check this to fall back instead of erroring, since erroring
+  // here would abort module init. RedisModule_OnLoad also runs for MODULE LOAD/LOADEX against an
+  // already-running server, so gate the fallback on actual server startup rather than on
+  // RedisModule_LoadConfigs running - otherwise a runtime module load would get the same silent
+  // substitution CONFIG SET is meant to reject.
+  const bool atStartup = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP;
+  RSConfig_SetLoadingStartupConfig(atStartup);
+  int loadConfigsRC = RedisModule_LoadConfigs(ctx);
+  RSConfig_SetLoadingStartupConfig(false);
+  if (loadConfigsRC == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }
 
