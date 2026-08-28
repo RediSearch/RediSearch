@@ -598,36 +598,6 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   return res;
 }
 
-static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **changedFields,
-                             size_t numChangedFields) {
-  if (changedFields == NULL) {
-    return true;
-  }
-
-  // TODO: improve implementation to avoid O(n^2)
-  for (size_t i = 0; i < numChangedFields; ++i) {
-    size_t length = 0;
-    const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
-    for (size_t j = 0; j < spec->numFields; ++j) {
-      // Match on the path, not the name: a changed field is the hash field the
-      // command wrote, which is `fieldPath`. `fieldName` is the `AS` alias, so
-      // comparing it would find no match on an aliased schema and skip a
-      // reindex the document needed. `IndexSpec_CreateField` points `fieldPath`
-      // at `fieldName` when `AS` is absent, so unaliased schemas are unaffected.
-      if (!HiddenString_CompareC(spec->fields[j].fieldPath, field, length)) {
-        return true;
-      }
-    }
-    // optimize. change of score and payload fields just require an update of the doc table
-    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
-        (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
-        (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
   dictRelease(specs->specs);
   array_free(specs->specsOps);
@@ -639,7 +609,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            size_t numChangedFields) {
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc.
-    Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, changedFields, numChangedFields);
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, type);
     return;
   }
 
@@ -648,17 +618,15 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
 
-    if (hashFieldChanged(specOp->spec, changedFields, numChangedFields)) {
-      if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL, changedFields,
-                            numChangedFields);
-      } else {
-        // specOp->op is SpecOp_Del when the key matches the index prefix but
-        // the filter expression fails (e.g. a field value changed so the filter
-        // no longer passes, or a required field is missing). If the document was
-        // previously indexed, it must be removed now.
-        IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
-      }
+    if (specOp->op == SpecOp_Add) {
+      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL, changedFields,
+                          numChangedFields);
+    } else {
+      // specOp->op is SpecOp_Del when the key matches the index prefix but
+      // the filter expression fails (e.g. a field value changed so the filter
+      // no longer passes, or a required field is missing). If the document was
+      // previously indexed, it must be removed now.
+      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
     }
   }
 
@@ -736,16 +704,12 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
 }
 
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **changedFields,
-                                           size_t numChangedFields) {
+                                           DocumentType type) {
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-    if (hashFieldChanged(specOp->spec, changedFields, numChangedFields)) {
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
-    }
+    IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
   }
 
   Indexes_SpecOpsIndexingCtxFree(specs);

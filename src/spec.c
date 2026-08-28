@@ -3572,8 +3572,8 @@ int CompareVersions(Version v1, Version v2) {
  * re-adding the blob.
  *
  * With a change set, absence from it settles the question — `ChangedField_VerifiedNo`. Compares
- * against `fieldPath`, the hash field the command wrote, for the same reason
- * `hashFieldChanged` does.
+ * against `fieldPath`, the hash field the command wrote, rather than `fieldName`, which is the
+ * `AS` alias and would match nothing on an aliased schema.
  *
  * Without one, every vector field is marked `ChangedField_Unverified`: the question is
  * deferred to `Indexer_HandleReplacedDocVectorAndGeometry`, which compares the field's new

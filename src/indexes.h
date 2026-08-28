@@ -102,12 +102,8 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 // re-indexing the document. In-memory flow only; callers must fall back to
 // Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
 void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
-// `changedFields` / `numChangedFields` carry the same meaning as in
-// Indexes_UpdateMatchingWithSchemaRules.
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **changedFields,
-                                           size_t numChangedFields);
+                                           DocumentType type);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
 void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
