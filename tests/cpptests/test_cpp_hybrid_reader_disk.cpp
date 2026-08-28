@@ -16,11 +16,10 @@
 #include "index_utils.h"
 #include "iterator_util.h"
 
-#include "iterators/hybrid_reader.h"
+#include "iterators/vector_top_k.h"
+#include "iterators_ffi.h"
 #include "redisearch.h"
 #include "util/timeout.h"
-#include "types_ffi.h"
-#include "rlookup_ffi.h"
 
 #include <cmath>
 #include <limits>
@@ -28,7 +27,7 @@
 #include <memory>
 #include <vector>
 
-// vecsimTimeoutCallback is a global function pointer in hybrid_reader.c, deliberately kept
+// vecsimTimeoutCallback is a global function pointer in vector_top_k.c, deliberately kept
 // non-static so tests can swap it to simulate timeouts.
 extern "C" {
 extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
@@ -75,7 +74,8 @@ struct MockAdhocBfCtx : public VecSimAdhocBfCtx {
 };
 
 // Minimal VecSimIndexInterface implementation for the disk path.
-// Only newAdhocBfCtx and indexSize need real implementations; all other methods are stubs.
+// Only newAdhocBfCtx, indexSize and basicInfo need real implementations; all other methods
+// are stubs.
 struct MockDiskVecSimIndex : public VecSimIndexInterface {
     std::map<labelType, double> sq8Distances;
     std::map<labelType, double> exactDistances;
@@ -94,6 +94,18 @@ struct MockDiskVecSimIndex : public VecSimIndexInterface {
 
     size_t indexSize() const override { return sq8Distances.size(); }
 
+    // isDisk routes the query onto the disk adhoc-BF path; type and dim must describe the
+    // query blob the tests pass, which the iterator validates against this metadata.
+    VecSimIndexBasicInfo basicInfo() const override {
+        VecSimIndexBasicInfo info = {};
+        info.algo = VecSimAlgo_HNSWLIB;
+        info.metric = VecSimMetric_L2;
+        info.type = VecSimType_FLOAT32;
+        info.isDisk = true;
+        info.dim = 4;
+        return info;
+    }
+
     // ---- Stubs for pure virtual methods not exercised by these tests ----
     int addVector(const void *, labelType) override { return 0; }
     int deleteVector(labelType) override { return 0; }
@@ -108,7 +120,6 @@ struct MockDiskVecSimIndex : public VecSimIndexInterface {
         return nullptr;
     }
     VecSimIndexDebugInfo debugInfo() const override { return VecSimIndexDebugInfo{}; }
-    VecSimIndexBasicInfo basicInfo() const override { return VecSimIndexBasicInfo{}; }
     VecSimIndexStatsInfo statisticInfo() const override { return VecSimIndexStatsInfo{}; }
     VecSimDebugInfoIterator *debugInfoIterator() const override { return nullptr; }
     VecSimBatchIterator *newBatchIterator(const void *, VecSimQueryParams *) const override {
@@ -124,10 +135,14 @@ struct MockDiskVecSimIndex : public VecSimIndexInterface {
 struct TestHybrid {
     MockDiskVecSimIndex *index;
     QueryIterator *iter;
-    TestHybrid(MockDiskVecSimIndex *idx, QueryIterator *it) : index(idx), iter(it) {}
-    TestHybrid(TestHybrid &&o) noexcept : index(o.index), iter(o.iter) {
+    // Observer only; `iter` owns the child and frees it.
+    MockIterator *child;
+    TestHybrid(MockDiskVecSimIndex *idx, QueryIterator *it, MockIterator *ch)
+        : index(idx), iter(it), child(ch) {}
+    TestHybrid(TestHybrid &&o) noexcept : index(o.index), iter(o.iter), child(o.child) {
         o.index = nullptr;
         o.iter = nullptr;
+        o.child = nullptr;
     }
     TestHybrid(const TestHybrid &) = delete;
     TestHybrid &operator=(const TestHybrid &) = delete;
@@ -143,60 +158,36 @@ struct TestHybrid {
 
 class HybridReaderDiskTest : public ::testing::Test {
     std::array<float, 4> queryVec = {1.0f, 2.0f, 3.0f, 4.0f};
-    // Stable address used as ownKey sentinel. MetricsVec_UpdateValue compares by
-    // pointer identity only and never reads the fields, so zero-init is fine.
-    RLookupKey scoreKey = {};
 protected:
     std::unique_ptr<MockQueryEvalCtx> mockCtx;
-    void SetUp() override {
-        mockCtx = std::make_unique<MockQueryEvalCtx>(100, 10);
-        // Sentinel to route the hybrid reader into the disk code path. Safe because:
-        //  - hybrid_reader.c only checks diskSpec for nullness, never dereferences it.
-        //  - All disk I/O flows through hr->index (MockDiskVecSimIndex), not diskSpec.
-        // A real instance is not constructible in unit tests: RedisSearchDiskIndexSpec
-        // is an opaque type only the disk backend can produce.
-        mockCtx->spec.diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
-    }
+    void SetUp() override { mockCtx = std::make_unique<MockQueryEvalCtx>(100, 10); }
 
-    // Creates a HybridIterator forced into ADHOC_BF / disk mode.
+    // Creates a vector top-k iterator forced into ADHOC_BF / disk mode.
     TestHybrid makeIterator(std::map<labelType, double> sq8,
                             std::map<labelType, double> exact,
                             std::vector<t_docId> docIds,
                             size_t k,
-                            t_fieldIndex filterFieldIndex = RS_INVALID_FIELD_INDEX) {
+                            t_fieldIndex filterFieldIndex = RS_INVALID_FIELD_INDEX,
+                            bool rerank = false) {
         auto alloc = VecSimAllocator::newVecsimAllocator();
         auto *index = new (alloc) MockDiskVecSimIndex(alloc, std::move(sq8), std::move(exact));
 
         auto child = new MockIterator(std::move(docIds));
 
-        KNNVectorQuery top_k = {.vector = queryVec.data(), .vecLen = 4, .k = k, .order = BY_SCORE};
-
         VecSimQueryParams qParams = {};
         qParams.searchMode = HYBRID_ADHOC_BF;
+        qParams.hnswDiskRuntimeParams.shouldRerank = rerank ? VecSimBool_TRUE : VecSimBool_UNSET;
 
         FieldMaskOrIndex fmi = {.index_tag = FieldMaskOrIndex_Index,
                                 .index = filterFieldIndex};
         FieldFilterContext filterCtx = {.field = fmi,
                                         .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 
-        HybridIteratorParams hParams = {
-            .sctx = &mockCtx->sctx,
-            .index = (VecSimIndex *)index,
-            .dim = 4,
-            .elementType = VecSimType_FLOAT32,
-            .spaceMetric = VecSimMetric_L2,
-            .query = top_k,
-            .qParams = qParams,
-            .vectorScoreField = (char *)"__v_score",
-            .canTrimDeepResults = true,
-            .childIt = &child->base,
-            .filterCtx = &filterCtx,
-        };
-
-        QueryError err = QueryError_Default();
-        QueryIterator *iter = NewHybridVectorIterator(hParams, &err);
-        EXPECT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-        return {index, iter};
+        QueryIterator *iter = NewVectorTopKIterator(
+            (VecSimIndex *)index, queryVec.data(), sizeof(queryVec), &qParams, k,
+            /*can_trim_deep_results*/ true, &child->base, mockCtx->sctx.timeout,
+            &mockCtx->sctx, &filterCtx);
+        return {index, iter, child};
     }
 
     TestHybrid makeNormalIterator(std::map<labelType, double> sq8,
@@ -209,17 +200,15 @@ protected:
                                      std::map<labelType, double> exact,
                                      std::vector<t_docId> docIds,
                                      size_t k) {
-        auto h = makeIterator(std::move(sq8), std::move(exact), std::move(docIds), k);
-        auto hr = (HybridIterator *)h.iter;
-        // Enable reranking before the first Read() triggers prepareResults().
-        hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank = VecSimBool_TRUE;
-        // Provide a non-null ownKey so MetricsVec_UpdateValue can find and update
-        // the score entry. In production this is set by the metrics loader results
-        // processor; in tests we supply a stable fixture-member address instead.
-        hr->ownKey = &scoreKey;
-        return h;
+        return makeIterator(std::move(sq8), std::move(exact), std::move(docIds), k,
+                            RS_INVALID_FIELD_INDEX, /*rerank*/ true);
     }
 
+    // The distance the iterator ranked and reported the current result on.
+    static double scoreOf(const QueryIterator *it) {
+        EXPECT_EQ(it->current->data.tag, RSResultData_Metric);
+        return it->current->data.metric;
+    }
 };
 
 // ============================================================================
@@ -229,7 +218,7 @@ protected:
 // Basic top-k: verify that the k results with the lowest distances are returned in score order.
 TEST_F(HybridReaderDiskTest, BasicTopK) {
     std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}, {3, 0.8}};
-    auto [index, it] = makeNormalIterator(sq8, {1, 2, 3}, 2);
+    auto [index, it, child] = makeNormalIterator(sq8, {1, 2, 3}, 2);
 
     ASSERT_NE(it, nullptr);
 
@@ -249,7 +238,7 @@ TEST_F(HybridReaderDiskTest, BasicTopK) {
 TEST_F(HybridReaderDiskTest, NaNFiltering) {
     // Doc 2 has no entry in sq8Distances → getDistanceFrom returns NaN → skipped.
     std::map<labelType, double> sq8 = {{1, 0.5}, {3, 0.8}};
-    auto [index, it] = makeNormalIterator(sq8, {1, 2, 3}, 3);
+    auto [index, it, child] = makeNormalIterator(sq8, {1, 2, 3}, 3);
 
     ASSERT_NE(it, nullptr);
 
@@ -267,7 +256,7 @@ TEST_F(HybridReaderDiskTest, RerankingUpdatesScores) {
     std::map<labelType, double> sq8 = {{1, 0.9}, {2, 0.8}};
     // Exact FP32 distances reverse the ranking.
     std::map<labelType, double> exact = {{1, 0.1}, {2, 0.7}};
-    auto [index, it] = makeRerankingIterator(sq8, exact, {1, 2}, 2);
+    auto [index, it, child] = makeRerankingIterator(sq8, exact, {1, 2}, 2);
 
     ASSERT_NE(it, nullptr);
 
@@ -281,11 +270,49 @@ TEST_F(HybridReaderDiskTest, RerankingUpdatesScores) {
     ASSERT_EQ(it->Read(it), ITERATOR_EOF);
 }
 
-// Timeout: when the timeout callback fires, prepareResults returns TimedOut and Read returns
+// A doc deleted between the scan and the rerank has no exact distance (NaN), and keeps the
+// approximate score it was ranked on rather than being scored from an unwritten buffer slot.
+TEST_F(HybridReaderDiskTest, RerankingKeepsScoreWithoutExactDistance) {
+    std::map<labelType, double> sq8 = {{1, 0.9}, {2, 0.8}};
+    std::map<labelType, double> exact = {{1, 0.1}};
+    auto [index, it, child] = makeRerankingIterator(sq8, exact, {1, 2}, 2);
+
+    ASSERT_NE(it, nullptr);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(it->lastDocId, (t_docId)1);
+    EXPECT_EQ(scoreOf(it), 0.1);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(it->lastDocId, (t_docId)2);
+    EXPECT_EQ(scoreOf(it), 0.8);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_EOF);
+}
+
+// Reranking is opt-in: with shouldRerank unset the exact distances are never fetched, so the
+// SQ8 ranking stands.
+TEST_F(HybridReaderDiskTest, ExactDistancesIgnoredWithoutRerank) {
+    std::map<labelType, double> sq8 = {{1, 0.9}, {2, 0.8}};
+    std::map<labelType, double> exact = {{1, 0.1}, {2, 0.7}};
+    auto [index, it, child] = makeIterator(sq8, exact, {1, 2}, 2);
+
+    ASSERT_NE(it, nullptr);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(it->lastDocId, (t_docId)2);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(it->lastDocId, (t_docId)1);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_EOF);
+}
+
+// Timeout: when the timeout callback fires, the adhoc scan aborts and Read returns
 // ITERATOR_TIMEOUT.
 TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}};
-    auto [index, it] = makeNormalIterator(sq8, {1, 2}, 2);
+    auto [index, it, child] = makeNormalIterator(sq8, {1, 2}, 2);
 
     ASSERT_NE(it, nullptr);
 
@@ -314,9 +341,7 @@ TEST_F(HybridReaderDiskTest, RevalidateReportsChildTimeoutApartFromAbort) {
     for (const auto &[childStatus, why] : cases) {
         auto h = makeNormalIterator({{1, 0.5}}, {1}, 1);
         ASSERT_NE(h.iter, nullptr);
-        auto *hr = (HybridIterator *)h.iter;
-        // `MockIterator` starts with its `QueryIterator base`, so the child pointer is the mock.
-        reinterpret_cast<MockIterator *>(hr->child)->SetRevalidateResult(childStatus);
+        h.child->SetRevalidateResult(childStatus);
 
         EXPECT_EQ(h.iter->Revalidate(h.iter, &mockCtx->spec), childStatus) << why;
     }
@@ -334,7 +359,7 @@ TEST_F(HybridReaderDiskTest, PinsUnderfillKWhenFieldsExpired) {
     mockCtx->sctx.currentTime = {2, 0};
 
     // k=3 heap holds docs 2,1,4; live doc 3 (0.8) ranks just below it. Gate on via field 0.
-    auto [index, it] =
+    auto [index, it, child] =
         makeIterator({{1, 0.5}, {2, 0.1}, {3, 0.8}, {4, 0.6}}, {}, {1, 2, 3, 4}, /*k*/ 3, /*field*/ 0);
     ASSERT_NE(it, nullptr);
 
@@ -352,7 +377,7 @@ TEST_F(HybridReaderDiskTest, PinsUnderfillKWhenFieldsExpired) {
 // same three candidates all surface in score order. Proves the under-fill above is
 // caused by expiration, not by the mock setup.
 TEST_F(HybridReaderDiskTest, FillsKWhenNoExpiry) {
-    auto [index, it] =
+    auto [index, it, child] =
         makeIterator({{1, 0.5}, {2, 0.1}, {3, 0.8}}, {}, {1, 2, 3}, /*k*/ 3, /*field*/ 0);
     ASSERT_NE(it, nullptr);
 

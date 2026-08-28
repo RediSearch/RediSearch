@@ -1876,6 +1876,7 @@ dependencies = [
  "search_disk",
  "string_utils",
  "thiserror",
+ "vector_score_source",
  "workspace_hack",
 ]
 

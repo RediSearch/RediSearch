@@ -410,9 +410,9 @@ def testProfileVector(env):
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
   expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 2, 'Largest batch size', 4, 'Largest batch iteration (zero based)', 0, 'Child iterator',
-                            ['Type', 'INTERSECT', 'Number of reading operations', 8, 'Child iterators', [
-                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 8, 'Estimated number of matches', 9997],
-                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 8, 'Estimated number of matches', 10000]]]]
+                            ['Type', 'INTERSECT', 'Number of reading operations', 6, 'Child iterators', [
+                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 6, 'Estimated number of matches', 9997],
+                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 6, 'Estimated number of matches', 10000]]]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 3]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
@@ -476,10 +476,8 @@ def testProfileVector(env):
 
 @skip(cluster=True)
 def testProfileVectorZeroK(env):
-  """`KNN 0` is not short-circuited: it builds a vector iterator, attaches any
-  filter child without ever reading it, and issues an index query that returns
-  no neighbours but still sets the index's last search mode.
-  """
+  """`KNN 0` reduces to an EMPTY iterator: the profile reports no VECTOR node and
+  no filter subtree, and the vector index is never queried."""
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -488,35 +486,24 @@ def testProfileVectorZeroK(env):
   conn.execute_command('hset', '1', 'v', 'bababaca', 't', 'hello')
   conn.execute_command('hset', '2', 'v', 'babababa', 't', 'hello')
 
-  def prime_search_mode():
-    # Leave the index in a mode no zero-K query can produce, so the search-mode
-    # assertion tells a fresh query apart from a mode left by an earlier one.
-    conn.execute_command('ft.profile', 'idx', 'search', 'query',
-                         '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
-                         'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
-    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
-                    'RANGE_QUERY')
+  # Pin a search mode that the zero-K queries below must leave untouched.
+  conn.execute_command('ft.profile', 'idx', 'search', 'query',
+                       '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                       'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'], 'RANGE_QUERY')
 
-  knn_profile = ['Type', 'VECTOR', 'Number of reading operations', 0,
-                 'Vector search mode', 'STANDARD_KNN']
-  # A filter child is built and attached to the iterator, then never read.
-  filtered_profile = knn_profile + [
-      'Child iterator',
-      ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0,
-       'Estimated number of matches', 2]]
-
-  # Bare, filtered, and distance-yielding zero-K queries.
-  for query, expected_profile in [('*=>[KNN 0 @v $vec]', knn_profile),
-                                  ('(@t:hello)=>[KNN 0 @v $vec]', filtered_profile),
-                                  ('*=>[KNN 0 @v $vec AS dist]', knn_profile)]:
-    prime_search_mode()
+  # Bare, filtered, and distance-yielding zero-K queries all reduce the same way.
+  for query in ['*=>[KNN 0 @v $vec]',
+                '(@t:hello)=>[KNN 0 @v $vec]',
+                '*=>[KNN 0 @v $vec AS dist]']:
     actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', query,
                                       'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
     env.assertEqual(actual_res[0], [0], message=query)
     actual_profile = to_dict(actual_res[1][1][0])
-    env.assertEqual(actual_profile['Iterators profile'], expected_profile, message=query)
+    env.assertEqual(actual_profile['Iterators profile'],
+                    ['Type', 'EMPTY', 'Number of reading operations', 0], message=query)
     env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
-                    'STANDARD_KNN', message=query)
+                    'RANGE_QUERY', message=query)
 
 @skip(cluster=True)
 def testProfileVectorBatchSizeAfterSparseBatch(env):

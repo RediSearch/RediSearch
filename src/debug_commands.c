@@ -3457,7 +3457,7 @@ static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-// Used in hybrid_reader.c in computeDistances
+// Defined in vector_top_k.c, called from the Rust vector top-k scan.
 extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 
 /**
