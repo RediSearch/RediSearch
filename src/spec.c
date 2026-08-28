@@ -3621,21 +3621,15 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
         !(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) {
       continue;
     }
-    // An absent change set says nothing; a present one is a positive statement about
-    // every field it does not name, including when it names none. Scanning inside the
-    // non-NULL branch keeps `numChangedFields` from being trusted on its own -- callers
-    // pair a NULL array with a zero count, and this does not depend on them doing so.
+    // An absent change set says nothing; a present one is a positive statement about every
+    // field it does not name, including when it names none. `FieldSpec_IsInChangeSet` answers
+    // false for both "absent" and "present but does not name this field", so the change set
+    // has to be tested separately to tell those apart.
     ChangedField mark = ChangedField_Unverified;
     if (changedFields) {
-      mark = ChangedField_VerifiedNo;
-      for (size_t i = 0; i < numChangedFields; ++i) {
-        size_t length = 0;
-        const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
-        if (!HiddenString_CompareC(fs->fieldPath, field, length)) {
-          mark = ChangedField_VerifiedYes;  // named in the change set: the value was written
-          break;
-        }
-      }
+      mark = FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)
+                 ? ChangedField_VerifiedYes  // named in the change set: the value was written
+                 : ChangedField_VerifiedNo;
     }
     if (mark == ChangedField_VerifiedYes) {
       continue;  // nothing to record: an unmarked field already reads this way

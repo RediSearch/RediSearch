@@ -173,6 +173,36 @@ const char *FieldSpec_GetTypeNames(int idx);
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 
+/**
+ * True iff `name` is the document field this FieldSpec is fed from.
+ *
+ * Compares against `fieldPath`, not `fieldName`: a changed field is the hash field the command
+ * wrote, which is the path. `fieldName` is the `AS` alias, so comparing that would find no
+ * match on an aliased schema. `IndexSpec_CreateField` points `fieldPath` at `fieldName` when
+ * `AS` is absent, so unaliased schemas are unaffected.
+ *
+ * This is the one place that rule lives. Callers walking a change set should hoist
+ * `RedisModule_StringPtrLen` out of their innermost loop and call this per candidate field,
+ * rather than re-fetching the name for every field they test.
+ */
+static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, size_t len) {
+  return HiddenString_CompareC(fs->fieldPath, name, len) == 0;
+}
+
+/**
+ * True iff `changedFields` names the document field `fs` is fed from.
+ *
+ * For the single-field question, where there is nothing to hoist. To ask it of many fields,
+ * loop the change set on the outside and use `FieldSpec_PathEquals` -- the change set is
+ * normally one or two names, so it is the shorter loop of the two.
+ *
+ * An absent change set names nothing, and answers false for every field. That is not the same
+ * as "this field did not change" -- a caller that reads "not named" as a positive statement
+ * about the field has to establish that a change set exists first.
+ */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields);
+
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */

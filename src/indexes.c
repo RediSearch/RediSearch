@@ -626,19 +626,20 @@ static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
   }
 
   // TODO: improve implementation to avoid O(n^2)
+  //
+  // The change set is the outer loop deliberately: it holds the fields one command wrote,
+  // normally one or two, against a schema that can hold many more. Nesting it this way also
+  // fetches each name once instead of once per schema field.
   for (size_t i = 0; i < numChangedFields; ++i) {
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
     for (size_t j = 0; j < spec->numFields; ++j) {
-      // Match on the path, not the name: a changed field is the hash field the command
-      // wrote, which is `fieldPath`. `fieldName` is the `AS` alias, so comparing it would
-      // find no match on an aliased schema and skip a reindex the document needed.
-      // `IndexSpec_CreateField` points `fieldPath` at `fieldName` when `AS` is absent, so
-      // unaliased schemas are unaffected.
-      if (!HiddenString_CompareC(spec->fields[j].fieldPath, field, length)) {
+      if (FieldSpec_PathEquals(&spec->fields[j], field, length)) {
         return false;
       }
     }
+    // The rule's language, score and payload fields are read from the document without being
+    // part of the schema, so they are matched by name rather than through a FieldSpec.
     if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
         (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
         (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
