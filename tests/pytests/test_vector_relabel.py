@@ -94,10 +94,16 @@ def _assert_doc_is_queryable(env, expected_title, expected_vector, index='idx'):
     env.assertEqual(res['results'][0]['extra_attributes']['score'], '0')
 
 def test_relabel_unchanged_vector_on_text_update():
-    """A text-only update must move the existing vector entry, leaving no tombstone."""
+    """A text-only update must move the existing vector entry, leaving no tombstone.
+
+    Deliberately not gated on subkey-notification support. Both routes to that outcome are
+    in scope: the change set names `title` and not `vector`, and without one the blob
+    comparison finds the stored vector unchanged. The assertions below hold either way, so
+    running this against a server that predates subkey notifications is the coverage for
+    the comparison route on a hash.
+    """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
     enable_unstable_features(env)
-    skip_if_no_hash_subkey_notifications(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -120,10 +126,13 @@ def test_vector_change_reindexes():
     A relabel here would leave the old blob in the index under the new doc-id, so
     the KNN assertion on VEC_B is what catches it; the tombstone assertion pins
     that the old entry was dropped rather than orphaned.
+
+    Ungated for the same reason as `test_relabel_unchanged_vector_on_text_update`: the
+    change set names `vector`, and without one the comparison sees VEC_B differ from
+    VEC_A. Both reach the re-add this asserts.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
     enable_unstable_features(env)
-    skip_if_no_hash_subkey_notifications(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
