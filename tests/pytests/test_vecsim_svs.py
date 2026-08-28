@@ -662,7 +662,15 @@ def gc_test_common(env, num_workers):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    index_size = DEFAULT_BLOCK_SIZE
+    # SVS gives dataset memory back a whole block at a time, and `svs::data::SimpleData::resize`
+    # keeps one empty block when it shrinks, so a deletion has to free at least two blocks
+    # before the "memory decreased" assertion below can see anything. Four blocks in and three
+    # deleted leaves a block of live vectors plus a block of margin over that minimum. Sizing
+    # the index at exactly one block -- as this did before VectorSimilarity #980 changed block
+    # handling -- freed nothing measurable however many vectors were deleted.
+    blocks_in_index = 4
+    blocks_to_delete = 3
+    index_size = blocks_in_index * DEFAULT_BLOCK_SIZE * env.shardsCount
     compression_types = ['NO_COMPRESSION', 'LVQ8']
     if is_intel_opt_enabled():
         compression_types.append('LeanVec4x8')
@@ -684,7 +692,7 @@ def gc_test_common(env, num_workers):
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
         # Phase 1: Delete some vectors
-        vecs_to_delete = 1000
+        vecs_to_delete = blocks_to_delete * DEFAULT_BLOCK_SIZE * env.shardsCount
         for i in range (vecs_to_delete):
             env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}')
 
