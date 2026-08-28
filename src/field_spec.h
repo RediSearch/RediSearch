@@ -173,6 +173,22 @@ const char *FieldSpec_GetTypeNames(int idx);
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 
+/**
+ * True iff `name` is the document field this FieldSpec is fed from.
+ *
+ * Compares against `fieldPath`, not `fieldName`: a changed field is the hash field the command
+ * wrote, which is the path. `fieldName` is the `AS` alias, so comparing that would find no
+ * match on an aliased schema. `IndexSpec_CreateField` points `fieldPath` at `fieldName` when
+ * `AS` is absent, so unaliased schemas are unaffected.
+ *
+ * This is the one place that rule lives. Callers walking a change set should hoist
+ * `RedisModule_StringPtrLen` out of their innermost loop and call this per candidate field,
+ * rather than re-fetching the name for every field they test.
+ */
+static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, size_t len) {
+  return HiddenString_CompareC(fs->fieldPath, name, len) == 0;
+}
+
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */
