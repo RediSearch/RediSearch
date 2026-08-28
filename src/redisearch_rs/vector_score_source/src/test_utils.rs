@@ -151,6 +151,11 @@ impl TestIndex {
         self.dim * size_of::<f32>()
     }
 
+    /// The request timeout every source built from this index is handed.
+    pub fn timeout_ptr(&self) -> *mut QueryRequestTimeout {
+        self.timeout.get()
+    }
+
     /// Build a [`VectorScoreSource`] over this index for the `query` blob, with
     /// no pinned `HYBRID_POLICY`. `ef` seeds HNSW's `efRuntime`; `child_est`
     /// seeds the batch-size heuristic.

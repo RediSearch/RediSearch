@@ -27,6 +27,7 @@ vecsim.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+field.workspace = true
 redis_mock.workspace = true
 redisearch_rs = {path = "../c_entrypoint/redisearch_rs", features = [
   "mock_allocator",
