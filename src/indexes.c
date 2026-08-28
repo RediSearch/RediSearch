@@ -598,6 +598,68 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   return res;
 }
 
+/**
+ * True when `changedFields` proves this update cannot change anything `spec` holds for the
+ * document, so the reindex can be skipped. False whenever that cannot be established --
+ * including when there is no change set to reason from.
+ *
+ * "No schema field was named" is not enough on its own, in three ways:
+ *
+ * - A hash matching the rule's prefix is a document whether or not it carries an indexed
+ *   field, so `*`, result counts and `ismissing()` all depend on it being registered. A
+ *   document the index does not hold yet must be indexed whatever the change set says,
+ *   which is what the doc-table lookup below establishes.
+ * - A rule FILTER may test a field the schema never mentions, and its verdict flips when
+ *   that field changes, so a spec carrying one can never skip.
+ * - The rule's language, score and payload fields are read from the document without being
+ *   part of the schema.
+ *
+ * Conservative for a disk-backed spec, whose document bookkeeping does not run through
+ * this doc table.
+ */
+static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
+                                           RedisModuleString *key,
+                                           RedisModuleString **changedFields,
+                                           size_t numChangedFields) {
+  if (!changedFields || spec->diskSpec || spec->rule->filter_exp) {
+    return false;
+  }
+
+  // TODO: improve implementation to avoid O(n^2)
+  for (size_t i = 0; i < numChangedFields; ++i) {
+    size_t length = 0;
+    const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+    for (size_t j = 0; j < spec->numFields; ++j) {
+      // Match on the path, not the name: a changed field is the hash field the command
+      // wrote, which is `fieldPath`. `fieldName` is the `AS` alias, so comparing it would
+      // find no match on an aliased schema and skip a reindex the document needed.
+      // `IndexSpec_CreateField` points `fieldPath` at `fieldName` when `AS` is absent, so
+      // unaliased schemas are unaffected.
+      if (!HiddenString_CompareC(spec->fields[j].fieldPath, field, length)) {
+        return false;
+      }
+    }
+    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
+        (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
+        (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
+      return false;
+    }
+  }
+
+  // Last, because it is the only check that takes a lock. Same locking rationale as
+  // Indexes_UpdateMatchingDocExpiration: read lock suffices for a DMD chain traversal and
+  // refcount, and notification callbacks are serialized on the main thread.
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisSearchCtx_LockSpecRead(&sctx);
+  const RSDocumentMetadata *dmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
+  const bool alreadyIndexed = dmd != NULL;
+  if (dmd) {
+    DMD_Return(dmd);
+  }
+  RedisSearchCtx_UnlockSpec(&sctx);
+  return alreadyIndexed;
+}
+
 void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
   dictRelease(specs->specs);
   array_free(specs->specsOps);
@@ -619,6 +681,10 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     SpecOpCtx *specOp = specs->specsOps + i;
 
     if (specOp->op == SpecOp_Add) {
+      if (changeSetAllowsSkippingReindex(specOp->spec, ctx, key, changedFields,
+                                         numChangedFields)) {
+        continue;
+      }
       IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL, changedFields,
                           numChangedFields);
     } else {
