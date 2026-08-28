@@ -1540,6 +1540,7 @@ fn intersection_upholds_current_contract() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // 65536 children exceeds the miri timeout
 fn child_count_is_not_capped_at_16_bits() {
     // One past `u16::MAX`, the widest child count a 16-bit capacity can hold.
     const CHILD_COUNT: usize = 65536;
