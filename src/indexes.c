@@ -681,20 +681,20 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
 
-    if (specOp->op == SpecOp_Add) {
+      if (specOp->op == SpecOp_Add) {
       if (changeSetAllowsSkippingReindex(specOp->spec, ctx, key, changedFields,
                                          numChangedFields)) {
         continue;
       }
-      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
-    } else {
-      // specOp->op is SpecOp_Del when the key matches the index prefix but
-      // the filter expression fails (e.g. a field value changed so the filter
-      // no longer passes, or a required field is missing). If the document was
-      // previously indexed, it must be removed now.
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
+        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
+      } else {
+        // specOp->op is SpecOp_Del when the key matches the index prefix but
+        // the filter expression fails (e.g. a field value changed so the filter
+        // no longer passes, or a required field is missing). If the document was
+        // previously indexed, it must be removed now.
+        IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
+      }
     }
-  }
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
@@ -775,8 +775,8 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-    IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
-  }
+      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
+    }
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
