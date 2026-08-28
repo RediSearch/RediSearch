@@ -52,7 +52,7 @@ use std::ffi::{c_char, c_int};
 use std::slice;
 
 use term_dictionary::{
-    DecrResult as DecrResultImpl, InsertOutcome as InsertOutcomeImpl, TermEntry,
+    DecrResult as DecrResultImpl, InsertOutcome as InsertOutcomeImpl, LendingStrIter, TermEntry,
 };
 
 /// Opaque to C; obtained from [`NewTermDictionary`] and freed with
@@ -68,10 +68,7 @@ pub use term_dictionary::TermDictionary;
 /// functions, advanced with [`TermDictionaryIterator_Next`], and freed
 /// with [`TermDictionaryIterator_Free`].
 pub struct TermDictionaryIterator<'td> {
-    iter: Box<dyn Iterator<Item = (String, f32, usize)> + 'td>,
-    /// Keeps the most recently yielded term alive so the pointer handed
-    /// to C stays valid until the next advance (or free).
-    current: Option<String>,
+    iter: Box<dyn LendingStrIter<'td, Data = TermEntry> + 'td>,
 }
 
 /// Outcome of [`TermDictionary_AddTerm`] and
@@ -198,16 +195,15 @@ unsafe fn storable_term<'a>(ptr: *const c_char, len: usize, what: &'static str) 
     storable.then_some(term)
 }
 
-/// Box a term iterator into the C-facing [`TermDictionaryIterator`],
-/// mapping each `(term, entry)` pair to owned `(term, score, num_docs)`
-/// so no borrow escapes across the FFI boundary.
+/// Box a term iterator into the C-facing [`TermDictionaryIterator`].
+///
+/// Each term is lent out of the iterator's own traversal buffer, so
+/// walking a dictionary allocates nothing per term.
 fn wrap_iter<'td>(
-    iter: impl Iterator<Item = (String, &'td TermEntry)> + 'td,
+    iter: impl LendingStrIter<'td, Data = TermEntry> + 'td,
 ) -> *mut TermDictionaryIterator<'td> {
-    let iter = iter.map(|(term, entry)| (term, entry.score, entry.num_docs));
     Box::into_raw(Box::new(TermDictionaryIterator {
         iter: Box::new(iter),
-        current: None,
     }))
 }
 
@@ -688,9 +684,10 @@ pub unsafe extern "C" fn TermDictionary_IterateFuzzy<'td>(
 /// - `term` and `len` must be valid, non-NULL pointers to writable
 ///   locations; `score` and `num_docs` must each be NULL or point to a
 ///   writable location.
-/// - The out-pointers must not overlap each other or the
-///   [`TermDictionaryIterator`] `it` points to: this call writes through
-///   them while holding exclusive access to the iterator.
+/// - The out-pointers must not overlap each other, the
+///   [`TermDictionaryIterator`] `it` points to, or the buffer that iterator
+///   lends the term from: this call writes through them while holding
+///   exclusive access to the iterator.
 /// - The [`TermDictionary`] the iterator was obtained from must still be
 ///   alive and unmodified since the iterator was created.
 #[unsafe(no_mangle)]
@@ -709,22 +706,21 @@ pub unsafe extern "C" fn TermDictionaryIterator_Next(
     // live TermDictionaryIterator.
     let iterator = unsafe { &mut *it };
 
-    let Some((next_term, next_score, next_num_docs)) = iterator.iter.next() else {
+    let Some((next_term, entry)) = iterator.iter.next_borrowed() else {
         return 0;
     };
-    let stored = iterator.current.insert(next_term);
 
     // SAFETY: caller is to ensure `term` points to a writable location.
-    unsafe { *term = stored.as_ptr().cast::<c_char>() };
+    unsafe { *term = next_term.as_ptr().cast::<c_char>() };
     // SAFETY: caller is to ensure `len` points to a writable location.
-    unsafe { *len = stored.len() };
+    unsafe { *len = next_term.len() };
     if !score.is_null() {
         // SAFETY: caller is to ensure `score` is writable when non-null.
-        unsafe { *score = next_score };
+        unsafe { *score = entry.score };
     }
     if !num_docs.is_null() {
         // SAFETY: caller is to ensure `num_docs` is writable when non-null.
-        unsafe { *num_docs = next_num_docs };
+        unsafe { *num_docs = entry.num_docs };
     }
     1
 }

@@ -59,6 +59,11 @@ use trie_rs::str_trie_map::{
     },
 };
 
+/// Lending iteration over a dictionary, implemented by every iterator the
+/// `*_iter` methods return. Re-exported so a caller can name the protocol
+/// without depending on [`trie_rs`] itself.
+pub use trie_rs::str_trie_map::iter::LendingStrIter;
+
 /// Per-term metadata stored at each terminal in the term dictionary.
 ///
 /// Holds the subset of fields the FT.SEARCH terms trie actually reads.

@@ -141,9 +141,10 @@ void TermDictionaryIterator_Free(struct TermDictionaryIterator *it);
  * - `term` and `len` must be valid, non-NULL pointers to writable
  *   locations; `score` and `num_docs` must each be NULL or point to a
  *   writable location.
- * - The out-pointers must not overlap each other or the
- *   [`TermDictionaryIterator`] `it` points to: this call writes through
- *   them while holding exclusive access to the iterator.
+ * - The out-pointers must not overlap each other, the
+ *   [`TermDictionaryIterator`] `it` points to, or the buffer that iterator
+ *   lends the term from: this call writes through them while holding
+ *   exclusive access to the iterator.
  * - The [`TermDictionary`] the iterator was obtained from must still be
  *   alive and unmodified since the iterator was created.
  */

@@ -10,6 +10,7 @@
 use crate::{
     TrieMap,
     iter::{self, filter},
+    str_trie_map::iter::{LendingStrIter, key_to_str},
 };
 
 /// Lexicographical-order iterator over a
@@ -24,18 +25,20 @@ impl<'a, Data> Iter<'a, Data> {
     }
 }
 
-impl<'a, Data> Iterator for Iter<'a, Data> {
-    type Item = (String, &'a Data);
+impl<'a, Data: 'a> LendingStrIter<'a> for Iter<'a, Data> {
+    type Data = Data;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (key_to_string(k), v))
+    fn next_borrowed(&mut self) -> Option<(&str, &'a Data)> {
+        let data = self.0.advance()?;
+        Some((key_to_str(self.0.key()), data))
     }
 }
 
-/// Decode a trie byte key back to a [`String`]. Keys enter the [`crate::str_trie_map::StrTrieMap`]
-/// exclusively via `&str` so they are UTF-8 by construction; the validating
-/// [`String::from_utf8`] call here is cheap and protects against any future raw-byte
-/// insertion at the lower layer.
-pub(super) fn key_to_string(bytes: Vec<u8>) -> String {
-    String::from_utf8(bytes).expect("StrTrieMap keys are UTF-8 by construction")
+impl<'a, Data: 'a> Iterator for Iter<'a, Data> {
+    type Item = (String, &'a Data);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (key, data) = self.next_borrowed()?;
+        Some((key.to_owned(), data))
+    }
 }

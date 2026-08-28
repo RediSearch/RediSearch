@@ -10,7 +10,7 @@
 use crate::{
     TrieMap,
     iter::{self, filter},
-    str_trie_map::iter::unfiltered::key_to_string,
+    str_trie_map::iter::{LendingStrIter, key_to_str},
 };
 
 /// Suffix-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
@@ -48,15 +48,33 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
     }
 }
 
+impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
+    /// Advance the underlying traversal to the next key ending in the target
+    /// suffix, skipping the keys that do not.
+    fn advance(&mut self) -> Option<&'tm Data> {
+        loop {
+            let data = self.iter.advance()?;
+            if self.iter.key().ends_with(&self.target_bytes) {
+                return Some(data);
+            }
+        }
+    }
+}
+
+impl<'tm, Data: 'tm> LendingStrIter<'tm> for SuffixedIter<'tm, Data> {
+    type Data = Data;
+
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
+        let data = self.advance()?;
+        Some((key_to_str(self.iter.key()), data))
+    }
+}
+
 impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let (k, v) = self.iter.next()?;
-            if k.ends_with(&self.target_bytes) {
-                return Some((key_to_string(k), v));
-            }
-        }
+        let (key, data) = self.next_borrowed()?;
+        Some((key.to_owned(), data))
     }
 }

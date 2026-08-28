@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{TrieMap, iter, str_trie_map::iter::unfiltered::key_to_string};
+use crate::{
+    TrieMap, iter,
+    str_trie_map::iter::{LendingStrIter, key_to_str},
+};
 
 /// Substring-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
@@ -37,10 +40,20 @@ impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
     }
 }
 
-impl<'tm, 'p, Data: 'tm> Iterator for ContainsIter<'tm, 'p, Data> {
+impl<'tm, Data: 'tm> LendingStrIter<'tm> for ContainsIter<'tm, '_, Data> {
+    type Data = Data;
+
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
+        let data = self.0.advance()?;
+        Some((key_to_str(self.0.key()), data))
+    }
+}
+
+impl<'tm, Data: 'tm> Iterator for ContainsIter<'tm, '_, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (key_to_string(k), v))
+        let (key, data) = self.next_borrowed()?;
+        Some((key.to_owned(), data))
     }
 }
