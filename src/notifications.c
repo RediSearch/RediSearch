@@ -223,6 +223,12 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
  *
  * `subkeys` may contain duplicates: Redis does not dedupe them, and neither do
  * we — a repeated field only costs a redundant comparison in the schema match.
+ *
+ * `count` of zero is a real case, not a defensive check: a module mutating a hash and
+ * emitting `RedisModule_NotifyKeyspaceEvent` names no fields. It is passed on as an absent
+ * change set rather than an empty one, which is the difference between "we do not know what
+ * changed" and "nothing the index reads changed" — the former reindexes, the latter would
+ * let the write be skipped and leave the document stale.
  */
 void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, const char *event,
                                              RedisModuleString *key, RedisModuleString **subkeys,
@@ -798,20 +804,35 @@ void Initialize_KeyspaceNotifications() {
     }
     // Take hash events over the subkey channel when the server has one: it names
     // the fields the command touched, letting a spec that indexes none of them
-    // skip the reindex. Every hash event upstream carries subkeys, so hash moves
-    // off the plain subscription entirely rather than being served by both --
-    // subscribing twice would deliver each hash event to both callbacks and
-    // index it twice. SUBKEYS_REQUIRED drops any hash event that arrives without
-    // subkeys, which we could not act on anyway.
+    // skip the reindex. Hash moves off the plain subscription entirely rather than
+    // being served by both -- subscribing twice would deliver each hash event to
+    // both callbacks and index it twice.
+    //
+    // Deliberately not SUBKEYS_REQUIRED. Not every hash event carries subkeys: a module
+    // mutating a hash and emitting `RedisModule_NotifyKeyspaceEvent(..., NOTIFY_HASH, ...)`
+    // names none. Requiring them would drop such an event from this subscription while the
+    // plain one no longer covers hash either, so the write would reach neither callback and
+    // the document's index entries would go stale. Instead the callback treats an event with
+    // no subkeys as an unknown change set, which reindexes unconditionally.
     //
     // The pointer is NULL against a Redis that predates subkey notifications
     // (REDISMODULE_GET_API leaves it unset rather than failing the load); there
     // hash stays on the plain path and reindexes unconditionally, as before.
+    //
+    // Hash is dropped from the plain subscription only once the subkey one has actually been
+    // accepted. Clearing the flag first and then ignoring the return would leave a server
+    // whose registration failed with no hash subscription at all, and every later HSET and
+    // HDEL would stop reaching the index -- silently, since nothing else reports it.
     if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys) {
-      notifyFlags &= ~REDISMODULE_NOTIFY_HASH;
-      RedisModule_SubscribeToKeyspaceEventsWithSubkeys(
-          RSDummyContext, REDISMODULE_NOTIFY_HASH, REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED,
-          KeySpaceNotificationWithSubkeysCallback);
+      if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys(
+              RSDummyContext, REDISMODULE_NOTIFY_HASH, /* flags */ 0,
+              KeySpaceNotificationWithSubkeysCallback) == REDISMODULE_OK) {
+        notifyFlags &= ~REDISMODULE_NOTIFY_HASH;
+      } else {
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Failed to subscribe to hash subkey keyspace notifications; falling "
+                        "back to reindexing the whole document on every hash write.");
+      }
     }
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, KeySpaceNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
