@@ -38,10 +38,11 @@ pub use wildcard::WildcardIter;
 /// each key — comparing it, writing it to a buffer, handing it to C — takes
 /// this trait instead and leaves that allocation unmade.
 ///
-/// It is deliberately not `LendingIterator` from the `lending_iterator`
-/// crate, whose generic associated type buys adapters at the cost of being
-/// usable as a `dyn` type. Here the borrow is tied to `&mut self` by ordinary
-/// elision, so `dyn LendingStrIter` erases the concrete iterator away.
+/// It is deliberately not [`LendingIterator`](lending_iterator::LendingIterator)
+/// from the [`lending_iterator`] crate, whose generic associated type buys
+/// adapters at the cost of being usable as a `dyn` type. Here the borrow is
+/// tied to `&mut self` by ordinary elision, so `dyn LendingStrIter` erases the
+/// concrete iterator away.
 pub trait LendingStrIter<'tm> {
     /// The payload stored alongside each key of the trie being traversed.
     type Data: 'tm;
