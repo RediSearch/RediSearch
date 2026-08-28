@@ -19,8 +19,8 @@ use c_trie::{SuffixMode, SuffixTrie, TrieTerm};
 use dict::{KeysDictType, OwnedDict};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame, HandleError,
-    terms::{TermNotFound, apply_terms, collect_terms, receive_terms},
+    HandleError,
+    terms::{TermEntry, TermNotFound, apply_terms, collect_terms, receive_terms},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -188,10 +188,11 @@ impl Drop for TestSpec {
 
 fn assert_only_terminator(buf: &[u8]) {
     let mut cursor = Cursor::new(buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
@@ -219,8 +220,7 @@ fn term_without_inverted_index_is_skipped() {
     assert_only_terminator(&spec.collect());
 }
 
-/// Multiple terms each produce their own Data frame + delta, followed by a single
-/// Terminator.
+/// Multiple terms each produce their own serialised entry, followed by `None`.
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
 fn multiple_terms_write_multiple_delta_frames() {
@@ -229,78 +229,63 @@ fn multiple_terms_write_multiple_delta_frames() {
 
     let mut cursor = Cursor::new(&buf);
 
-    let Frame::Data(term1) = Frame::decode(&mut cursor).unwrap() else {
-        panic!("expected first Data frame");
-    };
-    let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+    let first = rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+        .unwrap()
+        .unwrap();
+    let second = rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+        .unwrap()
+        .unwrap();
 
-    let Frame::Data(term2) = Frame::decode(&mut cursor).unwrap() else {
-        panic!("expected second Data frame");
-    };
-    let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
-
-    let mut terms = [term1.into_inner().into_vec(), term2.into_inner().into_vec()];
-    terms.sort(); // Frames can come in any order because trie iteration order isn't asserted here.
+    let mut terms = [first.term.into_vec(), second.term.into_vec()];
+    terms.sort(); // Entries can come in any order because trie iteration order isn't asserted here.
 
     assert_eq!(terms, [b"apple".to_vec(), b"grape".to_vec()]);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 #[test]
-fn receive_terminator_returns_none() {
+fn receive_none_returns_none() {
     let mut buf = Vec::new();
-    Frame::Terminator.encode(&mut buf).unwrap();
+    Option::<TermEntry<&[u8]>>::None
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
     let mut cursor = Cursor::new(&buf);
     assert!(receive_terms(&mut cursor).unwrap().is_none());
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 #[test]
-fn receive_malformed_frame_returns_codec_error() {
+fn receive_malformed_entry_returns_codec_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_terms(&mut cursor),
         Err(HandleError::Codec {
-            msg: "reading the terms term-name frame",
+            msg: "decoding terms entry",
             ..
         })
     ));
 }
 
 #[test]
-fn receive_data_frame_returns_term_and_delta() {
+fn receive_entry_returns_term_and_delta() {
     let mut buf = Vec::new();
-    Frame::data(b"apple").encode(&mut buf).unwrap();
-    GcScanDelta::empty_for_testing()
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
+    Some(TermEntry {
+        term: b"apple".as_slice(),
+        delta: GcScanDelta::empty_for_testing(),
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    let (term, delta) = receive_terms(&mut cursor).unwrap().unwrap();
-    assert_eq!(&*term, b"apple");
-    assert_eq!(delta, GcScanDelta::empty_for_testing());
+    let entry = receive_terms(&mut cursor).unwrap().unwrap();
+    assert_eq!(&*entry.term, b"apple");
+    assert_eq!(entry.delta, GcScanDelta::empty_for_testing());
     assert_eq!(cursor.position(), buf.len() as u64);
-}
-
-/// The trie never stores a zero-length term, so a `Frame::Empty` header is not a valid
-/// term message.
-#[test]
-fn receive_empty_frame_returns_codec_error() {
-    let mut buf = Vec::new();
-    Frame::Empty.encode(&mut buf).unwrap();
-
-    let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        receive_terms(&mut cursor),
-        Err(HandleError::Codec {
-            msg: "expected a term-name or terminator frame for terms",
-            ..
-        })
-    ));
 }
 
 #[test]
@@ -348,13 +333,13 @@ fn roundtrip_all_docs_deleted_removes_term() {
 
     // Parent side: receive.
     let mut cursor = Cursor::new(&buf);
-    let (term, delta) = receive_terms(&mut cursor).unwrap().unwrap();
-    assert_eq!(&*term, b"apple");
+    let entry = receive_terms(&mut cursor).unwrap().unwrap();
+    assert_eq!(&*entry.term, b"apple");
 
     // Parent side: apply.
     {
         let mut write_guard = spec.write();
-        let stats = apply_terms(&term, delta, &mut write_guard).unwrap();
+        let stats = apply_terms(&entry.term, entry.delta, &mut write_guard).unwrap();
 
         assert!(write_guard.keys_dict_mut().fetch_mut(b"apple").is_none());
         assert!(stats.bytes_collected > 0);
@@ -364,7 +349,7 @@ fn roundtrip_all_docs_deleted_removes_term() {
             "the term is gone from the terms trie too"
         );
         assert_eq!(stats.terms_removed, 1);
-        assert_eq!(stats.terms_size_removed, term.len());
+        assert_eq!(stats.terms_size_removed, entry.term.len());
     }
 }
 

@@ -24,7 +24,7 @@ use std::mem::{self, ManuallyDrop};
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use fork_gc::HandleError;
-use fork_gc::tags::{TagError, apply_tag_entry, collect_tags, receive_tag_entry};
+use fork_gc::tags::{TagEntry, TagError, apply_tag_entry, collect_tags};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocId, opaque::InvertedIndex};
 use serde::Serialize as _;
@@ -278,11 +278,11 @@ fn collect_tags_from(spec: &TestSpec) -> Vec<u8> {
     buf
 }
 
-/// Decode every message with the real reader, asserting it consumes the complete stream.
-fn receive_all(buf: &[u8]) -> Vec<fork_gc::tags::TagEntry> {
+/// Decode every message with MessagePack, asserting it consumes the complete stream.
+fn receive_all(buf: &[u8]) -> Vec<TagEntry> {
     let mut cursor = Cursor::new(buf);
     let mut entries = Vec::new();
-    while let Some(entry) = receive_tag_entry(&mut cursor).unwrap() {
+    while let Some(entry) = rmp_serde::from_read::<_, Option<TagEntry>>(&mut cursor).unwrap() {
         entries.push(entry);
     }
     assert_eq!(
@@ -487,15 +487,17 @@ fn a_truncated_message_is_a_codec_error() {
     // and a prefix that reaches this far is a whole message, not a truncated one.
     let message_end = {
         let mut cursor = Cursor::new(&buf);
-        receive_tag_entry(&mut cursor).unwrap().unwrap();
+        rmp_serde::from_read::<_, Option<TagEntry>>(&mut cursor)
+            .unwrap()
+            .unwrap();
         cursor.position() as usize
     };
 
     for len in 1..message_end {
-        match receive_tag_entry(&mut Cursor::new(&buf[..len])) {
-            Err(HandleError::Codec { .. }) => {}
-            other => panic!("a {len}-byte prefix must be a codec error, got {other:?}"),
-        }
+        assert!(
+            rmp_serde::from_read::<_, Option<TagEntry>>(&mut Cursor::new(&buf[..len])).is_err(),
+            "a {len}-byte prefix must be a codec error"
+        );
     }
 }
 
@@ -503,8 +505,7 @@ fn a_truncated_message_is_a_codec_error() {
 /// value, not the `None` end marker a child sends after a complete stream.
 #[test]
 fn an_empty_stream_is_a_codec_error() {
-    let err = receive_tag_entry(&mut Cursor::new([])).unwrap_err();
-    assert!(matches!(err, HandleError::Codec { .. }));
+    assert!(rmp_serde::from_read::<_, Option<TagEntry>>(&mut Cursor::new([])).is_err());
 }
 
 /// The tag-stream end marker is one complete MessagePack value, so it must not
@@ -520,7 +521,11 @@ fn the_end_marker_leaves_following_bytes_unread() {
     buf.extend_from_slice(&following);
 
     let mut cursor = Cursor::new(&buf);
-    assert!(receive_tag_entry(&mut cursor).unwrap().is_none());
+    assert!(
+        rmp_serde::from_read::<_, Option<TagEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), end_marker_len as u64);
     assert_eq!(&buf[cursor.position() as usize..], following);
 }

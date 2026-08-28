@@ -11,16 +11,13 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame, HandleError,
-    existing_docs::{
-        ExistingDocsDeleted, apply_existing_docs, collect_existing_docs, receive_existing_docs,
-    },
+    HandleError,
+    existing_docs::{ExistingDocsDeleted, apply_existing_docs, collect_existing_docs},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
-use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -35,7 +32,7 @@ fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     spec
 }
 
-/// When the spec has no `existingDocs` index, only a Terminator is written.
+/// When the spec has no `existingDocs` index, the child writes `None`.
 #[test]
 fn no_existing_docs_writes_only_terminator() {
     let spec = make_spec(std::ptr::null_mut());
@@ -46,14 +43,15 @@ fn no_existing_docs_writes_only_terminator() {
     collect_existing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// When `existingDocs` is present but empty, `scan_gc` returns no delta and
-/// only a Terminator is written.
+/// only `None` is written.
 #[test]
 fn empty_existing_docs_writes_only_terminator() {
     let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(
@@ -68,18 +66,19 @@ fn empty_existing_docs_writes_only_terminator() {
     collect_existing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
 
     // SAFETY: ii_ptr was created via Box::into_raw above.
     unsafe { drop(Box::from_raw(ii_ptr)) };
 }
 
 /// When `existingDocs` has entries and all docs are absent from the DocTable
-/// (stub returns false), `scan_gc` produces a delta. The output is an Empty
-/// frame, the serialised [`GcScanDelta`], then a Terminator.
+/// (stub returns false), `scan_gc` produces a serialised `Some` [`GcScanDelta`]
+/// followed by the stream terminator.
 #[test]
 #[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn existing_docs_with_deleted_entries_writes_delta() {
@@ -98,51 +97,19 @@ fn existing_docs_with_deleted_entries_writes_delta() {
     collect_existing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(Frame::decode(&mut cursor).unwrap(), Frame::Empty));
-    let delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+    let delta = rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+        .unwrap()
+        .unwrap();
     assert_eq!(delta.last_block_idx(), 0);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position() as usize, buf.len());
 
     // SAFETY: ii_ptr was created via Box::into_raw above.
     unsafe { drop(Box::from_raw(ii_ptr)) };
-}
-
-#[test]
-fn receive_terminator_returns_none() {
-    let mut buf = Vec::new();
-    Frame::Terminator.encode(&mut buf).unwrap();
-    let mut cursor = Cursor::new(&buf);
-    assert!(matches!(receive_existing_docs(&mut cursor).unwrap(), None));
-}
-
-#[test]
-fn receive_malformed_frame_returns_codec_error() {
-    let mut cursor = Cursor::new(b"garbage");
-    assert!(matches!(
-        receive_existing_docs(&mut cursor),
-        Err(HandleError::Codec {
-            msg: "reading the existing-docs header frame",
-            ..
-        })
-    ));
-}
-
-#[test]
-fn receive_valid_delta_returns_some() {
-    let mut buf = Vec::new();
-    Frame::Empty.encode(&mut buf).unwrap();
-    GcScanDelta::empty_for_testing()
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
-
-    let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        receive_existing_docs(&mut cursor).unwrap(),
-        Some(_)
-    ));
 }
 
 #[test]
@@ -176,7 +143,15 @@ fn roundtrip_all_docs_deleted_clears_index() {
     }
 
     let mut cursor = Cursor::new(&buf);
-    let delta = receive_existing_docs(&mut cursor).unwrap().unwrap();
+    let delta = rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+        .unwrap()
+        .unwrap();
+    assert!(
+        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position() as usize, buf.len());
 
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     let stats = apply_existing_docs(delta, &mut *write_guard).unwrap();

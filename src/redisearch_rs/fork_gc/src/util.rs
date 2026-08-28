@@ -16,9 +16,25 @@ use std::{
 use index_spec::{IndexSpecWeakRef, IndexSpecWriteGuard};
 use nix::poll::{PollFd, PollFlags};
 use redis_module::raw::RedisModule_ExitFromChild;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::fork_gc::ForkGCPipeReader;
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+
+/// Serialize one fork-GC pipe message as MessagePack.
+pub(crate) fn serialize<T: Serialize>(writer: &mut impl io::Write, message: T) -> io::Result<()> {
+    message
+        .serialize(&mut rmp_serde::Serializer::new(writer))
+        .map_err(io::Error::other)
+}
+
+/// Deserialize one fork-GC pipe message from MessagePack.
+pub(crate) fn deserialize<T: DeserializeOwned, C>(
+    reader: &mut impl Read,
+    context: &'static str,
+) -> Result<T, HandleError<C>> {
+    rmp_serde::from_read(reader).map_err(|e| HandleError::codec(context, e))
+}
 
 /// Provides closure-scoped access to a live, write-locked [`IndexSpec`](index_spec::IndexSpec).
 ///

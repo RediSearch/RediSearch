@@ -9,13 +9,13 @@
 
 //! GC collection and application for the `existingDocs` inverted index.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
-use serde::Serialize as _;
 
-use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
+use crate::util::{deserialize, serialize};
+use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// The `existingDocs` inverted index was removed between the child's scan and
 /// the parent's apply (a race between GC and a concurrent index drop).
@@ -26,9 +26,8 @@ pub struct ExistingDocsDeleted;
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
 /// it to `writer`.
 ///
-/// If the spec has no existing-docs index, or the scan produces no delta, only
-/// the terminator is written. Otherwise an empty header followed by the
-/// serialised [`GcScanDelta`] is written before the terminator.
+/// When a scan produces a delta, it is serialised in `Some`. A serialised
+/// `None` always follows to terminate the stream.
 ///
 /// Scan errors are silently ignored (same block is retried on the next GC
 /// cycle). Write errors are surfaced to the caller so they can terminate the
@@ -41,38 +40,10 @@ pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard)
     if let Some(ii) = spec.existing_docs()
         && let Ok(Some(deltas)) = ii.scan_gc(doc_exists)
     {
-        Frame::Empty.encode(writer)?;
-        deltas
-            .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
-            .map_err(io::Error::other)?;
+        serialize(writer, Some(deltas))?;
     }
 
-    Frame::Terminator.encode(writer)
-}
-
-/// Decode one existing-docs message from `reader`.
-///
-/// Returns `Ok(Some(delta))` when the child sent a GC delta to apply,
-/// `Ok(None)` when the child sent only a terminator (nothing to collect),
-/// or an error variant on any read, decode, or unexpected-frame failure.
-pub fn receive_existing_docs(
-    reader: &mut impl Read,
-) -> Result<Option<GcScanDelta>, HandleError<ExistingDocsDeleted>> {
-    let frame = Frame::decode(reader)
-        .map_err(|e| HandleError::codec("reading the existing-docs header frame", e))?;
-
-    match frame {
-        Frame::Empty => {
-            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
-                .map_err(|e| HandleError::codec("decoding the existing-docs delta", e))?;
-            Ok(Some(delta))
-        }
-        Frame::Terminator => Ok(None),
-        Frame::Data(_) => Err(HandleError::codec(
-            "expected an empty or terminator frame for existing-docs",
-            "got a data frame",
-        )),
-    }
+    serialize(writer, None::<GcScanDelta>)
 }
 
 /// Apply a pre-decoded GC delta to the spec's `existingDocs` inverted index.
@@ -116,18 +87,16 @@ pub fn apply_existing_docs(
 
 /// Parent-side handler for the `existingDocs` GC protocol.
 ///
-/// Reads a [`GcScanDelta`] from the pipe, applies it to the spec's
-/// `existingDocs` inverted index under the write lock, and updates
-/// statistics on both the spec and the GC.
-///
-/// Returns `Ok(HandleOutcome::Done)` when the child sent no data (empty
-/// index or no GC needed).
+/// Reads an optional [`GcScanDelta`] from the pipe, applies it to the spec's
+/// `existingDocs` inverted index under the write lock, and updates statistics
+/// on both the spec and the GC. A serialised `None` returns
+/// `Ok(HandleOutcome::Done)`.
 pub fn handle_existing_docs(
     fgc: &mut ForkGC,
 ) -> Result<HandleOutcome, HandleError<ExistingDocsDeleted>> {
     crate::util::handle_one(
         fgc,
-        |reader| receive_existing_docs(reader),
+        |reader| deserialize(reader, "decoding existing-docs entry"),
         apply_existing_docs,
     )
 }
