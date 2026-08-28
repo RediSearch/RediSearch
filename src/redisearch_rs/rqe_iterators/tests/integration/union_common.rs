@@ -36,6 +36,32 @@ macro_rules! union_common_tests {
         // Read tests
         // =============================================================================
 
+        /// One past `u16::MAX`, the widest child count a 16-bit capacity can hold.
+        const CHILD_COUNT_ABOVE_16_BIT: usize = 65536;
+
+        #[test]
+        fn read_with_more_children_than_a_16_bit_count() {
+            let children: Vec<Box<dyn RQEIterator<'static>>> = (0..CHILD_COUNT_ABOVE_16_BIT)
+                .map(|_| MockVec::new_boxed(vec![1]))
+                .collect();
+
+            let mut union_iter = Union::new(children);
+            let result = union_iter
+                .read()
+                .expect("read failed")
+                .expect("should have result");
+
+            assert_eq!(result.doc_id, 1);
+            assert_eq!(
+                result
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                CHILD_COUNT_ABOVE_16_BIT,
+                "every child matches doc 1, so all of them belong to the aggregate"
+            );
+        }
+
         #[rstest::rstest]
         #[case::c2_small(2, &[1u64, 2, 3, 40, 50])]
         #[case::c2_medium(2, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]

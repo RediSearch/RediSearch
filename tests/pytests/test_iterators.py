@@ -383,3 +383,21 @@ class TestIteratorsRevalidateTimeout:
             res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
             self.env.assertEqual(res['results'], [],
                                  message="the tree was freed, so no further results can arrive")
+
+
+def test_union_with_more_children_than_a_16_bit_count(env):
+    """A union node with more children than a 16-bit count can hold serves the query normally.
+
+    `NOT` branches are used because they are never reduced away as empty, so the union keeps a
+    child per branch without the index needing a matching term for each one.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'h1', 't', 'hello')
+
+    # One past u16::MAX, the widest child count a 16-bit capacity can hold.
+    wide_query = '|'.join(f'-a{i}' for i in range(65536))
+
+    expected = env.cmd('FT.SEARCH', 'idx', '-a0', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', wide_query, 'NOCONTENT', 'DIALECT', 2), expected,
+                    message="a union of negations matches the same documents whatever its width")
