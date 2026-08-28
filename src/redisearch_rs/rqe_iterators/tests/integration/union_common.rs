@@ -40,7 +40,7 @@ macro_rules! union_common_tests {
         const CHILD_COUNT_ABOVE_16_BIT: usize = 65536;
 
         #[test]
-        #[cfg_attr(miri, ignore)] // 65536 children exceeds the miri timeout
+        #[cfg_attr(miri, ignore = "65536 children is too slow under miri")]
         fn child_count_is_not_capped_at_16_bits() {
             let children: Vec<Box<dyn RQEIterator<'static>>> = (0..CHILD_COUNT_ABOVE_16_BIT)
                 .map(|_| MockVec::new_boxed(vec![1]))
