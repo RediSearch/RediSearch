@@ -5,13 +5,6 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-import os
-
-from common import *
-# Reused rather than duplicated: _removeModuleArgs pokes at RLTest internals, and that
-# knowledge belongs in one place.
-from test_config import _getRDBFilePath, _removeModuleArgs
-
 """
 Tests for the search-_enable-next-major-breaking-changes module config.
 
@@ -24,11 +17,19 @@ module-arguments spelling, so 'CONFIG SET' at startup — via redis.conf or MODU
 the only way to turn it on. The 'moduleArgs=' pattern other config tests use does not reach it.
 """
 
+import os
+
+from common import *
+# Reused rather than duplicated: _removeModuleArgs pokes at RLTest internals, and that
+# knowledge belongs in one place.
+from test_config import _getRDBFilePath, _removeModuleArgs
+
 CONFIG_NAME = 'search-_enable-next-major-breaking-changes'
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_default():
+    """A server started without the config reports it as off."""
     env = Env(noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
@@ -37,20 +38,23 @@ def test_next_major_default():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_immutable(env):
+    """CONFIG SET at runtime is refused in both directions: the config is registered immutable."""
     env.expect('CONFIG', 'SET', CONFIG_NAME, 'yes').error()
     env.expect('CONFIG', 'SET', CONFIG_NAME, 'no').error()
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_not_exposed_via_ft_config(env):
+    """FT.CONFIG GET matches nothing and FT.CONFIG SET errors: the config has no legacy alias."""
     # FT.CONFIG dispatches through its own table of legacy names, which this config is
-    # deliberately absent from: GET matches nothing and SET reports an unknown option.
+    # deliberately absent from.
     env.expect(config_cmd(), 'GET', CONFIG_NAME).equal([])
     env.expect(config_cmd(), 'SET', CONFIG_NAME, 'yes').error()
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_startup_from_config_file():
+    """A redis.conf line turns the config on at server startup."""
     redisConfigFile = '/tmp/test_next_major_breaking_changes_config.conf'
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
@@ -66,6 +70,7 @@ def test_next_major_startup_from_config_file():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_startup_from_module_loadex():
+    """MODULE LOADEX ... CONFIG turns the config on when the module is loaded at runtime."""
     env = Env(noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
@@ -85,6 +90,7 @@ def test_next_major_startup_from_module_loadex():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_no_legacy_module_args():
+    """MODULE LOADEX ... ARGS with the legacy uppercase spelling fails the load: no legacy module-arguments entry exists."""
     env = Env(noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
