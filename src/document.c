@@ -17,6 +17,7 @@
 #include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
+#include "string_utils_ffi.h"
 #include "spec.h"
 #include "tokenize.h"
 #include "rmalloc.h"
@@ -480,6 +481,15 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       // Already got the first value
       if (i) {
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
+      }
+      // Checked on the value rather than on the tokens it yields: a token carrying the ill-formed
+      // bytes can be dropped inside the tokenizer — as a stopword, or once normalization has
+      // re-encoded what it could not decode — and no such document may be indexed.
+      if (RSGlobalConfig.enableNextMajorBreakingChanges && !RS_IsValidUtf8(c, fl)) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid UTF-8 value",
+                                      " for field `%s`",
+                                      HiddenString_GetUnsafe(fs->fieldName, NULL));
+        return -1;
       }
       ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
