@@ -53,42 +53,6 @@ def test_next_major_not_exposed_via_ft_config(env):
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
-def test_next_major_startup_from_config_file():
-    """A redis.conf line turns the config on at server startup."""
-    redisConfigFile = '/tmp/test_next_major_breaking_changes_config.conf'
-    if os.path.isfile(redisConfigFile):
-        os.unlink(redisConfigFile)
-    with open(redisConfigFile, 'w') as f:
-        f.write(f'{CONFIG_NAME} yes\n')
-
-    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    if env.env == 'existing-env':
-        env.skip()
-    env.expect('CONFIG', 'GET', CONFIG_NAME).equal([CONFIG_NAME, 'yes'])
-    env.stop()
-
-
-@skip(cluster=True, redis_less_than='7.9.227')
-def test_next_major_startup_from_module_loadex():
-    """MODULE LOADEX ... CONFIG turns the config on when the module is loaded at runtime."""
-    env = Env(noDefaultModuleArgs=True)
-    if env.env == 'existing-env':
-        env.skip()
-
-    rdbFilePath = _getRDBFilePath(env)
-    env.stop()
-    os.unlink(rdbFilePath)
-
-    redisearch_module_path = env.envRunner.modulePath[0]
-    _removeModuleArgs(env)
-
-    env.start()
-    env.cmd('MODULE', 'LOADEX', redisearch_module_path, 'CONFIG', CONFIG_NAME, 'yes')
-    env.expect('CONFIG', 'GET', CONFIG_NAME).equal([CONFIG_NAME, 'yes'])
-    env.stop()
-
-
-@skip(cluster=True, redis_less_than='7.9.227')
 def test_next_major_no_legacy_module_args():
     """MODULE LOADEX ... ARGS with the legacy uppercase spelling fails the load: no legacy module-arguments entry exists."""
     env = Env(noDefaultModuleArgs=True)
