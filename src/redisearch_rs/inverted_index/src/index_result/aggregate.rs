@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use thin_vec::SmallThinVec;
+use thin_vec::MediumThinVec;
 
 use super::core::RSIndexResult;
 use super::kind::RSResultKindMask;
@@ -36,7 +36,7 @@ pub enum RSAggregateResult<'index> {
         /// any aggregate results so `'refs == 'static` when decoding. Because of the requirement
         /// above, this means `'index: 'static` which is just incorrect since the index data will
         /// never be `'static` when decoding.
-        records: SmallThinVec<&'index RSIndexResult<'index>>,
+        records: MediumThinVec<&'index RSIndexResult<'index>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -47,7 +47,7 @@ pub enum RSAggregateResult<'index> {
         /// The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
         /// own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
-        records: SmallThinVec<Box<RSIndexResult<'index>>>,
+        records: MediumThinVec<Box<RSIndexResult<'index>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -58,7 +58,7 @@ impl<'index> RSAggregateResult<'index> {
     /// Create a new empty aggregate result (of the borrowed kind) with the given capacity
     pub fn borrowed_with_capacity(cap: usize) -> Self {
         Self::Borrowed {
-            records: SmallThinVec::with_capacity(cap),
+            records: MediumThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -66,7 +66,7 @@ impl<'index> RSAggregateResult<'index> {
     /// Create a new empty aggregate result (of the owned kind) with the given capacity
     pub fn owned_with_capacity(cap: usize) -> Self {
         Self::Owned {
-            records: SmallThinVec::with_capacity(cap),
+            records: MediumThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -192,7 +192,7 @@ impl<'index> RSAggregateResult<'index> {
     pub fn to_owned<'a>(&'a self) -> RSAggregateResult<'a> {
         match self {
             RSAggregateResult::Borrowed { records, kind_mask } => {
-                let mut new_records = SmallThinVec::with_capacity(records.len());
+                let mut new_records = MediumThinVec::with_capacity(records.len());
 
                 new_records.extend(
                     records
@@ -207,7 +207,7 @@ impl<'index> RSAggregateResult<'index> {
                 }
             }
             RSAggregateResult::Owned { records, kind_mask } => {
-                let mut new_records = SmallThinVec::with_capacity(records.len());
+                let mut new_records = MediumThinVec::with_capacity(records.len());
 
                 new_records.extend(
                     records
