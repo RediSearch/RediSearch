@@ -459,6 +459,7 @@ def testHDel(env):
     env.expect('HDEL doc1 test2').equal(1)
     env.expect('FT.SEARCH idx bar').equal([0])
 
+@skip(cluster=True)
 def testPartialIndexedDocsIsANoOp(env):
     """`PARTIAL_INDEXED_DOCS` is accepted and changes nothing.
 
@@ -466,28 +467,45 @@ def testPartialIndexedDocsIsANoOp(env):
     now comes from subkey notifications and needs no configuration, so the config survives
     only because removing a registered one stops the server from starting.
 
-    Asserting it is inert rather than that it is gone: the same doc-id sequence as
-    `testPartial`, which runs the identical writes without the argument.
+    Both halves have to be run to claim it is inert. Asserting only the enabled case would
+    pass just as well against an implementation that still gated the optimization on the
+    flag -- and that is the case `testPartial` already covers. The one that matters here is
+    the flag *absent*, which is the new default.
+
+    Standalone only, for the same reason `testPartial` and `testHDel` are: `DOCIDTOID` takes
+    no key, so it answers from whichever shard receives it, while `HSET doc1` is routed by
+    hash slot. In a cluster the two would not be talking about the same shard.
     """
     if env.env == 'existing-env':
         env.skip()
-    env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
-    conn = getConnectionByEnv(env)
 
-    env.expect(config_cmd(), 'get', 'PARTIAL_INDEXED_DOCS').equal([['PARTIAL_INDEXED_DOCS', 'true']])
+    def docid_progression(module_args):
+        """(first, after a non-schema write, after a schema write) for one server."""
+        server = Env(moduleArgs=module_args) if module_args else Env()
+        conn = getConnectionByEnv(server)
+        server.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+        conn.execute_command('HSET', 'doc1', 'test', 'foo')
+        first = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+        # Outside the schema: nothing indexed can have changed.
+        conn.execute_command('HSET', 'doc1', 'testtest', 'foo')
+        unindexed = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+        # In the schema: has to be reindexed.
+        conn.execute_command('HSET', 'doc1', 'test', 'bar')
+        indexed = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+        server.stop()
+        return (first, unindexed, indexed)
 
-    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
-    conn.execute_command('HSET', 'doc1', 'test', 'foo')
-    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+    default = docid_progression(None)
+    enabled = docid_progression('PARTIAL_INDEXED_DOCS 1')
 
-    # Not in the schema: skipped, so the doc-id stands -- with or without the argument.
-    conn.execute_command('HSET', 'doc1', 'testtest', 'foo')
-    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
-                    message='the deprecated argument must not re-enable anything')
+    env.assertEqual(default, enabled,
+                    message=f'the deprecated argument changed behaviour: {default} vs {enabled}')
 
-    # In the schema: reindexed either way.
-    conn.execute_command('HSET', 'doc1', 'test', 'bar')
-    env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first)
+    first, unindexed, indexed = default
+    env.assertEqual(unindexed, first,
+                    message='a write touching no indexed field should not reindex by default')
+    env.assertGreater(indexed, first,
+                      message='a write to a schema field must still reindex')
 
 @skip(cluster=True)
 def testRestore(env):
