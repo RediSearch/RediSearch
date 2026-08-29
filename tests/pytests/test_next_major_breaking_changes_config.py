@@ -81,3 +81,24 @@ def test_next_major_startup_from_module_loadex():
     env.cmd('MODULE', 'LOADEX', redisearch_module_path, 'CONFIG', CONFIG_NAME, 'yes')
     env.expect('CONFIG', 'GET', CONFIG_NAME).equal([CONFIG_NAME, 'yes'])
     env.stop()
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_next_major_no_legacy_module_args():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+
+    rdbFilePath = _getRDBFilePath(env)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    redisearch_module_path = env.envRunner.modulePath[0]
+    _removeModuleArgs(env)
+
+    env.start()
+    # The uppercase name follows the legacy-args convention of sibling configs like
+    # _FREE_RESOURCE_ON_THREAD; ReadConfig must not recognize it, failing the load.
+    env.expect('MODULE', 'LOADEX', redisearch_module_path, 'ARGS',
+               '_ENABLE_NEXT_MAJOR_BREAKING_CHANGES', 'true').error()
+    env.stop()
