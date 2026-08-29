@@ -237,12 +237,7 @@ typedef struct {
   unsigned int diskAsyncReadQueueFactor;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
-  // Opt into behavior changes staged for the next major release. Nothing is staged
-  // behind it yet; the first — refusing TEXT values that are not well-formed UTF-8 —
-  // lands separately.
-  //
-  // Load-time only: flipping it on a running server would leave an index holding documents
-  // its own setting refuses, so the two states could not be told apart afterwards.
+  // Opt into behavior changes staged for the next major release. Load-time only.
   bool enableNextMajorBreakingChanges;
 } RSConfig;
 
