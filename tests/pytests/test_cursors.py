@@ -86,6 +86,7 @@ def testCursorsBGEdgeCasesSanity():
         resp = env.expect(query).noError().res
         resp = exhaustCursor(env, 'idx', resp)
 
+@skip(cluster=True)
 def testCursorFilterTotalDoesNotUnderflow():
     """A FILTER may reject a row that a previous cursor read already counted.
 
@@ -99,6 +100,11 @@ def testCursorFilterTotalDoesNotUnderflow():
     PARTIAL_INDEXED_DOCS switches on -- the same reason this went unnoticed, since it
     defaults to off. The reported total is asserted, not just the absence of a crash, so a
     release build is covered too.
+
+    Standalone only, like `testCursorsBGEdgeCasesSanity` next door: the totals asserted here
+    are one shard's, and in a cluster the documents are spread across shards while the
+    coordinator sums their counts, so neither the convergence on half the documents nor the
+    per-read bound describes what any single reply carries.
     """
     env = Env(moduleArgs='WORKERS 1 PARTIAL_INDEXED_DOCS 1')
     if env.env == 'existing-env':
