@@ -496,7 +496,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
-    .enableNextMajorBreakingChanges = false,                                                       \
+    .enableNextMajorBreakingChanges = false,                                   \
   }
 
 #define REDIS_ARRAY_LIMIT 7
