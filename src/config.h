@@ -237,6 +237,13 @@ typedef struct {
   unsigned int diskAsyncReadQueueFactor;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
+  // Opt into behavior changes staged for the next major release. Currently: a TEXT
+  // field value that is not well-formed UTF-8 is refused at index time, surfacing as
+  // an FT.INFO indexing error, instead of being indexed as raw bytes.
+  //
+  // Load-time only: flipping it on a running server would leave an index holding documents
+  // its own setting refuses, so the two states could not be told apart afterwards.
+  bool enableNextMajorBreakingChanges;
 } RSConfig;
 
 typedef enum {
@@ -489,6 +496,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
+    .enableNextMajorBreakingChanges = false,                                                       \
   }
 
 #define REDIS_ARRAY_LIMIT 7

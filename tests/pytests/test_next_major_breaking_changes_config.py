@@ -1,0 +1,76 @@
+import os
+
+from common import *
+# Reused rather than duplicated: _removeModuleArgs pokes at RLTest internals, and that
+# knowledge belongs in one place.
+from test_config import _getRDBFilePath, _removeModuleArgs
+
+"""
+Tests for the search-_enable-next-major-breaking-changes module config.
+
+The config opts into behavior changes staged for the next major release, such as refusing
+TEXT values that are not well-formed UTF-8. It is immutable (load-time only) and defaults
+to 'no'.
+
+It is registered as a modern CONFIG parameter only: there is no FT.CONFIG alias and no legacy
+module-arguments spelling, so 'CONFIG SET' at startup — via redis.conf or MODULE LOADEX — is
+the only way to turn it on. The 'moduleArgs=' pattern other config tests use does not reach it.
+"""
+
+CONFIG_NAME = 'search-_enable-next-major-breaking-changes'
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_next_major_default():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', CONFIG_NAME).equal([CONFIG_NAME, 'no'])
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_next_major_immutable(env):
+    env.expect('CONFIG', 'SET', CONFIG_NAME, 'yes').error()
+    env.expect('CONFIG', 'SET', CONFIG_NAME, 'no').error()
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_next_major_not_exposed_via_ft_config(env):
+    # FT.CONFIG dispatches through its own table of legacy names, which this config is
+    # deliberately absent from: GET matches nothing and SET reports an unknown option.
+    env.expect(config_cmd(), 'GET', CONFIG_NAME).equal([])
+    env.expect(config_cmd(), 'SET', CONFIG_NAME, 'yes').error()
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_next_major_startup_from_config_file():
+    redisConfigFile = '/tmp/test_next_major_breaking_changes_config.conf'
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write(f'{CONFIG_NAME} yes\n')
+
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', CONFIG_NAME).equal([CONFIG_NAME, 'yes'])
+    env.stop()
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_next_major_startup_from_module_loadex():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+
+    rdbFilePath = _getRDBFilePath(env)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    redisearch_module_path = env.envRunner.modulePath[0]
+    _removeModuleArgs(env)
+
+    env.start()
+    env.cmd('MODULE', 'LOADEX', redisearch_module_path, 'CONFIG', CONFIG_NAME, 'yes')
+    env.expect('CONFIG', 'GET', CONFIG_NAME).equal([CONFIG_NAME, 'yes'])
+    env.stop()
