@@ -272,6 +272,7 @@ after_includes = """
 #define QueryNode_IsTag                      QueryNodeFlags_IsTag
 #define QueryNode_HybridVectorSubqueryNode   QueryNodeFlags_HybridVectorSubqueryNode
 #define QueryNode_HideVectorDistanceField    QueryNodeFlags_HideVectorDistanceField
+#define QueryNode_IllFormedUtf8              QueryNodeFlags_IllFormedUtf8
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
 #define QAST_SYNTAX_DEFAULT  0

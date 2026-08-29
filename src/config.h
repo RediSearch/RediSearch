@@ -239,7 +239,8 @@ typedef struct {
   bool fallbackToMainThreadWhenBlockClientUnavailable;
   // Opt into behavior changes staged for the next major release. Currently: a TEXT
   // field value that is not well-formed UTF-8 is refused at index time, surfacing as
-  // an FT.INFO indexing error, instead of being indexed as raw bytes.
+  // an FT.INFO indexing error, and a query TEXT term that is not well-formed UTF-8 is
+  // refused as a query error — instead of either being processed as raw bytes.
   //
   // Load-time only: flipping it on a running server would leave an index holding documents
   // its own setting refuses, so the two states could not be told apart afterwards.

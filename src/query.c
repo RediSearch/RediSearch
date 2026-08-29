@@ -23,6 +23,7 @@
 #include "query.h"
 #include "config.h"
 #include "query_error_ffi.h"
+#include "string_utils_ffi.h"
 #include "redis_index.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
@@ -201,6 +202,24 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   return ret;
 }
 
+// Record on `n` whether `s[0..len)` is well-formed UTF-8.
+//
+// Has to run on the bytes the client sent: unescaping and case folding
+// reinterpret whatever they cannot decode, so ill-formed input can emerge from
+// normalization looking well-formed. Whether the mark is an error is decided by
+// `QAST_CheckUtf8`, once the node's field type is known.
+static void QueryNode_MarkIllFormedUtf8(QueryNode *n, const char *s, size_t len) {
+  if (RSGlobalConfig.enableNextMajorBreakingChanges && !RS_IsValidUtf8(s, len)) {
+    n->opts.flags |= QueryNode_IllFormedUtf8;
+  }
+}
+
+QueryNode *NewTokenNode_Normalized(QueryParseCtx *q, const char *raw, size_t rawLen) {
+  QueryNode *ret = NewTokenNode(q, rm_normalize(raw, rawLen), -1);
+  QueryNode_MarkIllFormedUtf8(ret, raw, rawLen);
+  return ret;
+}
+
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
@@ -217,6 +236,7 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
       len = qt->len;
     }
     ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
+    QueryNode_MarkIllFormedUtf8(ret, qt->s, qt->len);
     // Do not expand numbers
     if(qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
         ret->opts.flags |= QueryNode_Verbatim;
@@ -249,6 +269,7 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
   if (qt->type == QT_TERM) {
     char *s = rm_strndup_unescape(qt->s, qt->len);
     ret->pfx.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
+    QueryNode_MarkIllFormedUtf8(ret, qt->s, qt->len);
   } else {
     assert (qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
@@ -266,6 +287,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     memcpy(s, qt->s, qt->len);
     s[qt->len] = '\0';
     ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
+    QueryNode_MarkIllFormedUtf8(ret, qt->s, qt->len);
   } else {
     RS_ASSERT(qt->type == QT_PARAM_WILDCARD);
     QueryNode_InitParams(ret, 1);
@@ -295,6 +317,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
             },
       .maxDist = maxDist,
     };
+    QueryNode_MarkIllFormedUtf8(ret, qt->s, qt->len);
   } else {
     ret->fz.maxDist = maxDist;
     RS_ASSERT(qt->type == QT_PARAM_TERM);
@@ -944,7 +967,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   RS_ASSERT(!QueryError_HasError(status));
   dst->numTokens = qpCtx.numTokens;
   dst->numParams = qpCtx.numParams;
-  return REDISMODULE_OK;
+  return QAST_CheckUtf8(dst, status);
 }
 
 void QAST_Destroy(QueryAST *q) {
@@ -991,10 +1014,45 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   return REDISMODULE_OK;
 }
 
+// Reject a node whose source bytes were not well-formed UTF-8, unless it sits
+// under a TAG field. `search-_enable-next-major-breaking-changes` governs TEXT values only, so a tag
+// term has to stay queryable with whatever bytes the tag index accepted.
+//
+// The offending bytes are deliberately not echoed back: they would travel to
+// the client inside the error reply, which is the failure this setting exists
+// to remove.
+static int QueryNode_CheckUtf8(const QueryNode *n, QueryError *status) {
+  if (n->type == QN_TAG) {
+    return REDISMODULE_OK;
+  }
+  if (n->opts.flags & QueryNode_IllFormedUtf8) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid UTF-8 value in query");
+    return REDISMODULE_ERR;
+  }
+  for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+    if (QueryNode_CheckUtf8(n->children[ii], status) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+int QAST_CheckUtf8(const QueryAST *q, QueryError *status) {
+  if (!RSGlobalConfig.enableNextMajorBreakingChanges || !q || !q->root) {
+    return REDISMODULE_OK;
+  }
+  return QueryNode_CheckUtf8(q->root, status);
+}
+
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVersion, QueryError *status) {
   if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
-  return QueryNode_EvalParams(opts->params, q->root, dialectVersion, status);
+  if (QueryNode_EvalParams(opts->params, q->root, dialectVersion, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  // Parameter values only became known just now, so they are checked here
+  // rather than with the literals in `QAST_Parse`.
+  return QAST_CheckUtf8(q, status);
 }
 
 int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion, QueryError *status) {
@@ -1268,14 +1326,18 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
 
 int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status) {
   if (node->params) {
+    bool illFormedUtf8 = false;
     for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-      int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status);
+      int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status, &illFormedUtf8);
       if (res < 0)
         return REDISMODULE_ERR;
       // If parameter's value is a number, don't expand the node.
       if (res == 2) {
         node->opts.flags |= QueryNode_Verbatim;
       }
+    }
+    if (illFormedUtf8) {
+      node->opts.flags |= QueryNode_IllFormedUtf8;
     }
   }
   return REDISMODULE_OK;

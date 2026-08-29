@@ -191,6 +191,14 @@ pub enum QueryNodeFlags {
     /// no explicit `AS` alias is provided for the vector score field, so
     /// the internally generated name is hidden from the user.
     HideVectorDistanceField = 0x40,
+    /// The bytes this node was parsed from were not well-formed UTF-8.
+    ///
+    /// Recorded at parse time because the raw bytes do not survive
+    /// normalization: unescaping and case folding reinterpret whatever they
+    /// cannot decode, so by the time the AST is walked the evidence is gone.
+    /// Whether the ill-formed input is an error is decided later, once the
+    /// node's field type is known.
+    IllFormedUtf8 = 0x80,
 }
 
 /// Phonetic matching mode for a query node.

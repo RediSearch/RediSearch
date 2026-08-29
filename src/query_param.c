@@ -12,6 +12,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "config.h"
 #include "query_error_ffi.h"
 #include "geo_index.h"
 #include "numeric_filter.h"
@@ -20,6 +21,7 @@
 #include "redismodule.h"
 #include "rlookup_ffi.h"
 #include "rmalloc.h"
+#include "string_utils_ffi.h"
 #include "util/strconv.h"
 
 QueryParam *NewQueryParam(QueryParamType type) {
@@ -179,13 +181,23 @@ static inline bool checkNumericAndGeoValueValid(const char *val, unsigned int di
   return (dialectVersion < 2 || *val);
 }
 
-int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status) {
+int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status,
+                       bool *illFormedUtf8) {
   if (param->type == PARAM_NONE)
     return 0;
   size_t val_len;
   const char *val = Param_DictGet(params, param->name, &val_len, status);
   if (!val)
     return -1;
+
+  // Only the types that carry text are checked. A `PARAM_VEC` value is a raw
+  // vector blob, which is never well-formed UTF-8 and must not be rejected.
+  if (illFormedUtf8 && RSGlobalConfig.enableNextMajorBreakingChanges &&
+      (param->type == PARAM_ANY || param->type == PARAM_TERM ||
+       param->type == PARAM_TERM_CASE || param->type == PARAM_WILDCARD) &&
+      !RS_IsValidUtf8(val, val_len)) {
+    *illFormedUtf8 = true;
+  }
 
   int val_is_numeric = 0;
 

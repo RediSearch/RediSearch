@@ -319,7 +319,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status) {
   for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-    int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status);
+    int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status, NULL);
     if (res < 0) {
       return REDISMODULE_ERR;
     }

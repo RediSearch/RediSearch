@@ -138,6 +138,18 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVers
 int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
+
+/**
+ * Reject a query whose TEXT terms were parsed from bytes that are not
+ * well-formed UTF-8. A no-op unless `search-_enable-next-major-breaking-changes` is on. Terms under a
+ * TAG field are exempt, since the setting governs TEXT values only.
+ *
+ * Called by `QAST_Parse` and `QAST_EvalParams`; the second call is what covers
+ * values that arrive through `PARAMS`.
+ *
+ * @return REDISMODULE_OK, or REDISMODULE_ERR with more detail in `status`
+ */
+int QAST_CheckUtf8(const QueryAST *q, QueryError *status);
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);

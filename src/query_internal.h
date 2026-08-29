@@ -60,6 +60,7 @@ QueryNode *NewQueryNode(QueryNodeType type);
 QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t n);
 
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
+QueryNode *NewTokenNode_Normalized(QueryParseCtx *q, const char *raw, size_t rawLen);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 

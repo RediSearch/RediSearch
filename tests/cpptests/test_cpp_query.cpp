@@ -1132,7 +1132,7 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   param.target = &resolved;
   param.target_len = &resolved_len;
 
-  int rc = QueryParam_Resolve(&param, params, 2, &err);
+  int rc = QueryParam_Resolve(&param, params, 2, &err, NULL);
   ASSERT_EQ(1, rc);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 

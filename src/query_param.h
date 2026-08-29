@@ -49,8 +49,13 @@ void QueryParam_Free(QueryParam *p);
  * Return 1 if value was resolved successfully
  * Return 2 if a parameter of type PARAM_TERM has a numeric value
  * Return -1 if param is missing or its kind is wrong
+ *
+ * `illFormedUtf8`, when not NULL, is set to true if the resolved value carries
+ * text that is not well-formed UTF-8. It is never cleared, so one variable can
+ * accumulate the verdict over a whole node's parameters.
  */
-int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status);
+int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status,
+                       bool *illFormedUtf8);
 
 /*
  * Set the `target` Param according to `source`

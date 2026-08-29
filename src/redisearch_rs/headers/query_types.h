@@ -36,6 +36,7 @@
 #define QueryNode_IsTag                      QueryNodeFlags_IsTag
 #define QueryNode_HybridVectorSubqueryNode   QueryNodeFlags_HybridVectorSubqueryNode
 #define QueryNode_HideVectorDistanceField    QueryNodeFlags_HideVectorDistanceField
+#define QueryNode_IllFormedUtf8              QueryNodeFlags_IllFormedUtf8
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
 #define QAST_SYNTAX_DEFAULT  0
@@ -155,6 +156,16 @@ enum QueryNodeFlags
    * the internally generated name is hidden from the user.
    */
   QueryNodeFlags_HideVectorDistanceField = 0x40,
+  /**
+   * The bytes this node was parsed from were not well-formed UTF-8.
+   *
+   * Recorded at parse time because the raw bytes do not survive
+   * normalization: unescaping and case folding reinterpret whatever they
+   * cannot decode, so by the time the AST is walked the evidence is gone.
+   * Whether the ill-formed input is an error is decided later, once the
+   * node's field type is known.
+   */
+  QueryNodeFlags_IllFormedUtf8 = 0x80,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeFlags;
