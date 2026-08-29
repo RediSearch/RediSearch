@@ -86,6 +86,39 @@ def testCursorsBGEdgeCasesSanity():
         resp = env.expect(query).noError().res
         resp = exhaustCursor(env, 'idx', resp)
 
+def testCursorFilterTotalDoesNotUnderflow():
+    """A FILTER may reject a row that a previous cursor read already counted.
+
+    `SORTBY ... MAX` buffers every row during the first read, then hands them to the FILTER
+    across later reads -- by which point a read without WITHCOUNT has reset the running total
+    to zero. Rejecting one of those rows used to decrement from zero: a failed assertion in a
+    debug build, and an unsigned wrap to ~4.29 billion reported as the result count in a
+    release one.
+
+    Only reachable when the writes below are not reindexed, which is what
+    PARTIAL_INDEXED_DOCS switches on -- the same reason this went unnoticed, since it
+    defaults to off. The reported total is asserted, not just the absence of a crash, so a
+    release build is covered too.
+    """
+    env = Env(moduleArgs='WORKERS 1 PARTIAL_INDEXED_DOCS 1')
+    if env.env == 'existing-env':
+        env.skip()
+    count = 100
+    loadDocs(env, count=count)
+    # `foo` is outside the schema, so with PARTIAL_INDEXED_DOCS these writes are not
+    # reindexed and the documents keep their doc-ids.
+    for x in range(0, count, 2):
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
+
+    query = f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)'
+    resp = env.expect(query).noError().res
+    # Every read, not just the first: the rows the sorter buffered are handed over later, so
+    # the underflow lands on a subsequent read. No read may report more rows than exist, and
+    # certainly not the wrapped count.
+    for results, _cursor in exhaustCursor(env, 'idx', resp):
+        env.assertLessEqual(results[0], count,
+                            message=f'reported total {results[0]} exceeds the {count} documents indexed')
+
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
     loadDocs(env, idx='idx1', text='hello')
