@@ -383,3 +383,94 @@ class TestIteratorsRevalidateTimeout:
             res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
             self.env.assertEqual(res['results'], [],
                                  message="the tree was freed, so no further results can arrive")
+
+
+def test_union_child_count_is_not_capped_at_16_bits(env):
+    """A union node with more children than a 16-bit count can hold serves the query normally.
+
+    `NOT` branches are used because they are never reduced away as empty, so the union keeps a
+    child per branch without the index needing a matching term for each one.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'h1', 't', 'hello')
+
+    # One past u16::MAX, the widest child count a 16-bit capacity can hold.
+    wide_query = '|'.join(f'-a{i}' for i in range(65536))
+
+    expected = env.cmd('FT.SEARCH', 'idx', '-a0', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', wide_query, 'NOCONTENT', 'DIALECT', 2), expected,
+                    message="a union of negations matches the same documents whatever its width")
+
+
+def test_tag_union_child_count_is_not_capped_at_16_bits(env):
+    """A TAG union node with more children than a 16-bit count can hold serves the query
+    normally.
+
+    Unlike the plain-text union test, the children here all come from values that actually
+    exist on the document, exercising the tag-node evaluation path in `Query_EvalTagNode`
+    rather than the generic union constructor.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+
+    values = [f'v{i}' for i in range(65536)]
+    conn.execute_command('HSET', 'h1', 't', ','.join(values))
+
+    wide_query = '@t:{' + '|'.join(values) + '}'
+
+    expected = env.cmd('FT.SEARCH', 'idx', '@t:{v0}', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', wide_query, 'NOCONTENT', 'DIALECT', 2), expected,
+                    message="a tag union matches the same documents whatever its width")
+
+
+def test_intersection_and_phrase_child_count_is_not_capped_at_16_bits(env):
+    """An intersection node, and a quoted-phrase node built on top of one, both serve a
+    query normally when they have more children than a 16-bit count can hold.
+
+    The same document backs both assertions: it contains every term in order, so the
+    implicit AND of all terms and the exact quoted phrase of all terms both have to match
+    it, and neither can short-circuit on a missing child.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    words = [f'w{i}' for i in range(65536)]
+    conn.execute_command('HSET', 'h1', 't', ' '.join(words))
+
+    expected = env.cmd('FT.SEARCH', 'idx', 'w0', 'NOCONTENT', 'DIALECT', 2)
+
+    and_query = ' '.join(words)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', and_query, 'NOCONTENT', 'DIALECT', 2), expected,
+                    message="an intersection of terms matches the same documents whatever its width")
+
+    phrase_query = '"' + ' '.join(words) + '"'
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', phrase_query, 'NOCONTENT', 'DIALECT', 2), expected,
+                    message="a quoted phrase matches the same documents whatever its width")
+
+
+def test_prefix_expansion_child_count_is_not_capped_at_16_bits():
+    """Prefix expansion, on both a TEXT and a TAG field, can build a union with more children
+    than a 16-bit count can hold when MAXPREFIXEXPANSIONS allows it.
+
+    Unlike the other wide-node tests, the width here comes from the number of indexed terms
+    a short prefix expands to, not from the query string itself.
+    """
+    env = Env(moduleArgs='MAXPREFIXEXPANSIONS 100000')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
+    text_terms = [f'va{i}' for i in range(65536)]
+    conn.execute_command('HSET', 'text:1', 't', ' '.join(text_terms))
+
+    expected_text = env.cmd('FT.SEARCH', 'idx_text', 'va0', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_text', 'va*', 'NOCONTENT', 'DIALECT', 2), expected_text,
+                    message="a TEXT prefix query matches the same documents whatever its expansion width")
+
+    env.expect('FT.CREATE', 'idx_tag', 'PREFIX', 1, 'tag:', 'SCHEMA', 't', 'TAG').ok()
+    tag_values = [f'va{i}' for i in range(65536)]
+    conn.execute_command('HSET', 'tag:1', 't', ','.join(tag_values))
+
+    expected_tag = env.cmd('FT.SEARCH', 'idx_tag', '@t:{va0}', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_tag', '@t:{va*}', 'NOCONTENT', 'DIALECT', 2), expected_tag,
+                    message="a TAG prefix query matches the same documents whatever its expansion width")
