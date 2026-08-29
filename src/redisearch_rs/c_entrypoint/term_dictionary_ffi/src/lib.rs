@@ -160,10 +160,10 @@ unsafe fn term_arg<'a>(ptr: *const c_char, len: usize, what: &'static str) -> &'
 /// codepoints can fall under the rune bound and still exceed this one.
 pub const MAX_TERM_BYTES: usize = 512;
 
-/// Codepoint bound the C terms trie applies, `TRIE_INITIAL_STRING_LEN`.
-/// Structural there — its iterator carries fixed `rune` and `stackNode`
-/// arrays of that size, so a longer key cannot be walked.
-pub const MAX_TERM_RUNES: usize = 256;
+/// Codepoint bound the C terms trie applies. Structural there — its
+/// iterator carries fixed `rune` and `stackNode` arrays of that size, so
+/// a longer key cannot be walked.
+pub const MAX_TERM_RUNES: usize = ffi::TRIE_INITIAL_STRING_LEN as usize;
 
 /// Borrow `(ptr, len)` as a term, or `None` for one the C terms trie
 /// would have rejected: empty, over [`MAX_TERM_BYTES`], or at
