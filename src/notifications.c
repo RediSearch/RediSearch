@@ -780,8 +780,14 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
   }
 }
 
+// Set when a subkey subscription attempt has been made and rejected. Stays false until an
+// attempt happens, so the probe below can still answer from capability alone before the first
+// index exists -- the subscription is lazy, and a caller asking early needs a useful answer.
+static bool RS_HashSubkeyRegistrationFailed = false;
+
 bool HashSubkeyNotificationsSupported(void) {
-  return RedisModule_SubscribeToKeyspaceEventsWithSubkeys != NULL;
+  return RedisModule_SubscribeToKeyspaceEventsWithSubkeys != NULL &&
+         !RS_HashSubkeyRegistrationFailed;
 }
 
 void Initialize_KeyspaceNotifications() {
@@ -829,6 +835,10 @@ void Initialize_KeyspaceNotifications() {
               KeySpaceNotificationWithSubkeysCallback) == REDISMODULE_OK) {
         notifyFlags &= ~REDISMODULE_NOTIFY_HASH;
       } else {
+        // Recorded, not just logged: the fallback is indistinguishable from an active subkey
+        // subscription otherwise, and `HashSubkeyNotificationsSupported` is what tests and
+        // operators ask.
+        RS_HashSubkeyRegistrationFailed = true;
         RedisModule_Log(RSDummyContext, "warning",
                         "Failed to subscribe to hash subkey keyspace notifications; falling "
                         "back to reindexing the whole document on every hash write.");

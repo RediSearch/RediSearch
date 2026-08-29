@@ -21,12 +21,14 @@ extern "C" {
 bool DiskConsistencyWindow_IsIndexWindowOpen(void);
 
 /**
- * Whether this server can tell us which fields a hash command touched, i.e. whether
- * `Initialize_KeyspaceNotifications` will take the subkey channel for hash events.
+ * Whether hash events are, or will be, served over the subkey channel — i.e. whether this
+ * server can tell us which fields a hash command touched.
  *
- * Reports the server capability rather than whether the subscription has happened,
- * because the subscription is lazy — it waits for the first index — while callers
- * need an answer that does not depend on when they ask.
+ * Before any subscription attempt this answers from the server capability alone, because the
+ * subscription is lazy — it waits for the first index — and a caller asking earlier still
+ * needs a useful answer. It turns false once an attempt has been made and rejected, since the
+ * module then falls back to the plain channel and reindexes whole documents; reporting the
+ * capability there would make that fallback indistinguishable from a working subscription.
  *
  * Against a Redis predating subkey notifications the module degrades silently to
  * reindexing the whole document, so this is what distinguishes "the change set said
