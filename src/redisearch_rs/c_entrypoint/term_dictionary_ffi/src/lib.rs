@@ -155,9 +155,10 @@ unsafe fn term_arg<'a>(ptr: *const c_char, len: usize, what: &'static str) -> &'
 }
 
 /// Byte bound the C terms trie's `Trie_InsertStringBuffer` applies.
-/// Coarser than [`MAX_TERM_RUNES`] rather than implied by it: a term of
-/// multi-byte codepoints can fall under the rune bound and still exceed
-/// this one.
+/// A separate gate from [`MAX_TERM_RUNES`], not a restatement of it:
+/// neither bound subsumes the other, since a term of multi-byte
+/// codepoints can fall under the rune bound and still exceed this one,
+/// while an ASCII term hits the rune bound first.
 pub const MAX_TERM_BYTES: usize = ffi::TRIE_INITIAL_STRING_LEN as usize * size_of::<ffi::rune>();
 
 /// Codepoint bound the C terms trie applies. Structural there — its
