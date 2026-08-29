@@ -110,14 +110,27 @@ def testCursorFilterTotalDoesNotUnderflow():
     for x in range(0, count, 2):
         env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
 
-    query = f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)'
-    resp = env.expect(query).noError().res
+    sortby_filter = f'SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)'
+
     # Every read, not just the first: the rows the sorter buffered are handed over later, so
-    # the underflow lands on a subsequent read. No read may report more rows than exist, and
-    # certainly not the wrapped count.
+    # the underflow lands on a subsequent read. No read may claim more rows than exist -- the
+    # wrap presented as a count of ~4.29 billion.
+    resp = env.expect(f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 {sortby_filter}').noError().res
     for results, _cursor in exhaustCursor(env, 'idx', resp):
         env.assertLessEqual(results[0], count,
                             message=f'reported total {results[0]} exceeds the {count} documents indexed')
+
+    # Without WITHCOUNT the total is per-read and resets, so reads after the first declare 0
+    # while still returning buffered rows. That predates this fix and holds for a buffering
+    # SORTBY with no FILTER at all, so it is not asserted here. WITHCOUNT is the mode that
+    # promises a total across reads, and it is where the accounting has to be right: the
+    # filter removes the half of the documents without `foo`, so the total must converge on
+    # exactly that half and never dip below it.
+    resp = env.expect(f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby_filter}').noError().res
+    totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertLessEqual(max(totals), count, message=f'totals {totals} exceed the {count} indexed')
+    env.assertEqual(totals[-1], count // 2,
+                    message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
 
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
@@ -1145,3 +1158,4 @@ def testCursorReadsDocumentsWrittenBetweenReads(env):
     # already indexed when it started must all come back.
     env.assertEqual(sorted(f'doc:{i}' for i in range(seeded)),
                     sorted(k for k in keys if not k.startswith('doc:new')))
+
