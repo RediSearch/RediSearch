@@ -459,6 +459,36 @@ def testHDel(env):
     env.expect('HDEL doc1 test2').equal(1)
     env.expect('FT.SEARCH idx bar').equal([0])
 
+def testPartialIndexedDocsIsANoOp(env):
+    """`PARTIAL_INDEXED_DOCS` is accepted and changes nothing.
+
+    It used to switch on the command filter that reported which fields a write touched. That
+    now comes from subkey notifications and needs no configuration, so the config survives
+    only because removing a registered one stops the server from starting.
+
+    Asserting it is inert rather than that it is gone: the same doc-id sequence as
+    `testPartial`, which runs the identical writes without the argument.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
+    conn = getConnectionByEnv(env)
+
+    env.expect(config_cmd(), 'get', 'PARTIAL_INDEXED_DOCS').equal([['PARTIAL_INDEXED_DOCS', 'true']])
+
+    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    conn.execute_command('HSET', 'doc1', 'test', 'foo')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+
+    # Not in the schema: skipped, so the doc-id stands -- with or without the argument.
+    conn.execute_command('HSET', 'doc1', 'testtest', 'foo')
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                    message='the deprecated argument must not re-enable anything')
+
+    # In the schema: reindexed either way.
+    conn.execute_command('HSET', 'doc1', 'test', 'bar')
+    env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first)
+
 @skip(cluster=True)
 def testRestore(env):
     if env.env == 'existing-env':

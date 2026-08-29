@@ -36,6 +36,18 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
 
+    def testHashSubkeyNotifications(self):
+        """The probe answers whether this server can name the fields a hash command wrote.
+
+        Which decides whether a write reaching no indexed field can skip the reindex, so a
+        test asserting change-set-driven behavior has to be able to ask. Only the shape is
+        checked here: the answer depends on the Redis under test, and pinning either value
+        would make this fail on the other.
+        """
+        res = self.env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+        self.env.assertIn(res, (0, 1, True, False),
+                          message=f'expected a boolean, got {res!r}')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
