@@ -138,6 +138,51 @@ def testCursorFilterTotalDoesNotUnderflow():
     env.assertEqual(totals[-1], count // 2,
                     message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
 
+@skip(cluster=True)
+def testCursorTotalIsPerReadWithoutWithcount():
+    """Pin how a cursor read reports its total, so any change to it is a deliberate one.
+
+    Without WITHCOUNT the total is per-read: `finishSendChunk` zeroes it when a read finishes,
+    so a buffering `SORTBY ... MAX` hands rows to later reads that return them while declaring
+    a total of 0. Raised on #11230 against the FILTER clamp, but the clamp is not its cause --
+    the first case here has no FILTER in the pipeline at all and behaves identically. WITHCOUNT
+    is the mode that carries a total across reads, and the second case pins that it stays
+    correct.
+
+    Nobody has decided whether the zero totals should change. This records what they do today,
+    so a change shows up as a failing test rather than passing unnoticed.
+
+    Standalone only: the totals are one shard's, and a cluster spreads the documents.
+    """
+    env = Env(moduleArgs='WORKERS 1')
+    count = 100
+    loadDocs(env, count=count)
+    # Half the documents get a field outside the schema, for the FILTER below to reject on.
+    for x in range(0, count, 2):
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
+
+    sortby = f'SORTBY 1 @f1 MAX {count}'
+
+    # No FILTER: the zero totals are already here, so the clamp cannot be producing them.
+    resp = env.cmd(*f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 {sortby} LOAD 1 irrelevant'.split())
+    reads = [(results[0], len(results) - 1) for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertEqual(reads[0][0], count,
+                    message=f'first read should declare every match, got {reads}')
+    later = reads[1:]
+    env.assertTrue(all(total == 0 for total, _rows in later),
+                   message=f'reads after the first declare a per-read total of 0, got {reads}')
+    env.assertTrue(any(rows > 0 for _total, rows in later),
+                   message=f'and they do return rows while declaring it, got {reads}')
+
+    # WITHCOUNT keeps the total across reads, and the FILTER brings it down to the documents
+    # it keeps -- the half carrying `foo`.
+    resp = env.cmd(
+        *f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby} LOAD 1 foo FILTER exists(@foo)'.split())
+    totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertEqual(totals[0], count, message=f'totals {totals}')
+    env.assertEqual(totals[-1], count // 2,
+                    message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
+
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
     loadDocs(env, idx='idx1', text='hello')
