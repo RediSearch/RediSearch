@@ -250,8 +250,13 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
   jobCtx->numFields = count > 0 ? (size_t)count : 0;
   jobCtx->fields = jobCtx->numFields ? rm_malloc(jobCtx->numFields * sizeof(*jobCtx->fields)) : NULL;
   for (size_t i = 0; i < jobCtx->numFields; ++i) {
-    RedisModule_RetainString(RSDummyContext, subkeys[i]);
-    jobCtx->fields[i] = subkeys[i];
+    // `RedisModule_RetainString` is not usable on a subkey. The API documents these
+    // objects as possibly stack-allocated, and lazy hash-field expiry really does hand
+    // over a stack `robj` carrying `OBJ_STATIC_REFCOUNT`, on which `incrRefCount` panics --
+    // so retaining one crashes the server on the next read of an expired field.
+    // `RedisModule_HoldString` returns a string that is safe to keep, copying when it has
+    // to, which is why the returned pointer is stored rather than `subkeys[i]`.
+    jobCtx->fields[i] = RedisModule_HoldString(RSDummyContext, subkeys[i]);
   }
 
   int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandleSubkeyPerKeyJobFunc, key, jobCtx,
