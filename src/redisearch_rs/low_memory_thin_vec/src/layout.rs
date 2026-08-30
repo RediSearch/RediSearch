@@ -59,25 +59,15 @@ mod tests {
 
     #[test]
     fn test_header_field_padding() {
-        // Zero header padding needed if storing `u8`s,
-        // since the whole allocation is aligned to 2,
-        // the alignment of the header.
+        // The header is 8 bytes long and aligned to 4, so no padding is needed for
+        // any element alignment up to and including 8.
         assert_eq!(header_field_padding::<u8>(), 0);
-
-        // With `u16` elements, both elements and header have the
-        // same alignment, so no padding is needed.
         assert_eq!(header_field_padding::<u16>(), 0);
-
-        // With `u32` elements, the whole allocation is aligned to 4,
-        // but the header is 4 bytes long, so no padding is needed.
         assert_eq!(header_field_padding::<u32>(), 0);
-
-        // With `u64` elements, the whole allocation is aligned to 8,
-        // so the header needs 4 bytes of padding to be aligned.
-        assert_eq!(header_field_padding::<u64>(), 4);
+        assert_eq!(header_field_padding::<u64>(), 0);
 
         // With `u128` elements, the whole allocation is aligned to 16,
-        // so the header needs 12 bytes of padding to be aligned.
-        assert_eq!(header_field_padding::<u128>(), 12);
+        // so the header needs 8 bytes of padding to be aligned.
+        assert_eq!(header_field_padding::<u128>(), 8);
     }
 }

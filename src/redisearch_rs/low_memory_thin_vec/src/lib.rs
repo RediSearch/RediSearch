@@ -61,7 +61,7 @@
 //! - All Gecko-specific code has been removed
 //! - `ThinVec::drain`, `ThinVec::append` and `ThinVec::splice` have been removed, since they aren't
 //!   needed for our purposes and they contribute a significant amount of unsafe-related complexity.
-//! - Maximum capacity is limited to `u16::MAX` elements for non-zero-sized types.
+//! - Maximum capacity is limited to `u32::MAX` elements for non-zero-sized types.
 //!
 //! ## License
 //!
@@ -2066,7 +2066,7 @@ mod tests {
         }
 
         const HEADER_SIZE: usize = core::mem::size_of::<Header>();
-        assert_eq!(2 * core::mem::size_of::<u16>(), HEADER_SIZE);
+        assert_eq!(2 * core::mem::size_of::<u32>(), HEADER_SIZE);
 
         #[repr(C, align(128))]
         struct Funky<T>(T);
