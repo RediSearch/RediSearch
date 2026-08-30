@@ -373,7 +373,7 @@ pub enum RSAggregateResult<'index> {
         /// any aggregate results so `'refs == 'static` when decoding. Because of the requirement
         /// above, this means `'index: 'static` which is just incorrect since the index data will
         /// never be `'static` when decoding.
-        records: LowMemoryThinVec<&'index RSIndexResult<'index>>,
+        records: LowMemoryThinVec<&'index RSIndexResult<'index>, u32>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -384,7 +384,7 @@ pub enum RSAggregateResult<'index> {
         /// The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
         /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-        records: LowMemoryThinVec<Box<RSIndexResult<'static>>>,
+        records: LowMemoryThinVec<Box<RSIndexResult<'static>>, u32>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
