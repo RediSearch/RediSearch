@@ -31,15 +31,15 @@ typedef struct RLookupKey RLookupKey;
  */
 typedef struct RSOffsetVector RSOffsetSlice;
 
-#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED
+#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_Box_RawIndexResult_Active__u16;
-#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+typedef struct ThinVec_Box_RawIndexResult_Active__u32 {
+  struct Header_u32 *ptr;
+} ThinVec_Box_RawIndexResult_Active__u32;
+#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED */
 
 #ifndef THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
 #define THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
@@ -70,15 +70,15 @@ typedef struct ThinVec_RawMetricEntry_Active__u64 RawMetricsVec_Active;
  */
 typedef RawMetricsVec_Active MetricsVec;
 
-#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED
+#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
-#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u32 {
+  struct Header_u32 *ptr;
+} ThinVec_SharedPtr_Active__RawIndexResult_Active__u32;
+#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED */
 
 #ifndef SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
 #define SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
@@ -341,27 +341,27 @@ typedef struct RawMetricsSlice_Active {
  */
 typedef struct RawMetricsSlice_Active MetricsSlice;
 
-#ifndef SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
-#define SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+#ifndef MEDIUMTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+#define MEDIUMTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
 /**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
  *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
  */
-typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexResult_Active;
-#endif /* SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
+typedef struct ThinVec_Box_RawIndexResult_Active__u32 MediumThinVec_Box_RawIndexResult_Active;
+#endif /* MEDIUMTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
 
-#ifndef SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
-#define SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+#ifndef MEDIUMTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+#define MEDIUMTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
 /**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
  *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
  */
-typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 SmallThinVec_SharedPtr_Active__RawIndexResult_Active;
-#endif /* SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u32 MediumThinVec_SharedPtr_Active__RawIndexResult_Active;
+#endif /* MEDIUMTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
 
 #ifndef BITFLAGS_RSRESULTKIND__U8_DEFINED
 #define BITFLAGS_RSRESULTKIND__U8_DEFINED
@@ -519,7 +519,7 @@ typedef struct RawAggregateResult_Active_Borrowed_Body {
    * equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
    * an inert raw pointer that survives lock release/reacquire cycles.
    */
-  SmallThinVec_SharedPtr_Active__RawIndexResult_Active records;
+  MediumThinVec_SharedPtr_Active__RawIndexResult_Active records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -535,7 +535,7 @@ typedef struct RawAggregateResult_Active_Owned_Body {
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  SmallThinVec_Box_RawIndexResult_Active records;
+  MediumThinVec_Box_RawIndexResult_Active records;
   /**
    * A map of the aggregate kind of the underlying records
    */
