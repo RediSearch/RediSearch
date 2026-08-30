@@ -187,6 +187,44 @@ def testCursorTotalIsPerReadWithoutWithcount():
     env.assertEqual(totals[-1], count // 2,
                     message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
 
+@skip(cluster=True)
+def testCursorTotalDoesNotUnderflowOnDroppedDocuments():
+    """`QITR_ReportedTotal` must not wrap when the loader drops buffered rows.
+
+    Same shape as the FILTER underflow, one function over and with no FILTER involved. A read
+    without WITHCOUNT resets both counters when it finishes, while `SORTBY ... MAX` hands rows
+    counted during the first read to the loader during later ones. A document that disappeared
+    in between is counted in `skippedResults` for a read whose `totalResults` is zero, so
+    `totalResults - skippedResults` underflowed: five such rows reported 4294967291, and an
+    assert-enabled build aborted on the `skippedResults <= totalResults` invariant instead.
+
+    Reported by Ofir on #11262. Note the clamp in `rpevalNext_filter` alone moves this rather
+    than fixing it: with both a filter and dropped documents, the total pins at zero and the
+    subtraction still wraps.
+
+    Standalone only: the totals are one shard's.
+    """
+    env = Env(moduleArgs='WORKERS 1')
+    count = 100
+    loadDocs(env, count=count)
+
+    resp = env.cmd(*f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo'.split())
+    results, cid = resp
+    totals = [results[0]]
+    env.assertTrue(cid, message='need an open cursor for the buffered rows to be read later')
+
+    # The sorter has already buffered every row. Removing the documents now means the loader
+    # meets rows whose documents are gone, on reads where the total has been reset.
+    for i in range(0, count, 2):
+        env.cmd('DEL', f'idx_doc{i}')
+
+    while cid:
+        results, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        totals.append(results[0])
+
+    env.assertLessEqual(max(totals), count,
+                        message=f'a read reported more rows than exist -- wrapped total: {totals}')
+
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
     loadDocs(env, idx='idx1', text='hello')
