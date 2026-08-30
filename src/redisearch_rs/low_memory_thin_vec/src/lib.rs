@@ -407,7 +407,7 @@ impl<T> LowMemoryThinVec<T> {
     /// use low_memory_thin_vec::LowMemoryThinVec;
     ///
     /// let vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(5);
-    /// assert_eq!(vec.mem_usage(), 24);
+    /// assert_eq!(vec.mem_usage(), 28);
     ///
     /// assert_eq!(LowMemoryThinVec::<u64>::new().mem_usage(), 0);
     /// ```
