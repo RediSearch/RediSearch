@@ -85,11 +85,19 @@ typedef struct NumericFilter {
 } NumericFilter;
 
 /**
+ * The header of a `LowMemoryThinVec`.
+ */
+typedef struct Header_u32 {
+  uint32_t len;
+  uint32_t cap;
+} Header_u32;
+
+/**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecRSIndexResult {
-  Header_u16 *ptr;
-} LowMemoryThinVecRSIndexResult;
+typedef struct LowMemoryThinVec______RSIndexResult__u32 {
+  struct Header_u32 *ptr;
+} LowMemoryThinVec______RSIndexResult__u32;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -211,9 +219,9 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecRSIndexResultOwned {
-  Header_u16 *ptr;
-} LowMemoryThinVecRSIndexResultOwned;
+typedef struct LowMemoryThinVec_____RSIndexResult__u32 {
+  struct Header_u32 *ptr;
+} LowMemoryThinVec_____RSIndexResult__u32;
 
 /**
  * Represents an aggregate array of values in an index record.
@@ -252,7 +260,7 @@ typedef struct RSAggregateResult_Borrowed_Body {
    * above, this means `'index: 'static` which is just incorrect since the index data will
    * never be `'static` when decoding.
    */
-  struct LowMemoryThinVecRSIndexResult records;
+  struct LowMemoryThinVec______RSIndexResult__u32 records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -268,7 +276,7 @@ typedef struct RSAggregateResult_Owned_Body {
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  struct LowMemoryThinVecRSIndexResultOwned records;
+  struct LowMemoryThinVec_____RSIndexResult__u32 records;
   /**
    * A map of the aggregate kind of the underlying records
    */

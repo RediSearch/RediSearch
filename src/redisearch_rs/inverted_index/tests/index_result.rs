@@ -257,3 +257,22 @@ fn to_owned_a_term_index_result() {
         "cloned offsets should not have changed"
     );
 }
+
+#[test]
+fn aggregate_child_count_is_not_capped_at_16_bits() {
+    // One past `u16::MAX`, the widest child count a 16-bit capacity can hold.
+    const CHILD_COUNT: usize = 65536;
+
+    let child = RSIndexResult::virt().doc_id(1);
+    let mut agg = RSAggregateResult::with_capacity(CHILD_COUNT);
+    for _ in 0..CHILD_COUNT {
+        agg.push_borrowed(&child);
+    }
+
+    assert_eq!(agg.len(), CHILD_COUNT);
+    assert_eq!(
+        agg.get(CHILD_COUNT - 1),
+        Some(&RSIndexResult::virt().doc_id(1)),
+        "the last child is reachable"
+    );
+}
