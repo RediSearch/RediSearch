@@ -76,6 +76,87 @@ def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
     env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
 
 @skip(cluster=True, redis_less_than='8.0')
+def test_lazily_expired_field_notification(env: Env):
+    """Reading a field after its TTL lapses must not crash the server.
+
+    Lazy hash-field expiry hands the module a subkey that is a stack `robj` carrying
+    `OBJ_STATIC_REFCOUNT` (`t_hash.c`), unlike `HSET`/`HDEL`, which pass `c->argv[...]`
+    pointers. Keeping such a string with `RedisModule_RetainString` reaches `incrRefCount`,
+    which panics on a static refcount, so the subkey notification handler has to hold it with
+    `RedisModule_HoldString` and keep the pointer that returns.
+
+    Active expiry takes a different route again -- `createStringObject`, refcount 1 -- so it
+    would not have caught this. The read below is what forces the lazy path.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+    # The read has to reach the field before Redis's active-expiry cycle does, because active
+    # expiry allocates the subkey with `createStringObject` and is harmless. Hence a 1ms TTL
+    # and a delay just long enough to lapse it, over several documents so that a cycle landing
+    # in the middle cannot make the whole test miss.
+    docs = [f'doc:{i}' for i in range(20)]
+    for key in docs:
+        conn.execute_command('HSET', key, 't', 'hello', 'other', 'world')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LIMIT', '0', '0').equal([len(docs)])
+
+    for key in docs:
+        conn.execute_command('HPEXPIRE', key, '1', 'FIELDS', '1', 't')
+    time.sleep(0.005)
+
+    # Each read drives lazy expiry, which emits the hexpired notification carrying the
+    # stack-allocated subkey.
+    for key in docs:
+        env.assertEqual(conn.execute_command('HGET', key, 't'), None)
+
+    # Still answering, i.e. still alive -- the assertion this test exists for.
+    env.expect('PING').true()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_unindexed_field_expiry_leaves_the_document(env: Env):
+    """A field the schema does not read expiring must not disturb the document.
+
+    Pins that the hexpired event carries a usable change set rather than merely not
+    crashing: `other` is outside the schema, so the document keeps its doc-id and stays
+    queryable on `t`.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'other')
+    time.sleep(0.05)
+    env.assertEqual(conn.execute_command('HGET', 'doc:1', 'other'), None)
+
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                    message='an unindexed field expiring should not reindex the document')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_hdel_of_unindexed_field_is_skipped(env: Env):
+    """HDEL shares the reindex path with HSET but removes rather than writes.
+
+    Deleting a field outside the schema changes nothing the index holds, so the document
+    keeps its doc-id; deleting an indexed one must reindex.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+
+    conn.execute_command('HDEL', 'doc:1', 'other')
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                    message='deleting an unindexed field should not reindex')
+
+    conn.execute_command('HDEL', 'doc:1', 't')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True, redis_less_than='8.0')
 def test_doc_expiration_preserves_field_expiration(env: Env):
     # Regression: PEXPIRE/PERSIST on an indexed hash that also has HEXPIRE-
     # managed field TTLs must leave the per-field TTL state intact.
