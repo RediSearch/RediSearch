@@ -120,7 +120,11 @@ runs:
         if [[ "$COVERAGE" == "true" ]]; then
           EXTRA+=("REDIS_CFLAGS=-DCOVERAGE_TEST")
         fi
-        make PREFIX="$PREFIX" install "${EXTRA[@]}" SANITIZER="$SAN"
+        # `make install` is an alias for `deploy` with SKIP_BUILD=1 (install
+        # only what's already built); on this fresh, cache-miss checkout
+        # nothing has been built yet, so it must go through `deploy`, which
+        # builds first.
+        make PREFIX="$PREFIX" deploy "${EXTRA[@]}" SANITIZER="$SAN"
 
     - name: Verify redis-server runs
       # Guards both ways into this point: a fresh build and a restored cache
