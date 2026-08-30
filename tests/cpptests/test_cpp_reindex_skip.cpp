@@ -54,11 +54,16 @@ protected:
   }
 
   // `extraArgs` go between the index name and SCHEMA, for rule options such as FILTER or
-  // SCORE_FIELD. The schema is always a single TEXT field named `title`.
-  void createIndex(const std::vector<std::string> &extraArgs = {}) {
+  // SCORE_FIELD. The schema is a single TEXT field fed from the hash field `title`, exposed
+  // under `alias` when one is given -- `SCHEMA title AS <alias> TEXT`.
+  void createIndex(const std::vector<std::string> &extraArgs = {}, const char *alias = nullptr) {
     std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH"};
     args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    args.insert(args.end(), {"SCHEMA", "title", "TEXT"});
+    args.insert(args.end(), {"SCHEMA", "title"});
+    if (alias) {
+      args.insert(args.end(), {"AS", alias});
+    }
+    args.push_back("TEXT");
 
     QueryError err = QueryError_Default();
     RMCK::ArgvList argv(ctx, args);
@@ -116,6 +121,40 @@ TEST_F(ReindexSkipTest, schemaFieldChangeReindexes) {
   RMCK::hset(ctx, "doc:1", "title", "goodbye");
   notifyUpdate("doc:1", {"title"});
   EXPECT_GT(docIdOf("doc:1"), first);
+}
+
+// A change set names the hash field the command wrote, which is the field's *path*. Comparing
+// it against `fieldName` -- the `AS` alias -- finds no match on an aliased schema, so the write
+// looks like it touched nothing indexed and the reindex is skipped, leaving the old value
+// indexed and queryable. Nothing else in this file uses an alias, so without this the
+// comparison could be reverted with every test still passing.
+TEST_F(ReindexSkipTest, aliasedSchemaFieldChangeReindexes) {
+  createIndex({}, "renamed");
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  // The command writes `title`; the schema calls the field `renamed`.
+  RMCK::hset(ctx, "doc:1", "title", "goodbye");
+  notifyUpdate("doc:1", {"title"});
+  EXPECT_GT(docIdOf("doc:1"), first)
+      << "a write to an aliased field's path must still reindex the document";
+}
+
+// The alias must not become a way to skip either: `renamed` is what the schema calls the
+// field, but no hash field is named that, so a change set naming it touches nothing.
+TEST_F(ReindexSkipTest, aliasNameInChangeSetIsNotTheFieldPath) {
+  createIndex({}, "renamed");
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "renamed", "goodbye");
+  notifyUpdate("doc:1", {"renamed"});
+  EXPECT_EQ(docIdOf("doc:1"), first)
+      << "the alias is not a hash field, so writing it changes nothing indexed";
 }
 
 // A document the index does not hold yet has to be indexed however little the write touched:

@@ -508,6 +508,37 @@ def testPartialIndexedDocsIsANoOp(env):
                       message='a write to a schema field must still reindex')
 
 @skip(cluster=True)
+def testAliasedFieldWriteIsQueryable(env):
+    """A write to an aliased field's hash path must reach the index, not just the doc table.
+
+    A change set names the hash field the command wrote -- the field's path. The schema knows
+    the field by its `AS` alias, so matching the alias instead finds nothing, the write looks
+    like it touched nothing indexed, and the reindex is skipped. The document then answers
+    queries with its previous value.
+
+    The doc-id is checked because that is what the skip decision moves, and the search result
+    because that is what a user sees. Neither alone says enough: a new doc-id with stale terms
+    would pass the first, and the second could be satisfied by a reindex that happened for an
+    unrelated reason.
+
+    Standalone only, as with the other `DOCIDTOID` assertions in this file.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'AS', 'renamed', 'TEXT').ok()
+
+    conn.execute_command('HSET', 'doc1', 'title', 'hello')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+    env.expect('FT.SEARCH', 'idx', '@renamed:hello', 'NOCONTENT').equal([1, 'doc1'])
+
+    # The command writes `title`; the schema calls the field `renamed`.
+    conn.execute_command('HSET', 'doc1', 'title', 'goodbye')
+
+    env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                      message='writing an aliased field must reindex the document')
+    env.expect('FT.SEARCH', 'idx', '@renamed:goodbye', 'NOCONTENT').equal([1, 'doc1'])
+    env.expect('FT.SEARCH', 'idx', '@renamed:hello', 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
 def testRestore(env):
     if env.env == 'existing-env':
         env.skip()
