@@ -136,11 +136,9 @@ def svs_backend_marked_deleted(env, index_name=DEFAULT_INDEX_NAME, field_name=DE
     return get_tiered_backend_debug_info(env, index_name, field_name)['NUMBER_OF_MARKED_DELETED']
 
 def assert_transfer_pending(env, message='', index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
-    """A transfer is scheduled and has not started yet. Call it with the workers paused - that is
-    what makes it deterministic. BACKGROUND_INDEXING alone would not do, since it conflates
-    "queued", "running" and "the job mutex happened to be held", hence the queued-job check
-    beside it; that count is not transfer specific, so this assumes a single index and no fork GC.
-    """
+    """A transfer is scheduled but has not started - deterministic only with the workers paused.
+    BACKGROUND_INDEXING conflates queued with running, hence the queued-job count beside it,
+    which in turn assumes a single index and no fork GC."""
     info = get_tiered_debug_info(env, index_name, field_name)
     stats = getWorkersThpoolStats(env)
     env.assertEqual(info['BACKGROUND_INDEXING'], 1,
@@ -149,51 +147,33 @@ def assert_transfer_pending(env, message='', index_name=DEFAULT_INDEX_NAME, fiel
                       message=f"{message}: no queued job to be raced with: {stats}")
 
 def assert_transfer_did_not_complete(env, jobs_done_before, message=''):
-    """No background job finished since `jobs_done_before` was taken, i.e. the transfer running
-    then was still running throughout the operations in between - the window its deletions
-    journal exists for. Without this, deletions that merely followed a finished transfer would
-    take the ordinary backend delete path and satisfy the same assertions.
-
-    Only holds where those operations do not contend with the transfer for the main index lock: a
-    training transfer holds it shared, so deletions proceed alongside it, while an update transfer
-    holds it exclusively, so they block and complete as it finishes. BACKGROUND_INDEXING would not
-    do instead - a transfer clears its scheduled flag when it starts, and writes made while its
-    batch is still in the frontend schedule the *next* transfer."""
+    """The transfer that was running when `jobs_done_before` was taken still is, so what happened
+    since raced it rather than followed it. Holds only while nothing since contended for the main
+    index lock: a training transfer holds it shared, an update transfer exclusively."""
     env.assertEqual(workers_jobs_done(env), jobs_done_before,
                     message=f"{message}: a background job completed while the deletions were "
                             f"issued, so they did not all race a running transfer")
 
 def assert_deletions_reached_the_backend(env, marked_deleted_before, message='',
                                          index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
-    """At least one doc deleted while the transfer was running had already been picked up by it,
-    so it reached the backend index and had to be deleted from there - which shows up as newly
-    marked-deleted entries. This is the witness that the deletions really did interleave with the
-    transfer: had they all landed before it snapshotted the frontend, the docs would never have
-    reached the backend and every other assertion would still pass, silently losing the coverage.
-
-    Stays specific only as long as no doc is overwritten around a transfer: re-adding a label the
-    backend already holds also marks the old entry deleted."""
+    """The transfer had already moved a doc to the backend when it was deleted, so the deletions
+    really did interleave with it. Without this witness a lost race would pass every other
+    assertion and lose the coverage silently. Specific only while no doc is overwritten around a
+    transfer, since re-adding a label the backend holds also marks the old entry deleted."""
     env.assertGreater(svs_backend_marked_deleted(env, index_name, field_name), marked_deleted_before,
                       message=f"{message}: no deleted doc reached the backend index, so the "
                               f"deletions did not interleave with the transfer")
 
 def assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=1, message='',
                             index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
-    """Assert that a single shard's tiered index holds exactly the live docs' labels, and
-    `vectors_per_doc` live vectors for each - deleting a doc deletes all of its vectors.
-
-    Call only after `wait_for_background_indexing` and with periodic fork GC disabled: nothing may
-    mutate the index while this runs, since the tiered info and its two sub-index infos are read
-    under separate locks. The frontend is not expected to be empty - a remainder below the
-    transfer threshold legitimately stays there.
-
-    The label count comes from the tiered index, which reports the *deduplicated* union of both
-    sub-indexes' labels; summing their own counts would double count a multi-value doc whose
-    vectors a transfer split between them."""
+    """The tiered index holds exactly the live docs' labels and all of their vectors. Call once
+    settled and with periodic fork GC off - the tiered info and its two sub-index infos are read
+    under separate locks. INDEX_LABEL_COUNT is the deduplicated union of both sub-indexes;
+    summing their own counts would double count a doc whose vectors a transfer split between
+    them."""
     info = get_tiered_debug_info(env, index_name, field_name)
     frontend, backend = to_dict(info['FRONTEND_INDEX']), to_dict(info['BACKEND_INDEX'])
-    # The backend's size and marked-deleted count come from one read, so their difference is
-    # consistent even if a GC did slip in.
+    # One read, so the difference is consistent even if a GC did slip in.
     live_vectors = frontend['INDEX_SIZE'] + backend['INDEX_SIZE'] - backend['NUMBER_OF_MARKED_DELETED']
     ctx = (f"{message} | labels={info['INDEX_LABEL_COUNT']} live_vectors={live_vectors} "
            f"frontend={frontend['INDEX_SIZE']} backend={backend['INDEX_SIZE']} "
@@ -203,31 +183,20 @@ def assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=1, message=
     env.assertEqual(live_vectors, vectors_per_doc * expected_live_docs,
                     message=f"live vectors != vectors_per_doc * live docs: {ctx}")
 
-def knn_search(env, query_vec, k, index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
-    return env.execute_command('FT.SEARCH', index_name, f'*=>[KNN {k} @{field_name} $vec]',
-                               'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT', 'LIMIT', 0, k)
-
-def assert_doc_indexed_under_own_vector(env, k, query_vec, expected_doc, message='', **kwargs):
-    """`expected_doc` is returned for a KNN query with its own vector, i.e. it is still indexed
-    under its own label. Containment in the top `k` rather than an exact top-1, so as not to also
-    bet on the recall of a compressed, approximate backend."""
-    res = knn_search(env, query_vec, k, **kwargs)
-    env.assertContains(expected_doc, res,
-                       message=f"{message}: {expected_doc} was not returned for its own vector: {res}")
-
-def assert_deleted_docs_not_returned(env, k, query_vec, deleted_docs, message='', **kwargs):
-    """A KNN query with a deleted doc's own vector - so that an index entry left behind for it
-    ranks first - returns a full page of `k` live docs, none of them deleted. The result count is
-    the end-to-end symptom of a leftover entry: the pipeline drops results whose doc is gone from
-    the doc table, so such an entry costs a result slot rather than showing up by name.
-
-    Weaker than `assert_svs_tiered_state`, since an approximate search need not rank the leftover
-    into the page at all, and valid only once the index has settled: while a transfer is in flight
-    a doc deleted from its batch is legitimately re-added to the backend, and only removed when
-    the transfer applies its deletions journal."""
-    res = knn_search(env, query_vec, k, **kwargs)
+def assert_knn_page_live(env, k, query_vec, deleted_docs, message='',
+                         index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
+    """A KNN query returns a full page of `k` distinct live docs. Which docs is deliberately not
+    asserted: the graph is built concurrently, and a node can be unreachable from the entry point
+    however wide the search window (MOD-18162). The count is what detects a leftover entry for a
+    deleted doc - the pipeline drops results whose doc is gone from the doc table, so such an
+    entry costs a result slot instead of showing up by name. Weaker than the label accounting in
+    `assert_svs_tiered_state`, since an approximate search need not reach the leftover at all."""
+    res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN {k} @{field_name} $vec]',
+                              'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT', 'LIMIT', 0, k)
+    returned = res[1:]
     env.assertEqual(res[0], k,
                     message=f"{message}: got {res[0]} of {k} results, so a deleted doc is "
                             f"probably still in the vector index, taking up a result slot: {res}")
-    env.assertEqual(deleted_docs.intersection(res[1:]), set(),
+    env.assertEqual(len(set(returned)), len(returned), message=f"{message}: duplicate docs: {res}")
+    env.assertEqual(deleted_docs.intersection(returned), set(),
                     message=f"{message}: deleted docs were returned: {res}")
