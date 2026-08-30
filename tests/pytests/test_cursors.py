@@ -179,7 +179,11 @@ def testCursorTotalIsPerReadWithoutWithcount():
     resp = env.cmd(
         *f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby} LOAD 1 foo FILTER exists(@foo)'.split())
     totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
-    env.assertEqual(totals[0], count, message=f'totals {totals}')
+    # Only the endpoint and the bound are invariants. How the total gets there depends on
+    # where the filter's rejections land across the reads, which moves with the doc-id layout:
+    # `[100, 90, ..., 50]` when the writes above were skipped, a flat `[50, ...]` when they
+    # were reindexed. Asserting the first read's value would pin one of those two.
+    env.assertLessEqual(max(totals), count, message=f'totals {totals} exceed the {count} indexed')
     env.assertEqual(totals[-1], count // 2,
                     message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
 
