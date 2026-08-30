@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Enterprise Flow Tests"
+  short_description: "Review Enterprise re-tests and CI workflows."
+  default_prompt: "Use $review-enterprise-flow-tests to review this Redis Enterprise re-tests or CI workflow change."

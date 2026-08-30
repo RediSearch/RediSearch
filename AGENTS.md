@@ -322,6 +322,14 @@ than the finding.
 - If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern. Say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer.
 - Prefer confirming that earlier findings are resolved over finding new material. A re-review that reports nothing is a good outcome.
 
+## Code Review Rules
+
+### Redis Enterprise Flow Tests
+
+For changes under `re-tests/`, Enterprise lifecycle/profile fixtures, or workflows
+that run Enterprise integration tests, apply
+[review-enterprise-flow-tests](.agents/skills/review-enterprise-flow-tests/SKILL.md).
+
 ## Common Workflows
 
 When implementing changes that may become a PR, first check the current checkout. If it is on an

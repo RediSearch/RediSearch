@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Changes"
+  short_description: "Review diffs and PRs without duplicate findings."
+  default_prompt: "Use $review-changes to review this diff or PR."
