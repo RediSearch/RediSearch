@@ -85,19 +85,27 @@ typedef struct NumericFilter {
 } NumericFilter;
 
 /**
- * See the crate's top level documentation for a description of this type.
+ * The header of a [`ThinVec`](crate::ThinVec).
  */
-typedef struct ThinVec______RSIndexResult__u16 {
-  Header_u16 *ptr;
-} ThinVec______RSIndexResult__u16;
+typedef struct Header_u32 {
+  uint32_t len;
+  uint32_t cap;
+} Header_u32;
 
 /**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
- *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
+ * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec______RSIndexResult__u16 SmallThinVecRSIndexResult;
+typedef struct ThinVec______RSIndexResult__u32 {
+  struct Header_u32 *ptr;
+} ThinVec______RSIndexResult__u32;
+
+/**
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
+ *
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
+ */
+typedef struct ThinVec______RSIndexResult__u32 MediumThinVec______RSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -219,17 +227,17 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_____RSIndexResult__u16 {
-  Header_u16 *ptr;
-} ThinVec_____RSIndexResult__u16;
+typedef struct ThinVec_____RSIndexResult__u32 {
+  struct Header_u32 *ptr;
+} ThinVec_____RSIndexResult__u32;
 
 /**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
  *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
  */
-typedef struct ThinVec_____RSIndexResult__u16 SmallThinVecRSIndexResultOwned;
+typedef struct ThinVec_____RSIndexResult__u32 MediumThinVec_____RSIndexResult;
 
 /**
  * Represents an aggregate array of values in an index record.
@@ -268,7 +276,7 @@ typedef struct RSAggregateResult_Borrowed_Body {
    * above, this means `'index: 'static` which is just incorrect since the index data will
    * never be `'static` when decoding.
    */
-  SmallThinVecRSIndexResult records;
+  MediumThinVec______RSIndexResult records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -284,7 +292,7 @@ typedef struct RSAggregateResult_Owned_Body {
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  SmallThinVecRSIndexResultOwned records;
+  MediumThinVec_____RSIndexResult records;
   /**
    * A map of the aggregate kind of the underlying records
    */
