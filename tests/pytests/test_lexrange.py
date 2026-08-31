@@ -46,19 +46,21 @@ def search(env, query, *args):
 # ---------------------------------------------------------------------------
 
 def testLexRangeGatedOff(env):
-    """With the flag off the operator is not part of the syntax.
+    """With the flag off every operator is rejected, and the error says how to
+    enable it.
 
-    `>` and `<` have always been punctuation the lexer discards, so `@name:>(bob)`
-    has always parsed as `@name:(bob)`. The gate must keep it that way rather than
-    turn a query that works today into an error.
+    Silently reading `@name:>(bob)` as the pre-feature `@name:(bob)` would hand a
+    client that reached for the operator a plausible but wrong result set.
     """
     run_command_on_all_shards(env, 'CONFIG', 'SET',
                               'search-enable-unstable-features', 'no')
     build_index(env, 'TEXT')
 
-    # Identical to `@name:(bob)`: one exact term match, not a range.
-    env.assertEqual(search(env, '@name:>(bob)'), ['doc2'])
-    env.assertEqual(search(env, '@name:<=(bob)'), ['doc2'])
+    for query in ('@name:>(bob)', '@name:>=(bob)', '@name:<(bob)', '@name:<=(bob)'):
+        env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', '2') \
+            .error().contains('search-enable-unstable-features')
+
+    # The clause without an operator is untouched.
     env.assertEqual(search(env, '@name:(bob)'), ['doc2'])
 
 

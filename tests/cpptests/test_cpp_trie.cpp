@@ -177,79 +177,45 @@ static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
   *prefixNodeOut = prefixNode;
 }
 
-TEST_F(TrieTest, testBasicRange) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
+// The range answers of a trie holding "0".."999", which must not depend on the
+// sort mode: the walk binary-searches each node's children, which are ordered
+// lexicographically either way.
+static void assertBasicRanges(Trie *t) {
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    auto n = trieInsert(t, buf);
-    ASSERT_TRUE(n);
+    ASSERT_TRUE(trieInsert(t, buf));
   }
 
-  // TrieNode_Print(t->root, 0, 0);
+  // Every number within the lexical range of 1 and 1Z.
+  ASSERT_EQ(111, trieIterRange(t, "1", "1Z").size());
 
-  // Get all numbers within the lexical range of 1 and 1Z
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(111, ret.size());
+  // A NULL range is unbounded on both sides: the entire trie.
+  ASSERT_EQ(Trie_Size(t), trieIterRange(t, NULL, NULL).size());
 
-  // What does a NULL range return? the entire trie
-  ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(Trie_Size(t), ret.size());
+  // Min and max the same: a single point, in range only when both sides include
+  // it. The two-argument helper is half-open ([min, max)), so it finds nothing.
+  ASSERT_EQ(0, trieIterRange(t, "1", "1").size());
+  ASSERT_EQ(1, trieIterRange(t, "1", 1, true, "1", 1, true).size());
 
-  // Min and max the same- should return only one value
-  ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(1, ret.size());
+  ASSERT_EQ(11, trieIterRange(t, "10", 2, "11", 2).size());
 
-  ret = trieIterRange(t, "10", 2, "11", 2);
-  ASSERT_EQ(11, ret.size());
+  // Min and Min+1.
+  ASSERT_EQ(1, trieIterRange(t, "10", 2, "10\x01", 3).size());
 
-  // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x01", 3);
-  ASSERT_EQ(1, ret.size());
+  // No min, but a max.
+  ASSERT_EQ(445, trieIterRange(t, NULL, "5").size());
+}
 
-  // No min, but has a max
-  ret = trieIterRange(t, NULL, "5");
-  ASSERT_EQ(445, ret.size());
-
+TEST_F(TrieTest, testBasicRange) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  assertBasicRanges(t);
   TrieType_Free(t);
 }
 
 TEST_F(TrieTest, testBasicRangeWithScore) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
-  for (size_t ii = 0; ii < 1000; ++ii) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    auto n = trieInsert(t, buf);
-    ASSERT_TRUE(n);
-  }
-
-  // TrieNode_Print(t->root, 0, 0);
-
-  // Get all numbers within the lexical range of 1 and 1Z
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(111, ret.size());
-
-  // What does a NULL range return? the entire trie
-  ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(Trie_Size(t), ret.size());
-
-  // Min and max the same- should return only one value
-  ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(1, ret.size());
-
-  ret = trieIterRange(t, "10", 2, "11", 2);
-  ASSERT_EQ(11, ret.size());
-
-  // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x01", 3);
-  ASSERT_EQ(1, ret.size());
-
-  // No min, but has a max
-  ret = trieIterRange(t, NULL, "5");
-  ASSERT_EQ(445, ret.size());
-
+  assertBasicRanges(t);
   TrieType_Free(t);
 }
 
@@ -332,6 +298,8 @@ TEST_F(TrieTest, testRangeBoundIsAProperPrefixOfATerm) {
   ElemSet expectedBelow{"apple", "banana"};
   EXPECT_EQ(expectedBelow, trieIterRange(t, NULL, 0, false, "c", 1, /*includeEnd=*/false));
   EXPECT_EQ(expectedBelow, trieIterRange(t, NULL, 0, false, "c", 1, /*includeEnd=*/true));
+
+  TrieType_Free(t);
 }
 
 // A term that is itself a proper prefix of the max bound is below it, so it is
@@ -345,6 +313,8 @@ TEST_F(TrieTest, testRangeTermIsAProperPrefixOfTheMaxBound) {
 
   ElemSet expected{"ban", "banana"};
   EXPECT_EQ(expected, trieIterRange(t, NULL, 0, false, "banb", 4, /*includeEnd=*/false));
+
+  TrieType_Free(t);
 }
 
 // Both bounds inside one shared-prefix subtree: the walk descends once with both
@@ -360,6 +330,8 @@ TEST_F(TrieTest, testRangeBothBoundsShareAPrefix) {
 
   ElemSet inclusive{"band", "bandana", "bank"};
   EXPECT_EQ(inclusive, trieIterRange(t, "band", 4, true, "bank", 4, true));
+
+  TrieType_Free(t);
 }
 
 /**

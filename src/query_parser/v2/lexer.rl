@@ -101,12 +101,15 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
  * `ts` points at the '@', `te` one past the operator's last character, and
  * `opLen` is the operator's length (1 for `<`/`>`, 2 for `<=`/`>=`).
  *
- * The comparison operators are gated behind `ENABLE_UNSTABLE_FEATURES`. With the
- * flag off the operator is *not* emitted, which leaves the token stream exactly
- * as it was before this syntax existed: `>` and `<` are punctuation the lexer
- * discards, so `@field:>(v)` has always parsed as `@field:(v)`. Rejecting it
- * instead would change the meaning of a query that works today, which the gate
- * exists to prevent. */
+ * The comparison operators are gated behind `ENABLE_UNSTABLE_FEATURES`, and this
+ * is the single place that gate is checked - both the shard-local parse and the
+ * coordinator's go through here, so they cannot answer the syntax differently.
+ *
+ * With the flag off the query is rejected. Before this syntax existed `>` and
+ * `<` were punctuation the lexer discarded, so `@field:>(v)` parsed as
+ * `@field:(v)`; silently keeping that would hand a client that reached for the
+ * new operator a plausible but wrong result set, which is worse than an error a
+ * caller can act on. */
 int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok,
       QueryParseCtx *q, const char *ts, const char *te, unsigned int opLen) {
     const char *name = ts + 1;
@@ -158,7 +161,12 @@ int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok
     }
 
     if (!RSGlobalConfig.enableUnstableFeatures) {
-      return 1;
+      QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_SYNTAX,
+        "Lexicographic comparison on a " SPEC_TAG_STR " or " SPEC_TEXT_STR
+        " field is an unstable feature. Enable it with "
+        "`CONFIG SET search-enable-unstable-features yes`",
+        ", at offset %d near %.*s", (int)(ts - q->raw), (int)(te - ts), ts);
+      return 0;
     }
 
     tok.pos = (te - opLen) - q->raw;

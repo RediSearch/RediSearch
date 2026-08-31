@@ -277,6 +277,45 @@ impl TermsTrie {
     /// length (no stored term can match it).
     ///
     /// `timeout` supplies the request-owned timeout state for the walk.
+    pub fn iterate_contains<F>(
+        &self,
+        pattern: &[ffi::rune],
+        prefix: bool,
+        suffix: bool,
+        timeout: Option<&QueryRequestTimeoutHandle>,
+        mut callback: F,
+    ) where
+        F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
+    {
+        // No trie term is longer than `t_len` (`u16`) runes, and the prefix and
+        // exact walks narrow the pattern length to `t_len` when looking up nodes,
+        // truncating anything longer (e.g. 65537 runes becomes 1).
+        if pattern.len() > ffi::t_len::MAX as usize {
+            return;
+        }
+        // There is nothing to anchor on, and nothing to visit, so bail out.
+        if suffix && pattern.is_empty() {
+            return;
+        }
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
+        // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
+        // `pattern.len()` runes; `&mut callback` stays alive for the whole
+        // call, so the `ctx` the trampoline reconstitutes is valid; and
+        // `timeout` is null or points to valid request-owned timeout state.
+        unsafe {
+            ffi::Trie_IterateContains(
+                self.as_ptr(),
+                pattern.as_ptr(),
+                pattern.len() as c_int,
+                prefix,
+                suffix,
+                Some(range_trampoline::<F>),
+                std::ptr::from_mut(&mut callback).cast(),
+                timeout,
+            );
+        }
+    }
+
     /// Walk every term within the lexicographic range `[min, max]`, handing each
     /// one to `callback` as its runes together with its document count.
     ///
@@ -339,45 +378,6 @@ impl TermsTrie {
                 max_ptr,
                 max_len,
                 include_max,
-                Some(range_trampoline::<F>),
-                std::ptr::from_mut(&mut callback).cast(),
-                timeout,
-            );
-        }
-    }
-
-    pub fn iterate_contains<F>(
-        &self,
-        pattern: &[ffi::rune],
-        prefix: bool,
-        suffix: bool,
-        timeout: Option<&QueryRequestTimeoutHandle>,
-        mut callback: F,
-    ) where
-        F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
-    {
-        // No trie term is longer than `t_len` (`u16`) runes, and the prefix and
-        // exact walks narrow the pattern length to `t_len` when looking up nodes,
-        // truncating anything longer (e.g. 65537 runes becomes 1).
-        if pattern.len() > ffi::t_len::MAX as usize {
-            return;
-        }
-        // There is nothing to anchor on, and nothing to visit, so bail out.
-        if suffix && pattern.is_empty() {
-            return;
-        }
-        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
-        // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
-        // `pattern.len()` runes; `&mut callback` stays alive for the whole
-        // call, so the `ctx` the trampoline reconstitutes is valid; and
-        // `timeout` is null or points to valid request-owned timeout state.
-        unsafe {
-            ffi::Trie_IterateContains(
-                self.as_ptr(),
-                pattern.as_ptr(),
-                pattern.len() as c_int,
-                prefix,
-                suffix,
                 Some(range_trampoline::<F>),
                 std::ptr::from_mut(&mut callback).cast(),
                 timeout,

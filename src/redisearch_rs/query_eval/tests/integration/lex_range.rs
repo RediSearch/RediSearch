@@ -44,7 +44,10 @@ fn default_terms() -> Vec<(&'static [u8], Vec<u64>)> {
 
 /// One side of the range under test: the bound's bytes and whether it is
 /// inclusive. `None` leaves the side unbounded.
-type BoundSpec = Option<(&'static str, bool)>;
+///
+/// The bound is copied into a [`CString`] as the fixture is built, so it only
+/// has to outlive the call that passes it.
+type BoundSpec<'a> = Option<(&'a str, bool)>;
 
 /// Owns everything a `QN_LEXRANGE` evaluation borrows, so a test can hold a
 /// single value and let the whole graph — index, context, node, and the bound
@@ -73,13 +76,13 @@ struct LexRangeFixture {
 
 impl LexRangeFixture {
     /// A range over [`default_terms`] with the default expansion cap.
-    fn new(begin: BoundSpec, end: BoundSpec) -> Self {
+    fn new(begin: BoundSpec<'_>, end: BoundSpec<'_>) -> Self {
         Self::build(begin, end, default_terms(), None)
     }
 
     fn build(
-        begin: BoundSpec,
-        end: BoundSpec,
+        begin: BoundSpec<'_>,
+        end: BoundSpec<'_>,
         terms: Vec<(&'static [u8], Vec<u64>)>,
         max_expansions: Option<usize>,
     ) -> Self {
@@ -109,7 +112,7 @@ impl LexRangeFixture {
         let ctx = unsafe { QueryEvalContext::new(qctx) };
 
         let mut bounds = Vec::new();
-        let mut to_ptr = |bound: BoundSpec| match bound {
+        let mut to_ptr = |bound: BoundSpec<'_>| match bound {
             None => (std::ptr::null_mut(), false),
             Some((s, inclusive)) => {
                 let owned = CString::new(s).expect("a bound must not contain an interior NUL");
@@ -165,7 +168,7 @@ fn collect_doc_ids<'index>(it: &mut impl RQEIterator<'index>) -> Vec<u64> {
 }
 
 /// Evaluate a range over the default terms and collect the documents it matches.
-fn doc_ids_for(begin: BoundSpec, end: BoundSpec) -> Vec<u64> {
+fn doc_ids_for(begin: BoundSpec<'_>, end: BoundSpec<'_>) -> Vec<u64> {
     let mut fixture = LexRangeFixture::new(begin, end);
     let mut it = ContractChecker::new(fixture.eval().expect("a range must build an iterator"));
     collect_doc_ids(&mut it)
@@ -303,9 +306,8 @@ fn an_over_long_bound_is_an_error() {
     // and cannot be compared against one, so the query is refused rather than
     // answered with half of it ignored.
     let long = "a".repeat(ffi::MAX_RUNE_STR_LEN as usize + 1);
-    let long: &'static str = Box::leak(long.into_boxed_str());
 
-    let mut fixture = LexRangeFixture::new(Some((long, false)), None);
+    let mut fixture = LexRangeFixture::new(Some((&long, false)), None);
     assert!(
         fixture.eval().is_none(),
         "an over-long bound must not evaluate"

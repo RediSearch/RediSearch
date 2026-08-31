@@ -1157,6 +1157,20 @@ clean_stack:
 void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeMin, const rune *max,
                            int nmax, bool includeMax, TrieRangeCallback callback, void *ctx,
                            QueryRequestTimeout *timeout) {
+  // A bound is only dereferenced while its remaining length is positive, so a
+  // null pointer paired with a positive length would be read. The documented
+  // contract allows a null bound only with length 0 (the empty string) or -1
+  // (unbounded), so catch the violation in debug builds and treat it as
+  // unbounded elsewhere rather than walk off the pointer.
+  RS_LOG_ASSERT(min || nmin <= 0, "a null min bound requires a length of 0 or -1");
+  RS_LOG_ASSERT(max || nmax <= 0, "a null max bound requires a length of 0 or -1");
+  if (!min && nmin > 0) {
+    nmin = -1;
+  }
+  if (!max && nmax > 0) {
+    nmax = -1;
+  }
+
   if (min && max) {
     // min and max exists, lets compare them to make sure min < max
     int cmp = runecmp(min, nmin, max, nmax);
@@ -1166,8 +1180,10 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
     }
 
     if (cmp == 0) {
-      // min = max, we should just search for min and check for its existence
-      if (includeMin || includeMax) {
+      // min == max, so the range holds at most that one value - and only when
+      // *both* sides include it. A half-open interval over a single point, such
+      // as [v, v) or (v, v], is empty.
+      if (includeMin && includeMax) {
         TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
         if (node && TrieNode_IsTerminal(node)) {
           callback(min, nmin, ctx, NULL, node->numDocs);

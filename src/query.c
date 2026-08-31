@@ -651,22 +651,26 @@ typedef struct {
   t_fieldIndex fieldIndex;
 } TagRangeCtx;
 
-// Callback for tag lex range queries - handles both disk and memory modes
-static void tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
+// Callback for tag lex range queries - handles both disk and memory modes.
+// Returns non-zero to stop the walk, per `TrieMapRangeCallback`.
+static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   TagRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
 
-  // TrieMap_IterateRange cannot be stopped from the callback, so the cap only
-  // bounds how many readers are opened - the walk itself runs to completion.
+  // An unbounded range over a high-cardinality tag field is unbounded work, so
+  // both limits end the walk rather than merely decline to open a reader.
   if (ctx->nits >= q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    return;
+    return REDISEARCH_ERR;
+  }
+  if (q->sctx->timeout && QueryRequestTimeout_IsTimedOut(q->sctx->timeout)) {
+    return REDISEARCH_ERR;
   }
 
   QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->idx, q->sctx, r, n, invidx,
                                                            ctx->weight, ctx->fieldIndex, q->status);
   if (!ir) {
-    return;
+    return REDISEARCH_OK;
   }
 
   ctx->its[ctx->nits++] = ir;
@@ -674,6 +678,7 @@ static void tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
     ctx->cap *= 2;
     ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
   }
+  return REDISEARCH_OK;
 }
 
 /* Evaluate a tag lexicographic range by walking the tag index's value trie

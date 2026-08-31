@@ -14,8 +14,14 @@ use std::ffi::{c_char, c_int, c_void};
 use trie_rs::iter::{RangeBoundary, RangeFilter, RangeLendingIter};
 
 /// Callback type for passing to [`TrieMap_IterateRange`].
+///
+/// Returns `0` to continue the walk and any other value to stop it, the same
+/// convention `TrieRangeCallback` uses on the runes trie. A walk over a
+/// high-cardinality trie is unbounded work, so a caller that has seen enough -
+/// an expansion cap reached, a request timed out - must be able to end it rather
+/// than pay for every remaining key.
 pub type TrieMapRangeCallback =
-    Option<unsafe extern "C" fn(*const c_char, size_t, *mut c_void, *mut c_void)>;
+    Option<unsafe extern "C" fn(*const c_char, size_t, *mut c_void, *mut c_void) -> c_int>;
 
 /// Iterate the trie within the specified key range.
 ///
@@ -25,7 +31,7 @@ pub type TrieMapRangeCallback =
 ///
 /// The passed [`TrieMapRangeCallback`] function is called for each key found,
 /// passing the key and its length, the value, and the `ctx` pointer passed to this
-/// function.
+/// function. The walk stops early as soon as it returns a non-zero value.
 ///
 /// Panics in case the passed callback is NULL.
 ///
@@ -100,14 +106,16 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
         }),
     };
     let iter: RangeLendingIter<_> = trie.range_iter(filter).into();
-    iter.fuse().for_each(|(key, value)| {
+    let mut iter = iter.fuse();
+    while let Some((key, value)) = iter.next() {
         let key_len = key.len();
         // `u8` and `c_char` can be safely transmuted back and forth.
         let key_ptr = key.as_ptr().cast();
         // Safety: caller is to ensure `callback` be
         // a valid pointer to a function of type [`TrieMapRangeCallback`]
-        unsafe {
-            (callback)(key_ptr, key_len, ctx, *value);
+        let stop = unsafe { (callback)(key_ptr, key_len, ctx, *value) };
+        if stop != 0 {
+            break;
         }
-    });
+    }
 }

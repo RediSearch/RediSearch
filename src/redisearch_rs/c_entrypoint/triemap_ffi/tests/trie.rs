@@ -432,7 +432,7 @@ fn test_trie_iter_range() {
         key_len: size_t,
         ctx: *mut c_void,
         value: *mut c_void,
-    ) {
+    ) -> c_int {
         // Safety: the passed context was indeed a `&mut ResultsVec`
         let results = unsafe { &mut *(ctx as *mut ResultsVec) };
 
@@ -444,6 +444,19 @@ fn test_trie_iter_range() {
         let value = unsafe { *(value as *mut u8) };
 
         results.push((key, value));
+        0 // keep walking
+    }
+
+    /// Stops the walk after the first key, to check the callback can end it.
+    unsafe extern "C" fn stop_after_first(
+        key: *const c_char,
+        key_len: size_t,
+        ctx: *mut c_void,
+        value: *mut c_void,
+    ) -> c_int {
+        // Safety: same contract as `callback`, which this delegates to.
+        unsafe { callback(key, key_len, ctx, value) };
+        1 // stop
     }
     fn do_iterate(
         min: Option<&str>,
@@ -481,6 +494,29 @@ fn test_trie_iter_range() {
             };
         });
         results
+    }
+
+    // A callback that stops the walk must be obeyed: without that, a caller with
+    // an expansion cap still pays for every remaining key in the range.
+    {
+        let mut results: ResultsVec = Vec::new();
+        with_trie_map(|t| {
+            // Safety: We adhere to all the safety requirements of `TrieMap_IterateRange`
+            unsafe {
+                TrieMap_IterateRange(
+                    t,
+                    std::ptr::null(),
+                    -1,
+                    true,
+                    std::ptr::null(),
+                    -1,
+                    true,
+                    Some(stop_after_first),
+                    (&mut results) as *mut ResultsVec as *mut _,
+                )
+            };
+        });
+        assert_eq!(results.len(), 1, "the walk must stop on a non-zero return");
     }
 
     assert_range!(
