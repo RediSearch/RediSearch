@@ -277,6 +277,75 @@ impl TermsTrie {
     /// length (no stored term can match it).
     ///
     /// `timeout` supplies the request-owned timeout state for the walk.
+    /// Walk every term within the lexicographic range `[min, max]`, handing each
+    /// one to `callback` as its runes together with its document count.
+    ///
+    /// `None` for either side leaves it unbounded; `include_min`/`include_max`
+    /// select a closed or open bound. Terms are visited in lexicographic order.
+    ///
+    /// `timeout` bounds the walk (`None` runs it to completion). A
+    /// [`ControlFlow::Break`] from the callback stops the subtree walks, but
+    /// *not* the recursion along the bounds themselves, which ignores the
+    /// callback's return value - so a caller that must bound its own work has to
+    /// keep declining in the callback rather than assume it will stop being
+    /// called.
+    ///
+    /// # Panics
+    ///
+    /// If either bound is longer than [`MAX_RUNE_STR_LEN`](ffi::MAX_RUNE_STR_LEN)
+    /// runes. Such a bound cannot be derived from a rune conversion, which
+    /// refuses to produce one, so reaching here with one is a caller bug rather
+    /// than a query the walk could answer.
+    pub fn iterate_range<F>(
+        &self,
+        min: Option<&[ffi::rune]>,
+        include_min: bool,
+        max: Option<&[ffi::rune]>,
+        include_max: bool,
+        timeout: Option<&QueryRequestTimeoutHandle>,
+        mut callback: F,
+    ) where
+        F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
+    {
+        // The C walk takes the bound lengths as `int`, with -1 marking an
+        // unbounded side; 0 is the empty string, which is a bound of its own.
+        let to_raw = |bound: Option<&[ffi::rune]>| match bound {
+            Some(b) => {
+                assert!(
+                    b.len() <= ffi::MAX_RUNE_STR_LEN as usize,
+                    "lex-range bound of {} runes exceeds MAX_RUNE_STR_LEN; \
+                     callers must reject an over-long bound before walking",
+                    b.len()
+                );
+                (b.as_ptr(), b.len() as c_int)
+            }
+            None => (ptr::null(), -1),
+        };
+        let (min_ptr, min_len) = to_raw(min);
+        let (max_ptr, max_len) = to_raw(max);
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
+
+        // SAFETY: `self` borrows a valid `ffi::Trie`; each bound pointer is null
+        // (with length -1) or points to the runes its length names;
+        // `&mut callback` stays alive for the whole call, so the `ctx` the
+        // trampoline reconstitutes is valid; and `timeout` is null or points to
+        // valid request-owned timeout state.
+        unsafe {
+            ffi::Trie_IterateRange(
+                self.as_ptr(),
+                min_ptr,
+                min_len,
+                include_min,
+                max_ptr,
+                max_len,
+                include_max,
+                Some(range_trampoline::<F>),
+                std::ptr::from_mut(&mut callback).cast(),
+                timeout,
+            );
+        }
+    }
+
     pub fn iterate_contains<F>(
         &self,
         pattern: &[ffi::rune],

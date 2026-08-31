@@ -108,6 +108,13 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
   return TrieNode_Get(t->root, str, len, exact, offsetOut);
 }
 
+void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin, const rune *max,
+                       int maxlen, bool includeMax, TrieRangeCallback callback, void *ctx,
+                       QueryRequestTimeout *timeout) {
+  TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx,
+                        timeout);
+}
+
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx,
                           QueryRequestTimeout *timeout) {

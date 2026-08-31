@@ -18,6 +18,7 @@ pub(crate) mod fuzzy;
 pub(crate) mod geo;
 pub(crate) mod geometry;
 pub(crate) mod ids;
+pub(crate) mod lex_range;
 pub(crate) mod missing;
 pub(crate) mod not;
 pub(crate) mod null;

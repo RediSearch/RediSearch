@@ -44,8 +44,8 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
-    vector, wildcard, wildcard_query,
+    fuzzy, geo, geometry, ids, lex_range, missing, not, null, numeric, optional, phrase, prefix,
+    token, union, vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -203,6 +203,7 @@ pub fn eval_node<'index>(
         QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
         QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
         QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
+        QueryNode::LexRange { begin, end } => lex_range::eval(ctx, &node, begin, end, config),
         // Binds nothing, so the node stays free to be passed on by value —
         // evaluation rewrites its token.
         QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),

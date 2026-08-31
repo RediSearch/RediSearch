@@ -1,0 +1,10 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 313
+expression: reply
+---
+{
+  "Type": "UNION",
+  "Query type": "LEXRANGE",
+  "Child iterators": [{"Type": "EMPTY"}]
+}

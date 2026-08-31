@@ -259,6 +259,30 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the fields of the lex-range-node union variant.
+    ///
+    /// A null `begin`/`end` leaves that side of the range unbounded, which is
+    /// how the zeroed node starts out.
+    pub fn set_lex_range(
+        &mut self,
+        begin: *mut c_char,
+        include_begin: bool,
+        end: *mut c_char,
+        include_end: bool,
+    ) {
+        self.debug_assert_type(QueryNodeType::LexRange);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // LexRange, per the assertion above, so the `lxrng` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let lx = &mut *union_ptr.cast::<ffi::QueryLexRangeNode>();
+            lx.begin = begin;
+            lx.includeBegin = include_begin;
+            lx.end = end;
+            lx.includeEnd = include_end;
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
         self.debug_assert_type(QueryNodeType::Prefix);

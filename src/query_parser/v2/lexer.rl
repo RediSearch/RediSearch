@@ -13,6 +13,7 @@
 
 #include "../parse.h"
 #include "parser.h"
+#include "../../config.h"
 #include "../../query_node.h"
 #include "../../stopwords.h"
 #include "fast_float/fast_float_strtod.h"
@@ -94,6 +95,82 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     return 1;
 }
 
+/* Emit a field-scoped comparison - `@field:<op>` - as the three tokens
+ * `MODIFIER COLON <OperatorType>`.
+ *
+ * `ts` points at the '@', `te` one past the operator's last character, and
+ * `opLen` is the operator's length (1 for `<`/`>`, 2 for `<=`/`>=`).
+ *
+ * The comparison operators are gated behind `ENABLE_UNSTABLE_FEATURES`. With the
+ * flag off the operator is *not* emitted, which leaves the token stream exactly
+ * as it was before this syntax existed: `>` and `<` are punctuation the lexer
+ * discards, so `@field:>(v)` has always parsed as `@field:(v)`. Rejecting it
+ * instead would change the meaning of a query that works today, which the gate
+ * exists to prevent. */
+int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok,
+      QueryParseCtx *q, const char *ts, const char *te, unsigned int opLen) {
+    const char *name = ts + 1;
+
+    // The matched pattern is `@<term> <space>* : <space>* <op>`, so an unescaped
+    // ':' separates the field name from the operator. Scan for it tracking
+    // escapes, since a field name may contain an escaped ':' (`@a\:b`), and
+    // remember where the name's last significant character was so the optional
+    // spaces before the ':' can be dropped - but not an *escaped* space, which
+    // is part of the name.
+    const char *p = name;
+    const char *nameEnd = name;
+    int escaped = 0;
+    // Bounded by `te` rather than by a NUL: the ':' is inside the matched text,
+    // so the scan always stops before the end, and never depends on the query
+    // buffer being NUL-terminated.
+    while (p < te) {
+      if (!escaped && *p == ':') {
+        break;
+      }
+      if (!escaped && *p == '\\') {
+        escaped = 1;
+        ++p;
+        continue;
+      }
+      if (escaped || !isspace((unsigned char)*p)) {
+        nameEnd = p + 1;
+      }
+      escaped = 0;
+      ++p;
+    }
+    const char *colon = p;
+
+    tok.type = QT_TERM;
+    tok.pos = ts - q->raw;
+    tok.s = name;
+    tok.len = nameEnd - name;
+    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    tok.pos = colon - q->raw;
+    tok.s = colon;
+    tok.len = 1;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      return 1;
+    }
+
+    tok.pos = (te - opLen) - q->raw;
+    tok.s = te - opLen;
+    tok.len = opLen;
+    RSQuery_Parse_v2(pParser, OperatorType, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+    return 1;
+}
+
 %%{
 
 machine query;
@@ -131,6 +208,10 @@ mod_gt = '@'.term.(space*).'>'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 mod_ge = '@'.term.(space*).'>='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 mod_lt = '@'.term.(space*).'<'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 mod_le = '@'.term.(space*).'<='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_colon_gt = '@'.term.(space*).':'.(space*).'>' $ 1;
+mod_colon_ge = '@'.term.(space*).':'.(space*).'>=' $ 1;
+mod_colon_lt = '@'.term.(space*).':'.(space*).'<' $ 1;
+mod_colon_le = '@'.term.(space*).':'.(space*).'<=' $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
@@ -217,6 +298,30 @@ main := |*
 
   mod_le => {
     if(!RSQuery_ParseNumericOp_v2(pParser, LE, tok, q, ts, te, '<', 2)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_gt => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, GT, tok, q, ts, te, 1)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_ge => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, GE, tok, q, ts, te, 2)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_lt => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, LT, tok, q, ts, te, 1)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_le => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, LE, tok, q, ts, te, 2)) {
       fbreak;
     }
   };

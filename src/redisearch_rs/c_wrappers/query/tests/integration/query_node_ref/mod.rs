@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CString;
+use std::{ffi::CString, ops::Bound};
 
 use inverted_index::NumericFilter;
 use query::{
@@ -38,6 +38,7 @@ fn node_type_reflects_each_variant() {
         QueryNodeType::Wildcard,
         QueryNodeType::Tag,
         QueryNodeType::Fuzzy,
+        QueryNodeType::LexRange,
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Null,
@@ -199,6 +200,75 @@ fn as_enum_prefix() {
         };
         assert_eq!(mode, expected);
     }
+}
+
+#[test]
+fn as_enum_lex_range_unbounded() {
+    let mock = MockQueryNode::new(QueryNodeType::LexRange);
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    let QueryNode::LexRange { begin, end } = node.as_enum() else {
+        panic!("expected LexRange");
+    };
+    assert_eq!(begin, Bound::Unbounded);
+    assert_eq!(end, Bound::Unbounded);
+}
+
+#[test]
+fn as_enum_lex_range_inclusive() {
+    let begin_str = CString::new("a").unwrap();
+    let end_str = CString::new("z").unwrap();
+    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
+    mock.set_lex_range(
+        begin_str.as_ptr().cast_mut(),
+        true,
+        end_str.as_ptr().cast_mut(),
+        true,
+    );
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    let QueryNode::LexRange { begin, end } = node.as_enum() else {
+        panic!("expected LexRange");
+    };
+    assert_eq!(begin, Bound::Included(begin_str.as_c_str()));
+    assert_eq!(end, Bound::Included(end_str.as_c_str()));
+}
+
+#[test]
+fn as_enum_lex_range_exclusive() {
+    let begin_str = CString::new("a").unwrap();
+    let end_str = CString::new("z").unwrap();
+    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
+    mock.set_lex_range(
+        begin_str.as_ptr().cast_mut(),
+        false,
+        end_str.as_ptr().cast_mut(),
+        false,
+    );
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    let QueryNode::LexRange { begin, end } = node.as_enum() else {
+        panic!("expected LexRange");
+    };
+    assert_eq!(begin, Bound::Excluded(begin_str.as_c_str()));
+    assert_eq!(end, Bound::Excluded(end_str.as_c_str()));
+}
+
+/// One side bounded and the other open is the shape every `<`/`>` query takes,
+/// so it must not collapse into either of the symmetric cases above.
+#[test]
+fn as_enum_lex_range_half_open() {
+    let begin_str = CString::new("m").unwrap();
+    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
+    mock.set_lex_range(
+        begin_str.as_ptr().cast_mut(),
+        false,
+        std::ptr::null_mut(),
+        false,
+    );
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    let QueryNode::LexRange { begin, end } = node.as_enum() else {
+        panic!("expected LexRange");
+    };
+    assert_eq!(begin, Bound::Excluded(begin_str.as_c_str()));
+    assert_eq!(end, Bound::Unbounded);
 }
 
 #[test]
