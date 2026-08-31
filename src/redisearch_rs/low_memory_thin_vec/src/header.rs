@@ -6,7 +6,7 @@ pub struct Header {
 }
 
 /// The type used to represent the capacity of a `LowMemoryThinVec`.
-pub(crate) type SizeType = u16;
+pub(crate) type SizeType = u32;
 
 /// The maximum capacity of a `LowMemoryThinVec`.
 pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
@@ -15,7 +15,7 @@ pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
 /// Convert a `usize` to a [`SizeType`], panicking if the value is too large to fit.
 pub(crate) const fn assert_size(x: usize) -> SizeType {
     if x > MAX_CAP {
-        panic!("LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int");
+        panic!("LowMemoryThinVec size may not exceed the capacity of a 32-bit sized int");
     }
     x as SizeType
 }
@@ -73,15 +73,15 @@ mod tests {
 
     #[test]
     fn test_max_cap() {
-        Header::new(0, u16::MAX as usize);
+        Header::new(0, u32::MAX as usize);
     }
 
     #[test]
     #[should_panic(
-        expected = "LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int"
+        expected = "LowMemoryThinVec size may not exceed the capacity of a 32-bit sized int"
     )]
     fn test_over_max_cap() {
-        Header::new(0, (u16::MAX as usize) + 1);
+        Header::new(0, (u32::MAX as usize) + 1);
     }
     #[test]
     #[should_panic(expected = "Capacity must be greater than or equal to the current length")]

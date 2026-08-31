@@ -5,7 +5,7 @@
 /**
  * The type used to represent the capacity of a `LowMemoryThinVec`.
  */
-typedef uint16_t SizeType;
+typedef uint32_t SizeType;
 
 /**
  * The header of a LowMemoryThinVec.
