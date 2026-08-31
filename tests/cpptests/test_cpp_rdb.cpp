@@ -17,6 +17,7 @@
 
 extern "C" {
 #include "spec.h"
+#include "vector_index.h"
 #include "indexes.h"
 #include "query_error_ffi.h"
 #include "rules.h"
@@ -1056,6 +1057,76 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
         EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.diskCtx.rerank)
             << "rerank did not round-trip (expected " << initialRerank << ")";
     }
+}
+
+TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
+    const char *args[] = {
+        "SCHEMA", "v", "VECTOR", "HNSW", "10",
+        "TYPE", "FLOAT32", "DIM", "64", "DISTANCE_METRIC", "L2",
+        "COMPRESSION", "SQ8", "TRAINING_THRESHOLD", "2048",
+    };
+    QueryError err = QueryError_Default();
+    StrongRef originalRef = IndexSpec_ParseC(
+        NULL, "hnsw_sq8_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    IndexSpec *original = (IndexSpec *)StrongRef_Get(originalRef);
+    ASSERT_TRUE(original != nullptr);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> originalPtr(
+        original, [](IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+        io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+
+    IndexSpec_RdbSave(io, original, 0);
+    ASSERT_EQ(0, RMCK_IsIOError(io));
+    io->read_pos = 0;
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    ASSERT_TRUE(loaded != nullptr) << QueryError_GetUserError(&status);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+        loaded, [](IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
+
+    int loadedFieldIndex = findVectorField(loaded);
+    ASSERT_GE(loadedFieldIndex, 0);
+    TieredIndexParams *loadedTiered =
+        &loaded->fields[loadedFieldIndex].vectorOpts.vecSimParams.algoParams.tieredParams;
+    EXPECT_EQ(VecSimQuant_SQ8,
+              loadedTiered->primaryIndexParams->algoParams.hnswParams.quantType);
+    EXPECT_EQ(2048u,
+              loadedTiered->specificParams.tieredHnswParams.QuantNormalizationSetSize);
+
+    // Version 4 ended immediately after epsilon in the HNSW branch. Loading that exact legacy
+    // layout must synthesize the pre-SQ8 defaults rather than reading nonexistent fields.
+    RedisModuleIO *legacyIo = RMCK_CreateRdbIO();
+    ASSERT_TRUE(legacyIo != nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> legacyIoPtr(
+        legacyIo, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+    RMCK_SaveUnsigned(legacyIo, VecSimAlgo_TIERED);
+    RMCK_SaveUnsigned(legacyIo, VecSimAlgo_HNSWLIB);
+    RMCK_SaveUnsigned(legacyIo, 0);  // swapJobThreshold
+    RMCK_SaveUnsigned(legacyIo, VecSimType_FLOAT32);
+    RMCK_SaveUnsigned(legacyIo, 64);  // dim
+    RMCK_SaveUnsigned(legacyIo, VecSimMetric_L2);
+    RMCK_SaveUnsigned(legacyIo, 0);  // multi
+    RMCK_SaveUnsigned(legacyIo, HNSW_DEFAULT_M);
+    RMCK_SaveUnsigned(legacyIo, HNSW_DEFAULT_EF_C);
+    RMCK_SaveUnsigned(legacyIo, HNSW_DEFAULT_EF_RT);
+    RMCK_SaveDouble(legacyIo, HNSW_DEFAULT_EPSILON);
+    legacyIo->read_pos = 0;
+
+    VecSimParams legacyParams = {};
+    ASSERT_EQ(REDISMODULE_OK,
+              VecSim_RdbLoad_v4(legacyIo, &legacyParams, originalRef, "v"));
+    HNSWParams *legacyHnsw =
+        &legacyParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams;
+    EXPECT_EQ(VecSimQuant_NONE, legacyHnsw->quantType);
+    EXPECT_EQ(0u, legacyParams.algoParams.tieredParams.specificParams.tieredHnswParams
+                      .QuantNormalizationSetSize);
+    EXPECT_EQ(legacyIo->buffer.size(), legacyIo->read_pos);
+    VecSimParams_Cleanup(&legacyParams);
 }
 
 // Legacy pre-2.0 module types (ft_invidx / numericdx / ft_tagidx) exist only so an old RDB can be read

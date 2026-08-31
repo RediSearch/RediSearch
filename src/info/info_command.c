@@ -221,6 +221,11 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
           REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
+          REPLY_KVSTR("compression", VecSimHnswCompression_ToString(hnsw_params.quantType));
+          if (hnsw_params.quantType != VecSimQuant_NONE) {
+            REPLY_KVINT("training_threshold",
+              algo_params.tieredParams.specificParams.tieredHnswParams.QuantNormalizationSetSize);
+          }
           if (fs->vectorOpts.diskCtx.indexName) {
             REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
           }
