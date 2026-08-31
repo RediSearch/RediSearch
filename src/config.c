@@ -69,6 +69,7 @@ configPair_t __configPairs[] = {
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
+  {"_FORCE_PLAIN_HASH_NOTIFICATIONS", "search-_force-plain-hash-notifications"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
   {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
@@ -1192,6 +1193,10 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
+// _FORCE_PLAIN_HASH_NOTIFICATIONS
+CONFIG_BOOLEAN_SETTER(setForcePlainHashNotifications, forcePlainHashNotifications)
+CONFIG_BOOLEAN_GETTER(getForcePlainHashNotifications, forcePlainHashNotifications, 0)
+
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, requestConfigParams.printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileClock, 0)
@@ -1842,6 +1847,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Determine whether some index resources are free on a second thread.",
          .setValue = setFreeResourcesThread,
          .getValue = getFreeResourcesThread},
+        {.name = "_FORCE_PLAIN_HASH_NOTIFICATIONS",
+         .helpText = "Take hash events over the plain keyspace channel even where the subkey "
+                     "channel is available, so the degraded path can be tested. For testing only.",
+         .setValue = setForcePlainHashNotifications,
+         .getValue = getForcePlainHashNotifications},
         {.name = "_PRINT_PROFILE_CLOCK",
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
@@ -2612,6 +2622,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.numericCompress)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_force-plain-hash-notifications", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.forcePlainHashNotifications)
     )
   )
 

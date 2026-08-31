@@ -539,6 +539,56 @@ def testAliasedFieldWriteIsQueryable(env):
     env.expect('FT.SEARCH', 'idx', '@renamed:hello', 'NOCONTENT').equal([0])
 
 @skip(cluster=True)
+def testPlainHashNotificationsFallback(env):
+    """The degraded path still indexes, and the probe admits to being on it.
+
+    A server without subkey notifications takes hash events over the plain channel with no
+    change set, so every write reindexes the whole document. That is what an older Redis does
+    in production, and no CI lane can reach it -- every one of them runs a Redis that has the
+    API. `_FORCE_PLAIN_HASH_NOTIFICATIONS` selects that channel anyway so it can be tested.
+
+    Two claims. The probe reports the path actually taken rather than the server's capability,
+    which is what lets a test tell the two apart at all. And on the plain channel a write
+    touching no indexed field still reindexes -- the skip needs a change set, and correctly
+    declines to skip without one.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+
+    # (A) On the subkey channel: the probe says so, and a write to no indexed field is skipped.
+    subkey_env = Env()
+    subkey_env.assertEqual(subkey_env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1,
+                           message='CI runs a Redis with the API, so the subkey channel must be in use')
+    conn = getConnectionByEnv(subkey_env)
+    subkey_env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    conn.execute_command('HSET', 'doc1', 'test', 'foo')
+    first = subkey_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+    conn.execute_command('HSET', 'doc1', 'untouched_by_the_index', 'x')
+    subkey_env.assertEqual(subkey_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                           message='with a change set, a write to no indexed field is skipped')
+    subkey_env.stop()
+
+    # (B) Forced onto the plain channel: no change set, so the same write reindexes.
+    plain_env = Env(moduleArgs='_FORCE_PLAIN_HASH_NOTIFICATIONS true')
+    plain_env.assertEqual(plain_env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 0,
+                          message='forced onto the plain channel, the probe must not claim otherwise')
+    conn = getConnectionByEnv(plain_env)
+    plain_env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    conn.execute_command('HSET', 'doc1', 'test', 'foo')
+    first = plain_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+
+    conn.execute_command('HSET', 'doc1', 'untouched_by_the_index', 'x')
+    plain_env.assertGreater(plain_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                            message='without a change set there is nothing to skip on')
+    # And the document is still correctly indexed afterwards, which is the point of the fallback.
+    plain_env.expect('FT.SEARCH', 'idx', 'foo', 'NOCONTENT').equal([1, 'doc1'])
+
+    conn.execute_command('HSET', 'doc1', 'test', 'bar')
+    plain_env.expect('FT.SEARCH', 'idx', 'bar', 'NOCONTENT').equal([1, 'doc1'])
+    plain_env.expect('FT.SEARCH', 'idx', 'foo', 'NOCONTENT').equal([0])
+    plain_env.stop()
+
+@skip(cluster=True)
 def testRestore(env):
     if env.env == 'existing-env':
         env.skip()

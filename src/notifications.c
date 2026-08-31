@@ -792,7 +792,7 @@ static bool RS_HashSubkeyRegistrationFailed = false;
 
 bool HashSubkeyNotificationsSupported(void) {
   return RedisModule_SubscribeToKeyspaceEventsWithSubkeys != NULL &&
-         !RS_HashSubkeyRegistrationFailed;
+         !RS_HashSubkeyRegistrationFailed && !RSGlobalConfig.forcePlainHashNotifications;
 }
 
 void Initialize_KeyspaceNotifications() {
@@ -834,7 +834,11 @@ void Initialize_KeyspaceNotifications() {
     // accepted. Clearing the flag first and then ignoring the return would leave a server
     // whose registration failed with no hash subscription at all, and every later HSET and
     // HDEL would stop reaching the index -- silently, since nothing else reports it.
-    if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys) {
+    // `_FORCE_PLAIN_HASH_NOTIFICATIONS` selects the plain channel regardless, so a test can
+    // drive the path an older Redis takes. Nothing else reaches it: every CI lane runs a
+    // server that has the API.
+    if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys &&
+        !RSGlobalConfig.forcePlainHashNotifications) {
       if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys(
               RSDummyContext, REDISMODULE_NOTIFY_HASH, /* flags */ 0,
               KeySpaceNotificationWithSubkeysCallback) == REDISMODULE_OK) {

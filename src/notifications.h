@@ -29,6 +29,8 @@ bool DiskConsistencyWindow_IsIndexWindowOpen(void);
  * needs a useful answer. It turns false once an attempt has been made and rejected, since the
  * module then falls back to the plain channel and reindexes whole documents; reporting the
  * capability there would make that fallback indistinguishable from a working subscription.
+ * `_FORCE_PLAIN_HASH_NOTIFICATIONS` turns it false for the same reason: it selects the plain
+ * channel, so reporting the capability would misdescribe the path in use.
  *
  * Against a Redis predating subkey notifications the module degrades silently to
  * reindexing the whole document, so this is what distinguishes "the change set said
