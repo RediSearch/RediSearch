@@ -954,6 +954,18 @@ int SetFt_ListInfo(RedisModuleCommand *cmd) {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns a list of all existing indexes",
     .complexity = "O(1)",
+    .args = (RedisModuleCommandArg[]){
+      {
+        .name = "withclusterstate",
+        .token = "WITHCLUSTERSTATE",
+        .summary = "Reports each index's cross-shard consistency state",
+        .since = "8.12.0",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {0}
+    },
+    .arity = -1,
     .since = "2.0.0",
     .tips = "dont_cache",
   };
