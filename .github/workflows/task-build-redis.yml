@@ -56,6 +56,9 @@ on:
       image:
         type: string
         default: ''
+      image-is-mirror:
+        type: string
+        default: 'false'
       image-built:
         description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
         type: string
@@ -65,7 +68,13 @@ on:
         description: 'Name of the uploaded Redis artifact.'
         # Reusable-workflow outputs must map from a job output, not directly
         # from inputs — otherwise validation can reject it / it evaluates empty.
-        value: ${{ jobs.build-redis.outputs.artifact-name }}
+        value: >-
+          ${{
+            jobs.build-redis-ghcr.outputs.artifact-name ||
+            jobs.build-redis-mirror.outputs.artifact-name ||
+            jobs.build-redis-raw.outputs.artifact-name ||
+            jobs.build-redis-host.outputs.artifact-name
+          }}
 
 env:
   SETUP_RETRY_LOOP: |
@@ -85,28 +94,26 @@ env:
     [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
-  build-redis:
-    name: Build Redis ${{ inputs.redis-ref }} on ${{ inputs.name }}
+  build-redis-ghcr:
+    if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
+    name: Redis ghcr
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{
-      inputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1}"}}',
-            inputs.image-built == 'true' && inputs.image || inputs.container,
-            startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '')
-        )
-      || null }}
+    container:
+      image: ${{ inputs.image }}
+      options: &build_redis_container_options >-
+        --user root
+        ${{ startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '' }}
 
-    permissions:
+    permissions: &build_redis_permissions
       contents: read  # actions/checkout
       packages: read  # pull container image from GHCR
 
-    defaults:
+    defaults: &build_redis_defaults
       run:
         shell: bash -l -eo pipefail {0}
-    steps:
+    steps: &build_redis_steps
       - name: Install bash
         if: startsWith(inputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
@@ -144,6 +151,8 @@ jobs:
         # Shallow, submodule-free: this job only needs the install scripts and
         # the two local actions below. Redis itself is cloned by build-redis.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
@@ -177,3 +186,44 @@ jobs:
           path: redis-install.tar.gz
           if-no-files-found: error
           retention-days: 1
+
+  build-redis-mirror:
+    if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
+    name: Redis mirror
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ inputs.image }}
+      options: >-
+        --user root
+        ${{ startsWith(inputs.container, 'alpine:') && '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro' || '' }}
+      credentials:
+        username: ${{ vars.GHCR_MIRROR_USERNAME }}
+        password: ${{ secrets.GHCR_MIRROR_PASSWORD }}
+    permissions: *build_redis_permissions
+    defaults: *build_redis_defaults
+    steps: *build_redis_steps
+
+  build-redis-raw:
+    if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
+    name: Redis raw
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ inputs.container }}
+      options: *build_redis_container_options
+    permissions: *build_redis_permissions
+    defaults: *build_redis_defaults
+    steps: *build_redis_steps
+
+  build-redis-host:
+    if: ${{ inputs.container == '' }}
+    name: Redis host
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *build_redis_permissions
+    defaults: *build_redis_defaults
+    steps: *build_redis_steps
