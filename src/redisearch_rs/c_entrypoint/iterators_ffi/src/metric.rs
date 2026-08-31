@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterators::interop::RQEIteratorWrapper;

@@ -790,7 +790,10 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
     // SAFETY: caller guarantees `status`, when present, points to a valid `QueryError` (4).
-    let status = status.map(|status| unsafe { QueryError::from_opaque_non_null(status.cast()) });
+    let status = status.map(|status| {
+        unsafe { QueryError::from_opaque_mut_ptr(status.as_ptr().cast()) }
+            .expect("`status` must not be null")
+    });
     // On failure the enterprise implementation populates `status` with the
     // cause; we just fall back to an empty iterator so the query aborts via the
     // existing `QueryError_HasError` check rather than returning empty results.

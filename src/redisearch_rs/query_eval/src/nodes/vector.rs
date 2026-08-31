@@ -73,7 +73,9 @@ pub(crate) fn eval<'index>(
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
         // filter, so the whole node yields nothing.
-        eval_node(ctx, node.child_mut(0), config)?.into_c_iterator()
+        eval_node(ctx, node.child_mut(0), config)?
+            .into_c_iterator()
+            .as_ptr()
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
