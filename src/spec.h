@@ -581,6 +581,34 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 */
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
+/* Bump on any change to the fingerprint's input layout. It is hashed in and
+ * carried in shard replies, so a mismatch reads as incomparable, not divergent. */
+#define SCHEMA_FINGERPRINT_FORMAT_VERSION 1
+
+/* Identifies the recipe that produced a shard's fingerprints. The rdbcompression
+ * setting is part of the recipe, not a separate fact: the hash covers RDB-serialised
+ * bytes, and long strings are compressed only when it is on. Folding it in here is
+ * what makes a config skew read as incomparable, on the same path as a format skew.
+ * Compared between shards, never against the coordinator's own value. */
+static inline long long SchemaFingerprint_Recipe(bool rdbCompression) {
+  return SCHEMA_FINGERPRINT_FORMAT_VERSION * 2 + (rdbCompression ? 1 : 0);
+}
+
+/* Stable hash of an index's schema-defining state: specs created from the same
+ * FT.CREATE arguments hash equal on any host, so the values can be compared
+ * across shards to detect schema divergence. Never covers the index name,
+ * aliases, or anything derived from the shard's data (documents, stats, GC/scan
+ * state). Taken over RDB-serialised bytes, so it also depends on the shard's
+ * rdbcompression setting: only compare shards that agree on it.
+ *
+ * Stores the fingerprint in *out. On failure returns false rather than a sentinel,
+ * which would make two failed shards compare equal and mask a divergence. */
+bool IndexSpec_SchemaFingerprint(const IndexSpec *sp, uint64_t *out);
+
+/* Create the module type IndexSpec_SchemaFingerprint serializes through. Must
+ * run during module init, before any fingerprint is taken. */
+int IndexSpec_RegisterSchemaFingerprintType(RedisModuleCtx *ctx);
+
 /**
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
  * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.

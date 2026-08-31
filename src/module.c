@@ -1836,6 +1836,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY_F(TrieType_Register, ctx);
 
   RM_TRY_F(Indexes_RegisterType, ctx);
+  RM_TRY_F(IndexSpec_RegisterSchemaFingerprintType, ctx);
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
 

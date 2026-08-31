@@ -53,6 +53,7 @@
 #include "debug_commands.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "util/hash/hash.h"
+#include "util/misc.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
@@ -80,6 +81,7 @@
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
+static RedisModuleType *SchemaFingerprintType;
 
 // Maximum number of indexes that can be created.
 // Can be modified via FT.DEBUG for testing.
@@ -3123,6 +3125,8 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   return true;
 }
 
+// A new top-level schema-defining member saved here must be mirrored in
+// SchemaFingerprint_RdbSave.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3525,6 +3529,70 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
   IndexSpec_RdbSave(rdb, value, contextFlags);
+}
+
+// Mirrors IndexSpec_RdbSave's top-level sequence over the schema-defining subset
+// only, reusing the per-substructure savers so new parameters flow in on their own.
+static void SchemaFingerprint_RdbSave(RedisModuleIO *rdb, void *value) {
+  const IndexSpec *sp = value;
+  RedisModule_SaveUnsigned(rdb, SCHEMA_FINGERPRINT_FORMAT_VERSION);
+  RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
+  RedisModule_SaveUnsigned(rdb, sp->numFields);
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec_RdbSave(rdb, &sp->fields[i], 0 /* contextFlags: no SST/disk state */, false);
+  }
+  SchemaRule_RdbSave(sp->rule, rdb);
+  if (sp->flags & Index_HasCustomStopwords) {
+    StopWordList_RdbSave(rdb, sp->stopwords);
+  }
+  if (sp->flags & Index_HasSmap) {
+    // Hashed, not saved: the synonym RDB stream follows per-process dict order.
+    RedisModule_SaveUnsigned(rdb, SynonymMap_Fingerprint(sp->smap));
+  }
+  RedisModule_SaveUnsigned(rdb, (uint64_t)sp->timeout);
+}
+
+static void *SchemaFingerprint_RdbLoad(RedisModuleIO *rdb, int encver) {
+  (void)rdb;
+  (void)encver;
+  return NULL;
+}
+
+static void SchemaFingerprint_Free(void *value) {
+  (void)value;
+}
+
+int IndexSpec_RegisterSchemaFingerprintType(RedisModuleCtx *ctx) {
+  RedisModuleTypeMethods tm = {
+      .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .rdb_save = SchemaFingerprint_RdbSave,
+      .rdb_load = SchemaFingerprint_RdbLoad,
+      .free = SchemaFingerprint_Free,
+      .aof_rewrite = GenericAofRewrite_DisabledHandler,
+  };
+  SchemaFingerprintType =
+      RedisModule_CreateDataType(ctx, "ft_schfp0", SCHEMA_FINGERPRINT_FORMAT_VERSION, &tm);
+  if (SchemaFingerprintType == NULL) {
+    RedisModule_Log(ctx, "warning", "Could not create schema fingerprint type");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+bool IndexSpec_SchemaFingerprint(const IndexSpec *sp, uint64_t *out) {
+  RedisModuleString *repr =
+      RedisModule_SaveDataTypeToString(NULL, (IndexSpec *)sp, SchemaFingerprintType);
+  RS_ASSERT(repr != NULL);
+  if (!repr) {
+    return false;
+  }
+  size_t len;
+  const char *data = RedisModule_StringPtrLen(repr, &len);
+  Sha1 sha;
+  Sha1_Compute(data, len, &sha);
+  RedisModule_FreeString(NULL, repr);
+  *out = Sha1_LeadingU64(&sha);
+  return true;
 }
 
 /**
