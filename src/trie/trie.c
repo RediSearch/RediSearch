@@ -111,6 +111,9 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
 void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin, const rune *max,
                        int maxlen, bool includeMax, TrieRangeCallback callback, void *ctx,
                        QueryRequestTimeout *timeout) {
+  // Only a Lex trie orders siblings lexicographically; a Score trie orders them
+  // by score, so the walk's binary search would return arbitrary boundaries.
+  RS_LOG_ASSERT(t->sortMode == Trie_Sort_Lex, "lex range requires a Trie_Sort_Lex trie");
   TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx,
                         timeout);
 }

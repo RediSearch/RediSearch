@@ -10,7 +10,7 @@
 //! Evaluation of `QN_LEXRANGE` query nodes over a TEXT field.
 //!
 //! A tag-field lex range never reaches here: `Query_EvalTagNode` walks the tag
-//! index's own value trie instead, and dispatches its children itself.
+//! index's own value trie and dispatches its children itself.
 
 use std::{
     ffi::CStr,
@@ -28,16 +28,14 @@ use crate::{
     expansion_needs_offsets,
 };
 
-/// The markers the indexer prefixes a *derived* term with: a stem, a phonetic
-/// form, or a synonym id. They live in the same terms trie as the terms a
-/// document actually contains, and a range must skip them - a document whose
-/// stem happens to sort inside the range did not put that text in the field, and
-/// the marker characters bracket the letters (`+` and `<` below them, `~` above)
-/// so an unfiltered range on either side sweeps them all in.
+/// The markers the indexer prefixes a derived term with: a stem, a phonetic
+/// form, or a synonym id.
 ///
-/// A term the tokenizer produced can never start with one of these: all three
-/// are separators, so they never survive into a token. `entryWantsSuffixTrie`
-/// relies on the same property.
+/// They share the terms trie with the terms a document actually holds, and
+/// bracket the letters (`+` and `<` below, `~` above), so an unfiltered range on
+/// either side sweeps them in. A term the tokenizer produced never starts with
+/// one; all three are separators. `entryWantsSuffixTrie` relies on the same
+/// property.
 const DERIVED_TERM_MARKERS: [ffi::rune; 3] = [
     ffi::STEM_PREFIX as ffi::rune,
     ffi::PHONETIC_PREFIX as ffi::rune,
@@ -48,22 +46,38 @@ const DERIVED_TERM_MARKERS: [ffi::rune; 3] = [
 struct LoweredBound {
     /// `None` for an unbounded side.
     runes: Option<Vec<ffi::rune>>,
-    /// Whether the bound itself is part of the range. Meaningless, but harmless,
-    /// when the side is unbounded — the C walk ignores it there.
+    /// Whether the bound itself is in range.
     inclusive: bool,
 }
 
-/// Lower one bound to the runes a term is keyed by, or report that it cannot be
-/// one.
+impl LoweredBound {
+    /// Whether the empty term is at or above this bound, read as a range minimum.
+    const fn min_covers_empty(&self) -> bool {
+        match &self.runes {
+            None => true,
+            Some(b) => b.is_empty() && self.inclusive,
+        }
+    }
+
+    /// Whether the empty term is at or below this bound, read as a range maximum.
+    /// Every non-empty bound is above it.
+    const fn max_covers_empty(&self) -> bool {
+        match &self.runes {
+            None => true,
+            Some(b) => !b.is_empty() || self.inclusive,
+        }
+    }
+}
+
+/// Lower one bound to the runes a term is keyed by.
 ///
-/// TEXT terms are indexed lowercased, so a bound is lowercased too — otherwise
-/// `@name:>(Bob)` would compare an uppercase bound against lowercase keys and
-/// answer a different range than `@name:>(bob)`.
+/// TEXT terms are indexed lowercased, so a bound is lowercased too, and decoded
+/// unvalidated for the same reason a prefix pattern is: a term's bytes were
+/// decoded the same way when indexed.
 ///
-/// Returns `None` — after recording the error — when the bound is longer than
-/// the trie's maximum rune-string length. A bound that long cannot be compared
-/// against any stored term, so answering the query would mean silently ignoring
-/// half of it.
+/// Returns `None`, after recording the error, for a bound longer than the trie's
+/// maximum rune-string length. Such a bound cannot be compared against any
+/// stored term, so answering the query would mean ignoring half of it.
 fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&CStr>) -> Option<LoweredBound> {
     let (bytes, inclusive) = match bound {
         Bound::Unbounded => {
@@ -76,10 +90,6 @@ fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&CStr>) -> Option<Lowere
         Bound::Excluded(s) => (s.to_bytes(), false),
     };
 
-    // The bound is a byte string that need not be valid UTF-8, and is decoded
-    // unvalidated for the same reason a prefix pattern is: a term's bytes were
-    // decoded the same way when indexed, so a client that stores and queries
-    // text in one non-UTF-8 encoding compares against the keys it created.
     let Some(runes) = rs_token::bytes_to_lower_runes(bytes) else {
         ctx.status().set_error(
             QueryErrorCode::Limit,
@@ -97,13 +107,11 @@ fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&CStr>) -> Option<Lowere
     })
 }
 
-/// `QN_LEXRANGE` — expand every term of a TEXT field that falls between the
-/// node's bounds into a union of per-term readers.
+/// `QN_LEXRANGE`: expand every term of a TEXT field between the node's bounds
+/// into a union of per-term readers.
 ///
-/// The number of expansions is capped by the configured
-/// [`Config::max_prefix_expansions`], which a range shares with the other
-/// expanding node types: it bounds how many readers one query node may open,
-/// whatever produced the terms.
+/// Capped by [`Config::max_prefix_expansions`], which a range shares with the
+/// other expanding node types.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
@@ -119,11 +127,11 @@ pub(crate) fn eval<'index>(
     let is_disk = !ctx.spec().diskSpec.is_null();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
 
-    // SAFETY: the reference is confined to the walk below, which the query — and
-    // so the spec owning the trie — outlives.
+    // SAFETY: the reference is confined to the walk below, which the query, and
+    // so the spec owning the trie, outlives.
     let terms: &TermsTrie = unsafe { ctx.terms_trie() };
-    // Resolved here, with every other read of `ctx`, because `Expansion` borrows
-    // it mutably for the rest of the expansion.
+    // Read here, with everything else off `ctx`, because `Expansion` borrows it
+    // mutably for the rest of the expansion.
     // SAFETY: the request timeout outlives query evaluation. Its source is fixed
     // for this execution cycle; only the blocked-client flag may change
     // concurrently, through the C atomic API.
@@ -138,15 +146,9 @@ pub(crate) fn eval<'index>(
         max_expansions: config.max_prefix_expansions,
     };
 
-    // The walk hands terms back as runes (with their document count, used for
-    // the disk IDF), which must be encoded back into the term's key byte for
-    // byte as the index stored it — WTF-8 rather than UTF-8 where a rune is a
-    // lone surrogate.
-    //
-    // The walk cannot be stopped once the cap is reached, so the cap is checked
-    // before the key is rebuilt rather than left to `push_child`: otherwise every
-    // remaining term in the range would pay for a reconstruction that is thrown
-    // away.
+    // The cap is consulted before the key is rebuilt, not left to `push_child`:
+    // the bound recursion ignores the stop request, so every remaining term
+    // would otherwise pay for a reconstruction that is thrown away.
     let on_runes = |runes: &[ffi::rune], num_docs: usize| {
         if expansion.cap_reached() {
             return ControlFlow::Break(());
@@ -157,8 +159,9 @@ pub(crate) fn eval<'index>(
         {
             return ControlFlow::Continue(());
         }
+        // Runes must be re-encoded into the term's key byte for byte as the index
+        // stored it: WTF-8 rather than UTF-8 where a rune is a lone surrogate.
         let Ok(key) = runes_to_bytes(runes) else {
-            // The term key cannot be reconstructed; skip this expansion.
             return ControlFlow::Continue(());
         };
         expansion.push_child(num_docs, &key)
@@ -172,10 +175,18 @@ pub(crate) fn eval<'index>(
         on_runes,
     );
 
-    // A range union only needs the matching id set, never per-child scores, so
-    // it takes the quick-exit path like the other expansions. It carries no
-    // profiling query string: the bounds are two strings, not the single pattern
-    // `q_str` names.
+    // A zero-length key is refused on insertion, so an indexed empty value lives
+    // only in its own inverted index and no walk reaches it. Open that index
+    // directly when the range covers the empty term, as the wildcard and fuzzy
+    // expansions do. A field without `INDEXEMPTY` has no such index, so this
+    // adds nothing.
+    if min.min_covers_empty() && max.max_covers_empty() {
+        expansion.push_child_ignoring_cap(0, b"");
+    }
+
+    // Quick-exit like the other expansions: only the matching id set is needed.
+    // No profiling query string, since the bounds are two strings rather than the
+    // single pattern `q_str` names.
     let iter = build_union(
         expansion.children,
         true,

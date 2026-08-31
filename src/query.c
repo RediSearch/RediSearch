@@ -356,8 +356,7 @@ QueryNode *NewMissingNode(const FieldSpec *field) {
 QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
                                       bool inclusive) {
   QueryNode *ret = NewQueryNode(QN_LEXRANGE);
-  // Only the named side is bounded; the other stays NULL, which both evaluators
-  // read as "no limit".
+  // The other side stays NULL, which both evaluators read as "no limit".
   char **target = lower ? &ret->lxrng.begin : &ret->lxrng.end;
   if (lower) {
     ret->lxrng.includeBegin = inclusive;
@@ -367,14 +366,12 @@ QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool 
 
   if (bound->type == QT_PARAM_TERM_CASE) {
     QueryNode_InitParams(ret, 1);
-    // No length is tracked: the bounds are NUL-terminated strings, so a resolved
-    // value is read up to its first interior NUL, as a literal bound written in
-    // the query text would be.
+    // No length: the bounds are NUL-terminated, so a resolved value is read up
+    // to its first interior NUL, as a literal one in the query text would be.
     QueryNode_SetParam(q, &ret->params[0], target, NULL, bound);
   } else {
-    // Unescape once, here, so both evaluators see the value the user meant.
-    // The tag evaluator's `tag_strtolower` would otherwise unescape again on the
-    // tag path only, leaving the two field types disagreeing on `\`.
+    // Unescape once here, or `tag_strtolower` would unescape again on the tag
+    // path only and the two field types would disagree on `\`.
     *target = rm_strndup_unescape(bound->s, bound->len);
   }
   return ret;
@@ -639,8 +636,7 @@ static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
          q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
 }
 
-/* Collects one reader per tag value visited by a lex-range walk over the tag
- * index's value trie. */
+/* Collects one reader per tag value a lex-range walk visits. */
 typedef struct {
   QueryEvalCtx *q;
   TagIndex *idx;
@@ -651,14 +647,13 @@ typedef struct {
   t_fieldIndex fieldIndex;
 } TagRangeCtx;
 
-// Callback for tag lex range queries - handles both disk and memory modes.
 // Returns non-zero to stop the walk, per `TrieMapRangeCallback`.
 static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   TagRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
 
-  // An unbounded range over a high-cardinality tag field is unbounded work, so
-  // both limits end the walk rather than merely decline to open a reader.
+  // Both limits end the walk: an unbounded range over a high-cardinality tag
+  // field is unbounded work, so declining to open a reader is not enough.
   if (ctx->nits >= q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
@@ -681,21 +676,19 @@ static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   return REDISEARCH_OK;
 }
 
-/* Evaluate a tag lexicographic range by walking the tag index's value trie
- * between the node's bounds and creating one big UNION over the readers.
+/* Walk the tag index's value trie between the node's bounds, unioning the
+ * readers.
  *
- * `fieldIndex` names the field the readers are opened on. It is passed in
- * rather than read from `qn->opts.fieldIndex`, which the parser never sets on a
- * tag child - a node built with the default index 0 would silently query the
- * spec's first field instead. */
+ * `fieldIndex` is passed in rather than read from `qn->opts.fieldIndex`, which
+ * the parser never sets on a tag child: the default 0 would silently query the
+ * spec's first field. */
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, t_fieldIndex fieldIndex,
                                                 bool caseSensitive) {
   RS_ASSERT(qn->type == QN_LEXRANGE);
   if (!idx) return NULL;
 
-  // Normalize the bounds the same way the indexed values were normalized, so
-  // that the comparison is between like and like.
+  // Normalize the bounds the way the indexed values were.
   if (qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
     tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
@@ -716,8 +709,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   ctx.its = rm_malloc(ctx.cap * sizeof(*ctx.its));
 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
-  // -1 marks an unbounded side; 0 would mean the empty string, which is a
-  // legitimate bound of its own.
+  // -1 is unbounded; 0 is the empty string, a legitimate bound of its own.
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
   TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
@@ -1020,8 +1012,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
     case QN_VECTOR:
-    // A `QN_LEXRANGE` reaching here is a TEXT-field range. A TAG one never does:
-    // `Query_EvalTagNode` dispatches its own children.
+    // Always a TEXT range: `Query_EvalTagNode` dispatches its own children.
     case QN_LEXRANGE:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
@@ -1477,9 +1468,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
 
     case QN_LEXRANGE:
-      // A bracket marks an inclusive bound and a parenthesis an exclusive one,
-      // as in the numeric-range query syntax; an unbounded side prints as an
-      // infinity rather than as nothing, so `>a` and `<a` cannot look alike.
+      // Bracket for inclusive, parenthesis for exclusive, as in numeric ranges.
       s = sdscatprintf(s, "LEXRANGE{%s%s...%s%s}",
                        qs->lxrng.begin ? (qs->lxrng.includeBegin ? "[" : "(") : "",
                        qs->lxrng.begin ? qs->lxrng.begin : "-inf",

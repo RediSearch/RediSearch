@@ -323,18 +323,18 @@ impl TermsTrie {
     /// select a closed or open bound. Terms are visited in lexicographic order.
     ///
     /// `timeout` bounds the walk (`None` runs it to completion). A
-    /// [`ControlFlow::Break`] from the callback stops the subtree walks, but
-    /// *not* the recursion along the bounds themselves, which ignores the
-    /// callback's return value - so a caller that must bound its own work has to
-    /// keep declining in the callback rather than assume it will stop being
-    /// called.
+    /// [`ControlFlow::Break`] stops the subtree walks but not the recursion
+    /// along the bounds, which ignores the callback's return value, so a caller
+    /// bounding its own work must keep declining rather than assume it stops
+    /// being called.
+    ///
+    /// Requires a lexicographically sorted trie; the walk binary-searches
+    /// siblings.
     ///
     /// # Panics
     ///
-    /// If either bound is longer than [`MAX_RUNE_STR_LEN`](ffi::MAX_RUNE_STR_LEN)
-    /// runes. Such a bound cannot be derived from a rune conversion, which
-    /// refuses to produce one, so reaching here with one is a caller bug rather
-    /// than a query the walk could answer.
+    /// If either bound exceeds [`MAX_RUNE_STR_LEN`](ffi::MAX_RUNE_STR_LEN)
+    /// runes. A rune conversion refuses to produce one, so that is a caller bug.
     pub fn iterate_range<F>(
         &self,
         min: Option<&[ffi::rune]>,
@@ -346,14 +346,12 @@ impl TermsTrie {
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
     {
-        // The C walk takes the bound lengths as `int`, with -1 marking an
-        // unbounded side; 0 is the empty string, which is a bound of its own.
+        // -1 marks an unbounded side; 0 is the empty string, a bound of its own.
         let to_raw = |bound: Option<&[ffi::rune]>| match bound {
             Some(b) => {
                 assert!(
                     b.len() <= ffi::MAX_RUNE_STR_LEN as usize,
-                    "lex-range bound of {} runes exceeds MAX_RUNE_STR_LEN; \
-                     callers must reject an over-long bound before walking",
+                    "lex-range bound of {} runes exceeds MAX_RUNE_STR_LEN",
                     b.len()
                 );
                 (b.as_ptr(), b.len() as c_int)

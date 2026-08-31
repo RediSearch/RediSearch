@@ -101,31 +101,22 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
  * `ts` points at the '@', `te` one past the operator's last character, and
  * `opLen` is the operator's length (1 for `<`/`>`, 2 for `<=`/`>=`).
  *
- * The comparison operators are gated behind `ENABLE_UNSTABLE_FEATURES`, and this
- * is the single place that gate is checked - both the shard-local parse and the
- * coordinator's go through here, so they cannot answer the syntax differently.
- *
- * With the flag off the query is rejected. Before this syntax existed `>` and
- * `<` were punctuation the lexer discarded, so `@field:>(v)` parsed as
- * `@field:(v)`; silently keeping that would hand a client that reached for the
- * new operator a plausible but wrong result set, which is worse than an error a
- * caller can act on. */
+ * The single ENABLE_UNSTABLE_FEATURES gate for this syntax; the shard-local and
+ * coordinator parses both come through here. With the flag off the query is
+ * rejected rather than parsed as the pre-feature `@field:(v)`, which would
+ * answer a client that reached for the operator with a wrong result set. */
 int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok,
       QueryParseCtx *q, const char *ts, const char *te, unsigned int opLen) {
     const char *name = ts + 1;
 
-    // The matched pattern is `@<term> <space>* : <space>* <op>`, so an unescaped
-    // ':' separates the field name from the operator. Scan for it tracking
-    // escapes, since a field name may contain an escaped ':' (`@a\:b`), and
-    // remember where the name's last significant character was so the optional
-    // spaces before the ':' can be dropped - but not an *escaped* space, which
-    // is part of the name.
+    // Find the ':' separating the name from the operator, tracking escapes: a
+    // name may contain an escaped ':' (`@a\:b`) or an escaped space, while the
+    // unescaped spaces the pattern allows before the ':' are not part of it.
+    // Bounded by `te` since the ':' is inside the matched text, so this never
+    // depends on the query buffer being NUL-terminated.
     const char *p = name;
     const char *nameEnd = name;
     int escaped = 0;
-    // Bounded by `te` rather than by a NUL: the ':' is inside the matched text,
-    // so the scan always stops before the end, and never depends on the query
-    // buffer being NUL-terminated.
     while (p < te) {
       if (!escaped && *p == ':') {
         break;

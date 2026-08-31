@@ -136,10 +136,10 @@ impl<'a, const NUL_TERMINATED: bool> RSTokenRef<'a, NUL_TERMINATED> {
 /// Lowercase a byte string and convert it to runes, e.g. for a trie lookup.
 ///
 /// `bytes` is a byte string and need not be valid UTF-8, so it is decoded the
-/// same way a term is indexed — each codepoint folded to lowercase before being
-/// truncated to a rune — rather than validated. Malformed bytes therefore
-/// resolve the runes the index stored them as, instead of a key built from
-/// replacement characters that was never stored.
+/// same way a term is indexed (each codepoint folded to lowercase, then
+/// truncated to a rune) rather than validated. Malformed bytes therefore resolve
+/// the runes the index stored them as, instead of a key built from replacement
+/// characters that was never stored.
 ///
 /// Content after a first interior NUL byte is ignored, matching the up-to-NUL
 /// rune sequence the indexer stores for such a term.

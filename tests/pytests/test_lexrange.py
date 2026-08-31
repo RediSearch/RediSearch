@@ -145,6 +145,33 @@ def testEmptyBound(env):
     env.assertEqual(search(env, '@name:<("")'), [])
 
 
+def testIndexedEmptyValueIsInRange(env):
+    """An INDEXEMPTY field's empty value participates in the ordering.
+
+    A zero-length key is refused by the tries, so an indexed empty value lives
+    only in its own inverted index and no range walk reaches it. It still sorts
+    below every other value, so a range covering it has to include it.
+    """
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'txt', 'TEXT', 'INDEXEMPTY', 'tg', 'TAG', 'INDEXEMPTY').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'empty', 'txt', '', 'tg', '')
+    conn.execute_command('HSET', 'alice', 'txt', 'alice', 'tg', 'alice')
+
+    for field in ('txt', 'tg'):
+        # The empty value is at or below every bound that covers it.
+        env.assertEqual(search(env, f'@{field}:>=("")'), ['alice', 'empty'],
+                        message=field)
+        env.assertEqual(search(env, f'@{field}:<=("")'), ['empty'], message=field)
+        env.assertEqual(search(env, f'@{field}:<(alice)'), ['empty'], message=field)
+
+        # ... and out of range once the bound excludes it.
+        env.assertEqual(search(env, f'@{field}:>("")'), ['alice'], message=field)
+        env.assertEqual(search(env, f'@{field}:<("")'), [], message=field)
+
+
 # ---------------------------------------------------------------------------
 # Bounds that are not plain words
 # ---------------------------------------------------------------------------

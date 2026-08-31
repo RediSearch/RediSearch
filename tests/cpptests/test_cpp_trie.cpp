@@ -177,9 +177,7 @@ static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
   *prefixNodeOut = prefixNode;
 }
 
-// The range answers of a trie holding "0".."999", which must not depend on the
-// sort mode: the walk binary-searches each node's children, which are ordered
-// lexicographically either way.
+// The range answers of a trie holding "0".."999".
 static void assertBasicRanges(Trie *t) {
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
@@ -209,12 +207,6 @@ static void assertBasicRanges(Trie *t) {
 
 TEST_F(TrieTest, testBasicRange) {
   Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  assertBasicRanges(t);
-  TrieType_Free(t);
-}
-
-TEST_F(TrieTest, testBasicRangeWithScore) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Score);
   assertBasicRanges(t);
   TrieType_Free(t);
 }

@@ -148,16 +148,11 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
   reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
 
-/* Build the expression for a field-scoped lexicographic comparison
- * (`@field:>(v)` and friends).
+/* Build the expression for `@field:>(v)` and friends. `lower` picks the side the
+ * bound closes (true for `>`/`>=`), `inclusive` whether it is in range.
  *
- * `lower` selects which side of the range the bound closes - true for `>`/`>=`,
- * false for `<`/`<=` - and `inclusive` whether the bound itself is in range.
- *
- * A TAG field wraps the range in a tag node, which is what routes evaluation to
- * the tag index's value trie; a TEXT field carries the field mask on the range
- * node itself and is evaluated against the spec's terms trie. Any other field
- * type is a syntax error. */
+ * A TAG range hangs off a tag node, which is what routes it to the tag index's
+ * value trie; a TEXT range carries the field mask itself. */
 static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field,
                                           QueryToken *bound, bool lower, bool inclusive) {
   if (!ctx->sctx->spec) {

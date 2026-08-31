@@ -49,9 +49,8 @@ fn default_terms() -> Vec<(&'static [u8], Vec<u64>)> {
 /// has to outlive the call that passes it.
 type BoundSpec<'a> = Option<(&'a str, bool)>;
 
-/// Owns everything a `QN_LEXRANGE` evaluation borrows, so a test can hold a
-/// single value and let the whole graph — index, context, node, and the bound
-/// strings the node points into — drop together.
+/// Owns everything a `QN_LEXRANGE` evaluation borrows (index, context, node, and
+/// the bound strings the node points into) so it all drops together.
 struct LexRangeFixture {
     /// Registers the process-exit cleanup of the global spec dictionaries, which
     /// are shared by every [`TestContext`] and so cannot be freed on drop.
@@ -61,8 +60,7 @@ struct LexRangeFixture {
     /// per-term inverted indexes. Must outlive [`ctx`](Self::ctx).
     _context: TestContext,
     /// The bound strings the node's `begin`/`end` pointers address. The node
-    /// borrows them rather than owning them, so they must outlive it — which is
-    /// also why the fixture, not the test body, holds them.
+    /// borrows rather than owns them, so the fixture holds them to outlive it.
     _bounds: Vec<CString>,
     /// The evaluation context under test. Also carries the query status, so
     /// tests read errors back through it.

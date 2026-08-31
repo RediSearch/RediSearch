@@ -365,10 +365,9 @@ impl QueryNodeRef {
             QueryNodeType::LexRange => {
                 // SAFETY: `type_` is `LexRange`, so the union holds a `QueryLexRangeNode`.
                 let lxrng = unsafe { &*union_ptr.cast::<ffi::QueryLexRangeNode>() };
-                // Each bound is a NUL-terminated string the node owns — written
-                // once when the node is built, or when its query parameter is
-                // resolved, and never rewritten afterwards — so it stays valid
-                // and unmutated for the node's borrow.
+                // Each bound is a NUL-terminated string the node owns, written
+                // once when the node is built or its query parameter resolved
+                // and never rewritten, so it stays valid for the node's borrow.
                 //
                 // SAFETY: per the paragraph above.
                 let begin = unsafe { char_ptr_to_bound(lxrng.begin, lxrng.includeBegin) };

@@ -1015,19 +1015,17 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
 
   if (TrieNode_IsTerminal(n)) {
-    // The bound length still to consume locates this node's key against that
-    // bound: a positive length means the bound continues below the node, so the
-    // key is a proper prefix of it and therefore smaller; zero means the key is
-    // exactly the bound, the only case includeMin/includeMax decides; and a
-    // negative length means that side no longer constrains the node - either the
-    // caller passed no bound there, or, on the min side, the bound ran out
-    // inside an ancestor's label, which puts the key strictly past it. The max
-    // side is never descended into with a negative remainder: an ancestor skips
-    // such a subtree outright, since its keys are all past the bound.
+    // The bound length still to consume places this key: positive means the
+    // bound continues below, so the key is a proper prefix of it and smaller;
+    // zero means the key is the bound, the only case the include flags decide;
+    // negative means unconstrained on that side. A negative min also arises when
+    // the bound ran out inside an ancestor's label, putting the key past it; the
+    // max side is never descended with a negative remainder, since an ancestor
+    // skips that subtree outright.
     bool aboveMin = nmin < 0 || (nmin == 0 && r->includeMin);
     bool belowMax = nmax != 0 || r->includeMax;
     if (aboveMin && belowMax) {
-      r->callback(r->buf, array_len(r->buf), r->cbctx, NULL, n->numDocs);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs);
     }
   }
 
@@ -1067,18 +1065,16 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
 
     int nNextMax = nmax - child->len;
     if (nNextMax < 0) {
-      // The max bound ran out inside this child's label, so every key in the
-      // subtree is strictly greater than it and none of them is in range.
+      // Max ran out inside the label, so every key here is past it.
       goto clean_stack;
     }
 
     const rune *nextMin = min + child->len;
     int nNextMin = nmin - child->len;
     if (nNextMin < 0) {
-      // The min bound ran out inside the label: the whole subtree is strictly
-      // greater than it, so only the max bound is left to apply. Passing a
-      // zero-length min instead would read as "this node *is* the min" and drop
-      // it on an exclusive bound.
+      // Min ran out inside the label, so the subtree is wholly above it and only
+      // max is left. A zero-length min would instead read as "this node is the
+      // min" and drop it on an exclusive bound.
       nextMin = NULL;
       nNextMin = -1;
     }
@@ -1095,8 +1091,7 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
 
     int nNextMin = nmin - child->len;
     if (nNextMin < 0) {
-      // The min bound ran out inside this child's label, so the whole subtree is
-      // strictly greater than it and there is no max left to apply: take it all.
+      // Wholly above min, and no max here, so take the subtree entire.
       rangeIterateSubTree(child, r);
     } else {
       rangeIterate(child, min + child->len, nNextMin, NULL, -1, r);
@@ -1140,11 +1135,11 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
     TrieNode *child = arr[endEqIdx];
 
     int nNextMax = nmax - child->len;
+    // A negative remainder means max ran out inside the label, putting every key
+    // in the subtree past it.
     if (nNextMax >= 0) {
       rangeIterate(child, NULL, -1, max + child->len, nNextMax, r);
     }
-    // A negative remainder means the max bound ran out inside the child's label,
-    // so every key in the subtree is strictly greater than it: nothing to visit.
   }
 
 clean_stack:
@@ -1157,11 +1152,9 @@ clean_stack:
 void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeMin, const rune *max,
                            int nmax, bool includeMax, TrieRangeCallback callback, void *ctx,
                            QueryRequestTimeout *timeout) {
-  // A bound is only dereferenced while its remaining length is positive, so a
-  // null pointer paired with a positive length would be read. The documented
-  // contract allows a null bound only with length 0 (the empty string) or -1
-  // (unbounded), so catch the violation in debug builds and treat it as
-  // unbounded elsewhere rather than walk off the pointer.
+  // A bound is dereferenced only while its length is positive, so a null pointer
+  // with a positive length would be read. The contract allows a null bound only
+  // at length 0 (empty string) or -1 (unbounded).
   RS_LOG_ASSERT(min || nmin <= 0, "a null min bound requires a length of 0 or -1");
   RS_LOG_ASSERT(max || nmax <= 0, "a null max bound requires a length of 0 or -1");
   if (!min && nmin > 0) {
@@ -1180,13 +1173,11 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
     }
 
     if (cmp == 0) {
-      // min == max, so the range holds at most that one value - and only when
-      // *both* sides include it. A half-open interval over a single point, such
-      // as [v, v) or (v, v], is empty.
+      // At most one value, and only when both sides include it: [v, v) is empty.
       if (includeMin && includeMax) {
         TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
         if (node && TrieNode_IsTerminal(node)) {
-          callback(min, nmin, ctx, NULL, node->numDocs);
+          callback(min, nmin, ctx, node->payload, node->numDocs);
         }
       }
       return;

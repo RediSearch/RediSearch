@@ -191,16 +191,11 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
   reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
 
-/* Build the expression for a field-scoped lexicographic comparison
- * (`@field:>(v)` and friends).
+/* Build the expression for `@field:>(v)` and friends. `lower` picks the side the
+ * bound closes (true for `>`/`>=`), `inclusive` whether it is in range.
  *
- * `lower` selects which side of the range the bound closes - true for `>`/`>=`,
- * false for `<`/`<=` - and `inclusive` whether the bound itself is in range.
- *
- * A TAG field wraps the range in a tag node, which is what routes evaluation to
- * the tag index's value trie; a TEXT field carries the field mask on the range
- * node itself and is evaluated against the spec's terms trie. Any other field
- * type is a syntax error. */
+ * A TAG range hangs off a tag node, which is what routes it to the tag index's
+ * value trie; a TEXT range carries the field mask itself. */
 static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field,
                                           QueryToken *bound, bool lower, bool inclusive) {
   if (!ctx->sctx->spec) {
@@ -938,13 +933,8 @@ expr(A) ::= modifier(B) LE param_num(C) . {
 // Lexicographic Ranges (TAG/TEXT fields)
 /////////////////////////////////////////////////////////////////
 
-// `@field:>(bound)` and friends. The operator token is only ever emitted when
-// `ENABLE_UNSTABLE_FEATURES` is on - see `RSQuery_ParseFieldColonOp_v2` - so
-// these rules are unreachable while the feature is gated off.
-//
-// The bound is exactly one token, which is what makes `@city:>(New York)` a
-// syntax error rather than a query with an ambiguous bound: a bound containing
-// spaces is written quoted, `@city:>("New York")`.
+// Gated: `RSQuery_ParseFieldColonOp_v2` only emits the operator token when
+// ENABLE_UNSTABLE_FEATURES is on.
 
 expr(A) ::= modifier(B) COLON GT lex_bound(C) . {
   A = lex_range_step(ctx, &B, &C, true, false);
@@ -962,14 +952,10 @@ expr(A) ::= modifier(B) COLON LE lex_bound(C) . {
   A = lex_range_step(ctx, &B, &C, false, true);
 }
 
-// Parentheses read naturally for both field types; braces mirror the tag-list
-// shape, `@tag:{value}`.
-//
-// `param_term_case` keeps the bound's case, which is normalized per field type
-// at evaluation instead: a TEXT bound is lowercased to match the terms trie, a
-// TAG bound only when the field is not CASESENSITIVE. A quoted bound arrives as
-// `EXACT`, which the `%fallback` directive re-reads as `TERM` in this state, so
-// `"New York"` is one bound rather than two terms.
+// Exactly one token, so `@city:>(New York)` is a syntax error and a bound with a
+// space is written `@city:>("New York")` - quoted, it arrives as EXACT, which
+// `%fallback` re-reads as TERM here. `param_term_case` keeps the case; each
+// field type normalizes it at evaluation.
 lex_bound(A) ::= LP param_term_case(B) RP . {
   A = B;
 }

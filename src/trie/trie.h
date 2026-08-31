@@ -72,7 +72,10 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
 TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut);
 
 /* Iterate all nodes within a lexicographic range. Wraps TrieNode_IterateRange on the
- * trie's root. See TrieNode_IterateRange for parameter semantics. */
+ * trie's root. See TrieNode_IterateRange for parameter semantics.
+ *
+ * Requires a Trie_Sort_Lex trie: the walk binary-searches sibling nodes, which a
+ * Trie_Sort_Score trie orders by score instead. */
 void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin, const rune *max,
                        int maxlen, bool includeMax, TrieRangeCallback callback, void *ctx,
                        QueryRequestTimeout *timeout);
