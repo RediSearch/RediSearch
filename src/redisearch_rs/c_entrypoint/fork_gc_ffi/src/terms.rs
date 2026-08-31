@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use fork_gc::{
     ForkGC,
     io_result_ext::IoResultExt,
@@ -41,7 +43,7 @@ pub unsafe extern "C" fn FGC_childCollectTerms(
     sctx: *mut ffi::RedisSearchCtx,
 ) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
     // SAFETY: caller guarantees (2).
     let spec_ptr = unsafe { (*sctx).spec };
     // SAFETY: caller guarantees (3).
@@ -71,7 +73,7 @@ pub unsafe extern "C" fn FGC_childCollectTerms(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleTerms(gc: *mut ffi::ForkGC) -> FGCError {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
 
     into_fgc_error(handle_terms(fgc), "terms")
 }
