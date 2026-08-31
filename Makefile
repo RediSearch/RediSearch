@@ -266,21 +266,30 @@ RS_OUTDIR  := $(if $(filter rlec,$(COORD)),search-enterprise,search-community)
 RS_TARGET  := $(ROOT)/bin/$(RS_OS)-$(RS_ARCH)-$(RS_FLAVOR)/$(RS_OUTDIR)/redisearch.so
 
 # Everything the module is compiled from: C/C++/Rust sources and headers, the
-# cargo manifests and lockfiles, and the cmake files. Build output (bin,
-# target, _deps), clones (.git) and test trees are pruned — they hold artifacts
+# cargo manifests and lockfiles, and the cmake files. deps/ is NOT scanned —
+# the submodules are pinned and hold tens of thousands of files; their
+# CMakeLists are tracked instead, which change when a submodule is
+# re-checked-out. Build output (bin, target, _deps), clones (.git) and test
+# trees are pruned — they hold artifacts
 # newer than the .so, which would make the target permanently out of date.
 # The generated parser.c/lexer.c are excluded and their .y grammars tracked
 # instead: as prerequisites the generated files would match make's built-in
 # yacc rule (%.c: %.y) and get regenerated behind build.sh's back. Upstream
 # regenerates them only through the explicit `parsers` target.
-RS_SOURCES := $(shell find $(ROOT)/src $(ROOT)/deps $(ROOT)/cmake \
+RS_SOURCES := $(shell find $(ROOT)/src $(ROOT)/cmake \
         \( -name bin -o -name .git -o -name target -o -name _deps -o -name tests \) -prune -o \
         -type f ! -name 'parser.c' ! -name 'lexer.c' \
         \( -name '*.c' -o -name '*.h' -o -name '*.cc' -o -name '*.cpp' \
         -o -name '*.hpp' -o -name '*.rs' -o -name '*.y' -o -name '*.rl' \
         -o -name 'Cargo.toml' -o -name 'Cargo.lock' \
         -o -name 'CMakeLists.txt' -o -name '*.cmake' \) -print 2>/dev/null) \
-    $(BUILD_SCRIPT) $(wildcard $(ROOT)/CMakeLists.txt) $(wildcard $(ROOT)/rust-toolchain.toml)
+    $(BUILD_SCRIPT) $(wildcard $(ROOT)/CMakeLists.txt) \
+    $(wildcard $(ROOT)/rust-toolchain.toml) $(wildcard $(ROOT)/deps/*/CMakeLists.txt)
+
+# Keep this out of every recipe's environment: it is hundreds of KB of paths,
+# and a single env string above Linux's MAX_ARG_STRLEN (128 KB) makes exec fail
+# with "Argument list too long" for unrelated targets such as `bootstrap`.
+unexport RS_SOURCES
 
 build: $(RS_TARGET)
 
