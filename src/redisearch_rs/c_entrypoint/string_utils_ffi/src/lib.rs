@@ -22,7 +22,7 @@ use std::{ffi::c_char, slice};
 /// 1. When `len` is non-zero, `s` must point to a valid region of memory of length `len`. An
 ///    empty value needs no valid pointer — `len == 0` returns without reading `s`.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RS_IsValidUtf8(s: *const c_char, len: usize) -> bool {
+pub const unsafe extern "C" fn StringUtils_IsValidUtf8(s: *const c_char, len: usize) -> bool {
     if len == 0 {
         return true;
     }
