@@ -1298,12 +1298,36 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+// Reads the shard's rdbcompression setting into *enabled, false if it could not be
+// read. getRedisConfigBool() is not usable here: it folds a failed read into its
+// default, and a read failure has to stay distinguishable from both values.
+static bool readRdbCompression(RedisModuleCtx *ctx, bool *enabled) {
+  int value = 0;
+  if (RedisModule_ConfigGetBool(ctx, "rdbcompression", &value) != REDISMODULE_OK) {
+    return false;
+  }
+  *enabled = value != 0;
+  return true;
+}
+
+// Shard-side _FT._LIST; WITHCLUSTERSTATE replies the diagnostic payload the reducer consumes.
 static int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
-  if (argc == 2 && !RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
+  if (argc == 2) {
+    if (!RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
+    }
+
+    bool rdbCompression = false;  // An unreadable setting is reported as incomparable
+    const bool comparable = readRdbCompression(ctx, &rdbCompression);
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    const char *nodeId = MR_GetLocalNodeId();
+    Indexes_ReplyWithClusterStatePayload(&_reply, nodeId,
+                                         SchemaFingerprint_Recipe(rdbCompression), comparable);
+    MR_ReleaseLocalNodeIdReadLock();
+    return REDISMODULE_OK;
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);

@@ -999,20 +999,80 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   Indexes_SpecOpsIndexingCtxFree(to_specs);
 }
 
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
-  RedisModule_Reply_Set(reply);
+void Indexes_ForEachSpec(IndexesSpecVisitor visit, void *ud) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
     CurrentThread_SetIndexSpec(ref);
-    const char *specName = IndexSpec_FormatName(sp, obfuscate);
-    REPLY_SIMPLE_SAFE(specName);
+    visit(sp, ud);
     CurrentThread_ClearIndexSpec();
   }
   dictReleaseIterator(iter);
+}
+
+typedef struct {
+  RedisModule_Reply *reply;
+  bool obfuscate;
+} SpecNameReplyCtx;
+
+static void replySpecName(IndexSpec *sp, void *ud) {
+  SpecNameReplyCtx *nameCtx = ud;
+  RedisModule_Reply *reply = nameCtx->reply;
+  const char *specName = IndexSpec_FormatName(sp, nameCtx->obfuscate);
+  REPLY_SIMPLE_SAFE(specName);
+}
+
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
+  RedisModule_Reply_Set(reply);
+  SpecNameReplyCtx nameCtx = {.reply = reply, .obfuscate = obfuscate};
+  Indexes_ForEachSpec(replySpecName, &nameCtx);
   RedisModule_Reply_SetEnd(reply);
+  RedisModule_EndReply(reply);
+}
+
+typedef struct {
+  RedisModule_Reply *reply;
+  bool comparable;
+} FingerprintReplyCtx;
+
+static void replySpecNameAndFingerprint(IndexSpec *sp, void *ud) {
+  const FingerprintReplyCtx *ctx = ud;
+  RedisModule_Reply *reply = ctx->reply;
+  RedisModule_Reply_Array(reply);
+  const char *specName = IndexSpec_FormatName(sp, false);
+  RedisModule_Reply_StringBuffer(reply, specName, strlen(specName));
+  uint64_t fingerprint;
+  if (ctx->comparable && IndexSpec_SchemaFingerprint(sp, &fingerprint)) {
+    RedisModule_Reply_LongLong(reply, (long long)fingerprint);
+  } else {
+    RedisModule_Reply_Null(reply);
+  }
+  RedisModule_Reply_ArrayEnd(reply);
+}
+
+// Wire format of the internal _FT._LIST WITHCLUSTERSTATE payload; the FT._LIST
+// reducer in module.c decodes it, so the two must change together.
+//   [node_id, fingerprint recipe, index encoding version,
+//    [[index name, fingerprint or nil], ...]]
+// node_id is empty when the shard's identity is unknown; a nil fingerprint means
+// the index is present but its schema is not comparable.
+void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id,
+                                          long long recipe, bool comparable) {
+  RedisModule_Reply_Array(reply);
+
+  RedisModule_Reply_SimpleString(reply, node_id ? node_id : "");
+
+  RedisModule_Reply_LongLong(reply, recipe);
+  RedisModule_Reply_LongLong(reply, INDEX_CURRENT_VERSION);
+
+  FingerprintReplyCtx ctx = {.reply = reply, .comparable = comparable};
+  RedisModule_Reply_Array(reply);
+  Indexes_ForEachSpec(replySpecNameAndFingerprint, &ctx);
+  RedisModule_Reply_ArrayEnd(reply);
+
+  RedisModule_Reply_ArrayEnd(reply);
   RedisModule_EndReply(reply);
 }
 
