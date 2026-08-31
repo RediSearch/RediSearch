@@ -58,6 +58,42 @@ extern RedisModuleCtx *RSDummyContext;
 #include <stdint.h>
 #include <string.h>
 
+// Reclaim postings for deleted documents from `idx`'s tail block, on the cadence
+// `InvertedIndex::should_probe_tail_block` decides. Off unless
+// INLINE_GC_BLOCK_REPAIR_THRESHOLD is set: it buys smaller fork GC cycles with write
+// throughput, which is an operator's call.
+//
+// Only the tail block is touched, so the added cost is bounded by one block regardless of how
+// long the posting list is. Everything else stays the fork GC's job.
+static void maybeRepairTailBlock(IndexSpec *spec, InvertedIndex *idx) {
+  // Bounded to 0..100 at both config entry points, so the cast to uint8_t below is safe.
+  const size_t threshold = RSGlobalConfig.gcConfigParams.gcSettings.inlineGcBlockRepairThreshold;
+  if (threshold == 0) {
+    return;
+  }
+  // Bounded to 0..MAX_INLINE_GC_BLOCK_REPAIR_STRIDE at both config entry points, so the cast
+  // to uint16_t is safe.
+  const size_t stride = RSGlobalConfig.gcConfigParams.gcSettings.inlineGcBlockRepairStride;
+
+  II_GCScanStats info;
+  if (!InvertedIndex_MaybeRepairTailBlock(idx, spec, (uint8_t)threshold, (uint16_t)stride,
+                                          &info)) {
+    return;
+  }
+
+  // Same accounting as the fork GC's `FGC_updateStats`, including the add-before-subtract
+  // ordering. The net of freed and allocated can be negative when re-encoding a repaired
+  // block costs more than it reclaims, which is why the two are applied separately rather
+  // than as a single difference -- a `size_t` difference would wrap.
+  spec->stats.numRecords -= info.entries_removed;
+  spec->stats.invertedSize += info.bytes_allocated;
+  spec->stats.invertedSize -= info.bytes_freed;
+  IndexStats_BlockCountAdd(&spec->stats, info.block_count_delta);
+  spec->stats.inlineRepairs++;
+  spec->stats.inlineBytesCollected += (ssize_t)info.bytes_freed;
+  spec->stats.inlineBytesCollected -= (ssize_t)info.bytes_allocated;
+}
+
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry,
                             bool hasFieldExpiration) {
   AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry, hasFieldExpiration);
@@ -75,6 +111,8 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
+
+  maybeRepairTailBlock(spec, idx);
 }
 
 // Number of terms for each block-allocator block

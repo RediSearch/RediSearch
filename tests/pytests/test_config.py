@@ -597,6 +597,11 @@ numericConfigs = [
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
+    # Capped at a stride wider than any block, past which it cannot fire before the
+    # block-full check does. 0 leaves only that check.
+    ('search-inline-gc-block-repair-stride', 'INLINE_GC_BLOCK_REPAIR_STRIDE', 8, 0, 1024, False, False),
+    # A percentage, so the maximum is 100 rather than a type bound. 0 disables inline repair.
+    ('search-inline-gc-block-repair-threshold', 'INLINE_GC_BLOCK_REPAIR_THRESHOLD', 0, 0, 100, False, False),
     ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
     ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, 0, MAX_AGGREGATE_REQUEST_RESULTS, False, False),
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
