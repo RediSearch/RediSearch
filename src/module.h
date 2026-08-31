@@ -79,6 +79,7 @@ do {                                            \
 #define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
+#define INCONSISTENT_INDEX_STATE "Inconsistent index state"
 
 #define RM_TRY(expr)                                                   \
   if (expr == REDISMODULE_ERR) {                                       \

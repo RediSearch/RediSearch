@@ -87,6 +87,11 @@ typedef struct MRCtx {
    are up before sending the command to the cluster */
   bool validateConnections;
 
+  /* Node ids of the shards the fanout targeted, written on the IO thread */
+  char **shardNodeIds;
+  size_t numShardNodeIds;
+  bool captureShardNodeIds;
+
   /**
    * This is a reduce function inside the MRCtx.
    * if set when replies will arrive we will not
@@ -150,6 +155,38 @@ void MRCtx_SetFreePrivDataCB(MRCtx *ctx, MRCtxFreePrivDataCB cb) {
   ctx->freePrivDataCB = cb;
 }
 
+static void clearShardNodeIds(MRCtx *ctx) {
+  for (size_t i = 0; i < ctx->numShardNodeIds; i++) {
+    rm_free(ctx->shardNodeIds[i]);
+  }
+  rm_free(ctx->shardNodeIds);
+  ctx->shardNodeIds = NULL;
+  ctx->numShardNodeIds = 0;
+}
+
+// The topology is swapped and freed on the IO thread that runs this, so the ids are
+// copied out of it rather than borrowed.
+static void captureShardNodeIds(MRCtx *ctx, const MRClusterTopology *topo) {
+  clearShardNodeIds(ctx);
+  if (!topo) {
+    return;
+  }
+  ctx->shardNodeIds = rm_calloc(topo->numShards, sizeof(char *));
+  for (uint32_t i = 0; i < topo->numShards; i++) {
+    ctx->shardNodeIds[i] = rm_strdup(topo->shards[i].node.id);
+  }
+  ctx->numShardNodeIds = topo->numShards;
+}
+
+void MRCtx_CaptureShardNodeIds(MRCtx *ctx) {
+  ctx->captureShardNodeIds = true;
+}
+
+const char **MRCtx_GetShardNodeIds(const MRCtx *ctx, size_t *count) {
+  *count = ctx->numShardNodeIds;
+  return (const char **)ctx->shardNodeIds;
+}
+
 static void MRCtx_FreeInternal(MRCtx *ctx) {
   if (ctx->freePrivDataCB) {
     ctx->freePrivDataCB(ctx);
@@ -157,6 +194,7 @@ static void MRCtx_FreeInternal(MRCtx *ctx) {
 
   MRCommand_Free(&ctx->cmd);
   QueryError_ClearError(&ctx->status);
+  clearShardNodeIds(ctx);
 
   for (int i = 0; i < ctx->numReplied; i++) {
     if (ctx->replies[i] != NULL) {
@@ -336,6 +374,10 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) 
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
+
+  if (mrctx->captureShardNodeIds) {
+    captureShardNodeIds(mrctx, ioRuntime->topo);
+  }
 
   mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, MRCtx_GetValidateConnections(mrctx));
 
