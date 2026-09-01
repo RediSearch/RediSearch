@@ -152,7 +152,26 @@ pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
     link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
-    link_mkl(&bin_root.join("_deps/svs-src/lib"));
+    let mkl_linked = link_mkl(&bin_root.join("_deps/svs-src/lib"));
+    // Cargo's `-l` flags precede the rlibs; re-scan the bundle after them. GNU ld reads
+    // each archive once, so group it there with the system libs its members need.
+    let gnu_ld = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string()) != "macos";
+    if gnu_ld {
+        println!("cargo::rustc-link-arg=-Wl,--start-group");
+    }
+    println!("cargo::rustc-link-arg=-lredisearch_c_bundle");
+    if mkl_linked {
+        // The bundle holds the SVS members that call into MKL but not MKL itself, so this
+        // pass can reference it after its own `-l` flag was already scanned. Their
+        // references run both ways, which the surrounding group resolves.
+        println!("cargo::rustc-link-arg=-lmkl_static_library");
+    }
+    if gnu_ld {
+        println!("cargo::rustc-link-arg=-lstdc++");
+        println!("cargo::rustc-link-arg=-lpthread");
+        println!("cargo::rustc-link-arg=-lc");
+        println!("cargo::rustc-link-arg=-Wl,--end-group");
+    }
     link_c_plusplus();
 }
 
@@ -241,12 +260,19 @@ pub fn link_redisearch_c_bundle(bin_root: &Path) -> Result<PathBuf, Box<dyn std:
 /// `svs_lib_dir` is the directory that contains `libmkl_static_library.a`.
 /// Its location varies across build configurations, so callers are responsible
 /// for supplying the correct path.
-pub fn link_mkl(svs_lib_dir: &Path) {
+///
+/// Returns whether the archive was found and linked. It is absent whenever SVS was
+/// built without the Intel optimisation, so callers that reference MKL again — e.g.
+/// through a raw link argument — must gate on this rather than assume it is there.
+pub fn link_mkl(svs_lib_dir: &Path) -> bool {
     let mkl = svs_lib_dir.join("libmkl_static_library.a");
     if std::fs::exists(&mkl).unwrap_or(false) {
         println!("cargo::rerun-if-changed={}", mkl.display());
         println!("cargo::rustc-link-search=native={}", svs_lib_dir.display());
         println!("cargo::rustc-link-lib=static:-bundle=mkl_static_library");
+        true
+    } else {
+        false
     }
 }
 
