@@ -418,6 +418,33 @@ def testRangeWeightAppliedOnce(env):
     env.assertEqual(scores('@name:>(charlie)=>{$weight: 2.0}'), [2.0, 2.0])
 
 
+def testLiteralBoundAlongsideAnotherParameter(env):
+    """A literal range must not leave an empty parameter slot behind.
+
+    A tag node retags every slot of its children as a real parameter, so a
+    leftover slot with no name crashed the server once any other parameter in the
+    query made resolution walk the tree.
+    """
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'name', 'TAG', 'age', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i, (name, age) in enumerate([('alice', 30), ('bob', 40), ('charlie', 50)]):
+        conn.execute_command('HSET', f'doc{i + 1}', 'name', name, 'age', age)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@name:>(bob) @age>=$min', 'PARAMS', '2', 'min', '0',
+                  'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['doc3'])
+
+    # The same shape on a TEXT field, which does not go through the tag retag.
+    env.expect('FT.CREATE', 'txt_idx', 'ON', 'HASH', 'PREFIX', '1', 'doc',
+               'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
+    res = env.cmd('FT.SEARCH', 'txt_idx', '@name:>(bob) @age>=$min', 'PARAMS', '2', 'min', '0',
+                  'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['doc3'])
+
+
 def testEscapedBoundIsNotUnescapedTwice(env):
     """A TAG bound is unescaped once, by the tag evaluator, as a tag token is."""
     enable_unstable_features(env)

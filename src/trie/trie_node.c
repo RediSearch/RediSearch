@@ -986,6 +986,7 @@ static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
 
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
+
   if (TrieNode_IsTerminal(n)) {
     if (r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs) != REDISEARCH_OK) {
       r->stop = 1;
@@ -1014,6 +1015,16 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
 
+  // Declared before the first `goto clean_stack` below, which would otherwise
+  // jump over their initializers.
+  int beginEqIdx = -1;
+  int endEqIdx = -1;
+  int beginIdx = 0;
+  int endIdx = -1;
+  rsbHelper h = {0};
+  TrieNode **arr = TrieNode_Children(n);
+  size_t arrlen = n->numChildren;
+
   if (TrieNode_IsTerminal(n)) {
     // The bound length still to consume places this key: positive means the
     // bound continues below, so the key is a proper prefix of it and smaller;
@@ -1024,19 +1035,20 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
     // skips that subtree outright.
     bool aboveMin = nmin < 0 || (nmin == 0 && r->includeMin);
     bool belowMax = nmax != 0 || r->includeMax;
-    if (aboveMin && belowMax) {
-      r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs);
+    if (aboveMin && belowMax &&
+        r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs) != REDISEARCH_OK) {
+      // The callback asked to stop, and a boundary terminal can have descendants
+      // below it, so honour it here as `rangeIterateSubTree` does rather than
+      // walking on.
+      r->stop = 1;
+      goto clean_stack;
     }
   }
 
-  int beginEqIdx = -1;
-  int endEqIdx = -1;
-  int beginIdx = 0;
-  int endIdx = -1;
-  rsbHelper h = {0};
+  if (r->stop) {
+    goto clean_stack;
+  }
 
-  TrieNode **arr = TrieNode_Children(n);
-  size_t arrlen = n->numChildren;
   if (!arrlen) {
     // no children, just return.
     goto clean_stack;

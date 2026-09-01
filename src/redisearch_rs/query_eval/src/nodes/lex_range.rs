@@ -12,10 +12,7 @@
 //! A tag-field lex range never reaches here: `Query_EvalTagNode` walks the tag
 //! index's own value trie and dispatches its children itself.
 
-use std::{
-    ffi::CStr,
-    ops::{Bound, ControlFlow},
-};
+use std::ops::{Bound, ControlFlow};
 
 use c_trie::{QueryRequestTimeoutHandle, TermsTrie};
 use query_error::QueryErrorCode;
@@ -78,7 +75,7 @@ impl LoweredBound {
 /// Returns `None`, after recording the error, for a bound longer than the trie's
 /// maximum rune-string length. Such a bound cannot be compared against any
 /// stored term, so answering the query would mean ignoring half of it.
-fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&CStr>) -> Option<LoweredBound> {
+fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&[u8]>) -> Option<LoweredBound> {
     let (bytes, inclusive) = match bound {
         Bound::Unbounded => {
             return Some(LoweredBound {
@@ -86,8 +83,8 @@ fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&CStr>) -> Option<Lowere
                 inclusive: false,
             });
         }
-        Bound::Included(s) => (s.to_bytes(), true),
-        Bound::Excluded(s) => (s.to_bytes(), false),
+        Bound::Included(s) => (s, true),
+        Bound::Excluded(s) => (s, false),
     };
 
     let Some(runes) = rs_token::bytes_to_lower_runes(bytes) else {
@@ -115,8 +112,8 @@ fn lower_bound(ctx: &mut QueryEvalContext, bound: Bound<&CStr>) -> Option<Lowere
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
-    begin: Bound<&CStr>,
-    end: Bound<&CStr>,
+    begin: Bound<&[u8]>,
+    end: Bound<&[u8]>,
     config: Config,
 ) -> Option<Evaluated<'index>> {
     let min = lower_bound(ctx, begin)?;

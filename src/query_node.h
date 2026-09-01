@@ -89,8 +89,11 @@ typedef struct {
 
 typedef struct {
   char *begin;
+  /* Length of `begin`, which is binary-safe and may hold interior NULs. */
+  size_t beginLen;
   bool includeBegin;
   char *end;
+  size_t endLen;
   bool includeEnd;
 } QueryLexRangeNode;
 

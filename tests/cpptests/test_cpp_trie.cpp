@@ -90,6 +90,21 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
   return terms;
 }
 
+// Stops the walk after one emission, to check the callback is obeyed on the
+// boundary path as well as inside a subtree.
+struct StopAfterFirstCtx {
+  ElemSet found;
+};
+
+static int stopAfterFirstFunc(const rune *u16, size_t nrune, void *ctx, void *payload,
+                              size_t numDocsInTerm) {
+  size_t n;
+  char *s = runesToStr(u16, nrune, &n);
+  ((StopAfterFirstCtx *)ctx)->found.insert(std::string(s, n));
+  free(s);
+  return REDISEARCH_ERR;
+}
+
 static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, bool includeBegin,
                              const char *end, size_t nend, bool includeEnd) {
   rune r1[256] = {0};
@@ -343,6 +358,28 @@ TEST_F(TrieTest, testRangeMinBoundarySubtreeStillRespectsMax) {
   // The same subtree is in range once the max bound clears it.
   ElemSet expected{"bc", "bccbd"};
   EXPECT_EQ(expected, trieIterRange(t, "b", 1, false, "bd", 2, false));
+
+  TrieType_Free(t);
+}
+
+// An inclusive bound that is itself a stored term with descendants is emitted on
+// the boundary path rather than through a subtree walk, so that path has to obey
+// a callback that asks to stop.
+TEST_F(TrieTest, testRangeStopsAtABoundaryTerminal) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const char *term : {"a", "ab", "ac"}) {
+    ASSERT_TRUE(trieInsert(t, term));
+  }
+
+  rune min[8] = {0};
+  size_t nmin = strToRunes("a", 1, min, std::size(min));
+
+  StopAfterFirstCtx ctx;
+  Trie_IterateRange(t, min, nmin, true, NULL, -1, false, stopAfterFirstFunc, &ctx, NULL);
+
+  // "a" is the inclusive minimum, so it is emitted first and ends the walk.
+  ASSERT_EQ(1, ctx.found.size());
+  EXPECT_EQ(ElemSet{"a"}, ctx.found);
 
   TrieType_Free(t);
 }

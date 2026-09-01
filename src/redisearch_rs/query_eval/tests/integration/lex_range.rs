@@ -19,8 +19,6 @@
 //! cannot execute.
 #![cfg(not(miri))]
 
-use std::ffi::CString;
-
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
@@ -45,8 +43,8 @@ fn default_terms() -> Vec<(&'static [u8], Vec<u64>)> {
 /// One side of the range under test: the bound's bytes and whether it is
 /// inclusive. `None` leaves the side unbounded.
 ///
-/// The bound is copied into a [`CString`] as the fixture is built, so it only
-/// has to outlive the call that passes it.
+/// The bound is copied as the fixture is built, so it only has to outlive the
+/// call that passes it.
 type BoundSpec<'a> = Option<(&'a str, bool)>;
 
 /// Owns everything a `QN_LEXRANGE` evaluation borrows (index, context, node, and
@@ -59,9 +57,9 @@ struct LexRangeFixture {
     /// Owns the index: the spec, its search context, the terms trie, and the
     /// per-term inverted indexes. Must outlive [`ctx`](Self::ctx).
     _context: TestContext,
-    /// The bound strings the node's `begin`/`end` pointers address. The node
+    /// The bound bytes the node's `begin`/`end` pointers address. The node
     /// borrows rather than owns them, so the fixture holds them to outlive it.
-    _bounds: Vec<CString>,
+    _bounds: Vec<Vec<u8>>,
     /// The evaluation context under test. Also carries the query status, so
     /// tests read errors back through it.
     ctx: QueryEvalContext,
@@ -109,23 +107,31 @@ impl LexRangeFixture {
         // exclusively owned by this fixture.
         let ctx = unsafe { QueryEvalContext::new(qctx) };
 
-        let mut bounds = Vec::new();
+        let mut bounds: Vec<Vec<u8>> = Vec::new();
         let mut to_ptr = |bound: BoundSpec<'_>| match bound {
-            None => (std::ptr::null_mut(), false),
+            None => (std::ptr::null_mut(), 0, false),
             Some((s, inclusive)) => {
-                let owned = CString::new(s).expect("a bound must not contain an interior NUL");
-                let ptr = owned.as_ptr().cast_mut();
+                let mut owned = s.as_bytes().to_vec();
+                let ptr = owned.as_mut_ptr().cast();
+                let len = owned.len();
                 bounds.push(owned);
-                (ptr, inclusive)
+                (ptr, len, inclusive)
             }
         };
-        let (begin_ptr, include_begin) = to_ptr(begin);
-        let (end_ptr, include_end) = to_ptr(end);
+        let (begin_ptr, begin_len, include_begin) = to_ptr(begin);
+        let (end_ptr, end_len, include_end) = to_ptr(end);
 
         let mut node = MockQueryNode::new(QueryNodeType::LexRange);
         node.opts_mut().weight = 1.0;
         node.opts_mut().field_mask = RS_FIELDMASK_ALL;
-        node.set_lex_range(begin_ptr, include_begin, end_ptr, include_end);
+        node.set_lex_range(
+            begin_ptr,
+            begin_len,
+            include_begin,
+            end_ptr,
+            end_len,
+            include_end,
+        );
 
         Self {
             _guard,
