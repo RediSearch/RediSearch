@@ -440,6 +440,8 @@ def testLiteralBoundAlongsideAnotherParameter(env):
     # The same shape on a TEXT field, which does not go through the tag retag.
     env.expect('FT.CREATE', 'txt_idx', 'ON', 'HASH', 'PREFIX', '1', 'doc',
                'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
+    # The documents predate this index, so it is filled by a background backfill.
+    waitForIndex(env, 'txt_idx')
     res = env.cmd('FT.SEARCH', 'txt_idx', '@name:>(bob) @age>=$min', 'PARAMS', '2', 'min', '0',
                   'NOCONTENT', 'DIALECT', '2')
     env.assertEqual(sorted(res[1:]), ['doc3'])

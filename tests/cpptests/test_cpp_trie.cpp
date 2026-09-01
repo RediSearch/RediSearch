@@ -384,6 +384,29 @@ TEST_F(TrieTest, testRangeStopsAtABoundaryTerminal) {
   TrieType_Free(t);
 }
 
+// A stop raised inside a middle subtree must also end the upper-bound recursion
+// that runs after it, which reaches its terminal on the boundary path rather
+// than through a subtree walk.
+TEST_F(TrieTest, testRangeStopIsInheritedByTheUpperBoundWalk) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const char *term : {"b", "c"}) {
+    ASSERT_TRUE(trieInsert(t, term));
+  }
+
+  rune max[8] = {0};
+  size_t nmax = strToRunes("c", 1, max, std::size(max));
+
+  StopAfterFirstCtx ctx;
+  Trie_IterateRange(t, NULL, -1, false, max, nmax, true, stopAfterFirstFunc, &ctx, NULL);
+
+  // "b" comes from the middle-subtree walk and stops it; "c", the inclusive
+  // maximum, must not be emitted afterwards.
+  ASSERT_EQ(1, ctx.found.size());
+  EXPECT_EQ(ElemSet{"b"}, ctx.found);
+
+  TrieType_Free(t);
+}
+
 /**
  * This test ensures that the stack isn't overflown from all the frames.
  * The maximum trie depth cannot be greater than the maximum length of the

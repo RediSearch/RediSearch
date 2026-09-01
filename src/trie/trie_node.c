@@ -1025,6 +1025,12 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
   TrieNode **arr = TrieNode_Children(n);
   size_t arrlen = n->numChildren;
 
+  // A stop inherited from an earlier subtree walk ends this one too, before the
+  // terminal below can call back again.
+  if (r->stop) {
+    goto clean_stack;
+  }
+
   if (TrieNode_IsTerminal(n)) {
     // The bound length still to consume places this key: positive means the
     // bound continues below, so the key is a proper prefix of it and smaller;
@@ -1043,10 +1049,6 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
       r->stop = 1;
       goto clean_stack;
     }
-  }
-
-  if (r->stop) {
-    goto clean_stack;
   }
 
   if (!arrlen) {

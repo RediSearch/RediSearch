@@ -300,7 +300,7 @@ fn union_limited_geo_prints_full() {
 }
 
 #[test]
-fn union_limited_lexrange_prints_full() {
+fn union_limited_lexrange_collapses() {
     use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 

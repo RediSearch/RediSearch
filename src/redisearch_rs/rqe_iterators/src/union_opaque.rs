@@ -235,14 +235,12 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
-        // Union, Geo, and LexRange always print full children even in
-        // limited mode — these types have few enough children that
-        // collapsing them would lose useful information.
-        let print_full = !ctx.limited
-            || matches!(
-                node_type,
-                QueryNodeType::Union | QueryNodeType::Geo | QueryNodeType::LexRange
-            );
+        // Union and Geo always print full children even in limited mode —
+        // these types have few enough children that collapsing them would
+        // lose useful information. An expansion, LexRange included, can have
+        // up to `MAXPREFIXEXPANSIONS` of them, so it collapses.
+        let print_full =
+            !ctx.limited || matches!(node_type, QueryNodeType::Union | QueryNodeType::Geo);
 
         map.kv_simple_string(c"Type", c"UNION");
 
