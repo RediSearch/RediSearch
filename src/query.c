@@ -691,13 +691,18 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   RS_ASSERT(qn->type == QN_LEXRANGE);
   if (!idx) return NULL;
 
-  // Normalize the bounds the way the indexed values were. `tag_strtolower`
-  // updates the length it is given, so the bound stays binary-safe.
+  // Normalize the bounds the way the indexed values were, then take the length
+  // from the result. `tag_strtolower` truncates the content at an interior NUL,
+  // as tag indexing does, but only reports that through the length it returns
+  // when it also folds case; a CASESENSITIVE field would otherwise keep a length
+  // covering bytes the bound no longer holds.
   if (qn->lxrng.begin) {
     tag_strtolower(&(qn->lxrng.begin), &qn->lxrng.beginLen, caseSensitive);
+    qn->lxrng.beginLen = strlen(qn->lxrng.begin);
   }
   if (qn->lxrng.end) {
     tag_strtolower(&(qn->lxrng.end), &qn->lxrng.endLen, caseSensitive);
+    qn->lxrng.endLen = strlen(qn->lxrng.end);
   }
 
   TagRangeCtx ctx = {

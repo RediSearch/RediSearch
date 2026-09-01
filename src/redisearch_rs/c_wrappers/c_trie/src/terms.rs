@@ -323,10 +323,8 @@ impl TermsTrie {
     /// select a closed or open bound. Terms are visited in lexicographic order.
     ///
     /// `timeout` bounds the walk (`None` runs it to completion). A
-    /// [`ControlFlow::Break`] stops the subtree walks but not the recursion
-    /// along the bounds, which ignores the callback's return value, so a caller
-    /// bounding its own work must keep declining rather than assume it stops
-    /// being called.
+    /// [`ControlFlow::Break`] ends the whole walk: the callback is not invoked
+    /// again, along the bounds or in any remaining subtree.
     ///
     /// Requires a lexicographically sorted trie; the walk binary-searches
     /// siblings.

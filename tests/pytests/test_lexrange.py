@@ -499,6 +499,30 @@ def testInteriorNulTruncatesBoundAndValueAlike(env):
         env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'], message=field)
 
 
+def testInteriorNulTruncatesCaseSensitiveTagBound(env):
+    """The same truncation on a CASESENSITIVE TAG field.
+
+    `tag_strtolower` folds case and reports the truncated length together; with
+    folding skipped, the length has to come from the truncated content instead.
+    """
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'tg', 'TAG', 'CASESENSITIVE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'plain', 'tg', 'ab')
+    conn.execute_command('HSET', 'nul', 'tg', 'ab\0z')
+
+    # Both index under "ab", so a bound of "ab\0z" is the bound "ab".
+    below = env.cmd('FT.SEARCH', 'idx', '@tg:<($cursor)', 'PARAMS', '2', 'cursor', 'ab\0z',
+                    'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+    env.assertEqual(below[1:], [])
+
+    at_or_below = env.cmd('FT.SEARCH', 'idx', '@tg:<=($cursor)', 'PARAMS', '2', 'cursor', 'ab\0z',
+                          'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+    env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'])
+
+
 def testEscapedBoundIsNotUnescapedTwice(env):
     """A TAG bound is unescaped once, by the tag evaluator, as a tag token is."""
     enable_unstable_features(env)
