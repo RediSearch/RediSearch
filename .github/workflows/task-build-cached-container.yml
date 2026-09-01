@@ -21,7 +21,7 @@ on:
         default: ""
     outputs:
       image:
-        description: "Built image tag for this run"
+        description: "Image tag to use for job containers"
         value: ${{ jobs.build-image.outputs.image }}
       succeeded:
         description: "Whether image build completed successfully"
@@ -35,7 +35,7 @@ jobs:
       contents: read
       packages: write # required for GHCR push
     outputs:
-      image: ${{ steps.meta.outputs.image }}
+      image: ${{ steps.select-pull-image.outputs.image }}
       succeeded: ${{ steps.mark-status.outputs.succeeded }}
     steps:
       - name: Checkout
@@ -62,12 +62,15 @@ jobs:
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's#[^A-Za-z0-9_.-]#-#g')
           SAN_SAFE=$(echo "$SAN" | sed 's#[^A-Za-z0-9_.-]#-#g')
           RUNNER_ENV_SAFE=$(echo "$RUNNER_ENV" | sed 's#[^A-Za-z0-9_.-]#-#g')
-          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN_SAFE}-${RUNNER_ENV_SAFE}-${RUN_ID}"
+          IMAGE_PATH="${OWNER_LC}/redisearch-ci:${CONTAINER_SAFE}-${SAN_SAFE}-${RUNNER_ENV_SAFE}-${RUN_ID}"
+          GHCR_IMAGE_TAG="ghcr.io/${IMAGE_PATH}"
           CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN_SAFE}-${RUNNER_ENV_SAFE}-cache"
 
-          echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "image-path=$IMAGE_PATH" >> "$GITHUB_OUTPUT"
+          echo "ghcr-image=$GHCR_IMAGE_TAG" >> "$GITHUB_OUTPUT"
           echo "cache=$CACHE_REF" >> "$GITHUB_OUTPUT"
-          echo "Using image tag: $IMAGE_TAG"
+          echo "Using image path: $IMAGE_PATH"
+          echo "Using GHCR image tag: $GHCR_IMAGE_TAG"
           echo "Using cache ref: $CACHE_REF"
           if [[ "$IS_FORK_PR" == "true" ]]; then
             echo "can_push=false" >> "$GITHUB_OUTPUT"
@@ -101,9 +104,36 @@ jobs:
           secrets: |
             GITHUB_TOKEN=${{ github.token }}
           file: Dockerfile
-          tags: ${{ steps.meta.outputs.image }}
+          tags: ${{ steps.meta.outputs.ghcr-image }}
           cache-to: ${{ steps.meta.outputs.can_push == 'true' && format('type=registry,ref={0},mode=max,compression=zstd', steps.meta.outputs.cache) || '' }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
+
+      - name: Select pull image
+        if: always()
+        id: select-pull-image
+        env:
+          GHCR_IMAGE: ${{ steps.meta.outputs.ghcr-image }}
+          IMAGE_PATH: ${{ steps.meta.outputs.image-path }}
+          BUILD_OUTCOME: ${{ steps.build-and-push.outcome }}
+          GHCR_MIRROR_HOST: ${{ vars.GHCR_MIRROR_HOST }}
+        run: |
+          image="$GHCR_IMAGE"
+
+          if [[ "$BUILD_OUTCOME" == "success" && -n "${GHCR_MIRROR_HOST:-}" ]]; then
+            mirror_image="${GHCR_MIRROR_HOST%/}/${IMAGE_PATH}"
+            echo "Checking mirror manifest: $mirror_image"
+            if docker manifest inspect "$mirror_image" >/dev/null 2>&1; then
+              image="$mirror_image"
+              echo "Mirror image is available."
+            else
+              echo "Mirror image is not available; using GHCR image."
+            fi
+          else
+            echo "Mirror host is unavailable or image build did not succeed; using GHCR image."
+          fi
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Using pull image tag: $image"
 
       - name: Mark build status
         if: always()
