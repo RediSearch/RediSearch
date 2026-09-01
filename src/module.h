@@ -50,6 +50,10 @@ bool IsEnterprise();
 
 size_t GetNumShards_UnSafe();
 
+bool SearchCluster_Ready();
+bool cannotBlockCtx(RedisModuleCtx *ctx);
+int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd);
+
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
