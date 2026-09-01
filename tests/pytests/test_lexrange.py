@@ -499,6 +499,38 @@ def testInteriorNulTruncatesBoundAndValueAlike(env):
         env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'], message=field)
 
 
+def testTagParameterBoundIsUnescapedLikeATagToken(env):
+    """A TAG parameter is read as query-syntax text, backslashes and all, and a
+    range bound agrees with an exact match about that.
+
+    `tag_strtolower` runs the escape-removal pass on both, so the parameter
+    `a\\!` names the indexed value `a!` rather than the literal `a\\!`. That is
+    arguably the wrong reading of a parameter, but it is TAG-wide rather than
+    specific to ranges, so this pins the two constructs agreeing rather than
+    asserting either is right. Changing it means changing `@tag:{$p}` too.
+    """
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'tg', 'TAG', 'CASESENSITIVE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'bang', 'tg', 'a!')
+    conn.execute_command('HSET', 'esc', 'tg', 'a\\!')
+    conn.execute_command('HSET', 'zed', 'tg', 'z')
+
+    # An exact match on the parameter resolves it to "a!", not the literal "a\\!"
+    # that the index holds separately...
+    exact = env.cmd('FT.SEARCH', 'idx', '@tg:{$p}', 'PARAMS', '2', 'p', 'a\\!',
+                    'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(exact[1:]), ['bang'])
+
+    # ... and a range bound resolves it the same way, so everything above "a!"
+    # matches, including the backslashed value.
+    above = env.cmd('FT.SEARCH', 'idx', '@tg:>($p)', 'PARAMS', '2', 'p', 'a\\!',
+                    'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+    env.assertEqual(sorted(above[1:]), ['esc', 'zed'])
+
+
 def testInteriorNulTruncatesCaseSensitiveTagBound(env):
     """The same truncation on a CASESENSITIVE TAG field.
 
