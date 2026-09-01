@@ -147,6 +147,23 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         self.inner.len() >= self.capacity
     }
 
+    /// Whether an element scoring `score` could be retained: the heap has room,
+    /// or `score` is no worse than the worst element currently held.
+    ///
+    /// A tie reports `true`. Only
+    /// [`push_with_record_lazy`](Self::push_with_record_lazy) applies the doc-id
+    /// tiebreak, so a caller using this to pre-filter candidates never discards
+    /// one the heap would have kept.
+    pub fn may_retain(&self, score: f64) -> bool {
+        if !self.is_full() {
+            return true;
+        }
+        match self.inner.peek() {
+            Some(worst) => (self.compare)(&score, &worst.result.score) != Ordering::Greater,
+            None => true,
+        }
+    }
+
     /// Returns the worst element currently retained (the one that would be evicted next),
     /// without removing it.
     pub fn peek_worst(&self) -> Option<ScoredResult> {
