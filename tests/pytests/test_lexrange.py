@@ -426,6 +426,37 @@ def testSiblingFieldTermsDoNotSpendTheCap(env):
 
 
 @skip(cluster=True)
+def testTraversalBudgetStopsARunawayWalk():
+    """Past its traversal budget the walk stops and says so.
+
+    The budget is `MAXPREFIXEXPANSIONS` times a fixed factor, so a cap of 1
+    allows 100 visits. Enough sibling-only terms to exceed that must end the walk
+    rather than let it scan on, and the truncation must be reported rather than
+    silently returning fewer documents.
+    """
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'dense', 'TEXT', 'sparse', 'TEXT').ok()
+
+    # 150 terms present only in the sibling field, all sorting before the one
+    # term the queried field holds, so the walk reaches the budget first.
+    for i in range(150):
+        conn.execute_command('HSET', f'dense{i}', 'dense', f'aterm{i:03d}')
+    conn.execute_command('HSET', 'target', 'sparse', 'zzz')
+
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    try:
+        res = env.cmd('FT.SEARCH', 'idx', '@sparse:>=("")', 'NOCONTENT', 'LIMIT', '0', '100')
+        env.assertContains('Max prefix expansions limit was reached', res['warning'])
+        # The walk stopped before reaching the queried field's own term.
+        env.assertEqual(res['total_results'], 0, message=res)
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+
+@skip(cluster=True)
 def testExpansionCapCountsTheEmptyTerm(env):
     """The empty term is one of the terms in the range, so it is capped like any
     other rather than appended past the limit."""
