@@ -1851,7 +1851,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Take hash events over the plain keyspace channel even where the subkey "
                      "channel is available, so the degraded path can be tested. For testing only.",
          .setValue = setForcePlainHashNotifications,
-         .getValue = getForcePlainHashNotifications},
+         .getValue = getForcePlainHashNotifications,
+         // Immutable on both surfaces, not just the native one. The channel is chosen once, at
+         // the first index, but `HashSubkeyNotificationsSupported` reads this every time -- so a
+         // runtime set would flip the probe's answer while the subscription stayed put, which is
+         // the very ambiguity the probe exists to remove.
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_PRINT_PROFILE_CLOCK",
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,

@@ -480,8 +480,9 @@ def testPartialIndexedDocsIsANoOp(env):
         env.skip()
 
     def docid_progression(module_args):
-        """(first, after a non-schema write, after a schema write) for one server."""
+        """(subkeys, first, after a non-schema write, after a schema write) for one server."""
         server = Env(moduleArgs=module_args) if module_args else Env()
+        subkeys = server.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
         conn = getConnectionByEnv(server)
         server.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
         conn.execute_command('HSET', 'doc1', 'test', 'foo')
@@ -493,17 +494,25 @@ def testPartialIndexedDocsIsANoOp(env):
         conn.execute_command('HSET', 'doc1', 'test', 'bar')
         indexed = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
         server.stop()
-        return (first, unindexed, indexed)
+        return (subkeys, first, unindexed, indexed)
 
     default = docid_progression(None)
     enabled = docid_progression('PARTIAL_INDEXED_DOCS 1')
 
+    # The equality holds on any server: whatever the channel, the deprecated argument must not
+    # change the outcome. That is the claim this test is named for.
     env.assertEqual(default, enabled,
                     message=f'the deprecated argument changed behaviour: {default} vs {enabled}')
 
-    first, unindexed, indexed = default
-    env.assertEqual(unindexed, first,
-                    message='a write touching no indexed field should not reindex by default')
+    subkeys, first, unindexed, indexed = default
+    if subkeys:
+        env.assertEqual(unindexed, first,
+                        message='a write touching no indexed field should not reindex by default')
+    else:
+        # No change set to reason from, so the skip correctly declines and the whole document is
+        # reindexed. Asserting an unchanged doc-id here would fail on correct behaviour.
+        env.assertGreater(unindexed, first,
+                          message='without subkey notifications every write reindexes')
     env.assertGreater(indexed, first,
                       message='a write to a schema field must still reindex')
 

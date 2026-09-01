@@ -91,27 +91,28 @@ def test_lazily_expired_field_notification(env: Env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
 
-    # The read has to reach the field before Redis's active-expiry cycle does, because active
-    # expiry allocates the subkey with `createStringObject` and is harmless. Hence a 1ms TTL
-    # and a delay just long enough to lapse it, over several documents so that a cycle landing
-    # in the middle cannot make the whole test miss.
-    docs = [f'doc:{i}' for i in range(20)]
-    for key in docs:
-        conn.execute_command('HSET', key, 't', 'hello', 'other', 'world')
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LIMIT', '0', '0').equal([len(docs)])
+    # Active expiry has to be off for this to test anything. It allocates the subkey with
+    # `createStringObject` and is harmless, so if a cycle reaps the field first the read below
+    # simply finds it missing and never reaches the stack-allocated path -- a regression to
+    # `RedisModule_RetainString` would then crash in production while this test passed. Timing
+    # alone cannot rule that out on a slow host, so the cycle is disabled rather than outrun.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    try:
+        conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
 
-    for key in docs:
-        conn.execute_command('HPEXPIRE', key, '1', 'FIELDS', '1', 't')
-    time.sleep(0.005)
+        conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 't')
+        time.sleep(0.05)
 
-    # Each read drives lazy expiry, which emits the hexpired notification carrying the
-    # stack-allocated subkey.
-    for key in docs:
-        env.assertEqual(conn.execute_command('HGET', key, 't'), None)
+        # With no active cycle, this read is what expires the field, and it emits the hexpired
+        # notification carrying the stack-allocated subkey.
+        env.assertEqual(conn.execute_command('HGET', 'doc:1', 't'), None)
 
-    # Still answering, i.e. still alive -- the assertion this test exists for.
-    env.expect('PING').true()
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+        # Still answering, i.e. still alive -- the assertion this test exists for.
+        env.expect('PING').true()
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    finally:
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
 
 
 @skip(cluster=True, redis_less_than='8.0')
