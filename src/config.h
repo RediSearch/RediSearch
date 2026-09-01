@@ -159,23 +159,16 @@ typedef struct {
 
   bool noMemPool;
 
-  /** Deprecated, read by nothing.
+  /** Deprecated
    *
    * Once gated a command filter that captured hash field names before execution,
-   * which subkey notifications replaced -- they deliver the same information from
-   * Redis directly, so there is nothing left to switch on.
-   *
+   * which subkey notifications replaced
    * Retained only so the surface it is bound to keeps working: `PARTIAL_INDEXED_DOCS`
    * and, more importantly, the `search-partial-indexed-docs` module config. Dropping
    * the latter's registration makes a server whose config file sets it refuse to
    * start ("Module Configuration detected without loadmodule directive"), so it can
    * only be removed at a major version. */
   bool filterCommands;
-
-  // Take hash events over the plain keyspace channel even on a server that offers the subkey
-  // one, so the degraded path can be tested. That path is what an older Redis runs, and no CI
-  // lane has a Redis without the API, so nothing else reaches it. Testing only.
-  bool forcePlainHashNotifications;
 
   // free resource on shutdown
   bool freeResourcesThread;
@@ -477,7 +470,6 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
     .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
-    .forcePlainHashNotifications = false,                                      \
     .freeResourcesThread = true,                                               \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \

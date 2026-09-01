@@ -790,13 +790,31 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 // index exists -- the subscription is lazy, and a caller asking early needs a useful answer.
 static bool RS_HashSubkeyRegistrationFailed = false;
 
+// Whether the plain channel was forced, for testing the degraded path. Owned here rather
+// than in the config: the lever exists only for tests, and `_FT.DEBUG` is unavailable
+// unless the module was loaded with DEBUG, so it cannot be reached in production at all.
+static bool RS_ForcePlainHashNotifications = false;
+
+// File scope so `ForcePlainHashNotifications_Set` can refuse once the channel is chosen.
+static bool RS_KeyspaceEvents_Initialized = false;
+
 bool HashSubkeyNotificationsSupported(void) {
   return RedisModule_SubscribeToKeyspaceEventsWithSubkeys != NULL &&
-         !RS_HashSubkeyRegistrationFailed && !RSGlobalConfig.forcePlainHashNotifications;
+         !RS_HashSubkeyRegistrationFailed && !RS_ForcePlainHashNotifications;
+}
+
+bool ForcePlainHashNotifications_Set(bool force) {
+  // Refused after the subscription, not merely ineffective: the channel is chosen once, so
+  // a later flip would leave `HashSubkeyNotificationsSupported` describing a channel that is
+  // not in use, and a test could not tell the fallback from a working subscription.
+  if (RS_KeyspaceEvents_Initialized) {
+    return false;
+  }
+  RS_ForcePlainHashNotifications = force;
+  return true;
 }
 
 void Initialize_KeyspaceNotifications() {
-  static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
     // Physical key removal (EXPIRED/EVICTED) is de-indexed via the DocIdMeta
     // `unlink` callback in both modes, so we don't subscribe to those.
@@ -834,11 +852,11 @@ void Initialize_KeyspaceNotifications() {
     // accepted. Clearing the flag first and then ignoring the return would leave a server
     // whose registration failed with no hash subscription at all, and every later HSET and
     // HDEL would stop reaching the index -- silently, since nothing else reports it.
-    // `_FORCE_PLAIN_HASH_NOTIFICATIONS` selects the plain channel regardless, so a test can
+    // `_FT.DEBUG FORCE_PLAIN_HASH_NOTIFICATIONS` selects the plain channel regardless, so a test can
     // drive the path an older Redis takes. Nothing else reaches it: every CI lane runs a
     // server that has the API.
     if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys &&
-        !RSGlobalConfig.forcePlainHashNotifications) {
+        !RS_ForcePlainHashNotifications) {
       if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys(
               RSDummyContext, REDISMODULE_NOTIFY_HASH, /* flags */ 0,
               KeySpaceNotificationWithSubkeysCallback) == REDISMODULE_OK) {

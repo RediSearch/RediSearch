@@ -554,7 +554,8 @@ def testPlainHashNotificationsFallback(env):
     A server without subkey notifications takes hash events over the plain channel with no
     change set, so every write reindexes the whole document. That is what an older Redis does
     in production, and no CI lane can reach it -- every one of them runs a Redis that has the
-    API. `_FORCE_PLAIN_HASH_NOTIFICATIONS` selects that channel anyway so it can be tested.
+    API. `_FT.DEBUG FORCE_PLAIN_HASH_NOTIFICATIONS` selects that channel anyway so it can be
+    tested. It has to be set before the first index, which is when the channel is chosen.
 
     Two claims. The probe reports the path actually taken rather than the server's capability,
     which is what lets a test tell the two apart at all. And on the plain channel a write
@@ -578,11 +579,20 @@ def testPlainHashNotificationsFallback(env):
     subkey_env.stop()
 
     # (B) Forced onto the plain channel: no change set, so the same write reindexes.
-    plain_env = Env(moduleArgs='_FORCE_PLAIN_HASH_NOTIFICATIONS true')
+    # `freshEnv` because the lever is now a debug command rather than a module argument: with
+    # identical arguments RLTest hands back the server from (A), whose channel is already chosen
+    # and whose index already exists.
+    plain_env = Env(freshEnv=True)
+    plain_env.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '1').ok()
     plain_env.assertEqual(plain_env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 0,
                           message='forced onto the plain channel, the probe must not claim otherwise')
     conn = getConnectionByEnv(plain_env)
     plain_env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+
+    # Too late to change the channel now, and saying so is the point: a silently ignored set
+    # would leave a later test believing it was on the plain channel when it was not.
+    plain_env.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '0').error().contains(
+        'already subscribed')
     conn.execute_command('HSET', 'doc1', 'test', 'foo')
     first = plain_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
 

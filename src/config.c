@@ -69,7 +69,6 @@ configPair_t __configPairs[] = {
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
-  {"_FORCE_PLAIN_HASH_NOTIFICATIONS", "search-_force-plain-hash-notifications"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
   {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
@@ -352,11 +351,6 @@ static int set_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-// PARTIAL_INDEXED_DOCS and search-partial-indexed-docs are the same inert switch reached two
-// ways, and both have to say so. The legacy module argument arrives through
-// `setFilterCommand`; the native surface -- FT.CONFIG and `MODULE LOADEX ... CONFIG` --
-// arrives through `set_deprecated_partial_indexed_docs`. Registering the generic
-// `set_bool_config` for the latter accepted the setting in silence.
 static void warnPartialIndexedDocsDeprecated(void) {
   RedisModule_Log(RSDummyContext, "warning",
                   "PARTIAL_INDEXED_DOCS is deprecated and has no effect. Hash field-change "
@@ -1193,10 +1187,6 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
-// _FORCE_PLAIN_HASH_NOTIFICATIONS
-CONFIG_BOOLEAN_SETTER(setForcePlainHashNotifications, forcePlainHashNotifications)
-CONFIG_BOOLEAN_GETTER(getForcePlainHashNotifications, forcePlainHashNotifications, 0)
-
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, requestConfigParams.printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileClock, 0)
@@ -1847,16 +1837,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Determine whether some index resources are free on a second thread.",
          .setValue = setFreeResourcesThread,
          .getValue = getFreeResourcesThread},
-        {.name = "_FORCE_PLAIN_HASH_NOTIFICATIONS",
-         .helpText = "Take hash events over the plain keyspace channel even where the subkey "
-                     "channel is available, so the degraded path can be tested. For testing only.",
-         .setValue = setForcePlainHashNotifications,
-         .getValue = getForcePlainHashNotifications,
-         // Immutable on both surfaces, not just the native one. The channel is chosen once, at
-         // the first index, but `HashSubkeyNotificationsSupported` reads this every time -- so a
-         // runtime set would flip the probe's answer while the subscription stayed put, which is
-         // the very ambiguity the probe exists to remove.
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_PRINT_PROFILE_CLOCK",
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
@@ -2627,15 +2607,6 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.numericCompress)
-    )
-  )
-
-  RM_TRY(
-    RedisModule_RegisterBoolConfig(
-      ctx, "search-_force-plain-hash-notifications", 0,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
-      (void *)&(RSGlobalConfig.forcePlainHashNotifications)
     )
   )
 
