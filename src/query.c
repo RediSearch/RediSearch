@@ -364,16 +364,12 @@ QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool 
     ret->lxrng.includeEnd = inclusive;
   }
 
-  if (bound->type == QT_PARAM_TERM_CASE) {
-    QueryNode_InitParams(ret, 1);
-    // No length: the bounds are NUL-terminated, so a resolved value is read up
-    // to its first interior NUL, as a literal one in the query text would be.
-    QueryNode_SetParam(q, &ret->params[0], target, NULL, bound);
-  } else {
-    // Unescape once here, or `tag_strtolower` would unescape again on the tag
-    // path only and the two field types would disagree on `\`.
-    *target = rm_strndup_unescape(bound->s, bound->len);
-  }
+  // `QueryParam_SetParam` normalizes by token type, as it does for a token node:
+  // a TEXT bound (QT_TERM) is unescaped and lowercased here, a TAG one
+  // (QT_TERM_CASE) stays raw for `tag_strtolower` at evaluation. No length is
+  // tracked, since the bounds are NUL-terminated.
+  QueryNode_InitParams(ret, 1);
+  QueryNode_SetParam(q, &ret->params[0], target, NULL, bound);
   return ret;
 }
 
@@ -643,7 +639,6 @@ typedef struct {
   QueryIterator **its;
   size_t nits;
   size_t cap;
-  double weight;
   t_fieldIndex fieldIndex;
 } TagRangeCtx;
 
@@ -662,8 +657,10 @@ static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
     return REDISEARCH_ERR;
   }
 
-  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->idx, q->sctx, r, n, invidx,
-                                                           ctx->weight, ctx->fieldIndex, q->status);
+  // Unit weight: the enclosing union applies the node's weight once, as it does
+  // for the prefix and wildcard expansions.
+  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->idx, q->sctx, r, n, invidx, 1,
+                                                           ctx->fieldIndex, q->status);
   if (!ir) {
     return REDISEARCH_OK;
   }
@@ -703,7 +700,6 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
       .idx = idx,
       .cap = 8,
       .nits = 0,
-      .weight = weight,
       .fieldIndex = fieldIndex,
   };
   ctx.its = rm_malloc(ctx.cap * sizeof(*ctx.its));

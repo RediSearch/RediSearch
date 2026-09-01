@@ -326,6 +326,27 @@ TEST_F(TrieTest, testRangeBothBoundsShareAPrefix) {
   TrieType_Free(t);
 }
 
+// The min bound can run into a child that the max bound is already below, when
+// max diverges inside that same compressed label. Descending there while
+// dropping max, as the boundary recursion otherwise does, would take the whole
+// subtree even though every key in it sorts above max.
+TEST_F(TrieTest, testRangeMinBoundarySubtreeStillRespectsMax) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const char *term : {"bc", "bccbd"}) {
+    ASSERT_TRUE(trieInsert(t, term));
+  }
+
+  // (b, bba): "b" prefixes the collapsed "bc" label, while "bba" diverges inside
+  // it. Both terms sort above "bba", so the range is empty.
+  EXPECT_EQ(ElemSet{}, trieIterRange(t, "b", 1, false, "bba", 3, false));
+
+  // The same subtree is in range once the max bound clears it.
+  ElemSet expected{"bc", "bccbd"};
+  EXPECT_EQ(expected, trieIterRange(t, "b", 1, false, "bd", 2, false));
+
+  TrieType_Free(t);
+}
+
 /**
  * This test ensures that the stack isn't overflown from all the frames.
  * The maximum trie depth cannot be greater than the maximum length of the

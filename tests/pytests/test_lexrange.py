@@ -375,6 +375,66 @@ def testSortableTagUsesTheIndexedValue(env):
     env.assertEqual(search(env, '@name:>(charlie)'), ['doc4', 'doc5'])
 
 
+# The cap is per shard, so a cluster admits one expansion per shard and the
+# coordinator unions them; the count below only holds for a single shard.
+@skip(cluster=True)
+def testExpansionCapCountsTheEmptyTerm(env):
+    """The empty term is one of the terms in the range, so it is capped like any
+    other rather than appended past the limit."""
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'txt', 'TEXT', 'INDEXEMPTY').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'empty', 'txt', '')
+    conn.execute_command('HSET', 'alice', 'txt', 'alice')
+    conn.execute_command('HSET', 'bob', 'txt', 'bob')
+
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    try:
+        # The empty term sorts first, so it is the one expansion admitted.
+        env.assertEqual(search(env, '@txt:>=("")'), ['empty'])
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+
+@skip(cluster=True)
+def testRangeWeightAppliedOnce(env):
+    """A weighted TAG range must not multiply the weight into both the child
+    readers and the union above them.
+
+    DISMAX scores a match as its weight, so the expected numbers are exact: the
+    weight applied twice would read 4 rather than 2.
+    """
+    enable_unstable_features(env)
+    build_index(env, 'TAG')
+
+    def scores(query):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'WITHSCORES',
+                      'SCORER', 'DISMAX', 'DIALECT', '2')
+        return sorted(float(x) for x in res[2::2])
+
+    # Two matching values, so a real union is built rather than a collapsed one.
+    env.assertEqual(scores('@name:>(charlie)'), [1.0, 1.0])
+    env.assertEqual(scores('@name:>(charlie)=>{$weight: 2.0}'), [2.0, 2.0])
+
+
+def testEscapedBoundIsNotUnescapedTwice(env):
+    """A TAG bound is unescaped once, by the tag evaluator, as a tag token is."""
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'v', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'bang', 'v', 'a!')
+    conn.execute_command('HSET', 'zed', 'v', 'z')
+
+    # `a\!` in the query text is the value `a!`, so a strict lower bound on it
+    # excludes the document holding exactly that value.
+    res = env.cmd('FT.SEARCH', 'idx', '@v:>(a\\!)', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['zed'])
+    res = env.cmd('FT.SEARCH', 'idx', '@v:>=(a\\!)', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['bang', 'zed'])
+
+
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------

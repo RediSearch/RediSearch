@@ -1083,21 +1083,6 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
     goto clean_stack;
   }
 
-  if (beginEqIdx != -1) {
-    // we find a child that matches min prefix
-    // we should continue the search on this child but at this point we should
-    // not limit the max value
-    TrieNode *child = arr[beginEqIdx];
-
-    int nNextMin = nmin - child->len;
-    if (nNextMin < 0) {
-      // Wholly above min, and no max here, so take the subtree entire.
-      rangeIterateSubTree(child, r);
-    } else {
-      rangeIterate(child, min + child->len, nNextMin, NULL, -1, r);
-    }
-  }
-
   if (nmin > 0) {
     // search for the first element which are greater then our min value
     h.r = min;
@@ -1111,6 +1096,26 @@ static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const run
     h.r = max;
     h.n = nmax;
     endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+  }
+
+  if (beginEqIdx != -1) {
+    // The child the min bound runs into. Dropping the max bound while descending
+    // is only sound when that child is below it: when max prefix-matches a
+    // different child, which is necessarily a later one since min < max, or when
+    // there is no max at all. Otherwise max diverges from every child and
+    // `endIdx` is the last one below it, so a child past that is out of range
+    // entirely.
+    if (endEqIdx != -1 || nmax < 0 || beginEqIdx <= endIdx) {
+      TrieNode *child = arr[beginEqIdx];
+
+      int nNextMin = nmin - child->len;
+      if (nNextMin < 0) {
+        // Wholly above min, and no max left to apply, so take the subtree entire.
+        rangeIterateSubTree(child, r);
+      } else {
+        rangeIterate(child, min + child->len, nNextMin, NULL, -1, r);
+      }
+    }
   }
 
   // we need to iterate (without any checking) on all the subtree from beginIdx

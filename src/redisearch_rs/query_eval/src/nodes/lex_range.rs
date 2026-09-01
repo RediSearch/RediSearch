@@ -149,6 +149,16 @@ pub(crate) fn eval<'index>(
     // The cap is consulted before the key is rebuilt, not left to `push_child`:
     // the bound recursion ignores the stop request, so every remaining term
     // would otherwise pay for a reconstruction that is thrown away.
+    // The empty term sorts below every other, so it is admitted first and through
+    // the capped path: it is one of the terms in the range, not an extra. A
+    // zero-length key is refused on insertion, so an indexed empty value lives
+    // only in its own inverted index and no walk reaches it; open that index
+    // directly, as the wildcard and fuzzy expansions do. A field without
+    // `INDEXEMPTY` has no such index, so this adds nothing.
+    if min.min_covers_empty() && max.max_covers_empty() {
+        let _ = expansion.push_child(0, b"");
+    }
+
     let on_runes = |runes: &[ffi::rune], num_docs: usize| {
         if expansion.cap_reached() {
             return ControlFlow::Break(());
@@ -174,15 +184,6 @@ pub(crate) fn eval<'index>(
         timeout,
         on_runes,
     );
-
-    // A zero-length key is refused on insertion, so an indexed empty value lives
-    // only in its own inverted index and no walk reaches it. Open that index
-    // directly when the range covers the empty term, as the wildcard and fuzzy
-    // expansions do. A field without `INDEXEMPTY` has no such index, so this
-    // adds nothing.
-    if min.min_covers_empty() && max.max_covers_empty() {
-        expansion.push_child_ignoring_cap(0, b"");
-    }
 
     // Quick-exit like the other expansions: only the matching id set is needed.
     // No profiling query string, since the bounds are two strings rather than the

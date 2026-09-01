@@ -208,6 +208,10 @@ static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field,
     return tag;
   }
   if (FIELD_IS(field->fs, INDEXFLD_T_FULLTEXT)) {
+    // Normalize a TEXT bound like a TEXT token: unescaped and lowercased to match
+    // the terms trie. A TAG bound keeps the case-preserving type the grammar gave
+    // it, since `tag_strtolower` normalizes per the field's CASESENSITIVE.
+    bound->type = bound->type == QT_PARAM_TERM_CASE ? QT_PARAM_TERM : QT_TERM;
     struct RSQueryNode *range = NewLexRangeNode_WithParams(ctx, bound, lower, inclusive);
     QueryNode_SetFieldMask(range, FIELD_BIT(field->fs));
     return range;
