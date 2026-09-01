@@ -266,10 +266,8 @@ impl MockQueryNode {
     pub fn set_lex_range(
         &mut self,
         begin: *mut c_char,
-        begin_len: usize,
         include_begin: bool,
         end: *mut c_char,
-        end_len: usize,
         include_end: bool,
     ) {
         self.debug_assert_type(QueryNodeType::LexRange);
@@ -279,10 +277,8 @@ impl MockQueryNode {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             let lx = &mut *union_ptr.cast::<ffi::QueryLexRangeNode>();
             lx.begin = begin;
-            lx.beginLen = begin_len;
             lx.includeBegin = include_begin;
             lx.end = end;
-            lx.endLen = end_len;
             lx.includeEnd = include_end;
         }
     }

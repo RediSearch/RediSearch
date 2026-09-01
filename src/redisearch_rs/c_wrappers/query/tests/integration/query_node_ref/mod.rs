@@ -215,86 +215,60 @@ fn as_enum_lex_range_unbounded() {
 
 #[test]
 fn as_enum_lex_range_inclusive() {
-    let mut begin_str = *b"a";
-    let mut end_str = *b"z";
+    let begin_str = CString::new("a").unwrap();
+    let end_str = CString::new("z").unwrap();
     let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
     mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        begin_str.len(),
+        begin_str.as_ptr().cast_mut(),
         true,
-        end_str.as_mut_ptr().cast(),
-        end_str.len(),
+        end_str.as_ptr().cast_mut(),
         true,
     );
     let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
     let QueryNode::LexRange { begin, end } = node.as_enum() else {
         panic!("expected LexRange");
     };
-    assert_eq!(begin, Bound::Included(b"a".as_slice()));
-    assert_eq!(end, Bound::Included(b"z".as_slice()));
+    assert_eq!(begin, Bound::Included(begin_str.as_c_str()));
+    assert_eq!(end, Bound::Included(end_str.as_c_str()));
 }
 
 #[test]
 fn as_enum_lex_range_exclusive() {
-    let mut begin_str = *b"a";
-    let mut end_str = *b"z";
+    let begin_str = CString::new("a").unwrap();
+    let end_str = CString::new("z").unwrap();
     let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
     mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        begin_str.len(),
+        begin_str.as_ptr().cast_mut(),
         false,
-        end_str.as_mut_ptr().cast(),
-        end_str.len(),
+        end_str.as_ptr().cast_mut(),
         false,
     );
     let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
     let QueryNode::LexRange { begin, end } = node.as_enum() else {
         panic!("expected LexRange");
     };
-    assert_eq!(begin, Bound::Excluded(b"a".as_slice()));
-    assert_eq!(end, Bound::Excluded(b"z".as_slice()));
+    assert_eq!(begin, Bound::Excluded(begin_str.as_c_str()));
+    assert_eq!(end, Bound::Excluded(end_str.as_c_str()));
 }
 
 /// One side bounded and the other open is the shape every `<`/`>` query takes,
 /// so it must not collapse into either of the symmetric cases above.
 #[test]
 fn as_enum_lex_range_half_open() {
-    let mut begin_str = *b"m";
+    let begin_str = CString::new("m").unwrap();
     let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
     mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        begin_str.len(),
+        begin_str.as_ptr().cast_mut(),
         false,
         std::ptr::null_mut(),
-        0,
         false,
     );
     let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
     let QueryNode::LexRange { begin, end } = node.as_enum() else {
         panic!("expected LexRange");
     };
-    assert_eq!(begin, Bound::Excluded(b"m".as_slice()));
+    assert_eq!(begin, Bound::Excluded(begin_str.as_c_str()));
     assert_eq!(end, Bound::Unbounded);
-}
-
-/// A `PARAMS` bound is binary-safe, so an interior NUL must not truncate it.
-#[test]
-fn as_enum_lex_range_keeps_interior_nul() {
-    let mut begin_str = *b"ab\0z";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        begin_str.len(),
-        true,
-        std::ptr::null_mut(),
-        0,
-        false,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, .. } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert_eq!(begin, Bound::Included(b"ab\0z".as_slice()));
 }
 
 #[test]

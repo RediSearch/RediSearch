@@ -568,7 +568,12 @@ def testMissingBound(env):
 
     env.expect('FT.SEARCH', 'idx', '@name:>()', 'DIALECT', '2').error()
     env.expect('FT.SEARCH', 'idx', '@name:>', 'DIALECT', '2').error()
-    env.expect('FT.SEARCH', 'idx', '@name:>bob', 'DIALECT', '2').error()
+
+    # `@name:>bob` is not this grammar at all: with no delimiter the operator is
+    # dropped and the clause reads as `@name:(bob)`, which a TAG field rejects as
+    # a text clause. `testOperatorWithoutABoundIsUnchanged` shows the TEXT side,
+    # where the same spelling is a plain term search rather than an error.
+    env.expect('FT.SEARCH', 'idx', '@name:>bob', 'DIALECT', '2').error().contains('TEXT')
 
 
 # ---------------------------------------------------------------------------

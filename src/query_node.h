@@ -87,13 +87,12 @@ typedef struct {
   size_t len;
 } QueryIdFilterNode;
 
+/* Bounds are NUL-terminated, which is the whole of them: the indexer files a
+ * value under its up-to-NUL prefix, so a bound cannot usefully outlast one. */
 typedef struct {
   char *begin;
-  /* Length of `begin`, which is binary-safe and may hold interior NULs. */
-  size_t beginLen;
   bool includeBegin;
   char *end;
-  size_t endLen;
   bool includeEnd;
 } QueryLexRangeNode;
 

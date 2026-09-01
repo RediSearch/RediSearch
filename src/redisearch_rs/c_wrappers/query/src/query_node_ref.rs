@@ -10,7 +10,7 @@
 //! Safe wrapper around [`ffi::RSQueryNode`].
 
 use std::{
-    ffi::c_char,
+    ffi::{CStr, c_char},
     marker::PhantomData,
     ops::{Bound, Deref},
     ptr::NonNull,
@@ -127,11 +127,9 @@ pub enum QueryNode<'a> {
     LexRange {
         /// Start of the range, or [`Bound::Unbounded`] for no lower limit.
         ///
-        /// A bound is a byte string rather than a `CStr`: a value resolved from
-        /// `PARAMS` is binary-safe and may hold interior NULs.
-        begin: Bound<&'a [u8]>,
+        begin: Bound<&'a CStr>,
         /// End of the range, or [`Bound::Unbounded`] for no upper limit.
-        end: Bound<&'a [u8]>,
+        end: Bound<&'a CStr>,
     },
     /// A vector similarity search node.
     Vector {
@@ -368,15 +366,14 @@ impl QueryNodeRef {
             QueryNodeType::LexRange => {
                 // SAFETY: `type_` is `LexRange`, so the union holds a `QueryLexRangeNode`.
                 let lxrng = unsafe { &*union_ptr.cast::<ffi::QueryLexRangeNode>() };
-                // Each bound addresses its length in bytes, written once when
-                // the node is built or its query parameter resolved and never
+                // Each bound is a NUL-terminated string written once when the
+                // node is built or its query parameter resolved, and never
                 // rewritten, so it stays valid for the node's borrow.
                 //
                 // SAFETY: per the paragraph above.
-                let begin =
-                    unsafe { bytes_to_bound(lxrng.begin, lxrng.beginLen, lxrng.includeBegin) };
+                let begin = unsafe { char_ptr_to_bound(lxrng.begin, lxrng.includeBegin) };
                 // SAFETY: per the paragraph above.
-                let end = unsafe { bytes_to_bound(lxrng.end, lxrng.endLen, lxrng.includeEnd) };
+                let end = unsafe { char_ptr_to_bound(lxrng.end, lxrng.includeEnd) };
                 QueryNode::LexRange { begin, end }
             }
             QueryNodeType::Vector => {
@@ -670,22 +667,18 @@ fn child_ptr(node: &ffi::RSQueryNode, index: usize) -> NonNull<ffi::RSQueryNode>
 }
 
 /// Read one side of a lex range: a null pointer is an unbounded side, and a
-/// non-null one is a bound of `len` bytes whose inclusivity `inclusive` carries.
+/// non-null one is a bound whose inclusivity `inclusive` carries.
 ///
 /// # Safety
 ///
-/// A non-null `ptr` must address `len` initialized bytes that stay valid and
+/// A non-null `ptr` must point to a NUL-terminated string that stays valid and
 /// unmutated for `'a`.
-const unsafe fn bytes_to_bound<'a>(
-    ptr: *mut c_char,
-    len: usize,
-    inclusive: bool,
-) -> Bound<&'a [u8]> {
+const unsafe fn char_ptr_to_bound<'a>(ptr: *mut c_char, inclusive: bool) -> Bound<&'a CStr> {
     if ptr.is_null() {
         return Bound::Unbounded;
     }
     // SAFETY: guaranteed by the caller.
-    let s = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) };
+    let s = unsafe { CStr::from_ptr(ptr) };
     if inclusive {
         Bound::Included(s)
     } else {

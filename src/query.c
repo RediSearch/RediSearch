@@ -353,12 +353,17 @@ QueryNode *NewMissingNode(const FieldSpec *field) {
   return ret;
 }
 
+/* The lex-range payload is gated behind ENABLE_UNSTABLE_FEATURES, so it must not
+ * grow the node that every ordinary query allocates. Keep it within the largest
+ * union member that predates it. */
+_Static_assert(sizeof(QueryLexRangeNode) <= sizeof(QueryPrefixNode),
+               "QueryLexRangeNode must not enlarge the query-node union");
+
 QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
                                       bool inclusive) {
   QueryNode *ret = NewQueryNode(QN_LEXRANGE);
   // The other side stays NULL, which both evaluators read as "no limit".
   char **target = lower ? &ret->lxrng.begin : &ret->lxrng.end;
-  size_t *targetLen = lower ? &ret->lxrng.beginLen : &ret->lxrng.endLen;
   if (lower) {
     ret->lxrng.includeBegin = inclusive;
   } else {
@@ -372,7 +377,7 @@ QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool 
   // must not survive: `QueryNode_AddChildren` retags every slot of a tag child
   // as PARAM_TERM_CASE, and resolving one with no name dereferences NULL.
   QueryNode_InitParams(ret, 1);
-  if (!QueryNode_SetParam(q, &ret->params[0], target, targetLen, bound)) {
+  if (!QueryNode_SetParam(q, &ret->params[0], target, NULL, bound)) {
     array_free(ret->params);
     ret->params = NULL;
   }
@@ -691,18 +696,16 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   RS_ASSERT(qn->type == QN_LEXRANGE);
   if (!idx) return NULL;
 
-  // Normalize the bounds the way the indexed values were, then take the length
-  // from the result. `tag_strtolower` truncates the content at an interior NUL,
-  // as tag indexing does, but only reports that through the length it returns
-  // when it also folds case; a CASESENSITIVE field would otherwise keep a length
-  // covering bytes the bound no longer holds.
+  // Normalize the bounds the way the indexed values were. `tag_strtolower`
+  // truncates at an interior NUL exactly as tag indexing does, so the bound's
+  // extent is its NUL-terminated length either way.
   if (qn->lxrng.begin) {
-    tag_strtolower(&(qn->lxrng.begin), &qn->lxrng.beginLen, caseSensitive);
-    qn->lxrng.beginLen = strlen(qn->lxrng.begin);
+    size_t beginLen = strlen(qn->lxrng.begin);
+    tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
   }
   if (qn->lxrng.end) {
-    tag_strtolower(&(qn->lxrng.end), &qn->lxrng.endLen, caseSensitive);
-    qn->lxrng.endLen = strlen(qn->lxrng.end);
+    size_t endLen = strlen(qn->lxrng.end);
+    tag_strtolower(&(qn->lxrng.end), &endLen, caseSensitive);
   }
 
   TagRangeCtx ctx = {
@@ -716,8 +719,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
   // -1 is unbounded; 0 is the empty string, a legitimate bound of its own.
-  int nbegin = begin ? (int)qn->lxrng.beginLen : -1;
-  int nend = end ? (int)qn->lxrng.endLen : -1;
+  int nbegin = begin ? (int)strlen(begin) : -1, nend = end ? (int)strlen(end) : -1;
 
   TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
                               qn->lxrng.includeEnd, tagRangeIterCb, &ctx);
@@ -1476,12 +1478,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_LEXRANGE:
       // Bracket for inclusive, parenthesis for exclusive, as in numeric ranges.
-      s = sdscatprintf(
-          s, "LEXRANGE{%s%.*s...%s%.*s}",
-          qs->lxrng.begin ? (qs->lxrng.includeBegin ? "[" : "(") : "",
-          qs->lxrng.begin ? (int)qs->lxrng.beginLen : 4, qs->lxrng.begin ? qs->lxrng.begin : "-inf",
-          qs->lxrng.end ? (qs->lxrng.includeEnd ? "[" : "(") : "",
-          qs->lxrng.end ? (int)qs->lxrng.endLen : 4, qs->lxrng.end ? qs->lxrng.end : "+inf");
+      s = sdscatprintf(s, "LEXRANGE{%s%s...%s%s}",
+                       qs->lxrng.begin ? (qs->lxrng.includeBegin ? "[" : "(") : "",
+                       qs->lxrng.begin ? qs->lxrng.begin : "-inf",
+                       qs->lxrng.end ? (qs->lxrng.includeEnd ? "[" : "(") : "",
+                       qs->lxrng.end ? qs->lxrng.end : "+inf");
       break;
 
     case QN_NOT:
