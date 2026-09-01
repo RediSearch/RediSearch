@@ -30,6 +30,8 @@ extern "C" {
 #include <random>
 #include <unordered_set>
 #include <thread>
+#include <atomic>
+#include <chrono>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -730,4 +732,110 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   // We had 2 values in the second block and in it only. We expect the cardinality to decrease by 2.
   cur_cardinality -= 2;
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
+}
+
+/**
+ * Disk consistency windows pause GC scheduling. These cover the state machine directly --
+ * the flow tests cannot reach it, since nothing in OSS opens a window.
+ */
+
+static unsigned gcSchedFlags(GCContext *gc) {
+  return RS_AtomicUintLoadRelaxed(&gc->schedFlags);
+}
+
+TEST_F(FGCTest, testConsistencyWindowPauseDisarmsAndResumeClears) {
+  GCContext *gc = get_spec(ism)->gc;
+
+  GCContext_PauseScheduling(gc);
+  ASSERT_TRUE(gcSchedFlags(gc) & GC_SCHED_PAUSED);
+  ASSERT_EQ(gc->timerID, 0);  // the window must not leave a timer behind
+  ASSERT_TRUE(GCContext_IsEnabled(gc));  // pausing is not stopping
+
+  GCContext_ResumeScheduling(gc);
+  ASSERT_FALSE(gcSchedFlags(gc) & GC_SCHED_PAUSED);
+}
+
+TEST_F(FGCTest, testPauseSurvivesResumeOnAStoppedGC) {
+  GCContext *gc = get_spec(ism)->gc;
+
+  // A GC stopped by a debug command must stay stopped across a window.
+  GCContext_StopFutureRuns(gc);
+  GCContext_PauseScheduling(gc);
+  GCContext_ResumeScheduling(gc);
+
+  ASSERT_FALSE(GCContext_IsEnabled(gc));
+  ASSERT_EQ(gc->timerID, 0);
+}
+
+TEST_F(FGCTest, testStartNowDoesNotQueueWhilePaused) {
+  GCContext *gc = get_spec(ism)->gc;
+  GCContext_StopFutureRuns(gc);  // StartNow requires a stopped GC
+  GCContext_PauseScheduling(gc);
+
+  GCContext_StartNow(gc);
+  // Enabled, but nothing queued onto the paused pool: the resume path arms instead.
+  ASSERT_TRUE(GCContext_IsEnabled(gc));
+  ASSERT_FALSE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
+
+  GCContext_ResumeScheduling(gc);
+}
+
+TEST_F(FGCTest, testWaitForPauseReturnsWhenNothingIsRunning) {
+  GC_ThreadPoolPause();
+  ASSERT_TRUE(GC_ThreadPoolWaitForPause(10));
+  GC_ThreadPoolResume();
+}
+
+namespace {
+// A job the test can hold on a GC-pool thread, following the MarkAndWait pattern in
+// test_cpp_thpool.cpp: spin on an atomic rather than block on the pool's own synchronization.
+struct ParkedGCJob {
+  std::atomic<bool> running{false};
+  std::atomic<bool> hold{true};
+
+  static void Run(void *p) {
+    ParkedGCJob *job = static_cast<ParkedGCJob *>(p);
+    job->running = true;
+    while (job->hold) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+    job->running = false;
+  }
+};
+}  // namespace
+
+// The drain's whole point is the job it cannot stop: pausing the pool keeps new jobs from
+// starting, but one already on a thread must be waited out -- or timed out on.
+TEST_F(FGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
+  ParkedGCJob job;
+  // Unpark and unpause on every exit path. A failed ASSERT returns immediately, which would
+  // otherwise leave a pool thread spinning on a dangling stack pointer and the pool paused
+  // for every test after this one.
+  struct Cleanup {
+    ParkedGCJob &job;
+    ~Cleanup() {
+      job.hold = false;
+      while (job.running) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+      }
+      GC_ThreadPoolResume();
+    }
+  } cleanup{job};
+
+  GC_ThreadPoolAddJobForTests(ParkedGCJob::Run, &job);
+  // Wait for Run itself, not for the in-progress count: the pool increments that when it pulls
+  // the job, so a worker descheduled before its first statement would let Cleanup see
+  // running == false and destroy `job` under it on an early ASSERT return.
+  while (!job.running) {
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+
+  GC_ThreadPoolPause();
+  // This count is what the drain-timeout warning reports to the operator.
+  ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)1);
+  ASSERT_FALSE(GC_ThreadPoolWaitForPause(50));
+
+  job.hold = false;
+  ASSERT_TRUE(GC_ThreadPoolWaitForPause(5000));
+  ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
 }

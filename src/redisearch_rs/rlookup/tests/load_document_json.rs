@@ -39,8 +39,8 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// The first API version that returns the multi-value `Trio`. Below it, the
 /// loader takes only the first match as a plain value.
-const MULTI: u32 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST;
-const PRE_MULTI: u32 = MULTI - 1;
+const MULTI: u8 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST as u8;
+const PRE_MULTI: u8 = MULTI - 1;
 
 /// Construct a `RedisString` from a `CStr`. The mock
 /// `RedisModule_CreateString` copies its input, so the source bytes need not
@@ -53,7 +53,7 @@ fn make_redis_string(bytes: &CStr) -> RedisString {
 /// the value written to the row, if any.
 fn load_field_value(
     doc: serde_json::Value,
-    api_version: u32,
+    api_version: u8,
     path: &'static CStr,
 ) -> Option<SharedValue> {
     redis_mock::init_redis_module_mock();
@@ -80,7 +80,7 @@ fn load_field_value(
 /// written to the `$` key, or the propagated [`LoadAllError`].
 fn load_all_dollar(
     doc: Option<serde_json::Value>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, LoadAllError> {
     redis_mock::init_redis_module_mock();
     with_json_api(doc, |japi, ctx| {
@@ -112,6 +112,10 @@ fn assert_value_matches(actual: &SharedValue, expected: &serde_json::Value) {
         serde_json::Value::Number(n) => assert_eq!(actual.as_num(), n.as_f64()),
         serde_json::Value::String(s) => assert_eq!(actual.as_str_bytes(), Some(s.as_bytes())),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            assert!(
+                matches!(&**actual, Value::RedisString(_)),
+                "expected serialized RedisString, got {actual:?}"
+            );
             let expected = serde_json::to_string(expected).unwrap();
             assert_eq!(actual.as_str_bytes(), Some(expected.as_bytes()));
         }
@@ -211,6 +215,16 @@ fn load_all_reports_missing_root_values() {
         load_all_dollar(Some(json!([])), MULTI),
         Err(LoadAllError::JsonRootMissing),
     ));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn pre_multi_non_scalar_values_are_redis_strings() {
+    for value in [json!(["red", "blue"]), json!({ "name": "alice" })] {
+        let val = load_field_value(json!({ "x": value.clone() }), PRE_MULTI, c"$.x")
+            .expect("value should be loaded");
+        assert_value_matches(&val, &value);
+    }
 }
 
 proptest! {

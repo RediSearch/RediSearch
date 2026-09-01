@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "gc.h"
 #include "fork_gc.h"
@@ -23,6 +25,10 @@
 #include "debug_commands.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
+// GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
+// consistency window is already open starts paused; live ones are paused and resumed by
+// walking IndexSpec->gc. Guarded by the GIL.
+static unsigned gcNewContextSchedFlags_g = GC_SCHED_NONE;
 
 typedef struct GCDebugTask {
   GCContext* gc;
@@ -45,6 +51,9 @@ void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata) {
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
+  if (gcNewContextSchedFlags_g != GC_SCHED_NONE) {
+    RS_AtomicUintFetchOrRelaxed(&ret->schedFlags, gcNewContextSchedFlags_g);
+  }
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_Create(spec_ref, &ret->callbacks);
@@ -66,6 +75,10 @@ static bool GCContext_RunPending(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_RUN_PENDING) != 0;
 }
 
+static bool GCContext_IsSchedulingPaused(GCContext* gc) {
+  return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
+}
+
 static long long getNextPeriod(struct timespec interval) {
   long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
 
@@ -84,9 +97,11 @@ static RedisModuleTimerID scheduleNextIn(GCContext* gc, struct timespec interval
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
 // the no-timer-while-a-run-is-pending invariant comes from QueueRun declining and timerCallback
-// zeroing timerID, not from the RunPending check here.
+// zeroing timerID, not from the RunPending check here. A spec paused for a consistency window
+// arms nothing; the window's resume re-arms it.
 static bool GCContext_ArmTimerIn(GCContext* gc, struct timespec interval) {
-  if (!gc->enabled || gc->timerID || GCContext_RunPending(gc)) {
+  if (!gc->enabled || gc->timerID || GCContext_RunPending(gc) ||
+      GCContext_IsSchedulingPaused(gc)) {
     return false;
   }
   gc->timerID = scheduleNextIn(gc, interval);
@@ -193,8 +208,8 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
   GCContext* gc = data;
   gc->timerID = 0;  // the timer that just fired is gone
 
-  if (!gc->enabled) {
-    return;
+  if (!gc->enabled || GCContext_IsSchedulingPaused(gc)) {
+    return;  // the resume path re-arms
   }
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
     // If slave traffic is not allowed it means that there is a state machine running
@@ -210,6 +225,9 @@ void GCContext_StartNow(GCContext* gc) {
   RS_LOG_ASSERT_FMT(!gc->enabled && gc->timerID == 0,
                     "GC %p: StartNow called while GC is already running", gc);
   gc->enabled = true;
+  if (GCContext_IsSchedulingPaused(gc)) {
+    return;  // the resume path arms a timer instead
+  }
   GCContext_QueueRun(gc);
 }
 
@@ -228,6 +246,9 @@ bool GCContext_BeginDrop(GCContext* gc) {
   // the timer eventually discovering the drop and nothing ever doing so. A no-op when already
   // enabled, which is why it cannot disturb the ordinary path below.
   gc->enabled = true;
+  // Same for a consistency-window pause, and for the same reason -- the window's resume
+  // re-derives its set by walking specDict_g, which this spec is about to leave.
+  RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_PAUSED);
   // An armed timer, or a run in flight (which now re-arms), will discover the drop on its own --
   // the mechanism `IndexSpec_Free` already relies on. Leave those alone: a run in flight also
   // frees this context itself, on the GC thread and without the GIL, as soon as the unlink makes
@@ -254,6 +275,28 @@ void GCContext_StopFutureRuns(GCContext* gc) {
 
 bool GCContext_IsEnabled(const GCContext* gc) {
   return gc->enabled;
+}
+
+void GCContext_PauseScheduling(GCContext* gc) {
+  if (!gc) {
+    return;
+  }
+  RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_PAUSED);
+  GCContext_DisarmTimer(gc);
+}
+
+void GCContext_ResumeScheduling(GCContext* gc) {
+  if (!gc || !GCContext_IsSchedulingPaused(gc)) {
+    return;
+  }
+  // Clearing PAUSED and reading RUN_PENDING is one read-modify-write, so this cannot see a
+  // half-updated word. A run that outlived the window re-arms from its own one-shot; arming
+  // here as well would leave two live timers for one GC, the first of them orphaned.
+  const unsigned prev =
+      RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_PAUSED);
+  if (!(prev & GC_SCHED_RUN_PENDING)) {
+    GCContext_ArmTimer(gc);
+  }
 }
 
 void GCContext_StopMock(GCContext* gc) {
@@ -323,9 +366,65 @@ void GC_ThreadPoolStart() {
 
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
+    if (redisearch_thpool_paused(gcThreadpool_g)) {
+      gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
+      redisearch_thpool_resume_threads(gcThreadpool_g);
+    }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(gcThreadpool_g);
     gcThreadpool_g = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
+}
+
+void GC_ThreadPoolPause(void) {
+  gcNewContextSchedFlags_g |= GC_SCHED_PAUSED;
+  if (gcThreadpool_g) {
+    redisearch_thpool_pause_threads_no_wait(gcThreadpool_g);
+  }
+}
+
+bool GC_ThreadPoolWaitForPause(long timeoutMs) {
+  if (!gcThreadpool_g) {
+    return true;
+  }
+  // The queue is already flagged paused, so no new job can start; wait only for the running
+  // ones to return. Bounded because this runs on the main thread with the GIL held -- an
+  // unbounded spin here stalls the whole shard.
+  struct timespec start;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  while (redisearch_thpool_num_jobs_in_progress(gcThreadpool_g)) {
+#ifdef ENABLE_ASSERT
+    // Only reached while a job is still in progress, so this is the only place that can
+    // release a disk-GC writer parked mid-mutation: drop the drain and it stays parked, and
+    // the capture behind it never completes. Signal disarms, so the repeat costs a name
+    // lookup.
+    SyncPoint_Signal(SYNC_POINT_NUMERIC_MAP_WRITE_LOCKED);
+#endif
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long elapsedMs = (now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000;
+    if (elapsedMs >= timeoutMs) {
+      return false;
+    }
+    usleep(100);
+  }
+  return true;
+}
+
+size_t GC_ThreadPoolJobsInProgress(void) {
+  return gcThreadpool_g ? redisearch_thpool_num_jobs_in_progress(gcThreadpool_g) : 0;
+}
+
+void GC_ThreadPoolResume(void) {
+  gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
+  if (gcThreadpool_g && redisearch_thpool_paused(gcThreadpool_g)) {
+    redisearch_thpool_resume_threads(gcThreadpool_g);
+  }
+}
+
+void GC_ThreadPoolAddJobForTests(void (*fn)(void*), void* arg) {
+  if (gcThreadpool_g) {
+    redisearch_thpool_add_work(gcThreadpool_g, fn, arg, THPOOL_PRIORITY_HIGH);
   }
 }

@@ -39,21 +39,6 @@ typedef struct TrieMap TrieMap;
  */
 typedef struct TrieMapIterator TrieMapIterator;
 
-/**
- * Callback type for passing to [`TrieMap_IterateRange`].
- */
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
-
-/**
- * The length of a key string in the trie.
- */
-typedef uint16_t tm_len_t;
-
-/**
- * Callback type for passing to [`TrieMap_Add`].
- */
-typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-
 #ifndef THINVEC_C_VOID__U16_DEFINED
 #define THINVEC_C_VOID__U16_DEFINED
 /**
@@ -63,11 +48,6 @@ typedef struct ThinVec_c_void__u16 {
   struct Header_u16 *ptr;
 } ThinVec_c_void__u16;
 #endif /* THINVEC_C_VOID__U16_DEFINED */
-
-/**
- * Callback type for passing to [`TrieMap_Delete`].
- */
-typedef void (*freeCB)(void *);
 
 #ifndef SMALLTHINVEC_C_VOID_DEFINED
 #define SMALLTHINVEC_C_VOID_DEFINED
@@ -81,9 +61,29 @@ typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
 #endif /* SMALLTHINVEC_C_VOID_DEFINED */
 
 /**
+ * Callback type for passing to [`TrieMap_IterateRange`].
+ */
+typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
+
+/**
+ * Callback type for passing to [`TrieMap_Add`].
+ */
+typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
+
+/**
  * Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
  */
 typedef SmallThinVec_c_void TrieMapResultBuf;
+
+/**
+ * Callback type for passing to [`TrieMap_Delete`].
+ */
+typedef void (*freeCB)(void *);
+
+/**
+ * The length of a key string in the trie.
+ */
+typedef uint16_t tm_len_t;
 
 #ifdef __cplusplus
 extern "C" {

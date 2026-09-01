@@ -246,3 +246,142 @@ TEST_F(UnicodeToLowerTest, testEmbeddedNulAfterMultibyte) {
   ASSERT_EQ(str[4], 'B');
   ASSERT_EQ(str[5], 'C');
 }
+
+TEST_F(UnicodeToLowerTest, testInvalidUtf8LeadByteAtEnd) {
+  // A trailing byte whose declared sequence doesn't fit in the string is
+  // left unchanged instead of decoded.
+  char str[] = {'c', 'a', 'f', (char)0xff};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], 'c');
+  ASSERT_EQ(str[1], 'a');
+  ASSERT_EQ(str[2], 'f');
+  ASSERT_EQ((unsigned char)str[3], 0xff);
+}
+
+TEST_F(UnicodeToLowerTest, testInvalidUtf8LeadByteAfterUppercase) {
+  // Companion to testInvalidUtf8LeadByteAtEnd: the real (safe) prefix must
+  // still lowercase normally, only the dangling byte itself is left alone.
+  char str[] = {'C', 'A', 'F', (char)0xff};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], 'c');
+  ASSERT_EQ(str[1], 'a');
+  ASSERT_EQ(str[2], 'f');
+  ASSERT_EQ((unsigned char)str[3], 0xff);
+}
+
+TEST_F(UnicodeToLowerTest, testDanglingFourByteLeadWithPartialContinuation) {
+  // 0xf0 is a valid 4-byte UTF-8 lead byte (unlike 0xff above), but it still
+  // declares 3 continuation bytes it does not have here -- the guard is not
+  // specific to invalid lead bytes, only to whether the declared sequence
+  // fits within the string.
+  char str[] = {'a', 'b', (char)0xf0};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], 'a');
+  ASSERT_EQ(str[1], 'b');
+  ASSERT_EQ((unsigned char)str[2], 0xf0);
+}
+
+TEST_F(UnicodeToLowerTest, testDanglingThreeByteLeadWithOneContinuationByte) {
+  // 0xe0 declares a 3-byte sequence; only one continuation byte (0x80)
+  // follows it here instead of the two it needs, so it dangles too.
+  char str[] = {'a', 'b', (char)0xe0, (char)0x80};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], 'a');
+  ASSERT_EQ(str[1], 'b');
+  ASSERT_EQ((unsigned char)str[2], 0xe0);
+  ASSERT_EQ((unsigned char)str[3], 0x80);
+}
+
+TEST_F(UnicodeToLowerTest, testChainedDanglingLeads) {
+  // Two dangling lead bytes back to back are both left unchanged.
+  char str[] = {'a', 'b', (char)0xf0, (char)0xff};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], 'a');
+  ASSERT_EQ(str[1], 'b');
+  ASSERT_EQ((unsigned char)str[2], 0xf0);
+  ASSERT_EQ((unsigned char)str[3], 0xff);
+}
+
+TEST_F(UnicodeToLowerTest, testDanglingLeadFollowedByMoreContent) {
+  // A dangling lead byte is not necessarily the last byte of the string
+  // -- e.g. the prefix-query token "caf<0xff>*" ends with a trailing '*' // codespell:ignore
+  // after the dangling byte. 0xff still declares a 4-byte sequence that
+  // does not fit within in_len, regardless of what follows it, so it and
+  // everything after it must be excluded from decoding.
+  char str[] = {'c', 'a', 'f', (char)0xff, '*'};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], 'c');
+  ASSERT_EQ(str[1], 'a');
+  ASSERT_EQ(str[2], 'f');
+  ASSERT_EQ((unsigned char)str[3], 0xff);
+  ASSERT_EQ(str[4], '*');
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulBeforeDanglingLead) {
+  // A leading multibyte sequence (bypassing the ASCII fast path above)
+  // followed by an embedded NUL, then more content, then a dangling
+  // lead byte. The decode loop stops at the NUL, same as
+  // testEmbeddedNulBeforeMultibyte -- the dangling lead further along
+  // must not cause the bytes between the NUL and it ('c', 'd') to be
+  // silently dropped while the dangling byte itself is spliced back in
+  // as if it were a preserved tail.
+  char str[] = {(char)0xC3, (char)0x89, '\0', 'c', 'd', (char)0xff}; // "\xC3\x89" == U+00C9 (E acute, upper)
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Fits in the original buffer
+  ASSERT_EQ(newLen, 2u);
+  ASSERT_EQ((unsigned char)str[0], 0xC3);
+  ASSERT_EQ((unsigned char)str[1], 0xA9); // lowered to U+00E9 (e acute)
+}
+
+TEST_F(UnicodeToLowerTest, testOverlongNulEncoding) {
+  // 0xC0 0x80 is an overlong encoding of NUL (U+0000); it truncates the
+  // string the same way a literal 0x00 byte would.
+  char str[] = {(char)0xC0, (char)0x80, 'x', 'y', (char)0xff};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // No codepoints decoded, nothing to (re)allocate
+  ASSERT_EQ(newLen, sizeof(str)); // No output produced -- left untouched, same as testEmbeddedNulAtStart
+  ASSERT_EQ((unsigned char)str[0], 0xC0);
+  ASSERT_EQ((unsigned char)str[1], 0x80);
+  ASSERT_EQ(str[2], 'x');
+  ASSERT_EQ(str[3], 'y');
+  ASSERT_EQ((unsigned char)str[4], 0xff);
+}
+
+TEST_F(UnicodeToLowerTest, testDanglingLeadAfterExpandingLowercase) {
+  // İ (U+0130, C4 B0) lowers to i + combining dot above (U+0307, i.e.
+  // 69 CC 87) -- 3 bytes from 2, an expansion, same as testTurkishDottedI.
+  // Followed by a dangling 0xff, total_len (head + 1-byte tail) exceeds
+  // in_len, so this is the only case that exercises the reallocated
+  // longer_dst buffer's tail-append memcpy, as opposed to the in-place
+  // memmove every other dangling-tail test above goes through.
+  char str[] = {(char)0xC4, (char)0xB0, (char)0xff};
+  size_t newLen = sizeof(str);
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_NE(dst, nullptr); // Expansion forces a reallocated buffer
+  ASSERT_EQ(newLen, 4u);
+  ASSERT_EQ(dst[0], 'i');
+  ASSERT_EQ((unsigned char)dst[1], 0xCC);
+  ASSERT_EQ((unsigned char)dst[2], 0x87);
+  ASSERT_EQ((unsigned char)dst[3], 0xff);
+  rm_free(dst);
+}

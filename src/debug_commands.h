@@ -149,10 +149,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
 #define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
+#define SYNC_POINT_BEFORE_HYBRID_DEPLETION              "BeforeHybridDepletion"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
-#define SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE        "BeforeCursorMappingPromote"
-#define SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED  "AfterCursorMappingPromoteFailed"
+#define SYNC_POINT_BEFORE_HYBRID_ARM_READS              "BeforeHybridArmReads"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
@@ -178,6 +178,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
 // Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
 // runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
+// A disk numeric split parked while it still holds the write lock on its routing map, the
+// state a fork child would inherit locked with the owner thread gone. Signalled from the
+// disk-GC drain, the only step that waits such a writer out before a fork.
+#define SYNC_POINT_NUMERIC_MAP_WRITE_LOCKED             "NumericMapWriteLocked"
 #define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
 // Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
 // thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a
@@ -205,6 +209,13 @@ bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of times a thread entered the named sync point since it was armed
+uint32_t SyncPoint_HitCount(const char *name);
+// Monotonic event ids for ordering sync-point hits and releases
+uint64_t SyncPoint_LastHitSeq(const char *name);
+uint64_t SyncPoint_LastReleaseSeq(const char *name);
+// Publish a sync-point event sequence without letting an older event regress it
+void SyncPoint_PublishMaxSeq(_Atomic uint64_t *target, uint64_t seq);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points

@@ -23,6 +23,7 @@ use rqe_iterators::{
 
 use crate::{
     heap::{HeapResult, ScoredResult, TopKHeap},
+    order::{Ascending, ScoreOrdering},
     traits::{BatchStrategy, ScoreBatch, ScoreSource},
 };
 
@@ -102,6 +103,7 @@ pub struct TopKIterator<
     'index,
     S: ScoreSource,
     C: RQEIterator<'index> + 'index = Box<dyn RQEIterator<'index> + 'index>,
+    O: ScoreOrdering = Ascending,
 > {
     source: S,
     mode: TopKMode,
@@ -109,13 +111,13 @@ pub struct TopKIterator<
     initial_mode: TopKMode,
     /// Captured child records alias `child`, so `heap`, `results`, and `current`
     /// are [`ManuallyDrop`] and freed by the [`Drop`] impl before `child`.
-    heap: ManuallyDrop<TopKHeap<'index>>,
+    heap: ManuallyDrop<TopKHeap<'index, O>>,
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
-    compare: fn(&f64, &f64) -> Ordering,
+    order: O,
     /// When `true`, filtered modes skip deep-copying the child's rich result
-    /// subtree and yield a metric-only result carrying just the source's score.
+    /// subtree and yield its metrics with the source's score attached.
     /// Set when the downstream pipeline needs no rich results (no relevance
     /// scorer or highlighter that reads the child's term records).
     can_trim_deep_results: bool,
@@ -132,7 +134,9 @@ pub struct TopKIterator<
     pub metrics: TopKMetrics,
 }
 
-impl<'index, S: ScoreSource, C: RQEIterator<'index> + 'index> Drop for TopKIterator<'index, S, C> {
+impl<'index, S: ScoreSource, C: RQEIterator<'index> + 'index, O: ScoreOrdering> Drop
+    for TopKIterator<'index, S, C, O>
+{
     fn drop(&mut self) {
         // `heap`, `results`, and `current` hold child records captured via
         // `capture_child_record`, whose term borrows alias data owned by `child`.
@@ -147,22 +151,26 @@ impl<'index, S: ScoreSource, C: RQEIterator<'index> + 'index> Drop for TopKItera
     }
 }
 
-impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
+impl<'index, S: ScoreSource + 'index, O: ScoreOrdering>
+    TopKIterator<'index, S, Box<dyn RQEIterator<'index> + 'index>, O>
+{
     /// Create a new unfiltered [`TopKIterator`] (no child filter).
     ///
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
-    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
-        Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
+    pub fn new_unfiltered(source: S, k: NonZeroUsize, order: O) -> Self {
+        Self::new_with_mode(source, None, k, order, TopKMode::Unfiltered)
     }
 }
 
-impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKIterator<'index, S, C> {
+impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreOrdering>
+    TopKIterator<'index, S, C, O>
+{
     /// Create a new [`TopKIterator`] with a filter child.
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
-    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
-        Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
+    pub fn new(source: S, child: C, k: NonZeroUsize, order: O) -> Self {
+        Self::new_with_mode(source, Some(child), k, order, TopKMode::Batches)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
@@ -170,18 +178,18 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
-        compare: fn(&f64, &f64) -> Ordering,
+        order: O,
         mode: TopKMode,
     ) -> Self {
         Self {
-            heap: ManuallyDrop::new(TopKHeap::new(k, compare)),
+            heap: ManuallyDrop::new(TopKHeap::new(k, order)),
             source,
             child,
             mode,
             initial_mode: mode,
             direct_batch: None,
             k,
-            compare,
+            order,
             can_trim_deep_results: false,
             phase: Phase::NotStarted,
             results: ManuallyDrop::new(Vec::new()),
@@ -195,9 +203,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
 
     /// Set whether filtered modes may yield metric-only results.
     ///
-    /// When `true`, the collection phase skips deep-copying each matching
-    /// child record and the yield phase builds a metric-only result via
-    /// [`ScoreSource::build_result`] instead of carrying the child's subtree.
+    /// When `true`, the collection phase captures only each matching child's
+    /// yielded metrics instead of deep-copying its whole record, and the yield
+    /// phase hands those back with the source's score attached via
+    /// [`ScoreSource::attach_score_metric`].
     /// Leave `false` (the default) whenever a downstream scorer or highlighter
     /// reads the child's term records.
     pub fn with_trim_deep_results(mut self, trim: bool) -> Self {
@@ -248,7 +257,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // de-duping against it, so leftover hits would duplicate doc ids and
             // skew the top-k set. Rewind the source too: collect_batches/
             // prepare_unfiltered_direct resume from its cursor rather than the start.
-            *self.heap = TopKHeap::new(self.k, self.compare);
+            *self.heap = TopKHeap::new(self.k, self.order);
             self.source.rewind();
             if let Some(child) = &mut self.child {
                 child.rewind();
@@ -323,7 +332,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     // rescans every match from scratch, so batch-phase entries
                     // are redundant. Keeping them would re-admit the same doc id
                     // (TopKHeap::push only de-dups against the worst element).
-                    *self.heap = TopKHeap::new(self.k, self.compare);
+                    *self.heap = TopKHeap::new(self.k, self.order);
                     self.collect_adhoc()?;
                     return Ok(());
                 }
@@ -416,7 +425,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// the [`Yielding`](Phase::Yielding) phase.
     fn finalize_collection(&mut self) {
         // Replace heap with a fresh one; drain_sorted consumes the old one.
-        let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.compare));
+        let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.order));
         *self.results = old_heap.drain_sorted();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
@@ -490,17 +499,25 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // and takes the source-built path below.
             if self.child.is_some() && self.source.yields_child_record() {
                 if self.can_trim_deep_results {
-                    // Build a metric-only result, then fold in the child's
-                    // yielded metrics (explicit output/sort fields) captured at
-                    // match time.
-                    let mut result = self.source.build_result(doc_id, score);
+                    // Carry the child's captured metrics and attach our score
+                    // last, so a lookup key shared with the child (e.g. nested
+                    // KNN reusing an `AS` alias) keeps the outer vector score.
+                    let mut result = match record {
+                        Some(record) => record,
+                        None => self.source.build_result(doc_id, score),
+                    };
                     if self.source.is_expired(&result) {
                         continue;
                     }
                     self.last_doc_id = doc_id;
-                    if let Some(mut record) = record {
-                        result.metrics_mut().concat(record.metrics_mut());
+                    // A carried record holds only the child's metrics, with a zeroed
+                    // payload. The score is this record's own value, so it has to reach
+                    // the payload too — that is what `ScoreSource::build_result` puts
+                    // there, and what consumers reading the record numerically expect.
+                    if let Some(value) = result.as_numeric_mut() {
+                        *value = score;
                     }
+                    self.source.attach_score_metric(&mut result, score);
                     *self.current = Some(result);
                     return Ok(self.current.as_mut());
                 }
@@ -534,8 +551,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     }
 }
 
-impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterator<'index>
-    for TopKIterator<'index, S, C>
+impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreOrdering>
+    RQEIterator<'index> for TopKIterator<'index, S, C, O>
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -592,7 +609,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
 
     #[inline(always)]
     fn rewind(&mut self) {
-        *self.heap = TopKHeap::new(self.k, self.compare);
+        *self.heap = TopKHeap::new(self.k, self.order);
         self.results.clear();
         *self.current = None;
         self.source.rewind();
@@ -609,7 +626,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        self.k.get().min(self.source.num_estimated())
+        let estimate = self.k.get().min(self.source.num_estimated());
+        // A filtered query yields the intersection, so the child's own upper
+        // bound caps ours: a selective filter must not be masked by a large `k`.
+        match &self.child {
+            Some(child) => estimate.min(child.num_estimated()),
+            None => estimate,
+        }
     }
 
     #[inline(always)]
@@ -681,10 +704,10 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
 /// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs.
 ///
 /// The child is **rewound** at the start of each call.
-fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
+fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     child: &mut C,
     batch: &mut impl ScoreBatch,
-    heap: &mut TopKHeap<'index>,
+    heap: &mut TopKHeap<'index, O>,
     metrics: &mut TopKMetrics,
     can_trim_deep_results: bool,
 ) -> Result<(), RQEIteratorError> {
@@ -790,10 +813,11 @@ pub trait TopKSourceProfile {
     );
 }
 
-impl<'index, S, C> ProfilePrint for TopKIterator<'index, S, C>
+impl<'index, S, C, O> ProfilePrint for TopKIterator<'index, S, C, O>
 where
     S: ScoreSource + TopKSourceProfile + 'index,
     C: RQEIterator<'index> + ProfilePrint + 'index,
+    O: ScoreOrdering,
 {
     fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let child = self.child.as_ref().map(|c| c as &dyn ProfilePrint);
@@ -802,8 +826,9 @@ where
     }
 }
 
-impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>
-    for TopKIterator<'index, S, rqe_iterators::c2rust::CRQEIterator>
+impl<'index, S: ScoreSource + 'index, O: ScoreOrdering + 'index>
+    rqe_iterators::interop::ProfileChildren<'index>
+    for TopKIterator<'index, S, rqe_iterators::c2rust::CRQEIterator, O>
 {
     fn profile_children(mut self) -> Self {
         self.child = self

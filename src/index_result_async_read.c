@@ -18,11 +18,15 @@
 #include "inverted_index.h"
 #include "rmutil/rm_assert.h"
 
-void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize) {
+void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize,
+                               uint16_t queueSize) {
+  RS_ASSERT(queueSize >= poolSize);
+
   // Initialize all fields to safe defaults
   dllist_init(&state->iteratorResults);
   dllist_init(&state->pendingResults);
   state->poolSize = poolSize;
+  state->queueSize = queueSize;
   state->iteratorResultCount = 0;
   state->readyResults = NULL;
   state->failedUserData = NULL;
@@ -136,7 +140,7 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   }
 }
 
-void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
+uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
   uint16_t added = 0;
 
   // Move nodes from iteratorResults to pendingResults
@@ -161,6 +165,8 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
     state->iteratorResultCount--;
     added++;
   }
+
+  return added;
 }
 
 static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {

@@ -11,7 +11,7 @@
 
 use std::ops::ControlFlow;
 
-use c_trie::{LoweredPattern, SuffixTrie, SuffixWalk, TermsTrie};
+use c_trie::{LoweredPattern, QueryRequestTimeoutHandle, SuffixTrie, SuffixWalk, TermsTrie};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
 use rqe_iterators::union_opaque::build_union_with_q_str;
@@ -80,11 +80,15 @@ pub(crate) fn eval<'index>(
 
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
-    let terms_trie = ctx.spec().terms;
+    // SAFETY: the reference is confined to this evaluation — the suffix-trie
+    // walk and the terms-trie fallback below — which the query, and so the spec
+    // owning the trie, outlives.
+    let terms = unsafe { ctx.terms_trie() };
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
-    let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then_some(time.timeout);
+    // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
+    // cycle; only the blocked-client flag may change concurrently, through the C atomic API.
+    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
 
     let mut expansion = Expansion {
         ctx,
@@ -94,11 +98,6 @@ pub(crate) fn eval<'index>(
         needs_offsets,
         max_expansions: config.max_prefix_expansions,
     };
-
-    debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
-    // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
-    // during the query (`QueryEvalContext` invariants 1/2).
-    let terms = unsafe { TermsTrie::from_raw(terms_trie) };
 
     // A spec with a suffix trie may only answer a pattern when every queried field
     // is covered by it. An unsupported field set is an error that does *not* fall
@@ -205,7 +204,7 @@ impl Expansion<'_> {
         suffix: &SuffixTrie,
         terms: &TermsTrie,
         pattern: LoweredPattern,
-        timeout: Option<ffi::timespec>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
     ) -> SuffixWalk {
         // The suffix trie hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in
@@ -240,7 +239,7 @@ impl Expansion<'_> {
         &mut self,
         terms: &TermsTrie,
         pattern: &LoweredPattern,
-        timeout: Option<ffi::timespec>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
     ) {
         // The primary trie hands terms back as runes (with their document count,
         // used for the disk IDF), which must be encoded back into the term's key,

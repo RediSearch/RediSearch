@@ -83,7 +83,7 @@ static void testAverage() {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
   }
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 /**
@@ -129,7 +129,7 @@ static void testCountDistinct() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 static void testSplit() {
   RMCK::Context ctx{};
@@ -167,7 +167,7 @@ static void testSplit() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 int main(int, char **) {

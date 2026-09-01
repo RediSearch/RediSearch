@@ -41,11 +41,11 @@ impl<Data> StrTrieMap<Data> {
 
     /// Insert or update a `&str`-keyed entry via a callback.
     /// See [`TrieMap::insert_with`].
-    pub fn insert_with<F>(&mut self, key: &str, f: F)
+    pub fn insert_with<F>(&mut self, key: &str, f: F) -> bool
     where
         F: FnOnce(Option<Data>) -> Data,
     {
-        self.inner.insert_with(key.as_bytes(), f);
+        self.inner.insert_with(key.as_bytes(), f)
     }
 
     /// Remove a `&str`-keyed entry. See [`TrieMap::remove`].
@@ -80,6 +80,11 @@ impl<Data> StrTrieMap<Data> {
     /// counter on the underlying [`TrieMap`] — O(1). See [`TrieMap::mem_usage`].
     pub const fn mem_usage(&self) -> usize {
         self.inner.mem_usage()
+    }
+
+    /// Borrow the underlying byte-keyed [`TrieMap`].
+    pub const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
     }
 
     /// Iterate over all entries in lexicographical key order. See [`TrieMap::iter`].
@@ -122,6 +127,10 @@ impl<Data> StrTrieMap<Data> {
     /// Yield every entry whose key contains `target` as a substring.
     /// Empty `target` yields every entry — the empty string is a substring
     /// of every key.
+    ///
+    /// The iterator borrows `target`; call
+    /// [`ContainsIter::into_owned`](iter::ContainsIter::into_owned) to
+    /// detach it from that borrow.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }

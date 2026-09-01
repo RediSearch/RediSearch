@@ -7,21 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
-    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
-};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, lookup::TRANSIENT_FLAGS};
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
 use value::SharedValue;
-
-/// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
-/// with respect to this schema rule.
-fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
-    [rule.lang_field(), rule.score_field(), rule.payload_field()]
-        .into_iter()
-        .any(|f| f == Some(key.name().as_ref()))
-}
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
@@ -85,8 +75,9 @@ impl<'a> RLookupRow<'a> {
     /// * `lookup` - The RLookup instance containing the keys and their flags.
     /// * `required_flags` - Flags that must be present on a key for it to be counted.
     /// * `excluded_flags` - Flags that must not be present on a key for it to be counted.
-    /// * `rule` - An optional [`SchemaRule`] to exclude key names used for special purposes, e.g. score, lang or payload.
-    ///   If set to `None`, no such exclusions are applied (this is the case on the coordinator).
+    ///   Keys named after the schema rule's special fields (score, lang, payload) carry
+    ///   [`RLookupKeyFlag::Hidden`] from creation (per the attached spec cache's rule
+    ///   names), so excluding [`RLookupKeyFlag::Hidden`] also excludes them.
     ///
     /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false) and the `usize` is the count of fields that
     /// have not been skipped, i.e. it is the number of true values inside the `Vec<bool>`.
@@ -95,7 +86,6 @@ impl<'a> RLookupRow<'a> {
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
         excluded_flags: RLookupKeyFlags,
-        rule: Option<&SchemaRule>,
     ) -> (usize, Vec<bool>) {
         // Ensure that the length of skip_field_indices is lookup.get_row_len(), to avoid a panic in get_length_no_alloc().
         let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
@@ -103,7 +93,6 @@ impl<'a> RLookupRow<'a> {
             lookup,
             required_flags,
             excluded_flags,
-            rule,
             skip_field_indices.as_mut_slice(),
         );
         (num_fields, skip_field_indices)
@@ -124,7 +113,6 @@ impl<'a> RLookupRow<'a> {
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
         excluded_flags: RLookupKeyFlags,
-        rule: Option<&SchemaRule>,
         out_flags: &mut [bool],
     ) -> usize {
         debug_assert!(
@@ -154,13 +142,9 @@ impl<'a> RLookupRow<'a> {
             let key_matches_flag_requirements =
                 key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
             let key_has_associated_value = self.get(key).is_some();
-            // Is this key a "special key" according to the schema? If so, we skip it
-            let key_allowed_by_rule = !rule.is_some_and(|rule| is_special_key(rule, key));
 
-            let will_count = will_increment_idx
-                && key_matches_flag_requirements
-                && key_has_associated_value
-                && key_allowed_by_rule;
+            let will_count =
+                will_increment_idx && key_matches_flag_requirements && key_has_associated_value;
 
             cursor.move_next();
 
@@ -267,6 +251,18 @@ impl<'a> RLookupRow<'a> {
         }
 
         prev
+    }
+
+    /// Moves a dynamic value for `key` into `dst` without changing its reference count.
+    pub fn move_dynamic_key_to(&mut self, key: &RLookupKey, dst: &mut Self) {
+        if let Some(value) = self
+            .dyn_values
+            .get_mut(key.dstidx as usize)
+            .and_then(Option::take)
+        {
+            self.num_dyn_values -= 1;
+            dst.write_key(key, value);
+        }
     }
 
     /// Write a value to the lookup table *by-name*. This is useful for 'dynamic' keys
@@ -416,40 +412,9 @@ pub mod opaque {
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
-    use std::ptr;
-
-    use document::DocumentType;
     use enumflags2::make_bitflags;
 
     use super::*;
-
-    fn test_schema_rule(
-        lang_field: Option<&std::ffi::CStr>,
-        score_field: Option<&std::ffi::CStr>,
-        payload_field: Option<&std::ffi::CStr>,
-    ) -> Box<ffi::SchemaRule> {
-        let lang_ptr = lang_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-        let score_ptr = score_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-        let payload_ptr =
-            payload_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-
-        let schema_rule = ffi::SchemaRule {
-            lang_field: lang_ptr,
-            score_field: score_ptr,
-            payload_field: payload_ptr,
-            type_: DocumentType::Hash,
-            prefixes: std::ptr::null_mut(),
-            filter_exp_str: std::ptr::null_mut(),
-            filter_exp: std::ptr::null_mut(),
-            filter_fields: std::ptr::null_mut(),
-            filter_fields_index: std::ptr::null_mut(),
-            score_default: 0.0,
-            lang_default: 0,
-            index_all: false,
-        };
-
-        Box::new(schema_rule)
-    }
 
     #[test]
     #[cfg_attr(
@@ -463,13 +428,8 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
+        let (len, flags) =
+            row.get_length(&rlookup, RLookupKeyFlags::empty(), RLookupKeyFlags::empty());
         assert_eq!(len, 3);
         assert_eq!(flags, vec![true, true, true]);
     }
@@ -479,13 +439,8 @@ mod tests {
         let rlookup = RLookup::new();
         let row = RLookupRow::new();
 
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
+        let (len, flags) =
+            row.get_length(&rlookup, RLookupKeyFlags::empty(), RLookupKeyFlags::empty());
         assert_eq!(len, 0);
         assert!(flags.is_empty());
     }
@@ -505,12 +460,10 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
-        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
             RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 1);
         assert_eq!(flags, vec![true, false, false]);
@@ -531,12 +484,10 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
-        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 2);
         assert_eq!(flags, vec![false, true, true]);
@@ -558,24 +509,23 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
-        let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
             &rlookup,
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
             make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 0);
         assert_eq!(flags, vec![false, false, false]);
     }
 
-    // Without a rule we expect no filtering for special purpose keys like score, lang or payload
+    // Without a spec cache recording special fields we expect no filtering for
+    // special purpose keys like score, lang or payload
     #[test]
     #[cfg_attr(
         miri,
         ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
     )]
-    fn get_length_without_rule() {
+    fn get_length_without_special_fields() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
         row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
@@ -585,39 +535,46 @@ mod tests {
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            None,
+            make_bitflags!(RLookupKeyFlag::Hidden),
         );
 
         assert_eq!(len, 3);
         assert_eq!(flags, vec![true, true, true]);
     }
 
-    // The rule is used to filter special purpose keys like score, lang or payload
+    // Keys named after the schema rule's special fields (score, lang, payload)
+    // are hidden — retroactively when the spec cache is attached, and at
+    // creation for keys made afterwards — so excluding Hidden excludes them.
     #[test]
     #[cfg_attr(
         miri,
         ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
     )]
-    fn get_length_with_rule() {
+    fn get_length_with_schema_special_fields() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
         row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
         row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
         row.write_key_by_name(&mut rlookup, c"score", SharedValue::new_num(100.));
 
-        let tsrw = test_schema_rule(None, Some(c"score"), None);
+        // Attached after the keys exist: retro-marks `score` as hidden.
+        let spcache = crate::IndexSpecCache::from_fields_and_rule(
+            [],
+            Some(c"lang"),
+            Some(c"score"),
+            Some(c"payload"),
+        );
+        rlookup.set_cache(Some(spcache));
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
+            make_bitflags!(RLookupKeyFlag::Hidden),
         );
 
         assert_eq!(len, 2);
         assert_eq!(flags, vec![true, true, false]);
 
-        // add some more keys with special keys:
+        // Keys created while the cache is attached are hidden at creation.
         row.write_key_by_name(
             &mut rlookup,
             c"lang",
@@ -626,12 +583,10 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(42.));
         row.write_key_by_name(&mut rlookup, c"payload", SharedValue::new_num(815.0));
 
-        let tsrw = test_schema_rule(Some(c"lang"), Some(c"score"), Some(c"payload"));
         let (len, flags) = row.get_length(
             &rlookup,
             RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
+            make_bitflags!(RLookupKeyFlag::Hidden),
         );
 
         assert_eq!(len, 3);

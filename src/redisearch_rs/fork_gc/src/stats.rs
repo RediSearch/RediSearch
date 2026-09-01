@@ -34,6 +34,10 @@ pub struct GcApplyStats {
     /// Numeric tree nodes that had vanished by the time the parent tried to
     /// apply their delta. Increments the GC's `gcNumericNodesMissed`.
     pub numeric_nodes_missed: u64,
+    /// Bytes occupied by removed term keys to subtract from the spec statistics.
+    pub terms_size_removed: usize,
+    /// Number of removed terms to subtract from the spec statistics.
+    pub terms_removed: usize,
 }
 
 impl GcApplyStats {
@@ -48,6 +52,8 @@ impl GcApplyStats {
         self.block_count_delta += other.block_count_delta;
         self.blocks_denied += other.blocks_denied;
         self.numeric_nodes_missed += other.numeric_nodes_missed;
+        self.terms_size_removed += other.terms_size_removed;
+        self.terms_removed += other.terms_removed;
     }
 
     /// Apply this delta to both the spec-level and GC-level statistics.
@@ -59,6 +65,8 @@ impl GcApplyStats {
             self.records_removed,
             self.bytes_collected,
             self.bytes_allocated,
+            self.terms_size_removed,
+            self.terms_removed,
         );
         guard.add_block_count(self.block_count_delta);
         fgc.update_gc_stats(

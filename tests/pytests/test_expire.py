@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import copy
 import threading
 import time
@@ -482,8 +489,15 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     expected_inverted_index = build_inverted_index_dict_for_documents(expected_results)
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
-    time.sleep(0.5)
-    env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
+    # Active expiration runs on Redis's background cycle, so a fixed sleep can be too
+    # short under CI load. Wait deterministically for the expected post-expiration
+    # state instead of assuming a fixed delay is always enough.
+    actual_results = {}
+    def check_expired():
+        nonlocal actual_results
+        actual_results = transform_document_list_to_dict(env.cmd('FT.SEARCH', 'idx', '*'))
+        return actual_results == expected_results, actual_results
+    wait_for_condition(check_expired, 'Timeout waiting for active expiration to reap expired fields', timeout=10)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
          .apply(sort_document_names).equal([len(expected_docs), *expected_docs]))
@@ -1145,6 +1159,27 @@ def test_expire_past_timestamp_removes_doc(env):
 
     env.expect('EXISTS', 'doc:1').equal(0)
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True, redis_less_than='7.3')
+@skip(redis_less_than='7.4')
+def test_hpexpire_on_an_unindexed_hash_does_not_abort(env):
+    # HPEXPIRE routes through Indexes_UpdateMatchingHashFieldExpiration, whose
+    # INDEXMISSING branch indexes the document using the handle that function
+    # already holds. SKIPINITIALSCAN leaves the pre-existing hash unindexed, so
+    # that index attempt is the document's first DocIdMeta attach -- which goes
+    # through RM_SetKeyMeta and needs a write-mode handle. With a read-only one it
+    # failed the publish assert in makeDocumentId and aborted the server.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'd1', 'x', 'val', 'y', 'yy')
+    env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA',
+               'x', 'TEXT', 'SORTABLE', 'y', 'TEXT', 'INDEXMISSING').ok()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+
+    conn.execute_command('HPEXPIRE', 'd1', 5000, 'FIELDS', 1, 'x')
+
+    env.expect('PING').true()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'd1'])
 
 
 @skip(cluster=True, redis_less_than='7.3')

@@ -11,7 +11,6 @@
 
 use std::ptr::NonNull;
 
-use c_trie::TermsTrie;
 use field::FieldMaskOrIndex;
 use query_term::RSQueryTerm;
 use query_types::QueryNodeOptions;
@@ -129,25 +128,22 @@ fn eval_disk<'index>(
     effective_field_mask: FieldMask,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    let spec = ctx.spec();
     // Look up the term's document count in the terms trie to compute IDF, then
     // build a disk term iterator through the enterprise API.
-    // SAFETY: in search-on-disk mode the terms trie is always initialised.
-    debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
     let term_bytes = tok.as_bytes();
     // A `QN_TOKEN` node always carries a non-null term string; the term lookup
     // below relies on it.
     debug_assert!(term_bytes.is_some(), "token string should not be null");
 
-    // SAFETY: `spec.terms` is a valid terms `Trie` (checked non-null above) that
-    // outlives this lookup.
-    let terms = unsafe { TermsTrie::from_raw(spec.terms) };
+    // SAFETY: the reference is confined to the document-count lookup below,
+    // which the query, and so the spec owning the trie, outlives.
+    let terms = unsafe { ctx.terms_trie() };
     // The lookup refuses a term that is not valid UTF-8. These bytes are query
     // text rather than a stored key, and a disk index only stages terms whose
     // bytes are valid UTF-8, so zero is the true count for such a term rather
     // than a lost one.
     let num_docs_in_term = terms.num_docs(term_bytes.unwrap_or_default());
-    let num_documents = spec.stats.scoring.numDocuments;
+    let num_documents = ctx.spec().stats.scoring.numDocuments;
     term.set_idfs(num_documents, num_docs_in_term);
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config);

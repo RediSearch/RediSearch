@@ -8,6 +8,7 @@
 */
 
 #include "gtest/gtest.h"
+#include "query_request.h"
 #include "suffix.h"
 #include "trie/trie.h"
 #include "trie/rune_util.h"
@@ -179,7 +180,12 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
   addSuffixTrie(t, "abc", 3);
   int hits = 0;
-  struct timespec timeout = {};
+  QueryRequestTimeout timeout = {
+      .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
+      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
+      .source = {},
+  };
   rune emptyPattern[1] = {0};
   SuffixCtx ctx = {};
   ctx.trie = t;
@@ -189,7 +195,6 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   ctx.callback = countSuffixHit;
   ctx.cbCtx = &hits;
   ctx.timeout = &timeout;
-  ctx.skipTimeoutChecks = true;
 
   EXPECT_EQ(Suffix_IterateWildcard(&ctx), 0);
   EXPECT_EQ(hits, 0);
@@ -221,16 +226,65 @@ TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
   // guards against gives a deterministic "no prefix" answer if it ever returns.
   rune patternBuf[2] = {(rune)'x', 0};
   rune *emptyPattern = patternBuf + 1;
-  Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, NULL, true);
+  QueryRequestTimeout timeout = {
+      .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
+      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
+      .source = {},
+  };
+  Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, &timeout);
   EXPECT_EQ(hits, 0);
 
   // control: "*" matches the inserted term
   size_t rlen = 0;
   runeBuf buf;
   rune *star = runeBufFill("*", 1, &buf, &rlen);
-  Trie_IterateWildcard(t, star, rlen, countRangeHit, &hits, NULL, true);
+  Trie_IterateWildcard(t, star, rlen, countRangeHit, &hits, &timeout);
   EXPECT_EQ(hits, 1);
   runeBufFree(&buf);
 
+  TrieType_Free(t);
+}
+
+// addSuffixTrie indexes the whole term through an unguarded entry point, but each
+// proper suffix goes through Trie_InsertRune, which drops keys at or past
+// TRIE_INITIAL_STRING_LEN. A term longer than that cap is therefore indexed with a
+// gap: its longest suffixes are missing while the shorter ones are present.
+
+class SuffixTrieLongTermTest : public ::testing::Test {};
+
+// Long enough that suffixes fall on both sides of the cap.
+static constexpr size_t kLongTermLen = TRIE_INITIAL_STRING_LEN + 44;
+
+// Only an inserted suffix carries a payload; a node reached merely as a prefix of
+// a longer key does not.
+static bool suffixIndexed(Trie *t, const rune *runes, size_t rlen, size_t off) {
+  TrieNode *node = Trie_GetNode(t, runes + off, rlen - off, true, NULL);
+  return TrieNode_GetPayloadData(node) != NULL;
+}
+
+TEST_F(SuffixTrieLongTermTest, suffixesPastTheKeyLengthCapAreSkipped) {
+  std::string term;
+  for (size_t i = 0; i < kLongTermLen; ++i) {
+    term += static_cast<char>('a' + (i * 7) % 26);
+  }
+
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, term.data(), term.size());
+
+  runeBuf buf;
+  size_t rlen = 0;
+  rune *runes = runeBufFill(term.data(), term.size(), &buf, &rlen);
+  ASSERT_EQ(rlen, kLongTermLen);
+
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, 0));
+  // Longest proper suffix, and the last one still over the cap.
+  EXPECT_FALSE(suffixIndexed(t, runes, rlen, 1));
+  EXPECT_FALSE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN));
+  // First suffix under the cap, and the shortest one.
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN + 1));
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, rlen - 1));
+
+  runeBufFree(&buf);
   TrieType_Free(t);
 }

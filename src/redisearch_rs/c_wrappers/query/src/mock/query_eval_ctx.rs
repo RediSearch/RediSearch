@@ -28,15 +28,11 @@ pub struct MockQueryEvalCtx {
     spec: *mut ffi::IndexSpec,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_inner: *mut rlookup::MetricRequest<'static>,
     metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
     doc_table: *mut ffi::DocTable,
     config: *mut IteratorsConfig,
     qctx: *mut ffi::QueryEvalCtx,
-    /// Backing allocation for `qctx.bcTimeoutAreq`, lazily created by
-    /// [`MockQueryEvalCtx::enable_blocked_client_timeout`]; null when no
-    /// Blocked Client Timeout source has been wired in.
-    areq: *mut ffi::AREQ,
+    timeout: *mut ffi::QueryRequestTimeout,
 }
 
 impl Drop for MockQueryEvalCtx {
@@ -49,9 +45,14 @@ impl Drop for MockQueryEvalCtx {
             dealloc(self.sctx.cast(), Layout::new::<ffi::RedisSearchCtx>());
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());
             drop(Box::from_raw(self.status));
-            dealloc(
-                self.metric_requests_inner.cast(),
-                Layout::new::<rlookup::MetricRequest<'static>>(),
+            // Reclaiming an appended list means `array_free`, a C symbol this
+            // mock deliberately doesn't invoke, so it can only refuse to be the
+            // one that appended. A test that needs to is a test that needs
+            // `rqe_iterators_test_utils::TestContext` instead, whose teardown
+            // does free the list.
+            debug_assert!(
+                (*self.metric_requests_p).is_null(),
+                "this mock cannot free an appended metric-request list"
             );
             dealloc(
                 self.metric_requests_p.cast(),
@@ -60,9 +61,10 @@ impl Drop for MockQueryEvalCtx {
             dealloc(self.doc_table.cast(), Layout::new::<ffi::DocTable>());
             drop(Box::from_raw(self.config));
             dealloc(self.qctx.cast(), Layout::new::<ffi::QueryEvalCtx>());
-            if !self.areq.is_null() {
-                dealloc(self.areq.cast(), Layout::new::<ffi::AREQ>());
-            }
+            dealloc(
+                self.timeout.cast(),
+                Layout::new::<ffi::QueryRequestTimeout>(),
+            );
         }
     }
 }
@@ -84,6 +86,11 @@ impl MockQueryEvalCtx {
             assert!(!sctx.is_null());
 
             (*sctx).spec = spec;
+            let timeout = alloc_zeroed(Layout::new::<ffi::QueryRequestTimeout>())
+                .cast::<ffi::QueryRequestTimeout>();
+            assert!(!timeout.is_null());
+            (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx).timeout = timeout;
 
             let opts =
                 alloc_zeroed(Layout::new::<ffi::RSSearchOptions>()).cast::<ffi::RSSearchOptions>();
@@ -92,16 +99,17 @@ impl MockQueryEvalCtx {
 
             let status = Box::into_raw(Box::new(QueryError::default()));
 
-            let metric_requests_inner =
-                alloc_zeroed(Layout::new::<rlookup::MetricRequest<'static>>())
-                    .cast::<rlookup::MetricRequest<'static>>();
-            assert!(!metric_requests_inner.is_null());
-
+            // The head of the metric-request list, left null: the list is a
+            // tracked array, whose empty state is a null head and whose
+            // non-empty one is an interior pointer just past a length header.
+            // Seeding it with a plain allocation would look non-empty while
+            // having no header, so the first append would read and reallocate
+            // from outside it. Appending through this mock is refused outright
+            // in `drop`, for want of a C symbol to free the result with.
             let metric_requests_p =
                 alloc_zeroed(Layout::new::<*mut rlookup::MetricRequest<'static>>())
                     .cast::<*mut rlookup::MetricRequest<'static>>();
             assert!(!metric_requests_p.is_null());
-            *metric_requests_p = metric_requests_inner;
 
             let doc_table = alloc_zeroed(Layout::new::<ffi::DocTable>()).cast::<ffi::DocTable>();
             assert!(!doc_table.is_null());
@@ -133,12 +141,11 @@ impl MockQueryEvalCtx {
                 spec,
                 opts,
                 status,
-                metric_requests_inner,
                 metric_requests_p,
                 doc_table,
                 config,
                 qctx,
-                areq: std::ptr::null_mut(),
+                timeout,
             }
         }
     }
@@ -178,26 +185,13 @@ impl MockQueryEvalCtx {
         unsafe { (*self.spec).diskSpec = std::ptr::NonNull::dangling().as_ptr() }
     }
 
-    /// Wire a real, zeroed [`ffi::AREQ`] into `bcTimeoutAreq` so that the
-    /// Blocked Client Timeout source is selected (simulating a
-    /// background-executed request).
-    ///
-    /// The allocation is owned by this mock and freed on drop. Its zeroed
-    /// `QueryRequestTimeout::timedOut` flag reads as "not timed out", so
-    /// `AREQ_CheckTimedOut` sees a non-expired request.
+    /// Select a non-expired Blocked Client Timeout source.
     pub fn enable_blocked_client_timeout(&mut self) {
-        // SAFETY: the allocation has the size and alignment of `ffi::AREQ` and
-        // is checked non-null. This mock only exposes it to `AREQ_CheckTimedOut`,
-        // which reads the zeroed atomic timeout flag; it never uses uninitialized
-        // request resources. The allocation is retained for cleanup in `Drop`.
+        // SAFETY: `self.timeout` is a valid, exclusively-owned allocation. Its
+        // zeroed union storage represents a false blocked-client atomic flag.
         unsafe {
-            if self.areq.is_null() {
-                let areq = alloc_zeroed(Layout::new::<ffi::AREQ>()).cast::<ffi::AREQ>();
-                assert!(!areq.is_null());
-                self.areq = areq;
-            }
-            // SAFETY: `self.qctx` is a valid, exclusively-owned allocation.
-            (*self.qctx).bcTimeoutAreq = self.areq;
+            (*self.timeout).kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
         }
     }
 }

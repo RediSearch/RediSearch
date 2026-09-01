@@ -11,6 +11,7 @@ External and automated contributors are welcome to propose new features and impr
 
 - **Small changes** (bug fixes, refactors, tests, docs) go straight to a normal PR. See `CONTRIBUTING.md`.
 - **Large changes** — a new `FT.*` command or option, a new field/index type, a behavior or persistence-format change, or a cross-cutting C/Rust refactor — go through a lightweight **spec-driven workflow** so the design is reviewed *before* code is written.
+- **New, unproven surface** can instead land behind the default-off `ENABLE_UNSTABLE_FEATURES` runtime gate, which defers the design and product review to a later graduation PR. The requirements, code patterns, and graduation steps are in [`docs/CONTRIBUTING-unstable-features.md`](docs/CONTRIBUTING-unstable-features.md); this path is *not* available for persistence-format changes, behavior changes to existing surface, or bug fixes.
 
 The spec-driven workflow is gated but **framework-neutral**. What is reviewed is a set of artifacts, not any particular tool:
 
@@ -146,6 +147,11 @@ as production code.
   [/rust-tests-guidelines](.skills/rust-tests-guidelines/SKILL.md)
 - Use `#[expect(...)]` over `#[allow(...)]` for lint suppressions
 - Use `tracing` macros for logging (debug!, info!, warn!, error!)
+
+### Python
+
+- Source is UTF-8, which Python 3 already assumes. Never add a
+  `# -*- coding: utf-8 -*-` line; non-ASCII literals need no declaration.
 
 ## C Code Architecture
 

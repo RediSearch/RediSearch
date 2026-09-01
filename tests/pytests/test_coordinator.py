@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 @skip(cluster=False)
@@ -18,7 +25,9 @@ def testInfo(env):
     env.assertGreater(float(idx_info['offset_vectors_sz_mb']), 0)
     env.assertGreater(float(idx_info['doc_table_size_mb']), 0)
     env.assertGreater(float(idx_info['sortable_values_size_mb']), 0)
-    env.assertGreater(float(idx_info['key_table_size_mb']), 0)
+    # The key->docId mapping now lives in Redis key-metadata (not module-tracked
+    # memory), so key_table_size_mb is always 0.
+    env.assertEqual(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
 @skip(cluster=False)

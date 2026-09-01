@@ -11,7 +11,7 @@
 
 use std::ops::ControlFlow;
 
-use c_trie::{SuffixMode, SuffixTrie, TermsTrie};
+use c_trie::{QueryRequestTimeoutHandle, SuffixMode, SuffixTrie, TermsTrie};
 use query::WildcardMode;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
@@ -91,13 +91,15 @@ pub(crate) fn eval<'index>(
 
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
-    let terms_trie = ctx.spec().terms;
-    // Enforce the search deadline unless timeout checks are disabled for this
-    // request, in which case the brute-force walk below runs to completion.
+    // SAFETY: the reference is confined to this evaluation — whichever of the
+    // two walks below answers the pattern — which the query, and so the spec
+    // owning the trie, outlives.
+    let terms = unsafe { ctx.terms_trie() };
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
-    let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then_some(time.timeout);
+    // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
+    // cycle; only the blocked-client flag may change concurrently, through the C atomic API.
+    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
 
     let expansion = Expansion {
         ctx,
@@ -107,11 +109,6 @@ pub(crate) fn eval<'index>(
         needs_offsets,
         max_expansions: config.max_prefix_expansions,
     };
-
-    debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
-    // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
-    // during the query (`QueryEvalContext` invariants 1/2).
-    let terms = unsafe { TermsTrie::from_raw(terms_trie) };
 
     let children = if match_suffix && !suffix_trie.is_null() {
         // The spec maintains a suffix trie for this pattern's fields: expand
@@ -228,7 +225,7 @@ impl Expansion<'_> {
         pattern: &[ffi::rune],
         match_prefix: bool,
         match_suffix: bool,
-        timeout: Option<ffi::timespec>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
     ) -> Vec<CRQEIterator> {
         // The primary trie hands terms back as runes (with their document count, used
         // for the disk IDF), which must be encoded back into the term's key, byte for

@@ -454,8 +454,10 @@ where
             return Ok(RQEValidateStatus::Ok);
         }
 
-        // If there has been a GC cycle on this key while we were suspended, the offset might not be valid
-        // anymore. This means that we need to seek the last docId we were at
+        // Either a GC cycle moved the entries this reader had already passed, or a write
+        // reallocated the block buffer it was reading. Both leave the cached read offset
+        // describing something that is no longer there, so the position has to be found again by
+        // seeking to the last document id we returned.
         let last_doc_id = self.last_doc_id();
         let was_at_eos = self.at_eos;
         let result_doc_id = self.result.doc_id;
@@ -822,10 +824,8 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // The live reader's `unique_docs()` is unavailable once weakened, so we
-        // return the snapshot cached at construction (see `num_docs`). This
-        // matches the active `num_estimated` and keeps FT.PROFILE introspection
-        // of a suspended iterator meaningful.
+        // The live reader's `unique_docs()` is unavailable once weakened, so
+        // return the snapshot cached at construction (see `num_docs`).
         self.num_docs_field() as usize
     }
 }

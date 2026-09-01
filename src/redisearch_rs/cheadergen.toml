@@ -110,15 +110,11 @@ inline static struct InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *m
 """
 
 [header.iterators_ffi]
-includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h"]
+includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h", "VecSim/vec_sim.h"]
 after_includes = """
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
-// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
-// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
-// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
-typedef struct AREQ AREQ;
 """
 
 [header.query_eval_ffi]
@@ -129,10 +125,6 @@ after_includes = """
 // Rust type name `RSQueryNode` as a bare reference, so we surface a matching
 // typedef here for the C compiler.
 typedef struct RSQueryNode RSQueryNode;
-// `AREQ` is defined in `aggregate/aggregate.h`, a heavy header we avoid pulling
-// in here. `QAST_Iterate` only takes an `AREQ *`, so a forward typedef (matching
-// the full `typedef struct AREQ { ... } AREQ;` definition) is sufficient.
-typedef struct AREQ AREQ;
 """
 
 [header.module_init_ffi]
@@ -364,6 +356,25 @@ typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 """
 
+[header.term_dictionary_ffi]
+after_includes = """
+/* Readers-writer contract for a TermDictionary. cheadergen emits per-item
+ * documentation only, so this crate-wide rule has no other C-visible home;
+ * keep it in sync with the term_dictionary_ffi module docs.
+ *
+ * Read-only calls (TermDictionary_Get, TermDictionary_Len,
+ * TermDictionary_MemUsage and the TermDictionary_Iterate* constructors) may
+ * run concurrently with each other. TermDictionary_AddTerm,
+ * TermDictionary_ReplaceTerm, TermDictionary_Remove,
+ * TermDictionary_DecrementNumDocs and TermDictionary_Free require exclusive
+ * access: no other call on the same dictionary, and no live iterator
+ * obtained from it.
+ *
+ * An iterator itself is single-threaded — it may not be advanced or freed
+ * from two threads at once — though separate iterators over the same
+ * dictionary may be used concurrently. */
+"""
+
 [header.triemap_ffi]
 includes = ["<time.h>"]
 after_includes = """
@@ -371,6 +382,9 @@ after_includes = """
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
 """
+
+[header.trie_rdb_ffi]
+includes = ["redismodule.h"]
 
 [header.types_ffi]
 # Pull in `inverted_index.h` so consumers see the full `NumericFilter`

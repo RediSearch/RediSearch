@@ -17,7 +17,7 @@
  * doc table, and the min-max heap.
  *
  * The HybridIterator only touches `sctx` in three spots:
- *   - sctx->time.skipTimeoutChecks   (we set true to disable timeout checks)
+ *   - sctx->timeout                  (UNARMED disables timeout checks)
  *   - sctx->spec->diskSpec           (zeroed => RAM path)
  *   - sctx->spec->docs.ttl           (zeroed/NULL => field-expiration gate off,
  *                                     so the DocTable expiration calls are
@@ -32,6 +32,7 @@
 
 #include "redisearch.h"
 #include "search_ctx.h"
+#include "rlookup.h"
 #include "spec.h"
 #include "iterators/iterator_api.h"
 #include "iterators/hybrid_reader.h"
@@ -57,8 +58,10 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
   // Minimal mock context: zeroed spec gives RAM path + no TTL gate.
   IndexSpec spec = {0};
   RedisSearchCtx sctx = {0};
+  QueryRequestTimeout timeout = {0};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
   sctx.spec = &spec;
-  sctx.time.skipTimeoutChecks = true;
+  sctx.timeout = &timeout;
 
   QueryIterator *child = NewSortedIdListIterator(ids, child_count, 1.0);
 
@@ -92,7 +95,6 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
       .vectorScoreField = (char *)"__v_score",
       .canTrimDeepResults = true,
       .childIt = child,
-      .timeout = {0, 0},
       .filterCtx = &filterCtx,
   };
 
@@ -106,6 +108,11 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
     QueryError_ClearError(&err);
     return 0;
   }
+
+  // Yield the vector score under a lookup key, matching the Rust side. A zeroed
+  // key is enough: the metrics path stores the pointer and never dereferences it.
+  RLookupKey own_key = {0};
+  *HybridIterator_GetOwnKeyRef(it) = &own_key;
 
   size_t count = 0;
   while (it->Read(it) == ITERATOR_OK) {

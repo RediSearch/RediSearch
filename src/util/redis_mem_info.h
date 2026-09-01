@@ -47,13 +47,18 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
 // TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
 float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx);
 
-// Used-memory ratio for the async background scan, which runs only with disk indexes on
-// Flex (BigRedis). Returns max(total_ratio, ram_ratio):
-//   total_ratio = used_memory          / min_not_0(maxmemory, max_process_mem)
-//   ram_ratio   = used_ram_for_swapout / min_not_0(max_ram,   max_process_mem)
-// On Flex used_memory is RAM + flash quota, so it can stay low while RAM — the real
-// bottleneck for indexing — is exhausted; the RAM term catches that. The bigredis fields
-// are read from the `mem` INFO section (which on Flex returns both the `memory` and
-// `bigredis` sections in one call). A budget that is 0 contributes a 0 ratio.
+
+// Each term is a ratio against its own budget: the RAM + flash quota for the first, max_ram (folded
+// with max_process_mem) for the other two. The swapout term is the one the engine itself regulates,
+// and usually the higher of the two RAM terms, though not always — see RedisMemory_GetFlexRatios
+// for what each of the underlying INFO fields counts.
+typedef struct {
+  float total_memory_ratio;
+  float ram_ratio;
+  float ram_for_swapout_ratio;
+} RedisMemoryFlexRatios;
+
+// Read the Flex memory state, in one INFO call. A budget of 0 yields a 0 ratio for the terms that
+// divide by it, so an absent bigredis section cannot report pressure.
 // GIL must be held before calling this function.
-float RedisMemory_GetUsedMemoryRatioFlex(RedisModuleCtx *ctx);
+RedisMemoryFlexRatios RedisMemory_GetFlexRatios(RedisModuleCtx *ctx);

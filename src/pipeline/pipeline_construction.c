@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "pipeline/pipeline_construction.h"
 
 #include <string.h>
@@ -608,7 +617,8 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(params->language, params->outFields, lookup);
+    rp = RPHighlighter_New(params->language, params->outFields, lookup,
+                           isSpecJson(params->common.sctx->spec));
     PUSH_RP();
   }
 

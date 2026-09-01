@@ -23,13 +23,13 @@ jobs:
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ubuntu:noble
-      runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+      runner-env: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
 
   lint:
     name: Linting
     needs: build-image
     if: ${{ !cancelled() }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions:
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3
@@ -106,7 +106,12 @@ jobs:
           # `$workspace -> $target`. The `$target` part is treated as a directory
           # relative to the `$workspace` and defaults to "target" if not explicitly given.
           # default: ". -> target"
-          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          # `bin/cheadergen` is the separate target directory `regen_headers.sh`
+          # gives the nightly rustdoc run; without it the lint job pays a cold
+          # nightly dependency build on every run.
+          workspaces: |
+            src/redisearch_rs -> ../../bin/redisearch_rs
+            src/redisearch_rs -> ../../bin/cheadergen
       - name: Hakari
         run: cargo install cargo-hakari --locked
       - name: Cargo deny

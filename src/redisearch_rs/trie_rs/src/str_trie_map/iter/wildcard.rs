@@ -11,7 +11,7 @@ use crate::{
     TrieMap,
     automaton::{CodepointWildcard, CodepointWildcardNfa},
     iter::{self, AutomatonIter, filter},
-    str_trie_map::iter::unfiltered::key_to_string,
+    str_trie_map::iter::{LendingStrIter, key_to_str},
 };
 
 /// Iterator over the entries of a
@@ -60,20 +60,50 @@ impl<'tm, Data: 'tm> WildcardIter<'tm, Data> {
     }
 }
 
+impl<'tm, Data: 'tm> WildcardIter<'tm, Data> {
+    /// Advance whichever backend is driving this iteration; for
+    /// [`Backend::Filter`] that means skipping the candidates the pattern
+    /// rejects.
+    fn advance(&mut self) -> Option<&'tm Data> {
+        match &mut self.0 {
+            Backend::Nfa64(iter) => iter.advance(),
+            Backend::Nfa128(iter) => iter.advance(),
+            Backend::Filter {
+                pattern,
+                candidates,
+            } => loop {
+                let data = candidates.advance()?;
+                if pattern.matches(key_to_str(candidates.key())) {
+                    return Some(data);
+                }
+            },
+        }
+    }
+
+    /// The key the backend last stopped on.
+    fn key(&self) -> &str {
+        key_to_str(match &self.0 {
+            Backend::Nfa64(iter) => iter.key(),
+            Backend::Nfa128(iter) => iter.key(),
+            Backend::Filter { candidates, .. } => candidates.key(),
+        })
+    }
+}
+
+impl<'tm, Data: 'tm> LendingStrIter<'tm> for WildcardIter<'tm, Data> {
+    type Data = Data;
+
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
+        let data = self.advance()?;
+        Some((self.key(), data))
+    }
+}
+
 impl<'tm, Data: 'tm> Iterator for WildcardIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            Backend::Nfa64(iter) => iter.next().map(|(k, v)| (key_to_string(k), v)),
-            Backend::Nfa128(iter) => iter.next().map(|(k, v)| (key_to_string(k), v)),
-            Backend::Filter {
-                pattern,
-                candidates,
-            } => candidates.find_map(|(k, v)| {
-                let key = key_to_string(k);
-                pattern.matches(&key).then_some((key, v))
-            }),
-        }
+        let (key, data) = self.next_borrowed()?;
+        Some((key.to_owned(), data))
     }
 }

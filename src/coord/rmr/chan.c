@@ -87,7 +87,8 @@ void MRChannel_Push(MRChannel *chan, void *ptr) {
     chan->head = chan->tail = item;
   }
   chan->size++;
-  pthread_cond_broadcast(&chan->cond);
+  // Each channel has a single consumer, so a push wakes at most one waiter.
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
 
@@ -187,7 +188,8 @@ aborted:
 
 void MRChannel_WakeAbort(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
-  pthread_cond_broadcast(&chan->cond);
+  // Only the channel's single consumer can be waiting to observe the abort.
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
 

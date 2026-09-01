@@ -21,6 +21,8 @@
 extern "C" {
 #endif
 
+struct QueryRequestTimeout;
+
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
@@ -36,34 +38,19 @@ typedef enum {
   SPEC_LOCK_READ_BORROWED,
 } SpecLockState;
 
-typedef struct SearchTime {
-  // current execution start time - real clock
-  struct timespec current;
-  // when the query should timeout - monotonic raw clock, unrelated to real clock
-  struct timespec timeout;
-  // Flag to skip timeout checks (used in background thread mode with FAIL policy)
-  bool skipTimeoutChecks;
-  // Borrowed RS_Atomic(bool) timed-out flag, wired in AREQ_ApplyContext.
-  // Read via SearchTime_IsTimedOut. NULL on contexts without an owning AREQ.
-  // TODO: move to QueryProcessingCtx.
-  const void *timedOutFlag;
-} SearchTime;
-
-// Returns true iff the SearchTime (passed as `void *` so the function doubles
-// as a SyncPoint stop predicate) has a wired timed-out flag and that flag has
-// been set by the main-thread timeout callback. NULL arg or unwired flag both
-// return false. Reads with memory_order_relaxed: callers only need to observe
-// the flag — there is no surrounding state that requires synchronization.
-bool SearchTime_IsTimedOut(void *arg);
-
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
+  // Borrowed, never owned; valid only within the execution cycle that lent it
+  // (command handler, worker cycle, or per-read install for cursor reads).
   RedisModuleCtx *redisCtx;
-  RedisModuleKey *key_;
   IndexSpec *spec;
-  SearchTime time;
-  unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  unsigned int expanded; // Reply format
+  // Real-clock snapshot shared by document, field, and disk TTL checks so one execution cycle
+  // evaluates every expiration against the same instant.
+  struct timespec currentTime;
+  // Borrowed request timeout, wired when the request adopts this search context.
+  // NULL when there is no owning request.
+  struct QueryRequestTimeout *timeout;
+  uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
   SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
@@ -80,18 +67,23 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 // Same as above, only from c string (null terminated)
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
+// Same as NewSearchCtxC, with explicit index-load accounting options.
+RedisSearchCtx *NewSearchCtxCEx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL,
+                                IndexLoadOptionsFlags flags);
+
 static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx sctx = {
                           .redisCtx = ctx,
-                          .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
+                          .currentTime = { 0, 0 },
+                          .timeout = NULL,
                           .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;
 }
 
-void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
+// Refreshes the real-clock snapshot used for document, field, and disk TTL checks.
+void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx);
 
 typedef struct QueryError QueryError;
 

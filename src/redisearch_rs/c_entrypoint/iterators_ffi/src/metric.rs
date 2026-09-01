@@ -7,13 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{QueryIterator, RLookupKey, RLookupKeyHandle};
+use ffi::QueryIterator;
 use rqe_core::DocId;
-use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{
-    metric::{Metric, MetricSortedById, MetricSortedByScore, MetricType},
-    metric_lazy::{MetricLazySortedById, MetricLazySortedByScore},
+    metric::{Metric, MetricType},
     utils::OwnedSlice,
 };
 
@@ -94,106 +92,4 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
     };
 
     RQEIteratorWrapper::boxed_new(Metric::<SORTED_BY_ID>::new(ids_list, metrics_list))
-}
-
-/// Sets the [`RLookupKeyHandle`] for this metric iterator.
-///
-/// # Safety
-///
-/// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
-/// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
-/// 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SetMetricRLookupHandle(
-    header: *mut QueryIterator,
-    key_handle: *mut RLookupKeyHandle,
-) {
-    debug_assert!(!header.is_null());
-
-    // SAFETY: Safe thanks to 1.
-    let iterator_type = unsafe { (*header).type_ };
-
-    match iterator_type {
-        IteratorType::MetricSortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        IteratorType::MetricSortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        IteratorType::MetricLazySortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
-            };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        IteratorType::MetricLazySortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        _ => unreachable!(
-            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
-        ),
-    }
-}
-
-/// Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
-///
-/// # Safety
-///
-/// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
-/// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut *mut RLookupKey {
-    debug_assert!(!header.is_null());
-
-    // SAFETY: Safe thanks to 1.
-    let iterator_type = unsafe { (*header).type_ };
-
-    match iterator_type {
-        IteratorType::MetricSortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        IteratorType::MetricSortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        IteratorType::MetricLazySortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
-            };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        IteratorType::MetricLazySortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        _ => unreachable!(
-            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
-        ),
-    }
 }

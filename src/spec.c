@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <limits.h>
+#include <sched.h>
 #include <string.h>
 // __GLIBC__; glibc-only header
 #if __has_include(<features.h>)
@@ -22,6 +23,11 @@
 #include "document.h"
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
+#include "rlookup_load_document.h"
+
+#include <ctype.h>
+#include <unistd.h>
+
 #include "triemap_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
@@ -410,8 +416,8 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
-  size_t text_overhead, size_t vector_overhead) {
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+  size_t vector_overhead) {
   size_t res = 0;
 
   // For disk indexes, add storage + in-memory components.
@@ -421,7 +427,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
-  res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += IndexSpec_collect_numeric_overhead(sp);
@@ -472,6 +477,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
+  sp->activeCoordCursors = 0;
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
@@ -1758,11 +1764,10 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskCtx).
-  // For new indexes (FT.CREATE), we don't delete before open since there's nothing to delete.
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, false, spec);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -1857,6 +1862,9 @@ static void IndexSpecCache_Free(IndexSpecCache *c) {
     HiddenString_Free(c->fields[ii].fieldPath, true);
   }
   rm_free(c->fields);
+  rm_free(c->lang_field);
+  rm_free(c->score_field);
+  rm_free(c->payload_field);
   rm_free(c);
 }
 
@@ -1869,9 +1877,23 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   }
 }
 
+// Copy the rule's special-field names into the cache (a fresh cache holds
+// NULLs). The RDB loaders build the cache before the rule loads and call this
+// afterwards — the cache is not yet shared at that point, so the patch does
+// not violate its published-immutable contract.
+static void IndexSpecCache_CopyRuleFields(IndexSpecCache *c, const struct SchemaRule *rule) {
+  if (!rule) {
+    return;
+  }
+  c->lang_field = rule->lang_field ? rm_strdup(rule->lang_field) : NULL;
+  c->score_field = rule->score_field ? rm_strdup(rule->score_field) : NULL;
+  c->payload_field = rule->payload_field ? rm_strdup(rule->payload_field) : NULL;
+}
+
 // Assuming the spec is properly locked before calling this function.
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
+  IndexSpecCache_CopyRuleFields(ret, spec->rule);
   ret->nfields = spec->numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
@@ -1895,6 +1917,11 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   RS_LOG_ASSERT(spec->spcache, "Index spec cache is NULL");
   __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
   return spec->spcache;
+}
+
+void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
+  IndexSpecCache_Decref(sp->spcache);
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2017,6 +2044,93 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   removePendingIndexDrop();
 }
 
+#define DOCID_META_PRUNE_GIL_BATCH 20  // keys pruned per GIL hold in IndexSpec_PruneDocIdMeta
+
+static void IndexSpec_PauseDocIdMetaPrune(size_t *releases) {
+  if (++(*releases) % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
+    usleep(RSGlobalConfig.bgIndexingSleepDurationMicroseconds);
+  } else {
+    sched_yield();
+  }
+}
+
+static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t len,
+                                          uint64_t specId, bool lockGil) {
+  if (len == 0) {
+    return;
+  }
+
+  if (lockGil) {
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+  for (size_t i = 0; i < len; ++i) {
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
+    DocIdMeta_Delete(ctx, keyName, specId);
+    RedisModule_FreeString(ctx, keyName);
+  }
+  if (lockGil) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+  }
+
+  for (size_t i = 0; i < len; ++i) {
+    sdsfree(keys[i]);
+  }
+}
+
+// A KEEPDOCS drop leaves indexed Redis keys alive after the spec is removed from
+// the global registries. In memory mode DocIdMeta has no RDB sweep, so this is
+// the last point where RediSearch still owns a complete key list: the DocTable is
+// intact here and will be freed immediately after teardown. Disk mode skips this
+// path because DocIdMeta's RDB save/load cycle filters entries for dropped specs.
+//
+// The default teardown runs on cleanPool, so it scans DocTable buckets without
+// the GIL and opens Redis keys only in bounded GIL-held batches. The synchronous
+// _FREE_RESOURCE_ON_THREAD=false path calls this from DropIndexCommand with a
+// real command context, so it can use the same batching without extra locks or
+// yield pauses. specId is monotonic, so an entry left behind is inert.
+static void IndexSpec_PruneDocIdMeta(IndexSpec *sp, RedisModuleCtx *ctx, bool lockGil,
+                                     bool pauseBetweenBatches) {
+  if (sp->dropMode != IndexDrop_KeepDocs || SearchDisk_IsEnabled()) {
+    return;
+  }
+  sp->dropMode = IndexDrop_None;
+
+  if (sp->docs.size == 0) {
+    return;
+  }
+
+  DocTable *dt = &sp->docs;
+  sds keys[DOCID_META_PRUNE_GIL_BATCH];
+  size_t len = 0;
+  size_t releases = 0;
+
+  for (size_t i = 0; i < dt->cap; ++i) {
+    DMDChain *chain = &dt->buckets[i];
+    for (RSDocumentMetadata *dmd = chain->root; dmd != NULL; dmd = dmd->nextInChain) {
+      keys[len++] = sdsdup(dmd->keyPtr);
+      if (len == DOCID_META_PRUNE_GIL_BATCH) {
+        IndexSpec_PruneDocIdMetaBatch(ctx, keys, len, sp->specId, lockGil);
+        len = 0;
+        if (pauseBetweenBatches) {
+          IndexSpec_PauseDocIdMetaPrune(&releases);
+        }
+      }
+    }
+  }
+  IndexSpec_PruneDocIdMetaBatch(ctx, keys, len, sp->specId, lockGil);
+}
+
+void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp) {
+  IndexSpec_PruneDocIdMeta(sp, ctx, false, false);
+}
+
+// cleanPool entry point: prune key metadata before teardown frees the DocTable.
+static void IndexSpec_FreeUnlinkedDataBg(void *p) {
+  IndexSpec *spec = p;
+  IndexSpec_PruneDocIdMeta(spec, RSDummyContext, true, true);
+  IndexSpec_FreeUnlinkedData(spec);
+}
+
 /*
  * This function unlinks the index spec from any global structures and frees
  * all struct that requires acquiring the GIL.
@@ -2058,7 +2172,8 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (RSGlobalConfig.freeResourcesThread == false || SearchDisk_IsEnabled()) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
-    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedDataBg,
+                               spec, THPOOL_PRIORITY_HIGH);
   }
 }
 
@@ -2121,24 +2236,37 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
 
 //---------------------------------------- atomic updates ---------------------------------------
 
-// atomic update of usage counter
-inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
-  __atomic_fetch_add(&sp->counter , 1, __ATOMIC_RELAXED);
+void IndexSpec_IncrQueryCounter(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->queryCounter, 1, __ATOMIC_RELAXED);
 }
 
+static void IndexSpec_IncrAdminCounter(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->adminCounter, 1, __ATOMIC_RELAXED);
+}
+
+long long IndexSpec_GetQueryCounter(const IndexSpec *sp) {
+  return __atomic_load_n(&sp->queryCounter, __ATOMIC_RELAXED);
+}
+
+long long IndexSpec_GetAdminCounter(const IndexSpec *sp) {
+  return __atomic_load_n(&sp->adminCounter, __ATOMIC_RELAXED);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Per-spec bookkeeping for a spec the registry layer has already resolved
 // (Indexes_LoadIndexSpecUnsafeEx owns the specDict_g lookup and calls this):
-// bump the usage counter and refresh the temporary-index timeout timer.
+// bump the classified command counter and refresh the temporary-index timeout timer.
 // `spec_ref` must be a valid, non-NULL strong reference. Touches no globals.
 void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
 
-  if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
-    // Increment the number of uses.
-    IndexSpec_IncreasCounter(sp);
+  if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)) {
+    if (options->flags & INDEXSPEC_LOAD_QUERY) {
+      IndexSpec_IncrQueryCounter(sp);
+    } else {
+      IndexSpec_IncrAdminCounter(sp);
+    }
   }
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
@@ -2241,7 +2369,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
-  sp->scan_failed_OOM = false;
+  RS_AtomicBoolStoreRelaxed(&sp->scan_failed_OOM, false);
   sp->scan_failed_OOM_scanned_keys = 0;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
@@ -2820,12 +2948,14 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  // No in-memory key trie (it's Redis key-metadata); reported as 0, field kept
+  // for backward compatibility.
+  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0.0);
   if (!skip_unsafe_ops) {
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
     RedisModule_InfoAddFieldDouble(ctx, "text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
-    RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0) / (float)0x100000);
+    RedisModule_InfoAddFieldDouble(ctx, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, 0, 0, 0) / (float)0x100000);
   }
   RedisModule_InfoEndDictField(ctx);
 
@@ -3053,7 +3183,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     // finish a partially populated index. A scan actively in progress or a
     // previous scan that failed on OOM both leave the index incomplete.
     // See Indexes_FinishSSTReplication.
-    RedisModule_SaveUnsigned(rdb, (uint64_t)(sp->scan_in_progress || sp->scan_failed_OOM));
+    RedisModule_SaveUnsigned(
+        rdb, (uint64_t)(sp->scan_in_progress || RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
@@ -3135,6 +3266,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
     goto cleanup;
   }
+  // The cache was built before the rule loaded; fill in its rule names.
+  IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
@@ -3369,10 +3502,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     StrongRef_Release(spec_ref);
     return NULL;
   }
+  // The cache was built before the rule was created; fill in its rule names.
+  IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
 
   IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
+  sp->activeCoordCursors = 0;
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
@@ -3441,7 +3577,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   QueryError status = QueryError_Default();
 
-  if(spec->scan_failed_OOM) {
+  if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
     QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INDEX_BG_OOM_FAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
     IndexError_AddQueryError(&spec->stats.indexError, &status, key);
     QueryError_ClearError(&status);
@@ -3550,49 +3686,61 @@ static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                  : DocIdMeta_Delete(ctx, key, specId);
 }
 
+// Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
+t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key) {
+  uint64_t docId = 0;
+  if (DocIdMeta_Get(ctx, key, sp->specId, &docId) != REDISMODULE_OK) {
+    return 0;
+  }
+  return (t_docId)docId;
+}
+
+// Borrow the in-memory DMD for a key (memory mode; disk fetches from disk).
+// NULL if the key is not indexed.
+const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCtx *ctx,
+                                                    RedisModuleString *key) {
+  t_docId docId = IndexSpec_GetDocIdByKeyR(sp, ctx, key);
+  if (docId == 0) {
+    return NULL;
+  }
+  return DocTable_Borrow(&sp->docs, docId);
+}
+
+// Logical de-index of a still-existing key that should no longer be indexed
+// (filter no longer matches, REPLACE, changed indexed field). Physical key
+// removal goes through the DocIdMeta `unlink` callback -> IndexSpec_DeleteDocById.
+// Unified across modes: resolve docId via DocIdMeta, delete, drop the mapping.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey) {
-  t_docId id = 0;
+  // Look up docId from the key metadata.
+  uint64_t docId = 0;
+  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+    // Nothing to delete
+    return;
+  }
+
   uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-
-    // Look up docId from key metadata
-    uint64_t docId = 0;
-    if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK ||
-        docId == 0) {
-      // Nothing to delete
-      return;
-    }
-    id = docId;
-
-    // Delete the document by docId
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, id, &docLen)) {
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Failed to delete
       return;
     }
-
-    // Drop the key→docId mapping now that the document is gone from disk. This
-    // keeps DocIdMeta authoritative as an "is this key indexed?" oracle: an
-    // entry exists iff the document is currently indexed in this spec. Without
-    // this, a key that survives in the keyspace but is de-indexed (e.g. an HSET
-    // that makes it stop passing the index FILTER) would keep a stale mapping
-    // pointing at an already-deleted docId.
-    dropDocIdMeta(ctx, key, openKey, spec->specId);
   } else {
-    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, (t_docId)docId);
     if (!md) {
       // Nothing to delete
       return;
     }
-
-    id = md->id;
     docLen = md->docLen;
-
     DMD_Return(md);
   }
 
-  indexSpec_OnDocDeleted(spec, id, docLen);
+  // Drop the mapping so a surviving-but-de-indexed key isn't left pointing at a
+  // deleted docId.
+  dropDocIdMeta(ctx, key, openKey, spec->specId);
+
+  indexSpec_OnDocDeleted(spec, docId, docLen);
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
@@ -3608,20 +3756,33 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
+// Delete a document by its internal docId. The de-indexing entry point driven by
+// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
+// the spec write lock; no-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  RS_ASSERT(isSpecOnDisk(spec));
-  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-  // Acquire the write lock
   IndexSpec_IncrActiveWrites(spec);
   pthread_rwlock_wrlock(&spec->rwlock);
 
   uint32_t docLen = 0;
 
-  if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-    // Document not found on disk
-    IndexSpec_DecrActiveWrites(spec);
-    pthread_rwlock_unlock(&spec->rwlock);
-    return;
+  if (SearchDisk_IsEnabled()) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
+      // Document not found on disk
+      IndexSpec_DecrActiveWrites(spec);
+      pthread_rwlock_unlock(&spec->rwlock);
+      return;
+    }
+  } else {
+    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
+    if (!md) {
+      // Document not found in the in-memory table
+      IndexSpec_DecrActiveWrites(spec);
+      pthread_rwlock_unlock(&spec->rwlock);
+      return;
+    }
+    docLen = md->docLen;
+    DMD_Return(md);
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);

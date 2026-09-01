@@ -30,7 +30,9 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   // Construction requires an argv; the command + index tokens are stepped
   // over, so the wrappers hold nothing here.
   RMCK::ArgvList args(NULL, "FT.HYBRID", "idx");
-  HybridRequest *hybridReq = HybridRequest_New(NULL, requests, 2, args, args.size());
+  RedisSearchCtx *sctx = (RedisSearchCtx *)rm_new(RedisSearchCtx);
+  *sctx = SEARCH_CTX_STATIC(NULL, NULL);
+  HybridRequest *hybridReq = HybridRequest_New(sctx, requests, 2, args, args.size());
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 2);
   ASSERT_TRUE(hybridReq->requests != nullptr);
@@ -38,5 +40,5 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
   // Clean up
-  HybridRequest_DecrRef(hybridReq);
+  HybridRequest_Free(hybridReq);
 }

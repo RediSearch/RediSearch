@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 from time import sleep
@@ -78,6 +85,145 @@ def testCursorsBGEdgeCasesSanity():
     for query in queries:
         resp = env.expect(query).noError().res
         resp = exhaustCursor(env, 'idx', resp)
+
+@skip(cluster=True)
+def testCursorFilterTotalDoesNotUnderflow():
+    """A FILTER may reject a row that a previous cursor read already counted.
+
+    `SORTBY ... MAX` buffers every row during the first read, then hands them to the FILTER
+    across later reads -- by which point a read without WITHCOUNT has reset the running total
+    to zero. Rejecting one of those rows used to decrement from zero: a failed assertion in a
+    debug build, and an unsigned wrap to ~4.29 billion reported as the result count in a
+    release one.
+
+    Only reachable when the writes below are not reindexed, which is what
+    PARTIAL_INDEXED_DOCS switches on -- the same reason this went unnoticed, since it
+    defaults to off. The reported total is asserted, not just the absence of a crash, so a
+    release build is covered too.
+
+    Standalone only, like `testCursorsBGEdgeCasesSanity` next door: the totals asserted here
+    are one shard's, and in a cluster the documents are spread across shards while the
+    coordinator sums their counts, so neither the convergence on half the documents nor the
+    per-read bound describes what any single reply carries.
+    """
+    env = Env(moduleArgs='WORKERS 1 PARTIAL_INDEXED_DOCS 1')
+    if env.env == 'existing-env':
+        env.skip()
+    count = 100
+    loadDocs(env, count=count)
+    # `foo` is outside the schema, so with PARTIAL_INDEXED_DOCS these writes are not
+    # reindexed and the documents keep their doc-ids.
+    for x in range(0, count, 2):
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
+
+    sortby_filter = f'SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)'
+
+    # Every read, not just the first: the rows the sorter buffered are handed over later, so
+    # the underflow lands on a subsequent read. No read may claim more rows than exist -- the
+    # wrap presented as a count of ~4.29 billion.
+    resp = env.expect(f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 {sortby_filter}').noError().res
+    for results, _cursor in exhaustCursor(env, 'idx', resp):
+        env.assertLessEqual(results[0], count,
+                            message=f'reported total {results[0]} exceeds the {count} documents indexed')
+
+    # Without WITHCOUNT the total is per-read and resets, so reads after the first declare 0
+    # while still returning buffered rows. That predates this fix and holds for a buffering
+    # SORTBY with no FILTER at all, so it is not asserted here. WITHCOUNT is the mode that
+    # promises a total across reads, and it is where the accounting has to be right: the
+    # filter removes the half of the documents without `foo`, so the total must converge on
+    # exactly that half and never dip below it.
+    resp = env.expect(f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby_filter}').noError().res
+    totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertLessEqual(max(totals), count, message=f'totals {totals} exceed the {count} indexed')
+    env.assertEqual(totals[-1], count // 2,
+                    message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
+
+@skip(cluster=True)
+def testCursorTotalIsPerReadWithoutWithcount():
+    """Pin how a cursor read reports its total, so any change to it is a deliberate one.
+
+    Without WITHCOUNT the total is per-read: `finishSendChunk` zeroes it when a read finishes,
+    so a buffering `SORTBY ... MAX` hands rows to later reads that return them while declaring
+    a total of 0. Raised on #11230 against the FILTER clamp, but the clamp is not its cause --
+    the first case here has no FILTER in the pipeline at all and behaves identically. WITHCOUNT
+    is the mode that carries a total across reads, and the second case pins that it stays
+    correct.
+
+    Nobody has decided whether the zero totals should change. This records what they do today,
+    so a change shows up as a failing test rather than passing unnoticed.
+
+    Standalone only: the totals are one shard's, and a cluster spreads the documents.
+    """
+    env = Env(moduleArgs='WORKERS 1')
+    count = 100
+    loadDocs(env, count=count)
+    # Half the documents get a field outside the schema, for the FILTER below to reject on.
+    for x in range(0, count, 2):
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
+
+    sortby = f'SORTBY 1 @f1 MAX {count}'
+
+    # No FILTER: the zero totals are already here, so the clamp cannot be producing them.
+    resp = env.cmd(*f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 {sortby} LOAD 1 irrelevant'.split())
+    reads = [(results[0], len(results) - 1) for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertEqual(reads[0][0], count,
+                    message=f'first read should declare every match, got {reads}')
+    later = reads[1:]
+    env.assertTrue(all(total == 0 for total, _rows in later),
+                   message=f'reads after the first declare a per-read total of 0, got {reads}')
+    env.assertTrue(any(rows > 0 for _total, rows in later),
+                   message=f'and they do return rows while declaring it, got {reads}')
+
+    # WITHCOUNT keeps the total across reads, and the FILTER brings it down to the documents
+    # it keeps -- the half carrying `foo`.
+    resp = env.cmd(
+        *f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby} LOAD 1 foo FILTER exists(@foo)'.split())
+    totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    # Only the endpoint and the bound are invariants. How the total gets there depends on
+    # where the filter's rejections land across the reads, which moves with the doc-id layout:
+    # `[100, 90, ..., 50]` when the writes above were skipped, a flat `[50, ...]` when they
+    # were reindexed. Asserting the first read's value would pin one of those two.
+    env.assertLessEqual(max(totals), count, message=f'totals {totals} exceed the {count} indexed')
+    env.assertEqual(totals[-1], count // 2,
+                    message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
+
+@skip(cluster=True)
+def testCursorTotalDoesNotUnderflowOnDroppedDocuments():
+    """`QITR_ReportedTotal` must not wrap when the loader drops buffered rows.
+
+    Same shape as the FILTER underflow, one function over and with no FILTER involved. A read
+    without WITHCOUNT resets both counters when it finishes, while `SORTBY ... MAX` hands rows
+    counted during the first read to the loader during later ones. A document that disappeared
+    in between is counted in `skippedResults` for a read whose `totalResults` is zero, so
+    `totalResults - skippedResults` underflowed: five such rows reported 4294967291, and an
+    assert-enabled build aborted on the `skippedResults <= totalResults` invariant instead.
+
+    Reported by Ofir on #11262. Note the clamp in `rpevalNext_filter` alone moves this rather
+    than fixing it: with both a filter and dropped documents, the total pins at zero and the
+    subtraction still wraps.
+
+    Standalone only: the totals are one shard's.
+    """
+    env = Env(moduleArgs='WORKERS 1')
+    count = 100
+    loadDocs(env, count=count)
+
+    resp = env.cmd(*f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo'.split())
+    results, cid = resp
+    totals = [results[0]]
+    env.assertTrue(cid, message='need an open cursor for the buffered rows to be read later')
+
+    # The sorter has already buffered every row. Removing the documents now means the loader
+    # meets rows whose documents are gone, on reads where the total has been reset.
+    for i in range(0, count, 2):
+        env.cmd('DEL', f'idx_doc{i}')
+
+    while cid:
+        results, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        totals.append(results[0])
+
+    env.assertLessEqual(max(totals), count,
+                        message=f'a read reported more rows than exist -- wrapped total: {totals}')
 
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
@@ -341,6 +487,160 @@ def testExceedCursorCapacity(env):
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
+
+# A shard cursor is depleted in its first reply unless that shard holds more than
+# one chunk of matching documents: the fan-out command carries WITHCURSOR without
+# the client's COUNT, so the shard uses `search-cursor-read-size` (default 1000).
+SHARD_CURSOR_CHUNK = 1000
+
+# Small enough to reach quickly, and the tests below never rely on the default.
+COORD_CURSOR_LIMIT = 4
+
+# Matches exactly one document in `seedCoordCursorIndex`.
+SINGLE_DOC_QUERY = '@t:[1 1]'
+
+def setIndexCursorLimit(env, limit):
+    """Set INDEX_CURSOR_LIMIT and return the previous value, so callers restore
+    what the environment actually had rather than assuming the default.
+    `index_capacity` from `getCursorStats` cannot be used for this in cluster
+    mode: FT.INFO sums it across shards."""
+    previous = env.cmd(config_cmd(), 'GET', 'INDEX_CURSOR_LIMIT')[0][1]
+    env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', limit).ok()
+    return previous
+
+def seedCoordCursorIndex(env):
+    """Create `idx` holding more than one shard-cursor chunk per shard, so a `*`
+    fan-out leaves live shard cursors behind, plus exactly one document matching
+    SINGLE_DOC_QUERY so a query can instead deplete every shard cursor in its
+    first reply. The two query shapes are what let the tests below separate the
+    coordinator cap from the shard cap."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    # x2 so that uneven slot distribution still leaves every shard above a chunk.
+    n_docs = (SHARD_CURSOR_CHUNK + 1) * env.shardsCount * 2
+    with conn.pipeline(transaction=False) as p:
+        p.execute_command('HSET', 'doc1', 't', 1)
+        for i in range(2, n_docs):
+            p.execute_command('HSET', f'doc{i}', 't', 2)
+        p.execute()
+    waitForIndex(env, 'idx')
+    # Assert the seeding premise instead of letting the teardown assertions pass
+    # vacuously if some shard ended up under a chunk.
+    env.assertGreater(min(env.getConnection(i).execute_command('DBSIZE')
+                          for i in range(env.shardsCount)),
+                      SHARD_CURSOR_CHUNK,
+                      message='a shard holds less than one chunk, so its cursor would deplete')
+
+def fillCoordCursorsToCapacity(env, limit, *extra_args):
+    """Leave `limit` idle coordinator cursors behind and return their ids. The
+    chunks are never read to depletion, so every cursor stays idle and counted.
+
+    Every query matches a single document, so each shard cursor is depleted in
+    its first reply and the shard budget is left untouched. That is what makes
+    the rejection the caller asserts attributable to the coordinator cap: the
+    shard cap shares both the config value and the error message, so a test that
+    let shard cursors accumulate could not tell the two apart."""
+    cursors = []
+    for _ in range(limit):
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1,
+                            *extra_args)
+        env.assertNotEqual(cursor, 0, message='cursor was depleted, nothing left to count')
+        cursors.append(cursor)
+    env.assertEqual(getCursorStats(env, 'idx')['index_total'], 0,
+                    message='shard cursors are alive, so a rejection below could be the shard cap')
+    return cursors
+
+@skip(cluster=False)
+def testExceedCoordCursorCapacity(env):
+    """MOD-17479: coordinator cursors are capped by INDEX_CURSOR_LIMIT.
+
+    The coordinator used to reserve its cursor with a NULL spec ref, so the cap
+    and the counter in `Cursors_Reserve` were both skipped and the coordinator
+    cursor list had no ceiling at all. This is the cluster-mode counterpart of
+    `testExceedCursorCapacity`, which has been shard-only since the cap existed.
+    """
+    seedCoordCursorIndex(env)
+    previous = setIndexCursorLimit(env, COORD_CURSOR_LIMIT)
+    try:
+        cursors = fillCoordCursorsToCapacity(env, COORD_CURSOR_LIMIT)
+        # Matches one document, so this query's own shard cursors deplete too and
+        # only the coordinator counter can be at its ceiling.
+        env.expect('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1) \
+            .error().contains('INDEX_CURSOR_LIMIT')
+        env.assertEqual(getCursorStats(env, 'idx')['index_total_internal'], COORD_CURSOR_LIMIT)
+
+        # Releasing a coordinator cursor must give the budget back. Filling alone
+        # cannot catch a release that decrements the wrong counter: the coordinator
+        # counter would stay full -- rejecting coordinator cursors forever once the
+        # index first reaches capacity -- while the shard counter, a size_t, would
+        # underflow. FT.CURSOR DEL frees the coordinator cursor on the main thread,
+        # so both counters are settled by the time the reply lands.
+        env.expect('FT.CURSOR', 'DEL', 'idx', cursors[0]).ok()
+        stats = getCursorStats(env, 'idx')
+        env.assertEqual(stats['index_total_internal'], COORD_CURSOR_LIMIT - 1)
+        env.assertEqual(stats['index_total'], 0, message='release decremented the shard counter')
+        # And the freed slot is actually reusable, not merely accounted for.
+        _, reused = env.cmd('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1)
+        env.assertNotEqual(reused, 0)
+        env.assertEqual(getCursorStats(env, 'idx')['index_total_internal'], COORD_CURSOR_LIMIT)
+    finally:
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', previous).ok()
+
+@skip(cluster=False)
+def testExceedCoordCursorCapacityWithCount(env):
+    """The deferred WITHCOUNT path reserves the coordinator cursor only after the
+    shard fan-out has already opened shard cursors, so a rejection there must
+    tear those down (`rpnetFree` -> `MRIterator_Release` dispatches
+    `FT.CURSOR DEL`).
+
+    The fillers match one document while the rejected query matches the whole
+    index, so the shard budget is provably free when the coordinator cap fires
+    and yet the rejected query still has live shard cursors to release."""
+    seedCoordCursorIndex(env)
+    previous = setIndexCursorLimit(env, COORD_CURSOR_LIMIT)
+    try:
+        fillCoordCursorsToCapacity(env, COORD_CURSOR_LIMIT, 'WITHCOUNT')
+
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1, 'WITHCOUNT') \
+            .error().contains('INDEX_CURSOR_LIMIT')
+
+        # FT.CURSOR DEL is dispatched asynchronously, so poll rather than sample.
+        with TimeLimit(5, 'shard cursors were not released after the coordinator bail'):
+            while getCursorStats(env, 'idx')['index_total'] > 0:
+                sleep(0.01)
+
+        # Positive control: the same query, once the cap admits it, does leave
+        # shard cursors open. Without this, the clean state asserted above could
+        # just mean the fan-out never opened a cursor to leak.
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', COORD_CURSOR_LIMIT + 1).ok()
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1, 'WITHCOUNT')
+        env.assertNotEqual(cursor, 0)
+        env.assertGreater(getCursorStats(env, 'idx')['index_total'], 0)
+    finally:
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', previous).ok()
+
+@skip(cluster=False)
+def testCoordCursorReadAfterIndexRecreated(env):
+    """A coordinator cursor now holds a weak spec ref, so an idle one whose spec
+    was dropped must report the dropped-index error instead of reaching a
+    dangling spec.
+
+    The index has to be recreated under the same name to reach that check:
+    FT.CURSOR resolves argv[2] first (VERIFY_ACL in `CursorCommand`), so after a
+    plain FT.DROPINDEX the READ fails with SEARCH_INDEX_NOT_FOUND before the
+    cursor is ever taken -- that case is `testIndexDropWhileIdle`."""
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'n', 1)
+
+    _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(cursor, 0)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    # Same name, new spec: the name resolves, but the idle cursor's weak ref
+    # still points at the dropped spec.
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('SEARCH_INDEX_DROPPED_BG')
 
 @skip(cluster=False)
 def testCursorOnCoordinatorBG():
@@ -890,3 +1190,65 @@ def test_cursor_gc_reschedules_sweep_on_main_thread():
     with TimeLimit(10, "idle cursor was not reaped at MAXIDLE after cluster FT.CURSOR GC"):
         while getCursorStats(env)['global_total']:
             sleep(0.05)
+
+
+@skip(cluster=True)
+def testCursorReadsDocumentsWrittenBetweenReads(env):
+    """Writes between `FT.CURSOR READ` calls must not cost a cursor its results.
+
+    Query iterators stay parked between reads with the index lock released, so a write can append
+    to the very posting list a leaf is reading and move that block's buffer to a fresh allocation.
+    A leaf that does not notice keeps decoding the old address, and the cursor either drops
+    documents it should still have returned or fails once the freed bytes decode to nonsense.
+
+    Small posting lists are the exposed shape, so the tag matched here holds a handful of documents
+    and the scan stays inside the one block being appended to.
+
+    Whether a given write actually moves the buffer is the allocator's call, so this cannot force
+    the condition from outside the server and does not try to: it asserts that no document is lost,
+    which holds either way. Forcing the move is the job of the Rust tests, which relocate a block
+    buffer directly (`inverted_index::test_utils::relocate_block_buffer`).
+
+    Standalone only: the defect is shard-local, and a coordinator cursor reaches the same leaf
+    through an extra fan-in that contributes nothing to reproducing it.
+    """
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc:',
+               'SCHEMA', 'seller', 'TAG', 'status', 'TAG').ok()
+    waitForIndex(env, 'idx')
+    con = env.getClusterConnectionIfNeeded()
+
+    seeded = 20
+    for i in range(seeded):
+        con.execute_command('HSET', f'doc:{i}', 'seller', 's1', 'status', 'open')
+
+    # COUNT 1 maximises the number of suspensions, and hence the chances of catching a buffer
+    # that moved while parked.
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '@seller:{s1}', 'LOAD', 1, '@__key',
+                       'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 60000)
+    env.assertNotEqual(0, cid)
+
+    returned = [res[1]]
+    # Bounded, because a write per read would keep the posting list one document ahead of the
+    # cursor forever: the refreshed tail makes each new document visible to the same scan.
+    for written in range(seeded):
+        # Append to the same posting list the cursor is parked in. Each write is small, so the
+        # block buffer grows a little at a time and eventually has to be reallocated.
+        con.execute_command('HSET', f'doc:new{written}', 'seller', 's1', 'status', 'open')
+        if not cid:
+            break
+        res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        returned.extend(res[1:])
+
+    # Drain what is left without writing, so the cursor can reach its end.
+    while cid:
+        res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        returned.extend(res[1:])
+
+    keys = [to_dict(row)['__key'] for row in returned]
+    # Every document the cursor did report, it reported once.
+    env.assertEqual(len(keys), len(set(keys)))
+    # Documents written after the query started may or may not be visible, but the ones that were
+    # already indexed when it started must all come back.
+    env.assertEqual(sorted(f'doc:{i}' for i in range(seeded)),
+                    sorted(k for k in keys if not k.startswith('doc:new')))
+

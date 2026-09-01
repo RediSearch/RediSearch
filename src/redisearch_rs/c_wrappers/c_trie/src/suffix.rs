@@ -22,7 +22,7 @@ use ffi::{
     SuffixType_SUFFIX_TYPE_WILDCARD,
 };
 
-use crate::LoweredPattern;
+use crate::{LoweredPattern, QueryRequestTimeoutHandle, TrieTerm};
 
 /// Which side(s) of a term a [`SuffixTrie::iterate_contains`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,9 +189,8 @@ impl SuffixTrie {
             type_: mode.into(),
             callback: Some(suffix_trampoline::<F>),
             cbCtx: std::ptr::from_mut(&mut callback).cast(),
-            // The suffix walk ignores these; keep them zeroed.
+            // The suffix walk ignores this.
             timeout: std::ptr::null_mut(),
-            skipTimeoutChecks: false,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
         // value, `self` borrows a valid `ffi::Trie` whose payloads the walk may
@@ -226,20 +225,17 @@ impl SuffixTrie {
     /// `pattern` is consumed so that a declined walk can hand it back through
     /// [`SuffixWalk::NoAnchor`] for the fallback.
     ///
-    /// `timeout` bounds the walk, as for [`crate::TermsTrie::iterate_wildcard`].
+    /// `timeout` supplies the request-owned timeout state for the walk.
     pub fn iterate_wildcard<F>(
         &self,
         mut pattern: LoweredPattern,
-        mut timeout: Option<ffi::timespec>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
         mut callback: F,
     ) -> SuffixWalk
     where
         F: FnMut(&[u8]) -> ControlFlow<()>,
     {
-        let (timeout_ptr, skip_timeout_checks) = match &mut timeout {
-            Some(timeout) => (ptr::from_mut(timeout), false),
-            None => (ptr::null_mut(), true),
-        };
+        let timeout_ptr = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
 
         let mut suffix_ctx = SuffixCtx {
             // As in `iterate_contains`: typed `*mut Trie`, only read.
@@ -252,19 +248,34 @@ impl SuffixTrie {
             callback: Some(suffix_trampoline::<F>),
             cbCtx: std::ptr::from_mut(&mut callback).cast(),
             timeout: timeout_ptr,
-            skipTimeoutChecks: skip_timeout_checks,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
         // value — `self` borrows a valid `ffi::Trie` whose payloads the walk may
         // cast to `suffixData`, the rune pointer describes a live pattern
         // followed by the sentinel the walk reads (`LoweredPattern` invariant),
         // the callback closure outlives the call, and `timeout` is null or
-        // points to a valid `timeout` argument.
+        // points to valid request-owned timeout state.
         let used = unsafe { ffi::Suffix_IterateWildcard(std::ptr::from_mut(&mut suffix_ctx)) };
         if used == 0 {
             SuffixWalk::NoAnchor(pattern)
         } else {
             SuffixWalk::Walked
+        }
+    }
+
+    /// Remove `term` and all of its registered suffixes.
+    pub fn delete(&mut self, term: &TrieTerm) {
+        // A valid `TrieTerm` decodes to fewer than
+        // `TRIE_INITIAL_STRING_LEN` runes, each consuming at most four bytes.
+        let term_len = u32::try_from(term.len()).expect("a valid trie term length fits in u32");
+
+        // SAFETY: `self` borrows a valid `ffi::Trie` whose payloads are `suffixData`
+        // and whose free callback releases them, so unregistering the term and
+        // freeing the nodes it empties is sound. `TrieTerm` guarantees that the
+        // C decoder can consume `term` without reading beyond the slice or
+        // treating an interior zero codepoint as its end.
+        unsafe {
+            ffi::deleteSuffixTrie(self.as_mut_ptr(), term.as_ptr() as *const c_char, term_len);
         }
     }
 }

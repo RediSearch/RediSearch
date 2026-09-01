@@ -124,17 +124,7 @@ function(setup_shared_object_target target)
     set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
 
-# Define debug symbols extraction function
-function(extract_debug_symbols target)
-    if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
-        add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
-        COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
-        COMMAND strip -g $<TARGET_FILE:${target}>
-        COMMENT "Extracting debug symbols from ${target}"
-    )
-    endif()
-endfunction()
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/ExtractDebugSymbols.cmake)
 
 #----------------------------------------------------------------------------------------------
 # Command line options with default values
@@ -192,10 +182,12 @@ message(STATUS "SAN: ${SAN}")
 if(SAN)
     if(SAN STREQUAL "address")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
         set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
         message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
         message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
     elseif(SAN STREQUAL "alignment")
@@ -370,7 +362,6 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/buffer
-    ${root}/src/dict
     ${root}/src/coord
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include

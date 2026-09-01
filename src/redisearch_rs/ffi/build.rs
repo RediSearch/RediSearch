@@ -97,7 +97,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
-        fns: &["AREQ_CheckTimedOut"],
+        fns: &[],
         types: &[
             // Disk async loader checks QEXEC_S_HAS_LOAD to decide whether to
             // set the LOAD flag on a new pipeline.
@@ -125,13 +125,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &[
-            "DMD_Free",
-            "DocTable_Exists",
-            "DocTable_GetId",
-            "DocTable_GetIdR",
-            "DocTable_Put",
-        ],
+        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
         types: &[],
         vars: &[],
     },
@@ -188,8 +182,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetMaxBatchIteration",
             "HybridIterator_GetMaxBatchSize",
             "HybridIterator_GetNumIterations",
+            "HybridIterator_GetOwnKeyRef",
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
+            "HybridIterator_SetKeyHandle",
             "RS_VecSimCheckTimeout",
         ],
         types: &[],
@@ -241,7 +237,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &["Query_EvalNode", "tag_strtolower"],
+        fns: &[
+            "Query_EvalNode",
+            "QueryIterator_IsBlockedClientTimedOut",
+            "tag_strtolower",
+        ],
         types: &["QueryAST", "QueryEvalCtx"],
         vars: &[],
     },
@@ -310,13 +310,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/search_ctx.h",
-        fns: &[
-            "NewSearchCtxC",
-            "SearchCtx_Free",
-            // RSE: the disk async loader checks request timeout between disk
-            // reads via this main-thread-owned flag accessor.
-            "SearchTime_IsTimedOut",
-        ],
+        fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
         vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
@@ -374,8 +368,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
         ],
-        types: &[],
-        vars: &["isCrdt", "missingFieldDictType"],
+        types: &["CharBuf"],
+        vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
@@ -389,6 +383,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Suffix_IterateContains",
             "Suffix_IterateWildcard",
             "addSuffixTrie",
+            "addSuffixTrieMap",
+            "deleteSuffixTrie",
             "suffixTrie_freeCallback",
         ],
         types: &["SuffixCtx", "SuffixType"],
@@ -396,7 +392,13 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
-        fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
+        fns: &[
+            "TagIndex_Commit",
+            "TagIndex_Ensure",
+            "TagIndex_Free",
+            "TagIndex_Index",
+            "TagIndex_OpenIndex",
+        ],
         types: &[],
         vars: &[],
     },
@@ -417,8 +419,10 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "NewTrie",
             "Trie_DecrementNumDocs",
+            "Trie_Delete",
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
+            "Trie_IterateAll",
             "Trie_IterateContains",
             "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
@@ -441,7 +445,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/arr/arr.h",
-        fns: &["array_free", "array_len_func", "array_new_sz"],
+        fns: &[
+            "array_ensure_append_n_func",
+            "array_free",
+            "array_len_func",
+            "array_new_sz",
+        ],
         types: &[],
         vars: &[],
     },
@@ -455,12 +464,13 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RS_dictDelete",
             "RS_dictFetchValue",
             "RS_dictGetIterator",
+            "RS_dictGetSafeIterator",
             "RS_dictNext",
             "RS_dictRelease",
             "RS_dictReleaseIterator",
         ],
         types: &["dictType"],
-        vars: &["dictTypeHeapHiddenStrings"],
+        vars: &["DICT_OK", "dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
         path: "src/util/references.h",
@@ -482,7 +492,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/vector_index.h",
-        fns: &["VecSimSearchMode_ToString"],
+        fns: &["NewVectorIterator", "VecSimSearchMode_ToString"],
         types: &[],
         vars: &[],
     },
@@ -492,12 +502,11 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` owns a `TimeoutCtx` (carrying an absolute
-    // `timespec` deadline) that it hands to VecSim as the timeout context.
+    // `vector_score_source` passes the request-owned `QueryRequestTimeout` directly to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["TimeoutCtx", "timespec"],
+        types: &["QueryRequestTimeout"],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
@@ -551,15 +560,14 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // / `QueryError_SetCode` etc., so they need the function declarations.
     "query_error_ffi.h",
     // `QEFlags` and the `QEFlag_*` named constants are required by
-    // `src/aggregate/aggregate.h` (pulled in for `AREQ_CheckTimedOut`).
+    // `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryProcessingCtx` is embedded by value in `src/pipeline/pipeline.h`
     // and `src/aggregate/aggregate.h`. Brings `rs_wall_clock.h` into bindgen's
     // closure too, which is needed by `ffi::QueryProcessingCtx` (defined in
     // `ffi/src/lib.rs`).
     "result_processor_ffi.h",
-    // `RSValueType` and friends are required by `src/aggregate/aggregate.h`
-    // (pulled in transitively for `AREQ_CheckTimedOut`).
+    // `RSValueType` and friends are required by `src/aggregate/aggregate.h`.
     "value_ffi.h",
     // `enum IteratorType` is used by value in `src/iterators/iterator_api.h`.
     "rqe_iterator_type.h",

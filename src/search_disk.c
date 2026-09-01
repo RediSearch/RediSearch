@@ -615,31 +615,35 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   disk->index.flush(index);
 }
 
-void SearchDisk_PreCheckpoint(IndexSpec *sp) {
-  RS_ASSERT(disk && sp && sp->diskSpec);
-  // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread
-  // ensures no writes while checkpoint taken.
-  disk->index.preCheckpoint(sp->diskSpec);
+void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.flushNoWait(index);
 }
 
-void SearchDisk_PreFork(IndexSpec *sp) {
-  RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.preFork(sp->diskSpec);
+void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.pauseBackgroundWork(index);
 }
 
-void SearchDisk_PostFork(IndexSpec *sp) {
-  RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.postFork(sp->diskSpec);
+void SearchDisk_ContinueBackgroundWork(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.continueBackgroundWork(index);
 }
 
-void SearchDisk_HotRestartSaveEnded(IndexSpec *sp) {
-  RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.hotRestartSaveEnded(sp->diskSpec);
+bool SearchDisk_IsBackgroundWorkPaused(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.isBackgroundWorkPaused(index);
 }
 
-void SearchDisk_ReplicationAbort(IndexSpec *sp) {
+void SearchDisk_OpenConsistencyWindow(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.replicationAbort(sp->diskSpec);
+  // No spec lock taken: being on the main thread is what keeps writes out.
+  disk->index.openConsistencyWindow(sp->diskSpec);
+}
+
+void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  disk->index.closeConsistencyWindow(sp->diskSpec, reopenNumericGate);
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
