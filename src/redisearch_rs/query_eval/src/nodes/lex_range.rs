@@ -73,6 +73,16 @@ impl LoweredBound {
     }
 }
 
+/// How many trie entries a range may visit per expansion it is allowed to open.
+///
+/// The expansion cap counts readers, which a range cannot rely on: the terms trie
+/// is shared by every TEXT field, so a candidate outside the queried one opens no
+/// reader and advances nothing. This is the separate safety valve that keeps such
+/// a walk finite. It is deliberately loose, a bound on runaway work rather than a
+/// semantic limit, so that an ordinary range over a field with many sibling terms
+/// still returns everything it should.
+const VISIT_BUDGET_PER_EXPANSION: usize = 100;
+
 /// One segment of the key space, as an inclusive start and an exclusive end.
 /// `None` on either side is unbounded.
 type Segment = (Option<Vec<ffi::rune>>, Option<Vec<ffi::rune>>);
@@ -241,16 +251,20 @@ pub(crate) fn eval<'index>(
         let _ = expansion.push_child(0, b"");
     }
 
-    // Visits, not just opened readers, are what has to be bounded here. The terms
-    // trie is shared by every TEXT field and a range can span all of it, so a
-    // candidate belonging only to other fields opens no reader and would never
-    // advance a reader-based cap: a range on a sparse field could scan a dense
-    // sibling's whole vocabulary. A prefix pattern needs no such bound, since the
-    // pattern narrows its walk structurally.
+    // The traversal needs its own bound, separate from the expansion allowance.
+    // The terms trie is shared by every TEXT field and a range can span all of
+    // it, so a candidate belonging only to other fields opens no reader and never
+    // advances a reader-based cap: a range on a sparse field could otherwise scan
+    // a dense sibling's whole vocabulary. Spending the configured allowance on
+    // those visits is not the answer either, since it would drop valid matches
+    // from the queried field because of terms it does not contain.
+    let visit_budget = config
+        .max_prefix_expansions
+        .saturating_mul(VISIT_BUDGET_PER_EXPANSION);
     let mut visited = 0usize;
     let mut on_runes = |runes: &[ffi::rune], num_docs: usize| {
         visited += 1;
-        if visited > config.max_prefix_expansions {
+        if visited > visit_budget {
             expansion
                 .ctx
                 .status()

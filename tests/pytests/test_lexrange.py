@@ -395,7 +395,36 @@ def testSortableTagUsesTheIndexedValue(env):
 
 
 # The cap is per shard, so a cluster admits one expansion per shard and the
-# coordinator unions them; the count below only holds for a single shard.
+# coordinator unions them; the counts below only hold for a single shard.
+@skip(cluster=True)
+def testSiblingFieldTermsDoNotSpendTheCap(env):
+    """A dense sibling TEXT field must not use up the queried field's allowance.
+
+    The terms trie is shared, so a range on a sparse field walks the sibling's
+    terms too. Those open no reader, and charging them to MAXPREFIXEXPANSIONS
+    would drop the sparse field's own matches.
+    """
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'dense', 'TEXT', 'sparse', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    # Terms sorting before the sparse one, present only in the sibling field.
+    for i in range(20):
+        conn.execute_command('HSET', f'dense{i}', 'dense', f'aterm{i:03d}')
+    conn.execute_command('HSET', 'target', 'sparse', 'zzz')
+
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    try:
+        # One expansion is all this range needs, and the twenty sibling terms
+        # walked on the way must not consume it.
+        res = env.cmd('FT.SEARCH', 'idx', '@sparse:>=("")', 'NOCONTENT',
+                      'LIMIT', '0', '100', 'DIALECT', '2')
+        env.assertEqual(sorted(res[1:]), ['target'])
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+
 @skip(cluster=True)
 def testExpansionCapCountsTheEmptyTerm(env):
     """The empty term is one of the terms in the range, so it is capped like any

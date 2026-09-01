@@ -298,13 +298,13 @@ fn the_expansion_cap_bounds_how_many_readers_open() {
     );
 }
 
-/// A candidate that opens no reader still costs a visit, so it has to count
-/// against the cap. Otherwise a range over a field with no matching terms walks
-/// the whole shared terms trie.
+/// A candidate that opens no reader must not spend the expansion allowance:
+/// the terms trie is shared, so terms of other fields would otherwise push a
+/// range on the queried field past its cap and drop valid matches.
 #[test]
-fn the_cap_bounds_visits_not_only_opened_readers() {
-    // Every term is in the trie but none has documents, so no reader opens and a
-    // reader-based cap would never fire.
+fn visits_do_not_consume_the_expansion_allowance() {
+    // Four terms in the trie, none with documents, against an allowance of two.
+    // A visit-based cap would report exhaustion; a reader-based one must not.
     let terms = vec![
         (b"aa".as_slice(), vec![]),
         (b"ab".as_slice(), vec![]),
@@ -314,8 +314,8 @@ fn the_cap_bounds_visits_not_only_opened_readers() {
     let mut fixture = LexRangeFixture::build(None, None, terms, Some(2));
     let _ = fixture.eval();
     assert!(
-        fixture.reached_max_expansions(),
-        "the walk must report the cap even when it opened no reader"
+        !fixture.reached_max_expansions(),
+        "visiting terms that open no reader must not exhaust the allowance"
     );
 }
 
