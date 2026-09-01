@@ -597,6 +597,32 @@ def testPlainHashNotificationsFallback(env):
     plain_env.expect('FT.SEARCH', 'idx', 'foo', 'NOCONTENT').equal([0])
     plain_env.stop()
 
+@skip(cluster=True, no_json=True)
+def testJsonWriteIsNeverSkipped(env):
+    """A JSON write reindexes the whole document, whatever it touched.
+
+    Subkey notifications are registered for `REDISMODULE_NOTIFY_HASH` alone, so JSON keeps
+    arriving over the plain channel with no change set, and the skip correctly declines without
+    one. `absentChangeSetNeverSkips` in the C++ tests covers the gate's half of that; what it
+    cannot see is which channel a JSON write actually reaches. Subscribing the subkey callback
+    to `REDISMODULE_NOTIFY_MODULE` as well would leave that test green while JSON writes started
+    being skipped, and the document would answer queries with its previous value.
+
+    Standalone only, as with the other `DOCIDTOID` assertions in this file.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
+
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"t":"hello","other":"world"}')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+    env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # A path outside the schema. The equivalent hash write is the one that gets skipped.
+    conn.execute_command('JSON.SET', 'doc:1', '$.other', '"changed"')
+    env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                      message='a JSON write must reindex even when no indexed path changed')
+    env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
+
 @skip(cluster=True)
 def testRestore(env):
     if env.env == 'existing-env':
