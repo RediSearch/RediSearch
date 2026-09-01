@@ -64,6 +64,25 @@ def testLexRangeGatedOff(env):
     env.assertEqual(search(env, '@name:(bob)'), ['doc2'])
 
 
+def testOperatorWithoutABoundIsUnchanged(env):
+    """Without a bound delimiter the operator is not the gated syntax, so it
+    parses as it did before the feature existed and the gate stays quiet.
+
+    `@name:>` is malformed whether or not the flag is on, so naming the flag
+    would be wrong advice; `test_tags.py` pins it as a plain syntax error.
+    """
+    build_index(env, 'TEXT')
+
+    for enabled in ('no', 'yes'):
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  'search-enable-unstable-features', enabled)
+        env.expect('FT.SEARCH', 'idx', '@name:>', 'DIALECT', '2') \
+            .error().contains('Syntax error')
+        # A bare word after the operator is not the supported spelling either, so
+        # the operator is dropped and the clause reads as `@name:(bob)`.
+        env.assertEqual(search(env, '@name:>bob'), ['doc2'], message=enabled)
+
+
 def testLexRangeNotInDialect1(env):
     """The syntax lives in the v2 parser only; DIALECT 1 never sees the operator."""
     enable_unstable_features(env)
@@ -445,6 +464,39 @@ def testLiteralBoundAlongsideAnotherParameter(env):
     res = env.cmd('FT.SEARCH', 'txt_idx', '@name:>(bob) @age>=$min', 'PARAMS', '2', 'min', '0',
                   'NOCONTENT', 'DIALECT', '2')
     env.assertEqual(sorted(res[1:]), ['doc3'])
+
+
+def testInteriorNulTruncatesBoundAndValueAlike(env):
+    """An interior NUL ends a bound, exactly as it ends an indexed value.
+
+    The indexer files `ab\\0z` under `ab` for both field types, and an
+    exact-match parameter truncates the same way, so a range bound has to as
+    well: keeping the suffix would compare against keys that cannot exist.
+    """
+    enable_unstable_features(env)
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'txt', 'TEXT', 'tg', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'plain', 'txt', 'ab', 'tg', 'ab')
+    conn.execute_command('HSET', 'nul', 'txt', 'ab\0z', 'tg', 'ab\0z')
+
+    for field in ('txt', 'tg'):
+        # Both documents index under "ab", which an exact match confirms.
+        exact = env.cmd('FT.SEARCH', 'idx', f'@{field}:{{ab}}' if field == 'tg'
+                        else f'@{field}:(ab)', 'NOCONTENT', 'DIALECT', '2')
+        env.assertEqual(sorted(exact[1:]), ['nul', 'plain'], message=field)
+
+        # So a bound of "ab\0z" is the bound "ab", and both sides agree on it.
+        below = env.cmd('FT.SEARCH', 'idx', f'@{field}:<($cursor)',
+                        'PARAMS', '2', 'cursor', 'ab\0z',
+                        'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+        env.assertEqual(below[1:], [], message=field)
+
+        at_or_below = env.cmd('FT.SEARCH', 'idx', f'@{field}:<=($cursor)',
+                              'PARAMS', '2', 'cursor', 'ab\0z',
+                              'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+        env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'], message=field)
 
 
 def testEscapedBoundIsNotUnescapedTwice(env):

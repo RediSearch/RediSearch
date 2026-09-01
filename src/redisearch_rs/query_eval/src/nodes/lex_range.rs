@@ -238,7 +238,23 @@ pub(crate) fn eval<'index>(
         let _ = expansion.push_child(0, b"");
     }
 
+    // Visits, not just opened readers, are what has to be bounded here. The terms
+    // trie is shared by every TEXT field and a range can span all of it, so a
+    // candidate belonging only to other fields opens no reader and would never
+    // advance a reader-based cap: a range on a sparse field could scan a dense
+    // sibling's whole vocabulary. A prefix pattern needs no such bound, since the
+    // pattern narrows its walk structurally.
+    let mut visited = 0usize;
     let mut on_runes = |runes: &[ffi::rune], num_docs: usize| {
+        visited += 1;
+        if visited > config.max_prefix_expansions {
+            expansion
+                .ctx
+                .status()
+                .warnings_mut()
+                .set_reached_max_prefix_expansions();
+            return ControlFlow::Break(());
+        }
         if expansion.cap_reached() {
             return ControlFlow::Break(());
         }
