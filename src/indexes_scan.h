@@ -27,6 +27,16 @@ extern "C" {
 // or main thread).
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 
+// ALTER-specific counterpart of IndexSpec_ScanAndReindex. `addedFieldsStart` is sp->numFields
+// as snapshotted by the caller immediately before the IndexSpec_AddFields call that just
+// succeeded; together with the spec's current numFields it forms the added-field range.
+// Schedules a scan restricted to skipping documents with none of the added fields when it is
+// safe to (see the design doc's Scheduling section for the exact conditions), otherwise falls
+// back to the same full scan IndexSpec_ScanAndReindex would schedule. Same locking assumption
+// as IndexSpec_ScanAndReindex.
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef ref,
+                                      t_fieldIndex addedFieldsStart);
+
 // Schedule a background scan + reindex of all registered indexes.
 void Indexes_ScanAndReindex();
 

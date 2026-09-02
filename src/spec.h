@@ -194,6 +194,12 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
+  // Set when an `FT.ALTER ... SKIPINITIALSCAN` successfully added fields and therefore left
+  // them without a backfill. Persists across restarts (this flag is part of the RDB-persisted
+  // flags value) so a later selective ALTER scan knows it must fall back to a full scan to
+  // pick up whatever that skipped scan left unindexed.
+  Index_HasSkippedAlterScan = 0x100000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

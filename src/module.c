@@ -1030,6 +1030,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     }
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
+  const t_fieldIndex addedFieldsStart = sp->numFields;
   int addFieldsOk = IndexSpec_AddFields(ref, sp, ctx, &ac, &status);
 
   // if adding the fields has failed we return without updating statistics.
@@ -1039,9 +1040,15 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Schedule the initial background scan for the new fields.
-  if (addFieldsOk && initialScan) {
-    IndexSpec_ScanAndReindex(ctx, ref);
+  if (addFieldsOk) {
+    if (initialScan) {
+      // Schedule the initial background scan for the new fields.
+      IndexSpec_ScanAndReindexForAlter(ctx, ref, addedFieldsStart);
+    } else {
+      // No backfill is scheduled: record that history so a later selective ALTER scan
+      // knows it cannot skip documents that may still be missing these fields.
+      sp->flags |= Index_HasSkippedAlterScan;
+    }
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);

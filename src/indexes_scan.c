@@ -396,7 +396,7 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
+static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields) {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
@@ -416,6 +416,10 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   } else {
     scanner = IndexesScanner_New(spec_ref);
   }
+  // Record after construction: IndexesScanner_New/DebugIndexesScanner_New may cancel and
+  // replace sp->scanner, but the freshly-constructed scanner returned here is always the one
+  // that ends up running, so there is nothing to preserve from a prior scanner's range.
+  scanner->addedFields = addedFields;
 
   // Route disk indexes to the AsyncScan driver; RAM keeps the synchronous scan
   // (in-RAM key loads are cheap and gain nothing from offloading the read). The
@@ -440,8 +444,37 @@ void ReindexPool_ThreadPoolDestroy() {
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    IndexSpec_ScanAndReindexAsync(spec_ref);
+    IndexSpec_ScanAndReindexAsync(spec_ref, (AddedFieldsRange){0});
   }
+}
+
+// See indexes_scan.h for the contract. Falls back to the same full scan
+// IndexSpec_ScanAndReindex schedules unless every one of the conditions below holds; each
+// describes a case where a selective scan could skip a document that still needs the full
+// reindex path to converge. These must all be checked before IndexesScanner_New runs, since
+// that call cancels any active scanner and clears scan_failed_OOM out from under this check.
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
+                                      t_fieldIndex addedFieldsStart) {
+  size_t nkeys = RedisModule_DbSize(ctx);
+  if (nkeys == 0) {
+    return;
+  }
+
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  RS_LOG_ASSERT(sp, "caller must hold a strong ref to the spec being scanned");
+
+  bool canBeSelective = sp->scanner == NULL && !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
+                        !(sp->flags & (Index_SkipInitialScan | Index_HasSkippedAlterScan));
+  for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
+    canBeSelective = !FieldSpec_IndexesMissing(sp->fields + i);
+  }
+
+  AddedFieldsRange range = {0};
+  if (canBeSelective) {
+    range.start = addedFieldsStart;
+    range.end = sp->numFields;
+  }
+  IndexSpec_ScanAndReindexAsync(spec_ref, range);
 }
 
 // only used on "RDB load finished" event (before the server is ready to accept commands)
