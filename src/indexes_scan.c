@@ -184,7 +184,12 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
       if (sp) {
         // This check is performed without locking the spec, but it's ok since we locked the GIL
         // So the main thread is not running and the GC is not touching the relevant data
-        bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, key);
+        // Deliberately not handed `key`: a FILTER clause evaluates through
+        // RLookup_LoadRuleFields, which opens the document with DOCUMENT_OPEN_KEY_QUERY_FLAGS.
+        // This scan's handle carries the narrower DOCUMENT_OPEN_KEY_INDEXING_FLAGS, so reusing it
+        // would evaluate FILTER against a key opened without NOEXPIRE/ACCESS_EXPIRED/
+        // ACCESS_TRIMMED and could change which documents a filtered index accepts.
+        bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, NULL);
         // scanner->addedFields is non-empty only for a selective ALTER scan (see
         // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
         // confirmed absent, so this backfill does not force a full replacement of documents
