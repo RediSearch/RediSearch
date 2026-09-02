@@ -222,6 +222,60 @@ def test_json_doc_with_changed_vector_reindexes():
     env.assertEqual(_marked_deleted(env, 'jsonidx'), 1)
     _assert_doc_is_queryable(env, 'hello', VEC_B, 'jsonidx')
 
+def _vector_values_for_type(data_type):
+    # INT8/UINT8 truncate 0.25/0.75 to 0, which is indistinguishable from "no value" for the
+    # comparison this exercises, so those two get their own pair of values.
+    if data_type in ('INT8', 'UINT8'):
+        return 1, 2
+    return 0.25, 0.75
+
+@skip(no_json=True)
+def test_json_doc_relabel_dispatches_on_vector_type():
+    """`VectorIndex_HoldsVectors` (vector_compare.cpp) dispatches on the index's VecSim data
+    type, but every other test in this file only ever creates a FLOAT32 index -- so the other
+    five instantiations (FLOAT64, FLOAT16, BFLOAT16, INT8, UINT8) are otherwise never
+    exercised. A type-specific bug there -- a wrong cast, element width, or cosine
+    normalization step -- would ship silently.
+
+    JSON is the vehicle for the same reason as the FLOAT32 JSON tests above: it never carries
+    a change set, so this always takes the comparison path rather than the change-set
+    shortcut. One index per type, in the same env, so a failure on one type doesn't hide a
+    failure on another.
+    """
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    conn = env.getClusterConnectionIfNeeded()
+
+    for data_type in [t for t in VECSIM_DATA_TYPES if t != 'FLOAT32'] + ['INT8', 'UINT8']:
+        index = f'jsonidx_{data_type.lower()}'
+        unchanged, changed = _vector_values_for_type(data_type)
+
+        env.expect('FT.CREATE', index, 'ON', 'JSON', 'SCHEMA',
+                   '$.title', 'AS', 'title', 'TEXT',
+                   '$.vector', 'AS', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
+                   'DIM', DIM, 'DISTANCE_METRIC', 'L2').ok(message=data_type)
+
+        unchanged_vec = create_np_array_typed([unchanged] * DIM, data_type).tobytes()
+        changed_vec = create_np_array_typed([changed] * DIM, data_type).tobytes()
+
+        conn.execute_command('JSON.SET', 'doc:1', '$',
+                             f'{{"title":"hello","vector":[{unchanged}, {unchanged}, {unchanged}, {unchanged}]}}')
+        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+        env.assertEqual(_marked_deleted(env, index), 0, message=data_type)
+
+        # A text-only change: the vector is unchanged, so it must relabel rather than reindex.
+        conn.execute_command('JSON.SET', 'doc:1', '$.title', '"goodbye"')
+        env.assertEqual(_marked_deleted(env, index), 0,
+                        message=f'{data_type}: a tombstone means the unchanged vector was deleted and re-added')
+        _assert_doc_is_queryable(env, 'goodbye', unchanged_vec, index)
+
+        # A real vector change: the comparison must catch it and reindex, not relabel.
+        conn.execute_command('JSON.SET', 'doc:1', '$.vector',
+                             f'[{changed}, {changed}, {changed}, {changed}]')
+        env.assertEqual(_marked_deleted(env, index), 1, message=data_type)
+        _assert_doc_is_queryable(env, 'goodbye', changed_vec, index)
+
+        conn.execute_command('DEL', 'doc:1')
+
 @skip(no_json=True)
 def test_json_doc_relabel_requires_optimize_update_vec():
     """The gate, on the JSON path: config off, so no comparison and no move."""
