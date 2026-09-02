@@ -311,6 +311,23 @@ typedef struct BasicDiskAPI {
   void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
 
   /**
+   * @brief Whether the live indexes need reconfiguring for a changed resource share.
+   *
+   * Per-database and per-column-family options are partitioned across the live
+   * indexes, so the share every index gets moves as indexes are created and
+   * dropped. This reports whether it has moved since the last reapply pass, and
+   * clears the flag - so it must only be called by the code that then performs the
+   * pass (see applyResourceBudget in IndexDiskAPI).
+   *
+   * Poll this before iterating the live specs: the pass rewrites an OPTIONS file
+   * per column family, so it must not run when the share is unchanged.
+   *
+   * @param disk Pointer to the disk context
+   * @return true if every live index should be reconfigured
+   */
+  bool (*resourceBudgetNeedsReapply)(RedisSearchDisk *disk);
+
+  /**
    * Create a result processor that loads document fields from disk asynchronously.
    *
    * Drop-in replacement for RPLoader_New: the pipeline calls this instead of
@@ -636,6 +653,23 @@ typedef struct IndexDiskAPI {
    * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
    */
   void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
+
+  /**
+   * @brief Reapply this index's share of the shard-wide disk resource totals.
+   *
+   * Options that are scoped per database or per column family sum across indexes,
+   * so each index is configured with a share of a global total rather than with
+   * the total itself. The share depends on the number of live indexes and is held
+   * on the shared disk context, so no value is passed in here.
+   *
+   * Call on every live index whenever the share changes - an index being created
+   * or dropped, or a global total being reconfigured. Each call rewrites an
+   * OPTIONS file per column family inside SpeedB, so it must not be called when
+   * the share is unchanged.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*applyResourceBudget)(RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.

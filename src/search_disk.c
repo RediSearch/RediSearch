@@ -212,6 +212,31 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
     };
 }
 
+void SearchDisk_RepartitionIndexResources(void) {
+  if (!disk || !disk_db || !specDict_g) {
+    return;
+  }
+  // Cheap latch check first: the pass below rewrites an OPTIONS file per column
+  // family of every index, so it must only run when the share actually moved.
+  if (!disk->basic.resourceBudgetNeedsReapply(disk_db)) {
+    return;
+  }
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    // A spec whose disk half is already closed has diskSpec NULLed by its caller,
+    // so this skips indexes that are on their way out.
+    if (sp && sp->diskSpec) {
+      disk->index.applyResourceBudget(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
 // Basic API wrappers
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
     RS_ASSERT(disk_db && c_index_spec);
@@ -221,6 +246,10 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
         // Open atomically registers with BigModule, so the spec needs a
         // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
         c_index_spec->diskRegistered = true;
+        // The new index counts against the shard-wide totals, shrinking what every
+        // other index may use. It was opened with the new share already; this brings
+        // the existing indexes down to it.
+        SearchDisk_RepartitionIndexResources();
     }
     return result;
 }
@@ -255,6 +284,12 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     }
     disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     spec->diskRegistered = false;
+    // A dropped index gives its share back, growing what the survivors may use.
+    // The live count is decremented by the background half of close, so this pass
+    // may be acting on a previous drop rather than this one. Converging a step late
+    // is harmless in this direction: until it runs the survivors are merely
+    // under-provisioned, never over-provisioned.
+    SearchDisk_RepartitionIndexResources();
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {

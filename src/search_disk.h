@@ -947,6 +947,19 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
  */
 void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 
+/**
+ * @brief Reapply every live index's share of the shard-wide disk resource totals.
+ *
+ * Per-database and per-column-family SpeedB options sum across indexes, so each
+ * index is configured with a share of a global total. Creating or dropping an index
+ * moves that share, and this brings the live databases to the new one.
+ *
+ * Returns immediately unless the share actually moved, so it is cheap to call on
+ * every index create and drop. Main thread only: it iterates the global spec
+ * dictionary.
+ */
+void SearchDisk_RepartitionIndexResources(void);
+
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 // Declared via search_disk_api.h; redeclared here so debug_commands.c only
