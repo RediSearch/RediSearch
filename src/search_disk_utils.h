@@ -16,7 +16,10 @@
 
 typedef struct QueryError QueryError;
 
-#define FLEX_MAX_INDEX_COUNT 10
+/* POC (many-index resource partitioning): raised from the shipped limit of 10 so a
+ * shard can be driven to the index counts the partitioning is meant to support.
+ * Must go back to 10 before this branch is considered for merge. */
+#define FLEX_MAX_INDEX_COUNT 100000
 
 /**
  * @brief Check if the number of indexes is within the limit
