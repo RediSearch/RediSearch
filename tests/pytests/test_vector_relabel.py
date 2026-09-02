@@ -1,8 +1,8 @@
 from common import *
 
 # Relabeling an unchanged vector onto a document's new doc-id, instead of deleting
-# the entry and re-adding the blob (MOD-17688). Gated behind
-# ENABLE_UNSTABLE_FEATURES.
+# the entry and re-adding the blob (MOD-17688). Gated behind OPTIMIZE_UPDATE_VEC,
+# which defaults to on.
 #
 # These tests cover what the C++ suite (`VectorRelabelTest`) cannot: the whole
 # chain from a real `HSET` through the hash subkey notification to the indexer's
@@ -103,7 +103,6 @@ def test_relabel_unchanged_vector_on_text_update():
     the comparison route on a hash.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    enable_unstable_features(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -132,7 +131,6 @@ def test_vector_change_reindexes():
     VEC_A. Both reach the re-add this asserts.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    enable_unstable_features(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -145,17 +143,17 @@ def test_vector_change_reindexes():
     env.assertEqual(_vector_ops(env), (2, 0))
     _assert_doc_is_queryable(env, 'goodbye', VEC_B)
 
-def test_relabel_requires_unstable_features():
-    """The gate: with the flag off, the same update takes the delete + re-add path.
+def test_relabel_requires_optimize_update_vec():
+    """The gate: with the config off, the same update takes the delete + re-add path.
 
     Deliberately the same input and the same query assertions as
     `test_relabel_unchanged_vector_on_text_update` -- only the tombstone count
     differs, which is the whole claim of Requirement 1 (no behavior difference with
-    the flag off). Needs no subkey-notification support: with the flag off the
+    the config off). Needs no subkey-notification support: with the config off the
     change set is not consulted at all.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-update-vec', 'no')
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -183,7 +181,6 @@ def test_json_doc_relabels_unchanged_vector():
     only the tombstone count separates them.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    enable_unstable_features(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)
@@ -205,7 +202,6 @@ def test_json_doc_with_changed_vector_reindexes():
     between this and a stale entry surviving under the new doc-id.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    enable_unstable_features(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)
@@ -217,10 +213,10 @@ def test_json_doc_with_changed_vector_reindexes():
     _assert_doc_is_queryable(env, 'hello', VEC_B, 'jsonidx')
 
 @skip(no_json=True)
-def test_json_doc_relabel_requires_unstable_features():
-    """The gate, on the JSON path: flag off, so no comparison and no move."""
+def test_json_doc_relabel_requires_optimize_update_vec():
+    """The gate, on the JSON path: config off, so no comparison and no move."""
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-update-vec', 'no')
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)
@@ -246,7 +242,6 @@ def test_json_doc_nulling_the_vector_leaves_no_orphan():
     KNN queries, and is never collected.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    enable_unstable_features(env)
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)

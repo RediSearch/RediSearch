@@ -3587,7 +3587,7 @@ int CompareVersions(Version v1, Version v2) {
 static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
                                            RedisModuleString **changedFields,
                                            size_t numChangedFields) {
-  if (!RSGlobalConfig.enableUnstableFeatures) {
+  if (!RSGlobalConfig.optimizeUpdateVec) {
     return;
   }
   if (!(spec->flags & Index_HasVecSim)) {
