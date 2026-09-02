@@ -200,6 +200,13 @@ typedef enum {
   // flags value) so a later selective ALTER scan knows it must fall back to a full scan to
   // pick up whatever that skipped scan left unindexed.
   Index_HasSkippedAlterScan = 0x100000,
+
+  // Set on every spec this version creates, and persisted with the flags. Its absence means the
+  // spec was loaded from an RDB written before Index_HasSkippedAlterScan existed, so that flag's
+  // clear state proves nothing: such a spec may carry fields an `FT.ALTER ... SKIPINITIALSCAN`
+  // left unbackfilled with no record of it. A selective ALTER scan requires this marker, so a
+  // legacy-loaded spec falls back to the full scan that repairs those fields.
+  Index_AlterHistoryTracked = 0x200000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

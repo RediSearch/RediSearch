@@ -482,7 +482,12 @@ void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
   IndexSpec *sp = StrongRef_Get(spec_ref);
   RS_LOG_ASSERT(sp, "caller must hold a strong ref to the spec being scanned");
 
-  bool canBeSelective = sp->scanner == NULL && !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
+  // Disk specs are excluded because their backfill runs through Indexes_AsyncScanAndReindexTask,
+  // which never consults the range: recording one would be inert today and misleading to anyone
+  // later teaching that driver to read it.
+  bool canBeSelective = !SearchDisk_IsEnabled() && sp->scanner == NULL &&
+                        !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
+                        (sp->flags & Index_AlterHistoryTracked) &&
                         !(sp->flags & (Index_SkipInitialScan | Index_HasSkippedAlterScan));
   for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
