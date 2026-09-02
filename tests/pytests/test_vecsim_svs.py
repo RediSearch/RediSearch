@@ -658,13 +658,10 @@ def test_drop_index_during_query():
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
     env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
 
-def gc_test_common(env, num_workers):
+def gc_test_common(env, num_workers, compression_types):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    compression_types = ['NO_COMPRESSION', 'LVQ8']
-    if is_intel_opt_enabled():
-        compression_types.append('LeanVec4x8')
 
     for compression_type in compression_types:
         compression_params = None
@@ -764,19 +761,34 @@ def gc_test_common(env, num_workers):
 
         env.execute_command('FLUSHALL')
 
+def _gc_compressed_types():
+    return ['LVQ8'] + (['LeanVec4x8'] if is_intel_opt_enabled() else [])
+
 @skip(cluster=True)
 def test_gc():
     num_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
-    gc_test_common(env, num_workers)
+    gc_test_common(env, num_workers, ['NO_COMPRESSION'] + _gc_compressed_types())
 
+# Split from the compressed variants (MOD-15571 precedent in test_vecsim.py): with no workers, GC
+# runs synchronously on the calling thread rather than handed to the thread pool, and the
+# NO_COMPRESSION variant alone pays for the 3-block sizing `checks_memory_release` needs (see
+# above). Under coverage instrumentation, that no longer fits in the same per-test timeout as the
+# compressed variants below.
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
-    gc_test_common(env, num_workers)
+    gc_test_common(env, num_workers, ['NO_COMPRESSION'])
+
+@skip(cluster=True)
+def test_gc_no_workers_compressed():
+    num_workers = 0
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)
 def test_resize_workers_during_pending_svs_jobs():
