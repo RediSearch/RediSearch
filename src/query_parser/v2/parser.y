@@ -191,35 +191,48 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
   reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
 
-/* Build the expression for `@field:>(v)` and friends. `lower` picks the side the
- * bound closes (true for `>`/`>=`), `inclusive` whether it is in range.
+/* Build the expression for `@field:>(v)` and friends.
+ *
+ * `expected` is the field type the bound's delimiter names: parentheses read a
+ * TEXT field and braces a TAG one, as they do for an ordinary clause. `lower`
+ * picks the side the bound closes (true for `>`/`>=`), `inclusive` whether it is
+ * in range.
  *
  * A TAG range hangs off a tag node, which is what routes it to the tag index's
- * value trie; a TEXT range carries the field mask itself. */
-static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field,
-                                          QueryToken *bound, bool lower, bool inclusive) {
-  if (!ctx->sctx->spec) {
+ * value trie; a TEXT range carries the field mask itself. Without a spec the
+ * node is still built and the field left unchecked, as the other field clauses
+ * do, since the coordinator may parse without one. */
+static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field, QueryToken *bound,
+                                          FieldType expected, bool lower, bool inclusive) {
+  if (ctx->sctx->spec && !FIELD_IS(field->fs, expected)) {
+    // The macro concatenates the type name into the message, so it needs a
+    // literal rather than a runtime choice between the two.
+    if (expected == INDEXFLD_T_TAG) {
+      REPORT_WRONG_FIELD_TYPE((*field), SPEC_TAG_STR);
+    } else {
+      REPORT_WRONG_FIELD_TYPE((*field), SPEC_TEXT_STR);
+    }
     return NULL;
   }
-  if (FIELD_IS(field->fs, INDEXFLD_T_TAG)) {
-    struct RSQueryNode *range = NewLexRangeNode_WithParams(ctx, bound, lower, inclusive);
-    struct RSQueryNode *tag = NewTagNode(field->fs);
-    QueryNode_AddChild(tag, range);
-    return tag;
-  }
-  if (FIELD_IS(field->fs, INDEXFLD_T_FULLTEXT)) {
+
+  if (expected == INDEXFLD_T_FULLTEXT) {
     // Normalize a TEXT bound exactly as a TEXT token is, literal or parameter:
     // unescaped and lowercased to match the terms trie. A TAG bound keeps the
     // case-preserving type the grammar gave it, since `tag_strtolower`
     // normalizes per the field's CASESENSITIVE.
     bound->type = bound->type == QT_PARAM_TERM_CASE ? QT_PARAM_TERM : QT_TERM;
-    struct RSQueryNode *range = NewLexRangeNode_WithParams(ctx, bound, lower, inclusive);
-    QueryNode_SetFieldMask(range, FIELD_BIT(field->fs));
-    return range;
   }
-  reportSyntaxError(ctx->status, &field->tok,
-                    "Expected a " SPEC_TAG_STR " or " SPEC_TEXT_STR " field");
-  return NULL;
+
+  struct RSQueryNode *range = NewLexRangeNode_WithParams(ctx, bound, lower, inclusive);
+  if (expected == INDEXFLD_T_TAG) {
+    struct RSQueryNode *tag = NewTagNode(field->fs);
+    QueryNode_AddChild(tag, range);
+    return tag;
+  }
+  if (ctx->sctx->spec) {
+    QueryNode_SetFieldMask(range, FIELD_BIT(field->fs));
+  }
+  return range;
 }
 
 //! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
@@ -941,31 +954,50 @@ expr(A) ::= modifier(B) LE param_num(C) . {
 // Gated: `RSQuery_ParseFieldColonOp_v2` only emits the operator token when
 // ENABLE_UNSTABLE_FEATURES is on.
 
-expr(A) ::= modifier(B) COLON GT lex_bound(C) . {
-  A = lex_range_step(ctx, &B, &C, true, false);
+expr(A) ::= modifier(B) COLON GT text_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_FULLTEXT, true, false);
 }
 
-expr(A) ::= modifier(B) COLON GE lex_bound(C) . {
-  A = lex_range_step(ctx, &B, &C, true, true);
+expr(A) ::= modifier(B) COLON GE text_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_FULLTEXT, true, true);
 }
 
-expr(A) ::= modifier(B) COLON LT lex_bound(C) . {
-  A = lex_range_step(ctx, &B, &C, false, false);
+expr(A) ::= modifier(B) COLON LT text_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_FULLTEXT, false, false);
 }
 
-expr(A) ::= modifier(B) COLON LE lex_bound(C) . {
-  A = lex_range_step(ctx, &B, &C, false, true);
+expr(A) ::= modifier(B) COLON LE text_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_FULLTEXT, false, true);
 }
 
-// Exactly one token, so `@city:>(New York)` is a syntax error and a bound with a
-// space is written `@city:>("New York")` - quoted, it arrives as EXACT, which
-// `%fallback` re-reads as TERM here. `param_term_case` keeps the case; each
-// field type normalizes it at evaluation.
-lex_bound(A) ::= LP param_term_case(B) RP . {
+expr(A) ::= modifier(B) COLON GT tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_TAG, true, false);
+}
+
+expr(A) ::= modifier(B) COLON GE tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_TAG, true, true);
+}
+
+expr(A) ::= modifier(B) COLON LT tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_TAG, false, false);
+}
+
+expr(A) ::= modifier(B) COLON LE tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, INDEXFLD_T_TAG, false, true);
+}
+
+// The delimiter names the field type, as it does for an ordinary clause:
+// parentheses read TEXT, braces read TAG.
+//
+// Exactly one token either way, so `@city:>{New York}` is a syntax error and a
+// bound with a space is written `@city:>{"New York"}` - quoted, it arrives as
+// EXACT, which `%fallback` re-reads as TERM here. `param_term_case` keeps the
+// case; each field type normalizes it at evaluation.
+text_bound(A) ::= LP param_term_case(B) RP . {
   A = B;
 }
 
-lex_bound(A) ::= LB param_term_case(B) RB . {
+tag_bound(A) ::= LB param_term_case(B) RB . {
   A = B;
 }
 
