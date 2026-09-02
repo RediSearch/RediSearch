@@ -55,21 +55,22 @@ protected:
   IndexSpec *spec = nullptr;
   std::string indexName;
 
-  bool previousEnableUnstableFeatures = false;
+  bool previousOptimizeUpdateVec = false;
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK::flushdb(ctx);
     static int counter = 0;
     indexName = "relabelidx" + std::to_string(++counter);
-    // Relabeling is gated behind ENABLE_UNSTABLE_FEATURES. Restored in TearDown,
-    // which runs even when an assertion fails, so no state leaks to other tests.
-    previousEnableUnstableFeatures = RSGlobalConfig.enableUnstableFeatures;
-    RSGlobalConfig.enableUnstableFeatures = true;
+    // Relabeling is gated behind OPTIMIZE_UPDATE_VEC (on by default). Forced here so a
+    // config change elsewhere can't disable it out from under these tests; restored in
+    // TearDown, which runs even when an assertion fails, so no state leaks to other tests.
+    previousOptimizeUpdateVec = RSGlobalConfig.optimizeUpdateVec;
+    RSGlobalConfig.optimizeUpdateVec = true;
   }
 
   void TearDown() override {
-    RSGlobalConfig.enableUnstableFeatures = previousEnableUnstableFeatures;
+    RSGlobalConfig.optimizeUpdateVec = previousOptimizeUpdateVec;
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
@@ -531,14 +532,14 @@ TEST_F(VectorRelabelTest, svsRefusalFallsBackToDeleteAndAdd) {
       << "an orphan at the old label would make this 2";
 }
 
-// The gate. With ENABLE_UNSTABLE_FEATURES off, a text-only change must take the
+// The gate. With OPTIMIZE_UPDATE_VEC off, a text-only change must take the
 // pre-existing delete + re-add path even though the change set proves the vector
 // is unchanged. Uses the same understated-change-set probe as
 // `relabelMovesTheExistingEntryRatherThanReReading`, so the two are direct
 // opposites on identical input: there, the new label holds the moved (old) blob;
 // here it must hold the document's current one, because the vector was re-read.
-TEST_F(VectorRelabelTest, relabelRequiresUnstableFeatures) {
-  RSGlobalConfig.enableUnstableFeatures = false;  // restored by TearDown
+TEST_F(VectorRelabelTest, relabelRequiresOptimizeUpdateVec) {
+  RSGlobalConfig.optimizeUpdateVec = false;  // restored by TearDown
 
   createIndex(nullptr, "HNSW");
   t_docId first = indexFresh("doc:1", "hello", kVecA);
