@@ -989,10 +989,13 @@ expr(A) ::= modifier(B) COLON LE tag_bound(C) . {
 // The delimiter names the field type, as it does for an ordinary clause:
 // parentheses read TEXT, braces read TAG.
 //
-// Exactly one token either way, so `@city:>{New York}` is a syntax error and a
-// bound with a space is written `@city:>{"New York"}` - quoted, it arrives as
-// EXACT, which `%fallback` re-reads as TERM here. `param_term_case` keeps the
-// case; each field type normalizes it at evaluation.
+// The bound is exactly one token, so `@city:>{New York}` is a syntax error. A
+// quoted bound is how you write one holding a space, and is accepted: it arrives
+// as EXACT, which the `%fallback` directive re-reads as TERM in this state, so
+// `@city:>{"New York"}` is a single bound of `New York`.
+//
+// `param_term_case` keeps the bound's case; each field type normalizes it at
+// evaluation.
 text_bound(A) ::= LP param_term_case(B) RP . {
   A = B;
 }
