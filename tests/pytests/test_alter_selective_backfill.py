@@ -395,11 +395,14 @@ def testAlterSkipUnchangedDocsFallbackSortable(env):
 
     A skipped document would keep a vector sized for the old schema while the schema has grown
     a sorting slot. AddDocumentCtx_UpdateNoIndex reallocates a sorting vector only when it is
-    zero-length, so a later partial update writing the new sortIdx into a short vector panics
-    inside RSSortingVector_Put* and takes the server down. Asserting on doc:1 -- which lacks
-    'rank' and is therefore exactly what the shortcut would skip -- pins the fallback; the
-    partial update afterwards is the crash the fallback prevents, so this test fails by
-    aborting the server if the gate is removed."""
+    zero-length, so a later update writing the new sortIdx into a short vector panics inside
+    RSSortingVector_Put* and takes the server down.
+
+    The write comes before the id assertion deliberately. doc:1 lacks 'rank' and is exactly
+    what the shortcut would skip, so reaching the write is what reproduces the crash: with the
+    fallback removed this test kills the server rather than reporting a skipped id, which is a
+    far louder failure than an id comparison. The id assertion afterwards still pins the
+    fallback itself for the case where the crash is fixed some other way."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
@@ -410,11 +413,11 @@ def testAlterSkipUnchangedDocsFallbackSortable(env):
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rank', 'NUMERIC', 'SORTABLE', 'NOINDEX').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
-
     # Writes only the NOINDEX sortable field, so this takes the sortables-only update path that
     # writes straight into the retained vector at the new field's sortIdx.
     conn.execute_command('HSET', 'doc:1', 'rank', '7')
     env.assertEqual(env.cmd('PING'), True)
+
+    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
     env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT')),
                     toSortedFlatList([1, 'doc:1']))
