@@ -273,12 +273,12 @@ def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
     maxmemory is tightened, so this does not need the multi-document SET_PAUSE_ON_SCANNED_DOCS
     staging that tests/pytests/test_index_oom.py uses to control how much of a larger scan
     completes before OOM hits."""
-    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
-
     try:
+        env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+        conn = getConnectionByEnv(env)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+        conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+
         env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
         set_tight_maxmemory_for_oom(env, 0.85)
 
@@ -286,12 +286,16 @@ def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
         # way, so its id is not meaningful until after the corrective full scan below.
         env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a', 'TAG').ok()
         waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
-        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-        waitForIndexFinishScan(env, 'idx')
     finally:
+        # Unconditional, like the try/finally below and the sibling active-scan test: if
+        # waitForIndexStatus above raised while the scanner was genuinely parked on the global
+        # pause flag, skipping this would leave every later scan in this shared-server file
+        # blocked on that same flag until its own TimeLimit fires.
         set_unlimited_maxmemory_for_oom(env)
         env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
         env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '100').ok()
+    waitForIndexFinishScan(env, 'idx')
 
     id1_before = get_internal_id(env, 'doc:1')
 
