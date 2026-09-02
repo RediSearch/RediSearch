@@ -25,6 +25,7 @@ WORKDIR /project/.install
 # Install base dependencies, Rust toolchain, and optionally LLVM for sanitizer builds.
 RUN bash retry.sh bash -l -eo pipefail install_script.sh && \
     bash retry.sh bash -l -eo pipefail test_deps/install_rust_deps.sh && \
+    rm -rf "$HOME/.cache/miri" && \
     if [ "$SAN" = "address" ]; then bash retry.sh bash -l -eo pipefail install_llvm.sh; fi
 WORKDIR /project
 # Expose newly-installed Rust and Python tools via PATH
