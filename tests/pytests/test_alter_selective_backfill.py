@@ -377,3 +377,35 @@ def testAlterBackfillReplacementCountSparseVsDense(env):
 
     print(f'[alter backfill] sparse: {len(sparse_docs_with_field)}/{N} replaced in '
           f'{elapsed_sparse:.3f}s; dense: {N}/{N} replaced in {elapsed_dense:.3f}s')
+
+
+@skip(cluster=True)
+def testAlterSkipUnchangedDocsFallbackSortable(env):
+    """An added SORTABLE field disables the shortcut for the whole scan, because only the full
+    reindex path rebuilds a document's sorting vector.
+
+    A skipped document would keep a vector sized for the old schema while the schema has grown
+    a sorting slot. AddDocumentCtx_UpdateNoIndex reallocates a sorting vector only when it is
+    zero-length, so a later partial update writing the new sortIdx into a short vector panics
+    inside RSSortingVector_Put* and takes the server down. Asserting on doc:1 -- which lacks
+    'rank' and is therefore exactly what the shortcut would skip -- pins the fallback; the
+    partial update afterwards is the crash the fallback prevents, so this test fails by
+    aborting the server if the gate is removed."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'rank', '1')
+
+    id1_before = get_internal_id(env, 'doc:1')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rank', 'NUMERIC', 'SORTABLE', 'NOINDEX').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+
+    # Writes only the NOINDEX sortable field, so this takes the sortables-only update path that
+    # writes straight into the retained vector at the new field's sortIdx.
+    conn.execute_command('HSET', 'doc:1', 'rank', '7')
+    env.assertEqual(env.cmd('PING'), True)
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT')),
+                    toSortedFlatList([1, 'doc:1']))
