@@ -291,6 +291,44 @@ TEST_F(VectorRelabelTest, unknownChangeSetKeepsUnchangedVector) {
   EXPECT_EQ(VecSimIndex_IndexSize(vecsim()), sizeBefore) << "no orphan at the old label";
 }
 
+// A GEOSHAPE field ordered before the VECTOR field in the schema, so it is also processed first
+// in `bulkIndexFields`. The vector is absent from the change set, so it is marked to keep its
+// old label for a relabel -- but the WKT is only validated in `geometryIndexer`, the bulk-add
+// step, which runs after doc-id assignment (and the relabel mark) already happened. An invalid
+// update fails there and `bulkIndexFields` bails before ever reaching the vector applier that
+// would consume the mark. The old label must be dropped by the caller instead of stranded under
+// a doc-id nothing else refers to.
+TEST_F(VectorRelabelTest, earlierFieldFailureAbandonsPendingRelabel) {
+  QueryError err = QueryError_Default();
+  RMCK::ArgvList args(ctx, "FT.CREATE", indexName.c_str(), "ON", "HASH", "SCHEMA", "title", "TEXT",
+                      "geom", "GEOSHAPE", "FLAT", "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                      "DIM", "4", "DISTANCE_METRIC", "L2");
+  spec = Indexes_CreateNewSpec(ctx, args, args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(spec != nullptr);
+
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "geom", "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA, false);
+  ASSERT_EQ(IndexSpec_UpdateDoc(spec, ctx, RMCK::RString("doc:1"), DocumentType_Hash, nullptr,
+                                nullptr, 0),
+            REDISMODULE_OK);
+  t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0);
+  ASSERT_TRUE(labelHolds(first, kVecA));
+
+  // Too few points -- valid WKT syntax, but `geometryIndexer` rejects the geometry itself.
+  RMCK::hset(ctx, "doc:1", "geom", "POLYGON((1 1, 1 100, 1 1))");
+  RedisModuleString *changed = RedisModule_CreateString(nullptr, "geom", 4);
+  int rc = IndexSpec_UpdateDoc(spec, ctx, RMCK::RString("doc:1"), DocumentType_Hash, nullptr,
+                               &changed, 1);
+  RedisModule_FreeString(nullptr, changed);
+  EXPECT_EQ(rc, REDISMODULE_OK) << "a per-field error does not fail the call itself";
+
+  EXPECT_TRUE(labelAbsent(first))
+      << "the old label must not survive when the field that would have relabeled it never ran";
+}
+
 // The comparison is what makes the no-change-set path safe, and this is the test that
 // exercises it: the vector really did change, and nothing external says so. Moving the
 // entry here would leave the *old* blob under the new doc-id, so a KNN query would

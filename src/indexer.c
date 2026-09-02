@@ -417,16 +417,51 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 }
 
 /**
+ * Delete the old-doc VecSim entry of every VECTOR field, from `fromField` onward, that
+ * `VectorIndex_CheckRemoveId` marked to keep for the relabel the field's own applier
+ * (`vectorIndexer`) would otherwise perform. Called when that applier is not going to run this
+ * pass: without it, the mark is never consumed, and the entry is stranded under `oldDocId` --
+ * whose DMD is already gone by the time the mark is made, so nothing else in RediSearch still
+ * refers to it, but VecSim keeps serving it forever.
+ */
+static void abandonPendingVectorRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
+                                         size_t fromField) {
+  if (!aCtx->fieldChanges || !aCtx->oldDocId) return;
+  const Document *doc = aCtx->doc;
+  for (size_t ii = fromField; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (fs->types != INDEXFLD_T_VECTOR ||
+        aCtx->fieldChanges[fs->index] != ChangedField_VerifiedNo) {
+      continue;
+    }
+    // ctx is NULL because we don't create the index here, matching `VectorIndex_CheckRemoveId`.
+    VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[fs->index], DONT_CREATE_INDEX);
+    if (vecsim) {
+      VecSimIndex_DeleteVector(vecsim, aCtx->oldDocId);
+    }
+    aCtx->fieldChanges[fs->index] = ChangedField_VerifiedYes;
+  }
+}
+
+/**
  * Memory-mode non-fulltext indexing: loop over indexable fields, calling
  * `IndexerBulkAdd` (writes inline) followed by `IndexerBulkApply` (in-memory
  * bookkeeping) per field. The apply runs as part of the same iteration so
  * that a later field's failure cannot orphan earlier fields' bookkeeping.
  *
  * On the first add failure, marks `ACTX_F_ERRORED` and bails. Earlier fields
- * stay fully applied; later fields are skipped entirely.
+ * stay fully applied; later fields are skipped entirely -- including their
+ * appliers, so any pending vector relabel from `ii` onward is abandoned
+ * instead of left stranded. Same story if a preceding step (fulltext
+ * indexing) already set `ACTX_F_ERRORED` before this function ever ran: no
+ * field's applier will run this pass, so the sweep starts at field 0.
  */
 static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_ERRORED)) return;
+  if (aCtx->stateFlags & ACTX_F_OTHERINDEXED) return;
+  if (aCtx->stateFlags & ACTX_F_ERRORED) {
+    abandonPendingVectorRelabels(aCtx, sctx->spec, 0);
+    return;
+  }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
@@ -440,6 +475,7 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
       QueryError_ClearError(&aCtx->status);
       aCtx->stateFlags |= ACTX_F_ERRORED;
+      abandonPendingVectorRelabels(aCtx, sctx->spec, ii);
       return;
     }
     IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
