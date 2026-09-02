@@ -327,3 +327,49 @@ def testAlterSkipUnchangedDocsCoordinatorSearchCorrectness(env):
     env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@tags:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True)
+def testAlterBackfillReplacementCountSparseVsDense(env):
+    """Task 4.1/4.2: measure FT.ALTER SCHEMA ADD's selective backfill on a sparse workload
+    (few documents carry the newly added field) and a dense one (all of them do). The
+    replacement count is derived from the max_doc_id delta -- deterministic, since every
+    REPLACE mints exactly one new, strictly increasing id (DocTable_Put's ++t->maxDocId) and a
+    skipped document mints none -- and is the only thing asserted on. N=1000 matches the scale
+    tests/pytests/test_index_oom.py already uses for its background-scan tests: large enough
+    that the sparse case's per-document probe cost is not swamped by fixed overhead, small
+    enough to stay a fast flow test. Elapsed time is printed for humans only; a threshold
+    assertion would flake on a loaded CI host."""
+    N = 1000
+    SPARSE_STRIDE = 20  # 1 in 20 (5%) of documents carry the added field in the sparse case
+
+    def run_case(idx_name, added_field, docs_with_field):
+        env.expect('FT.CREATE', idx_name, 'SCHEMA', 'title', 'TEXT').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(N):
+            key = f'{idx_name}:doc:{i}'
+            if i in docs_with_field:
+                conn.execute_command('HSET', key, 'title', 'word', added_field, 'x')
+            else:
+                conn.execute_command('HSET', key, 'title', 'word')
+
+        max_id_before = int(index_info(env, idx_name)['max_doc_id'])
+
+        start = time.time()
+        env.expect('FT.ALTER', idx_name, 'SCHEMA', 'ADD', added_field, 'TAG').ok()
+        waitForIndexFinishScan(env, idx_name)
+        elapsed = time.time() - start
+
+        max_id_after = int(index_info(env, idx_name)['max_doc_id'])
+        return max_id_after - max_id_before, elapsed
+
+    sparse_docs_with_field = set(range(0, N, SPARSE_STRIDE))
+    replaced_sparse, elapsed_sparse = run_case('idx_sparse', 'sparsefield', sparse_docs_with_field)
+    env.assertEqual(replaced_sparse, len(sparse_docs_with_field), message=replaced_sparse)
+
+    dense_docs_with_field = set(range(N))
+    replaced_dense, elapsed_dense = run_case('idx_dense', 'densefield', dense_docs_with_field)
+    env.assertEqual(replaced_dense, N, message=replaced_dense)
+
+    print(f'[alter backfill] sparse: {len(sparse_docs_with_field)}/{N} replaced in '
+          f'{elapsed_sparse:.3f}s; dense: {N}/{N} replaced in {elapsed_dense:.3f}s')
