@@ -662,7 +662,6 @@ def gc_test_common(env, num_workers):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    index_size = DEFAULT_BLOCK_SIZE
     compression_types = ['NO_COMPRESSION', 'LVQ8']
     if is_intel_opt_enabled():
         compression_types.append('LeanVec4x8')
@@ -672,6 +671,21 @@ def gc_test_common(env, num_workers):
         if compression_type != 'NO_COMPRESSION':
             compression_params = ['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold]
         message_prefix = f"compression_params: {compression_params}"
+
+        # SVS hands dataset memory back a whole block at a time, and
+        # `svs::data::SimpleData::resize` keeps one empty block when it shrinks
+        # (VectorSimilarity #980). So "GC returned memory" is only observable once a deletion
+        # frees two blocks: three blocks in and two deleted is the cheapest sizing that does,
+        # leaving a block of live vectors. At one block -- the sizing this test used before
+        # #980 -- nothing measurable is ever freed, however many vectors are deleted.
+        #
+        # Only one variant pays for that. Block retention is a property of the SVS dataset, not
+        # of the compression applied to it, so testing it once is enough, and the coverage lane
+        # runs this instrumented: three blocks across every variant timed out there.
+        checks_memory_release = compression_type == 'NO_COMPRESSION'
+        index_size = (3 if checks_memory_release else 1) * DEFAULT_BLOCK_SIZE * env.shardsCount
+        vecs_to_delete = (2 * DEFAULT_BLOCK_SIZE * env.shardsCount if checks_memory_release
+                          else DEFAULT_BLOCK_SIZE * env.shardsCount - 24)
         set_up_database_with_vectors(env, dim, num_docs=index_size, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=compression_params)
         wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
 
@@ -684,7 +698,6 @@ def gc_test_common(env, num_workers):
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
         # Phase 1: Delete some vectors
-        vecs_to_delete = 1000
         for i in range (vecs_to_delete):
             env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}')
 
@@ -736,9 +749,10 @@ def gc_test_common(env, num_workers):
         # Verify that the number of marked deleted vectors is as expected
         env.assertEqual(tiered_backend_debug_info['NUMBER_OF_MARKED_DELETED'], 0, message=f"{message_prefix}")
 
-        # Memory should decrease
-        after_gc_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        env.assertLess(after_gc_memory, after_del_memory, message=f"{message_prefix}")
+        # Memory should decrease -- only where the deletion freed whole blocks; see above.
+        if checks_memory_release:
+            after_gc_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+            env.assertLess(after_gc_memory, after_del_memory, message=f"{message_prefix}")
 
         # Index size should be updated
         size_after = tiered_backend_debug_info['INDEX_SIZE']
