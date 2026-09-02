@@ -61,20 +61,42 @@ else()
   set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
 endif()
 
+set(RUST_BUILD_STAMP "${RUST_TARGET_DIR}/${RUST_ARTIFACT_DIR}/.redisearch_rs_cmake_build")
+set(CHEADERGEN_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.cheadergen_generate")
+
+file(GLOB_RECURSE RUST_BUILD_INPUTS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.rs"
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.toml"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.lock"
+)
+list(FILTER RUST_BUILD_INPUTS EXCLUDE REGEX "/target/")
+list(FILTER RUST_BUILD_INPUTS EXCLUDE REGEX "/tests?/")
+list(FILTER RUST_BUILD_INPUTS EXCLUDE REGEX "/benches?/")
+list(FILTER RUST_BUILD_INPUTS EXCLUDE REGEX "/tools/")
+list(FILTER RUST_BUILD_INPUTS EXCLUDE REGEX "/[^/]+_bencher/")
+
 # Check if we're being used as a subdirectory to avoid target conflicts
 if(NOT TARGET redisearch_rs_build)
-  # Create the custom target for building Rust code
+  add_custom_command(
+    OUTPUT "${RUST_BUILD_STAMP}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${RUST_TARGET_DIR}/${RUST_ARTIFACT_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E env
+      "RUSTFLAGS=${RUST_FLAGS}"
+      "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
+      ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
+      build
+      --package redisearch_rs
+      --profile=${RUST_PROFILE}
+    COMMAND ${CMAKE_COMMAND} -E touch "${RUST_BUILD_STAMP}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    DEPENDS ${RUST_BUILD_INPUTS}
+    BYPRODUCTS "${RUST_LIB_PATH}"
+    COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
+    VERBATIM
+  )
   add_custom_target(redisearch_rs_build
-        COMMAND ${CMAKE_COMMAND} -E env
-            "RUSTFLAGS=${RUST_FLAGS}"
-            "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
-            build
-            --package redisearch_rs
-            --profile=${RUST_PROFILE}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
-    )
+    DEPENDS "${RUST_BUILD_STAMP}"
+  )
 endif()
 
 # Generate C headers from Rust FFI crates using cheadergen.
@@ -93,25 +115,30 @@ if(NOT TARGET cheadergen_generate)
     # recipe is a single source of truth shared with the top-level
     # Makefile's `generate-rust-headers` target.
     find_program(CHEADERGEN_EXECUTABLE cheadergen REQUIRED)
+    add_custom_command(
+      OUTPUT "${CHEADERGEN_STAMP}"
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/regen_headers.sh
+      COMMAND ${CMAKE_COMMAND} -E touch "${CHEADERGEN_STAMP}"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      DEPENDS
+        redisearch_rs_build
+        ${RUST_BUILD_INPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/regen_headers.sh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../.cheadergen-version"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../.rust-nightly"
+      COMMENT "Generating C headers from Rust FFI crates via cheadergen"
+      VERBATIM
+    )
     add_custom_target(cheadergen_generate
-          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/regen_headers.sh
-          COMMENT "Generating C headers from Rust FFI crates via cheadergen"
-      )
-    add_dependencies(cheadergen_generate redisearch_rs_build)
+      DEPENDS "${CHEADERGEN_STAMP}"
+    )
   else()
     # No-op stub so dependents can still depend on `cheadergen_generate`.
     add_custom_target(cheadergen_generate
-          COMMENT "Skipping header generation (REDISEARCH_GENERATE_HEADERS=OFF); using checked-in headers"
-      )
+      COMMENT "Skipping header generation (REDISEARCH_GENERATE_HEADERS=OFF); using checked-in headers"
+    )
   endif()
 endif()
-
-# Create a custom command to ensure the library exists
-add_custom_command(
-    OUTPUT ${RUST_LIB_PATH}
-    DEPENDS redisearch_rs_build
-    COMMENT "Ensuring Rust library exists at ${RUST_LIB_PATH}"
-)
 
 # Check if we're being used as a subdirectory to avoid target conflicts
 if(NOT TARGET redisearch_rs)
@@ -123,12 +150,8 @@ if(NOT TARGET redisearch_rs)
         IMPORTED_LOCATION "${RUST_LIB_PATH}"
     )
 
-  # Make the imported library depend on the build target and the library file
+  # Make the imported library depend on the build target
   add_dependencies(redisearch_rs redisearch_rs_build)
-
-  # Create a target that depends on the library file
-  add_custom_target(redisearch_rs_lib_file DEPENDS ${RUST_LIB_PATH})
-  add_dependencies(redisearch_rs redisearch_rs_lib_file)
 endif()
 
 message(STATUS "Rust configuration:")
@@ -139,3 +162,4 @@ message(STATUS "  Cargo Build Flags: ${CARGO_BUILD_FLAGS}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
 message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
 message(STATUS "  Library Path: ${RUST_LIB_PATH}")
+message(STATUS "  Build stamp: ${RUST_BUILD_STAMP}")
