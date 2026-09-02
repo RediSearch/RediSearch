@@ -25,6 +25,8 @@ env:
       {"Key": "PR",           "Value": "${{ github.event.number }}"},
       {"Key": "Container",    "Value": "${{ inputs.container }}"},
       {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "owner",        "Value": "${{ github.actor }}"},
+      {"Key": "team",         "Value": "performance_analysis_optimization"},
       {"Key": "Project",      "Value": "${{ github.repository }}"}
     ]
 
