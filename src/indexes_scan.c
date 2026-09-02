@@ -169,13 +169,14 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     DocumentType type = getDocType(key);
-    RedisModule_CloseKey(key);
     if (type == DocumentType_Unsupported) {
+      RedisModule_CloseKey(key);
       ++scanner->scannedKeys;
       continue;
     }
 
     if (scanner->global) {
+      RedisModule_CloseKey(key);
       Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL, 0);
     } else {
       StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
@@ -183,11 +184,24 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
       if (sp) {
         // This check is performed without locking the spec, but it's ok since we locked the GIL
         // So the main thread is not running and the GC is not touching the relevant data
-        if (SchemaRule_ShouldIndex(sp, keyname, type, NULL)) {
+        bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, key);
+        // scanner->addedFields is non-empty only for a selective ALTER scan (see
+        // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
+        // confirmed absent, so this backfill does not force a full replacement of documents
+        // the ALTER cannot affect. A probe failure falls through to the full-reindex path.
+        bool skipUnchanged =
+            shouldIndex && scanner->addedFields.start != scanner->addedFields.end &&
+            Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
+                                        scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
+        // The scan opened `key` read-only; IndexSpec_UpdateDoc can update key metadata and
+        // must retain its own key-opening behavior, so the handle is not passed through.
+        RedisModule_CloseKey(key);
+        if (shouldIndex && !skipUnchanged) {
           IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
         }
         IndexSpecRef_Release(curr_run_ref);
       } else {
+        RedisModule_CloseKey(key);
         // spec was deleted, cancel scan
         IndexesScanner_Cancel(scanner);
       }

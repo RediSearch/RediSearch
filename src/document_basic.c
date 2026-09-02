@@ -341,6 +341,71 @@ done:
   return rv;
 }
 
+// Hash half of Document_ProbeFieldsPresent. Mirrors the per-field resolution in
+// Document_LoadSchemaFieldHash's field loop: `v == NULL` means the field is absent.
+static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
+                                                        const FieldSpec *fields, t_fieldIndex start,
+                                                        t_fieldIndex end) {
+  if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  for (t_fieldIndex i = start; i < end; ++i) {
+    RedisModuleString *v = NULL;
+    RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS,
+                        HiddenString_GetUnsafe(fields[i].fieldPath, NULL), &v, NULL);
+    if (v == NULL) {
+      continue;
+    }
+    RedisModule_FreeString(RSDummyContext, v);
+    return DOCUMENT_FIELDS_PRESENT;
+  }
+  return DOCUMENT_FIELDS_ABSENT;
+}
+
+// JSON half of Document_ProbeFieldsPresent. Mirrors the per-field resolution in
+// Document_LoadSchemaFieldJson's field loop: a NULL iterator, or a zero-length result (as can
+// happen after JSON.DEL), means the field is absent.
+static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
+                                                        const FieldSpec *fields, t_fieldIndex start,
+                                                        t_fieldIndex end) {
+  if (!japi) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  RedisJSON jsonRoot = JSON_GetJsonFromHandleCompat(key);
+  if (!jsonRoot) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  for (t_fieldIndex i = start; i < end; ++i) {
+    JSONResultsIterator iter =
+        japi->get(jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL));
+    if (!iter) {
+      continue;
+    }
+    size_t len = japi->len(iter);
+    japi->freeIter(iter);
+    if (len > 0) {
+      return DOCUMENT_FIELDS_PRESENT;
+    }
+  }
+  return DOCUMENT_FIELDS_ABSENT;
+}
+
+DocumentFieldsProbeResult Document_ProbeFieldsPresent(const IndexSpec *spec, RedisModuleKey *key,
+                                                      DocumentType type, t_fieldIndex start,
+                                                      t_fieldIndex end) {
+  RS_ASSERT(start <= end && end <= spec->numFields);
+  switch (type) {
+    case DocumentType_Hash:
+      return probeHashFieldsPresent(key, spec->fields, start, end);
+    case DocumentType_Json:
+      return probeJsonFieldsPresent(key, spec->fields, start, end);
+    default:
+      // Disk indexes never reach the selective scan path that calls this probe; any other
+      // type is unexpected here.
+      return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+}
+
 /* used only by unit tests */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
