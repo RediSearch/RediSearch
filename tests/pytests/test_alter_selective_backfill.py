@@ -348,15 +348,24 @@ def testAlterBackfillReplacementCountSparseVsDense(env):
     SPARSE_STRIDE = 20  # 1 in 20 (5%) of documents carry the added field in the sparse case
 
     def run_case(idx_name, added_field, docs_with_field):
-        env.expect('FT.CREATE', idx_name, 'SCHEMA', 'title', 'TEXT').ok()
+        # PREFIX confines each case to its own documents. Without it both indexes match every
+        # hash in the keyspace, so the second case's index also backfills the first case's
+        # documents and the max_doc_id delta stops describing this case's ALTER.
+        prefix = f'{idx_name}:doc:'
+        env.expect('FT.CREATE', idx_name, 'ON', 'HASH', 'PREFIX', '1', prefix,
+                   'SCHEMA', 'title', 'TEXT').ok()
         conn = getConnectionByEnv(env)
         for i in range(N):
-            key = f'{idx_name}:doc:{i}'
+            key = f'{prefix}{i}'
             if i in docs_with_field:
                 conn.execute_command('HSET', key, 'title', 'word', added_field, 'x')
             else:
                 conn.execute_command('HSET', key, 'title', 'word')
 
+        # Snapshot only once indexing has settled: ids minted by work still in flight from the
+        # writes above would otherwise land inside the delta and be counted as ALTER
+        # replacements.
+        waitForIndexFinishScan(env, idx_name)
         max_id_before = int(index_info(env, idx_name)['max_doc_id'])
 
         start = time.time()
