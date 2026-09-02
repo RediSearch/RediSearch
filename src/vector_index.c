@@ -8,6 +8,8 @@
 */
 #include "vector_index.h"
 
+#include "info/global_stats.h"
+
 #include <string.h>
 // __GLIBC__; glibc-only header
 #if __has_include(<features.h>)
@@ -71,6 +73,27 @@ bool isLVQSupported() {
 #endif
   return false; // In which case we know that LVQ not supported.
 }
+// Contract documented on the declaration in vector_index.h.
+bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
+  const VecSimRelabelCode rc = VecSimIndex_RelabelVector(vecsim, oldDocId, newDocId);
+  // `SameLabel` is a success for this caller, not a refusal. Memory mode never hits it
+  // (doc-ids are monotonic), but a doc-table that reuses the id on replace would.
+  if (rc == VecSimRelabel_OK || rc == VecSimRelabel_SameLabel) {
+    FieldsGlobalStats_UpdateFieldDocsRelabeled(INDEXFLD_T_VECTOR, 1);
+    return true;
+  }
+
+  // Fall back to delete + re-add. `VectorIndex_CheckRemoveId` skipped this field's delete on
+  // the strength of the mark, so it has to happen here before the caller inserts.
+  VecSimIndex_DeleteVector(vecsim, oldDocId);
+  if (rc == VecSimRelabel_NewLabelTaken) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Vector relabel %llu -> %llu refused: target label already in use",
+                    (unsigned long long)oldDocId, (unsigned long long)newDocId);
+  }
+  return false;
+}
+
 
 VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));

@@ -32,7 +32,8 @@ extern "C" {
 #include <stdio.h>
 
 extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                                   DocumentType type, RedisModuleKey *openKey);
+                                   DocumentType type, RedisModuleKey *openKey,
+                                   RedisModuleString **changedFields, size_t numChangedFields);
 
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
@@ -131,7 +132,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "vec_field", "abcdefghijklmnop", false));
-  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash, NULL), REDISMODULE_OK);
+  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash, NULL, NULL, 0), REDISMODULE_OK);
 
   ASSERT_NE(openVectorIndex(redisCtx, &ctx.spec->fields[1], DONT_CREATE_INDEX), nullptr);
 

@@ -246,6 +246,10 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                   RSGlobalStats.fieldsStats.geometryTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
+  // Sibling of the vector count above, not part of it: updates served by moving an existing
+  // entry onto the document's new doc-id, which is not an indexing operation.
+  RedisModule_InfoAddFieldLongLong(ctx, "total_relabel_ops_vector_fields",
+                                  RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {

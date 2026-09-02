@@ -31,20 +31,28 @@ extern "C" {
 #endif
 
 /**
- * Drop the replaced document's VecSim and Geometry entries.
+ * Dispose of the replaced document's VecSim and Geometry entries: drop each one, except a
+ * vector field whose entry is to be moved onto the new doc-id, which is left for the
+ * vector-insert site.
+ *
+ * This is where a relabel mark is settled. A change set makes the decision for free; without
+ * one, the field's new value is compared against what the index holds. Either way the answer
+ * is reached before anything is deleted, so a field that turns out to have changed loses its
+ * old entry here and the insert site is left with a straight yes or no.
  *
  * These two index types live in memory in both memory mode and disk mode (the
  * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
  * in disk mode and by `DocTable_DeleteById` in memory mode — neither covers VecSim or
  * Geometry, hence this dedicated step). Memory mode calls this inline from
- * `makeDocumentId` before the new DMD is allocated; disk mode calls it from
+ * `newDocumentId` before the new DMD is allocated; disk mode calls it from
  * `applyDocTable` after the disk batch commits.
  *
  * `VecSimIndex_DeleteVector` and `GeometryIndex_RemoveId` no-op on unknown
  * doc-ids, so this is safe even if the replaced doc had no vector / geometry
  * data, and safe to call defensively on stale key-meta in disk mode.
  */
-void Indexer_RemoveReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId);
+void Indexer_HandleReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId,
+                                                RSAddDocumentCtx *aCtx);
 
 /**
  * Remove the old document's contributions from the spec's scoring stats on
@@ -68,6 +76,16 @@ static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardInde
       && entry->term[0] != PHONETIC_PREFIX
       && entry->term[0] != SYNONYM_PREFIX_CHAR
       && strlen(entry->term) != 0;
+}
+
+static void handle_gc(const IndexSpec *spec, bool updated) {
+  if (spec->gc) {
+    if (updated) {
+      GCContext_OnUpdate(spec->gc);
+    } else {
+      GCContext_OnWrite(spec->gc);
+    }
+  }
 }
 
 #ifdef __cplusplus

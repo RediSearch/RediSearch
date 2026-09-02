@@ -114,7 +114,7 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
       if (DocIdMeta_GetWithOpenKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
         // Already indexed in this spec; skip to avoid clobbering a fresher version.
       } else {
-        IndexSpec_UpdateDoc(sp, ctx, name, type, key);
+        IndexSpec_UpdateDoc(sp, ctx, name, type, key, NULL, 0);
       }
     }
   } else {
