@@ -62,7 +62,7 @@ jobs:
       # backport branch may carry neither). Read-only default token; literal
       # `master` keeps it out of the S7631 forked-checkout pattern.
       - name: Checkout master
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           fetch-depth: 0
@@ -128,7 +128,7 @@ jobs:
 
       - name: Run /pr-backport-auto-fix via Codex (no token, no network)
         if: steps.ctx.outputs.skip != 'true'
-        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         env:
           # Deliberately NO GH_TOKEN — the agent makes a local commit + a manifest.
           BACKPORT_FIX_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
