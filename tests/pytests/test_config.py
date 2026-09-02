@@ -107,6 +107,7 @@ def testGetConfigOptions(env):
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
+    check_config('OPTIMIZE_UPDATE_VEC')
     check_config('_BG_INDEX_MEM_PCT_THR')
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
@@ -142,6 +143,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', 'OPTIMIZE_UPDATE_VEC', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
@@ -228,6 +230,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
+    env.assertEqual(res_dict['OPTIMIZE_UPDATE_VEC'][0], 'true')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
@@ -293,6 +296,8 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
+    _test_config_str('OPTIMIZE_UPDATE_VEC', 'true', 'true')
+    _test_config_str('OPTIMIZE_UPDATE_VEC', 'false', 'false')
     _test_config_str('ON_OOM', 'return')
 
 @skip(cluster=True)
@@ -1650,6 +1655,7 @@ booleanConfigs = [
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
+    ('search-optimize-update-vec', 'OPTIMIZE_UPDATE_VEC', 'yes', False, False),
 ]
 
 # CONFIG-only boolean parameters (no corresponding FT.CONFIG parameter / module argument)
