@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 # Relabeling an unchanged vector onto a document's new doc-id, instead of deleting
@@ -71,9 +78,12 @@ def _vector_ops(env):
     is counted per vector field per update. Asserting both is what pins that -- either alone
     would still pass if a move were counted twice.
     """
+    # The relabel counter is gated on OPTIMIZE_UPDATE_VEC and absent from INFO when the
+    # config is off, so a gate-off caller (e.g. test_relabel_requires_optimize_update_vec)
+    # needs the absent key to read as zero rather than raising.
     infos = run_command_on_all_shards(env, 'INFO', 'MODULES')
     return (sum(int(i['search_total_indexing_ops_vector_fields']) for i in infos),
-            sum(int(i['search_total_relabel_ops_vector_fields']) for i in infos))
+            sum(int(i.get('search_total_relabel_ops_vector_fields', 0)) for i in infos))
 
 def _search_ids(env, query, index='idx'):
     # RESP3 (needed for FT.INFO's nested field statistics) replies with a map, not
