@@ -180,7 +180,7 @@ static void IndexScanner_ScanKeyForSpec(RedisModuleCtx *ctx, const IndexesScanne
   // so the read-only handle is closed rather than passed through.
   RedisModule_CloseKey(key);
   if (shouldIndex && !skipUnchanged) {
-    IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
+    IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL, NULL, 0);
   }
 }
 

@@ -94,6 +94,22 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
+// Contract documented on the declaration in field_spec.h.
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields) {
+  if (!changedFields) {
+    return false;
+  }
+  for (size_t i = 0; i < numChangedFields; ++i) {
+    size_t length = 0;
+    const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+    if (FieldSpec_PathEquals(fs, field, length)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void FieldSpec_AddError(FieldSpec *fs, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {
   IndexError_AddError(&fs->indexError, withoutUserData, withUserData, key);
   FieldsGlobalStats_UpdateIndexError(fs->types, 1);
