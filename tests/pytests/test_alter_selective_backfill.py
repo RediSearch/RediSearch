@@ -132,6 +132,13 @@ def testAlterSkipUnchangedDocsJson(env):
     env.expect('FT.SEARCH', 'idx', '@title:delta', 'NOCONTENT').equal([1, 'doc:4'])
 
 
+# The functions below cover every conservative fallback in design.md except one:
+# Document_ProbeFieldsPresent's DOCUMENT_FIELDS_PROBE_FAILED result (an unexpected key type on
+# an already-type-checked scan key, or a missing RedisJSON API) has no trigger reachable from a
+# Python flow test -- both preconditions are enforced earlier in the scan before the probe ever
+# runs. That per-document fallback is deliberately left uncovered here rather than faked.
+
+
 @skip(cluster=True)
 def testAlterSkipUnchangedDocsFallbackIndexMissing(env):
     """An added field with INDEXMISSING disables the shortcut for the whole scan: a document
@@ -218,3 +225,105 @@ def testAlterSkipUnchangedDocsHistorySurvivesRdbReload(env):
 
     # doc:1 has neither 'a' nor 'b': the fallback must still be in effect after reload.
     env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+
+
+@skip(cluster=True)
+def testAlterSkipUnchangedDocsFallbackActiveScan(env):
+    """IndexSpec_ScanAndReindexForAlter's eligibility gate requires sp->scanner == NULL: a scan
+    already registered on the spec -- even one paused before it starts running its scan proc,
+    which is as 'pending' as a scan gets -- must force a concurrently scheduled ALTER onto the
+    full-scan path. Pausing every newly constructed debug scanner before it runs keeps the
+    first ALTER's scanner installed on the spec while the second ALTER's eligibility check
+    executes, then both scanners are let run once pausing is turned off."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+
+    id1_before = get_internal_id(env, 'doc:1')
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    try:
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a', 'TAG').ok()
+        # 'NEW' means the debug scanner is constructed and installed as sp->scanner, but is
+        # blocked before its first RM_Scan call -- exactly the "active or pending" state the
+        # eligibility gate must see from the second ALTER below.
+        waitForIndexStatus(env, 'NEW', 'idx')
+
+        # Scheduled while the first ALTER's scan is still active/pending, so this one must
+        # fall back to a full scan regardless of which field it adds.
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'b', 'TAG').ok()
+        waitForIndexStatus(env, 'NEW', 'idx')
+    finally:
+        # Restore the debug controller before letting either scan actually run, so a later
+        # test in this file does not inherit a paused scanner or debug-mode overhead.
+        env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    # doc:1 has neither 'a' nor 'b': only the fallback (not the shortcut) reindexes it.
+    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+
+
+@skip(cluster=True)
+def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
+    """A background scan that aborts on OOM leaves scan_failed_OOM set on the spec, which the
+    eligibility gate reads directly; a later ALTER must run a full scan to finish the work the
+    aborted scan left undone, even for a document missing the new ALTER's own added field.
+    A single document is enough to trigger OOM on the very first (and only) scanned key once
+    maxmemory is tightened, so this does not need the multi-document SET_PAUSE_ON_SCANNED_DOCS
+    staging that tests/pytests/test_index_oom.py uses to control how much of a larger scan
+    completes before OOM hits."""
+    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+
+    try:
+        env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+        set_tight_maxmemory_for_oom(env, 0.85)
+
+        # This ALTER's own scan is the one that hits OOM; doc:1 is not reindexed by it either
+        # way, so its id is not meaningful until after the corrective full scan below.
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a', 'TAG').ok()
+        waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+        waitForIndexFinishScan(env, 'idx')
+    finally:
+        set_unlimited_maxmemory_for_oom(env)
+        env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+        env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '100').ok()
+
+    id1_before = get_internal_id(env, 'doc:1')
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    try:
+        # Memory has recovered and the OOM pause is off, but scan_failed_OOM is still set from
+        # the aborted scan above, so this ALTER must still take the full-scan fallback.
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'b', 'TAG').ok()
+        waitForIndexStatus(env, 'NEW', 'idx')
+    finally:
+        env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    # doc:1 has neither 'a' nor 'b': only the fallback (not the shortcut) reindexes it.
+    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+
+
+def testAlterSkipUnchangedDocsCoordinatorSearchCorrectness(env):
+    """Task 3.5: a light, cluster-enabled counterpart to the id-based tests above. Internal ids
+    are per-shard and not meaningfully comparable across a cluster, so this test asserts only
+    search correctness -- the coordinator-fronted backfill must make exactly the right
+    documents searchable on the newly added field, and pre-existing-field queries must be
+    unaffected. Not skipped for cluster, so it runs standalone too."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'tags', 'premium')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'tags', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@tags:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
