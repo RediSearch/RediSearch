@@ -613,8 +613,9 @@ def testResultProcessorCounter(env):
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
   env.assertEqual(actual_res[0], [2])
+  # The counter swallows every result it is given and yields none of its own, so it reports zero.
   res = [['Type', 'Index', 'Results processed', 2],
-         ['Type', 'Counter', 'Results processed', 1]]
+         ['Type', 'Counter', 'Results processed', 0]]
   env.assertEqual(actual_res[1][1][0][5], res)
 
 @skip(cluster=True)
