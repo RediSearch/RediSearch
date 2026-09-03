@@ -22,7 +22,13 @@ else
             filename=cmake-${version}-linux-aarch64.sh
         fi
 
-        wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
+        # -o truncates, so a retried bootstrap overwrites a partial download
+        # instead of executing a stale one. --proto/--proto-redir hold the
+        # transfer on HTTPS across GitHub's redirect; the file is executed
+        # below, so an http:// downgrade would be code execution.
+        curl -fsSL --proto '=https' --proto-redir '=https' \
+             -o ${filename} \
+             https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
         chmod u+x ./${filename}
         $MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
         cmake --version
