@@ -15,8 +15,10 @@ workspace = true
 test-utils = []
 
 [dependencies]
+ffi.workspace = true
 lending-iterator.workspace = true
 rdb_io.workspace = true
+string_utils.workspace = true
 thiserror.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true

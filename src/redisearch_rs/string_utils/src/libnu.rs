@@ -20,7 +20,9 @@
 //! This module models that decoder's walk once, for every caller that needs it:
 //! [`tail_may_overread`] says whether an input can trip the read-ahead,
 //! [`NU_MAX_READAHEAD`] says how many trailing zero bytes a padded copy needs
-//! when it can, and [`nu_rune_count`] says how many steps that walk takes.
+//! when it can, [`nu_rune_count`] says how many steps that walk takes, and
+//! [`nu_decodes_a_zero_codepoint`] says whether one of those steps produces
+//! the zero codepoint that C stops on.
 
 /// The most bytes the C decoder (`nu_utf8_read`) reads past a multibyte lead
 /// byte. A UTF-8 sequence is at most four bytes, so the decoder touches at most
@@ -89,6 +91,49 @@ pub fn nu_rune_count(bytes: &[u8]) -> usize {
     runes
 }
 
+/// Whether the C decoder produces the zero codepoint anywhere along its walk
+/// of `bytes` — the stopping condition of C's `strToRunes` that
+/// [`nu_rune_count`] cannot see.
+///
+/// A literal NUL byte produces it, but so do byte patterns no NUL scan finds:
+/// an overlong encoding of codepoint 0 such as `C0 80`, and a degenerate
+/// sequence assembling to zero such as the continuation pair `80 80` (the
+/// decoder treats a stray continuation byte as a two-byte lead and masks both
+/// bytes' value bits to nothing).
+///
+/// Replays the decoder's bit assembly exactly: no validation, only the value
+/// bits of each byte, over the [`nu_seq_len`] stride. A truncated trailing
+/// sequence is not stepped into — there the C decoder reads bytes outside the
+/// input, which no in-bounds replay can model — so this is only a complete
+/// answer when [`tail_may_overread`] is `false`.
+pub fn nu_decodes_a_zero_codepoint(bytes: &[u8]) -> bool {
+    let mut pos = 0;
+    while pos < bytes.len() {
+        let Some(seq) = bytes.get(pos..pos + nu_seq_len(bytes[pos])) else {
+            return false;
+        };
+        let codepoint = match *seq {
+            [b0] => u32::from(b0),
+            [b0, b1] => (u32::from(b0) & 0x1F) << 6 | (u32::from(b1) & 0x3F),
+            [b0, b1, b2] => {
+                (u32::from(b0) & 0x0F) << 12 | (u32::from(b1) & 0x3F) << 6 | (u32::from(b2) & 0x3F)
+            }
+            [b0, b1, b2, b3] => {
+                (u32::from(b0) & 0x07) << 18
+                    | (u32::from(b1) & 0x3F) << 12
+                    | (u32::from(b2) & 0x3F) << 6
+                    | (u32::from(b3) & 0x3F)
+            }
+            _ => unreachable!("nu_seq_len returns 1..=4"),
+        };
+        if codepoint == 0 {
+            return true;
+        }
+        pos += seq.len();
+    }
+    false
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -145,6 +190,35 @@ mod test {
         // cursor stepping past the end.
         assert_eq!(nu_rune_count(b"a\xF0"), 2);
         assert_eq!(nu_rune_count(b"a\xE0\x80"), 2);
+    }
+
+    #[test]
+    fn zero_codepoint_walk_finds_every_zero_encoding() {
+        // The three shapes that hide a zero from a NUL-byte scan, plus the
+        // literal byte itself.
+        assert!(nu_decodes_a_zero_codepoint(b"ab\0cd"));
+        assert!(nu_decodes_a_zero_codepoint(b"a\xC0\x80b"));
+        assert!(nu_decodes_a_zero_codepoint(b"\x80\x80"));
+        assert!(nu_decodes_a_zero_codepoint(b"a\xE0\x80\x80"));
+        assert!(nu_decodes_a_zero_codepoint(b"a\xF0\x80\x80\x80"));
+    }
+
+    #[test]
+    fn zero_codepoint_walk_passes_well_formed_input() {
+        assert!(!nu_decodes_a_zero_codepoint(b""));
+        assert!(!nu_decodes_a_zero_codepoint(b"hello"));
+        assert!(!nu_decodes_a_zero_codepoint("日本".as_bytes()));
+        assert!(!nu_decodes_a_zero_codepoint("ab😀".as_bytes()));
+        // Malformed but nonzero: resynchronises and keeps walking.
+        assert!(!nu_decodes_a_zero_codepoint(b"\xC3(ab"));
+    }
+
+    #[test]
+    fn zero_codepoint_walk_stops_before_a_truncated_tail() {
+        // The truncated step itself is out of scope — `tail_may_overread`
+        // owns it — but a zero found before it must still be reported.
+        assert!(!nu_decodes_a_zero_codepoint(b"ab\xF0"));
+        assert!(nu_decodes_a_zero_codepoint(b"a\0b\xF0"));
     }
 
     #[test]
