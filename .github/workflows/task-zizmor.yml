@@ -26,14 +26,14 @@ jobs:
       - name: Checkout
         # No submodules — the vendored deps under deps/ ship their own workflows
         # and are not ours to audit.
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Nothing here pushes, and a persisted credential in .git/config is
           # exactly what zizmor's own artipacked audit warns about.
           persist-credentials: false
 
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
         with:
           # Pinned so a zizmor release that adds or tightens an audit turns this
           # job red on the PR that bumps it, not on an unrelated PR.
