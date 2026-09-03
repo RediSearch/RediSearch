@@ -2175,6 +2175,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
+ "string_utils_ffi",
  "syn 2.0.118",
  "term_dictionary_ffi",
  "term_suffix_index_ffi",
@@ -2961,6 +2962,14 @@ dependencies = [
  "rstest",
  "string_utils",
  "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
+name = "string_utils_ffi"
+version = "0.0.1"
+dependencies = [
+ "string_utils",
  "workspace_hack",
 ]
 
