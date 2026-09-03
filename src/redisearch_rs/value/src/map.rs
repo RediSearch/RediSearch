@@ -159,7 +159,7 @@ impl RsValueMap {
     }
 
     /// Calculate the [`Layout`] that should be used to allocate space for
-    /// `cap` [`RsValueEntries`] for use in this map.
+    /// `cap` [`RsValueMapEntry`] for use in this map.
     const fn entry_layout(cap: u32) -> Layout {
         let Ok(layout) = Layout::array::<RsValueMapEntry>(cap as usize) else {
             panic!("Capacity too high. Can be at most `isize::MAX / size_of::<RsValueMapEntry>()`");
