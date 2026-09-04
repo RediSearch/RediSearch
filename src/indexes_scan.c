@@ -169,13 +169,14 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     DocumentType type = getDocType(key);
-    RedisModule_CloseKey(key);
     if (type == DocumentType_Unsupported) {
+      RedisModule_CloseKey(key);
       ++scanner->scannedKeys;
       continue;
     }
 
     if (scanner->global) {
+      RedisModule_CloseKey(key);
       Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL, 0);
     } else {
       StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
@@ -183,11 +184,29 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
       if (sp) {
         // This check is performed without locking the spec, but it's ok since we locked the GIL
         // So the main thread is not running and the GC is not touching the relevant data
-        if (SchemaRule_ShouldIndex(sp, keyname, type, NULL)) {
+        // Deliberately not handed `key`: a FILTER clause evaluates through
+        // RLookup_LoadRuleFields, which opens the document with DOCUMENT_OPEN_KEY_QUERY_FLAGS.
+        // This scan's handle carries the narrower DOCUMENT_OPEN_KEY_INDEXING_FLAGS, so reusing it
+        // would evaluate FILTER against a key opened without NOEXPIRE/ACCESS_EXPIRED/
+        // ACCESS_TRIMMED and could change which documents a filtered index accepts.
+        bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, NULL);
+        // scanner->addedFields is non-empty only for a selective ALTER scan (see
+        // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
+        // confirmed absent, so this backfill does not force a full replacement of documents
+        // the ALTER cannot affect. A probe failure falls through to the full-reindex path.
+        bool skipUnchanged =
+            shouldIndex && scanner->addedFields.start != scanner->addedFields.end &&
+            Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
+                                        scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
+        // The scan opened `key` read-only; IndexSpec_UpdateDoc can update key metadata and
+        // must retain its own key-opening behavior, so the handle is not passed through.
+        RedisModule_CloseKey(key);
+        if (shouldIndex && !skipUnchanged) {
           IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
         }
         IndexSpecRef_Release(curr_run_ref);
       } else {
+        RedisModule_CloseKey(key);
         // spec was deleted, cancel scan
         IndexesScanner_Cancel(scanner);
       }
@@ -396,7 +415,7 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
+static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields) {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
@@ -416,6 +435,10 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   } else {
     scanner = IndexesScanner_New(spec_ref);
   }
+  // Record after construction: IndexesScanner_New/DebugIndexesScanner_New may cancel and
+  // replace sp->scanner, but the freshly-constructed scanner returned here is always the one
+  // that ends up running, so there is nothing to preserve from a prior scanner's range.
+  scanner->addedFields = addedFields;
 
   // Route disk indexes to the AsyncScan driver; RAM keeps the synchronous scan
   // (in-RAM key loads are cheap and gain nothing from offloading the read). The
@@ -440,8 +463,47 @@ void ReindexPool_ThreadPoolDestroy() {
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    IndexSpec_ScanAndReindexAsync(spec_ref);
+    IndexSpec_ScanAndReindexAsync(spec_ref, (AddedFieldsRange){0});
   }
+}
+
+// See indexes_scan.h for the contract. Falls back to the same full scan
+// IndexSpec_ScanAndReindex schedules unless every one of the conditions below holds; each
+// describes a case where a selective scan could skip a document that still needs the full
+// reindex path to converge. These must all be checked before IndexesScanner_New runs, since
+// that call cancels any active scanner and clears scan_failed_OOM out from under this check.
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
+                                      t_fieldIndex addedFieldsStart) {
+  size_t nkeys = RedisModule_DbSize(ctx);
+  if (nkeys == 0) {
+    return;
+  }
+
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  RS_LOG_ASSERT(sp, "caller must hold a strong ref to the spec being scanned");
+
+  // Disk specs are excluded because their backfill runs through Indexes_AsyncScanAndReindexTask,
+  // which never consults the range: recording one would be inert today and misleading to anyone
+  // later teaching that driver to read it.
+  bool canBeSelective = !SearchDisk_IsEnabled() && sp->scanner == NULL &&
+                        !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
+                        (sp->flags & Index_AlterHistoryTracked) &&
+                        !(sp->flags & (Index_SkipInitialScan | Index_HasSkippedAlterScan));
+  for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    // A sortable field widens every document's sorting vector, and only the full reindex path
+    // rebuilds one. A skipped document keeps a vector sized for the old schema, while
+    // AddDocumentCtx_UpdateNoIndex reallocates only a zero-length vector -- so a later partial
+    // update writing the new sortIdx into a short vector panics in RSSortingVector_Put*.
+    canBeSelective = !FieldSpec_IndexesMissing(fs) && !FieldSpec_IsSortable(fs);
+  }
+
+  AddedFieldsRange range = {0};
+  if (canBeSelective) {
+    range.start = addedFieldsStart;
+    range.end = sp->numFields;
+  }
+  IndexSpec_ScanAndReindexAsync(spec_ref, range);
 }
 
 // only used on "RDB load finished" event (before the server is ready to accept commands)

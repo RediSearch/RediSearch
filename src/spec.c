@@ -472,6 +472,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
+  // This spec exists from birth under a version that records skipped ALTER backfills, so its
+  // Index_HasSkippedAlterScan state is trustworthy for the rest of its life, including across
+  // RDB round-trips. Specs reaching the registry any other way (an RDB written before the flag
+  // existed, or IndexSpec_ParseC) deliberately go without: the marker's absence only costs the
+  // selective-backfill optimization, while a spec wrongly carrying it could skip documents an
+  // untracked ALTER left unindexed.
+  sp->flags |= Index_AlterHistoryTracked;
+
   // Start the garbage collector
   IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
