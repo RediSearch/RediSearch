@@ -11,6 +11,8 @@ The syntax is gated behind `ENABLE_UNSTABLE_FEATURES`; see
 `docs/CONTRIBUTING-unstable-features.md`.
 """
 
+import time
+
 from RLTest import Env
 from includes import *
 from common import *
@@ -345,6 +347,35 @@ def testKeysetPagination(env):
     page = env.cmd('FT.SEARCH', 'idx', '@name:>{dave}', 'NOCONTENT', 'SORTBY', 'name', 'ASC',
                    'LIMIT', '0', '2', 'DIALECT', '2')
     env.assertEqual(page[1:], ['doc5'])
+
+
+@skip(cluster=True)
+def testRangeReadsTheFieldItNames(env):
+    """A range must open its readers on the field it names, not the schema's first.
+
+    A lex-range node hangs off a tag node and never carries a field index of its
+    own, so the evaluator has to take one from the field spec; reading the
+    unset default would silently query whichever field is declared first. The
+    index only shows up in the hash-field-expiration check, so nothing but an
+    expired field distinguishes the two, and every other test here would pass
+    either way.
+
+    The exact match is the control: it is a different evaluator that has always
+    passed the right index, so the two must agree.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 't1', 'TAG', 't2', 'TAG')
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
+    # Expire the second field only, leaving the first live. Reading the default
+    # index would consult the live `t1` and wrongly keep the document.
+    conn.execute_command('HPEXPIRE', 'doc1', '1', 'FIELDS', '1', 't2')
+    time.sleep(0.1)
+
+    env.assertEqual(search(env, '@t2:{bar}'), [], message='exact match control')
+    env.assertEqual(search(env, '@t2:>{a}'), [])
+    # The unexpired field is unaffected.
+    env.assertEqual(search(env, '@t1:>{a}'), ['doc1'])
 
 
 def testSortableTagUsesTheIndexedValue(env):
