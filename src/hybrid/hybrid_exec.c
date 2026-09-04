@@ -201,7 +201,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
-      // Excludes hidden fields. Hybrid does not use RETURN fields (it uses
+      // Excludes reply-hidden fields. Hybrid does not use RETURN fields (it uses
       // LOAD fields), so no flags are required. The schema rule's special
       // fields (score/language/payload) are hidden from creation (see the
       // spec cache's rule names), so this path never touches the spec — it

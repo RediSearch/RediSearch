@@ -55,7 +55,7 @@ ReducerFactory RDCR_GetFactory(const char *name) {
 bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
                             const RLookupKey **out) {
   // Fast path: the field is already available for read in the source lookup.
-  *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_HIDDEN);
+  *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_NOFLAGS);
   if (*out) {
     return true;
   }
@@ -71,7 +71,7 @@ bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
   // Open a load slot. We currently allow implicit loading only for known fields
   // from the schema; anything else is rejected.
   const RLookupKey *loaded =
-      RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
+      RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_NOFLAGS);
   if (!loaded || !(RLookupKey_GetFlags(loaded) & RLOOKUP_F_SCHEMASRC)) {
     QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
                                   "Property not loaded nor in pipeline", ": `%s`", keyName);

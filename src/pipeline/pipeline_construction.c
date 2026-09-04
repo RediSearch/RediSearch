@@ -91,7 +91,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     PLN_Reducer *pr = gstp->reducers + ii;
     const RLookupKey *input_key = NULL;
     if (pr->inputAlias) {
-      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
+      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_NOFLAGS);
       if (!input_key) {
         Grouper_Free(grp);
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
