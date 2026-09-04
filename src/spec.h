@@ -644,8 +644,11 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // callback) so the DocIdMeta update can reuse the handle instead of reopening
 // the key by name; pass NULL otherwise. The caller retains ownership of
 // `openKey` and must keep it valid for the duration of the call.
+// `changedFields` / `numChangedFields` name the fields the originating command
+// modified (NULL / 0 when unknown);
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey);
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,

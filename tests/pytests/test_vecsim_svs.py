@@ -658,20 +658,31 @@ def test_drop_index_during_query():
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
     env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
 
-def gc_test_common(env, num_workers):
+def gc_test_common(env, num_workers, compression_types):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    index_size = DEFAULT_BLOCK_SIZE
-    compression_types = ['NO_COMPRESSION', 'LVQ8']
-    if is_intel_opt_enabled():
-        compression_types.append('LeanVec4x8')
 
     for compression_type in compression_types:
         compression_params = None
         if compression_type != 'NO_COMPRESSION':
             compression_params = ['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold]
         message_prefix = f"compression_params: {compression_params}"
+
+        # SVS hands dataset memory back a whole block at a time, and
+        # `svs::data::SimpleData::resize` keeps one empty block when it shrinks
+        # (VectorSimilarity #980). So "GC returned memory" is only observable once a deletion
+        # frees two blocks: three blocks in and two deleted is the cheapest sizing that does,
+        # leaving a block of live vectors. At one block -- the sizing this test used before
+        # #980 -- nothing measurable is ever freed, however many vectors are deleted.
+        #
+        # Only one variant pays for that. Block retention is a property of the SVS dataset, not
+        # of the compression applied to it, so testing it once is enough, and the coverage lane
+        # runs this instrumented: three blocks across every variant timed out there.
+        checks_memory_release = compression_type == 'NO_COMPRESSION'
+        index_size = (3 if checks_memory_release else 1) * DEFAULT_BLOCK_SIZE * env.shardsCount
+        vecs_to_delete = (2 * DEFAULT_BLOCK_SIZE * env.shardsCount if checks_memory_release
+                          else DEFAULT_BLOCK_SIZE * env.shardsCount - 24)
         set_up_database_with_vectors(env, dim, num_docs=index_size, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=compression_params)
         wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
 
@@ -684,7 +695,6 @@ def gc_test_common(env, num_workers):
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
         # Phase 1: Delete some vectors
-        vecs_to_delete = 1000
         for i in range (vecs_to_delete):
             env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}')
 
@@ -736,9 +746,10 @@ def gc_test_common(env, num_workers):
         # Verify that the number of marked deleted vectors is as expected
         env.assertEqual(tiered_backend_debug_info['NUMBER_OF_MARKED_DELETED'], 0, message=f"{message_prefix}")
 
-        # Memory should decrease
-        after_gc_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        env.assertLess(after_gc_memory, after_del_memory, message=f"{message_prefix}")
+        # Memory should decrease -- only where the deletion freed whole blocks; see above.
+        if checks_memory_release:
+            after_gc_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+            env.assertLess(after_gc_memory, after_del_memory, message=f"{message_prefix}")
 
         # Index size should be updated
         size_after = tiered_backend_debug_info['INDEX_SIZE']
@@ -750,19 +761,34 @@ def gc_test_common(env, num_workers):
 
         env.execute_command('FLUSHALL')
 
+def _gc_compressed_types():
+    return ['LVQ8'] + (['LeanVec4x8'] if is_intel_opt_enabled() else [])
+
 @skip(cluster=True)
 def test_gc():
     num_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
-    gc_test_common(env, num_workers)
+    gc_test_common(env, num_workers, ['NO_COMPRESSION'] + _gc_compressed_types())
 
+# Split from the compressed variants (MOD-15571 precedent in test_vecsim.py): with no workers, GC
+# runs synchronously on the calling thread rather than handed to the thread pool, and the
+# NO_COMPRESSION variant alone pays for the 3-block sizing `checks_memory_release` needs (see
+# above). Under coverage instrumentation, that no longer fits in the same per-test timeout as the
+# compressed variants below.
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
-    gc_test_common(env, num_workers)
+    gc_test_common(env, num_workers, ['NO_COMPRESSION'])
+
+@skip(cluster=True)
+def test_gc_no_workers_compressed():
+    num_workers = 0
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)
 def test_resize_workers_during_pending_svs_jobs():
