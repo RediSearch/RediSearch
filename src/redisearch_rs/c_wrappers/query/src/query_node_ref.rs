@@ -108,8 +108,12 @@ pub enum QueryNode<'a> {
     Wildcard,
     /// A tag-field exact-match node.
     Tag {
-        /// The [`ffi::FieldSpec`] of the tag field being queried.
-        fs: &'a ffi::FieldSpec,
+        /// Raw pointer to the [`ffi::FieldSpec`] of the tag field being queried.
+        ///
+        /// Copying this pointer does not retain the shared node borrow created by
+        /// [`QueryNodeRef::as_enum`], allowing the evaluator to consume its
+        /// exclusive [`QueryNodeMut`] after dispatch.
+        fs: *const ffi::FieldSpec,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -332,10 +336,7 @@ impl QueryNodeRef {
                 // Invariant (1) of `new` guarantees `tag.fs` is a valid,
                 // non-null pointer.
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
-                QueryNode::Tag {
-                    // SAFETY: Invariant (1) of `new` guarantees `tag.fs` is valid and non-null.
-                    fs: unsafe { &*tag.fs },
-                }
+                QueryNode::Tag { fs: tag.fs }
             }
             QueryNodeType::Fuzzy => {
                 // SAFETY: `type_` is `Fuzzy`, so the union holds a `QueryFuzzyNode`.
@@ -522,6 +523,33 @@ impl QueryNodeMut<'_> {
         // SAFETY: `tok` addresses the node's valid token, exclusively owned for the
         // returned handle's lifetime by the borrow of `*self`, and its string meets
         // the constructor's requirements per invariant (4).
+        Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
+    }
+
+    /// Borrow a parser-owned token node for in-place rewriting.
+    ///
+    /// Unlike [`token_mut`](Self::token_mut), this accessor admits
+    /// [`QueryNodeType::Token`]. General token nodes cannot safely use it because
+    /// query expansion may replace their string with borrowed, length-delimited
+    /// storage. A caller that knows the token came directly from query syntax can
+    /// establish the stronger contract below.
+    ///
+    /// # Safety
+    ///
+    /// A [`QueryNodeType::Token`] node reaching this method must own a writable,
+    /// NUL-terminated string allocated by the Redis module allocator. No token
+    /// produced or replaced by query expansion may be passed here.
+    pub unsafe fn token_mut_nul_terminated(&mut self) -> Option<RSTokenMut<'_>> {
+        if self.as_ref().node_type() != QueryNodeType::Token {
+            return None;
+        }
+
+        // SAFETY: the active union member is `QueryTokenNode`, an alias of
+        // `RSToken`, and the caller guarantees its string meets the constructor's
+        // writable, NUL-terminated requirements. The exclusive `self` borrow
+        // provides exclusive access to the token for the returned lifetime.
+        let tok = unsafe { &raw mut (*self.0.as_ptr()).__bindgen_anon_1 }.cast::<ffi::RSToken>();
+        // SAFETY: justified above.
         Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
     }
 

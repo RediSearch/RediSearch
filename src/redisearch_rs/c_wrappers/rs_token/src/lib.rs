@@ -350,6 +350,30 @@ impl<'a> RSTokenMut<'a> {
         unsafe { RSTokenRef::from_nul_terminated_ffi(std::ptr::from_ref(self.tok)) }
     }
 
+    /// Normalize a parser-owned tag token with the C compatibility operation.
+    ///
+    /// This removes query escapes and, unless `case_sensitive` is set, applies
+    /// Unicode lowercasing. The operation may free the current string and replace
+    /// its pointer when lowercasing expands the output, so all reads must go
+    /// through this handle after the call.
+    ///
+    /// # Safety
+    ///
+    /// The token string must have been allocated by the Redis module allocator,
+    /// because [`ffi::tag_strtolower`] may free it before installing a replacement.
+    pub unsafe fn normalize_tag(&mut self, case_sensitive: bool) {
+        // SAFETY: the caller guarantees the current allocation is compatible
+        // with the module allocator. `self` exclusively owns both token fields,
+        // which are exactly the pointer and length parameters C may replace.
+        unsafe {
+            ffi::tag_strtolower(
+                &raw mut self.tok.str_,
+                &raw mut self.tok.len,
+                i32::from(case_sensitive),
+            )
+        }
+    }
+
     /// Collapse `\x` escapes in this token's wildcard pattern, in place,
     /// shortening its length to match.
     ///
