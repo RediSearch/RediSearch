@@ -8,7 +8,13 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
+use ahash::RandomState;
+use hashbrown::HashTable;
 use std::{ffi::CStr, iter::FusedIterator, mem, pin::Pin, ptr::NonNull, slice};
+
+// Paired coordinator benchmarks show hashing wins once rows reach the mid-twenties. Promotion is
+// checked only for by-name writes, so wide lookups used solely by slot never pay for this index.
+const NAME_INDEX_MIN_KEYS: usize = 24;
 
 /// Owns a pinned key while keeping the key's address independent of vector reallocations.
 #[derive(Debug)]
@@ -51,6 +57,14 @@ struct KeyStore<'a> {
     live: Vec<OwnedKey<'a>>,
     /// Replaced keys whose addresses must remain valid for C consumers.
     retired: Vec<OwnedKey<'a>>,
+    /// Lazily created name index for wide lookups that receive by-name writes.
+    by_name: Option<NameIndex>,
+}
+
+#[derive(Debug)]
+struct NameIndex {
+    slots: HashTable<u16>,
+    hash_builder: RandomState,
 }
 
 impl KeyStore<'_> {
@@ -58,15 +72,65 @@ impl KeyStore<'_> {
         Self {
             live: Vec::new(),
             retired: Vec::new(),
+            by_name: None,
         }
     }
 
     fn find_slot(&self, name: &CStr) -> Option<u16> {
+        if let Some(index) = &self.by_name {
+            let hash = index.hash_builder.hash_one(name);
+            return index
+                .slots
+                .find(hash, |slot| {
+                    self.live[usize::from(*slot)].get().name().as_ref() == name
+                })
+                .copied();
+        }
+
         let slot = self
             .live
             .iter()
             .position(|key| key.get().name().as_ref() == name)?;
         Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
+    }
+
+    fn enable_name_index(&mut self) {
+        if self.by_name.is_some() {
+            return;
+        }
+
+        self.by_name = Some(NameIndex {
+            slots: HashTable::with_capacity(self.live.len()),
+            hash_builder: RandomState::new(),
+        });
+        for slot in 0..self.live.len() {
+            self.index_slot_first_wins(
+                u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"),
+            );
+        }
+    }
+
+    fn index_slot_first_wins(&mut self, slot: u16) {
+        let name = self.live[usize::from(slot)].get().name().as_ref();
+        let index = self.by_name.as_ref().unwrap();
+        let hash = index.hash_builder.hash_one(name);
+        if index
+            .slots
+            .find(hash, |existing| {
+                self.live[usize::from(*existing)].get().name().as_ref() == name
+            })
+            .is_some()
+        {
+            return;
+        }
+
+        let live = &self.live;
+        let index = self.by_name.as_mut().unwrap();
+        index.slots.insert_unique(hash, slot, |slot| {
+            index
+                .hash_builder
+                .hash_one(live[usize::from(*slot)].get().name().as_ref())
+        });
     }
 }
 
@@ -123,11 +187,23 @@ impl<'a> KeyList<'a> {
         u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
     }
 
+    pub(crate) fn promote_name_index_if_wide(&mut self) {
+        let Some(store) = self.store.as_mut() else {
+            return;
+        };
+        if store.live.len() >= NAME_INDEX_MIN_KEYS {
+            store.enable_name_index();
+        }
+    }
+
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
         let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
         let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
         key.dstidx = slot;
         store.live.push(OwnedKey::new(key));
+        if store.by_name.is_some() {
+            store.index_slot_first_wins(slot);
+        }
 
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push");
@@ -368,6 +444,7 @@ mod tests {
     use super::*;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
+    use std::ffi::CString;
 
     #[test]
     fn append_and_lookup_preserve_row_order() {
@@ -390,6 +467,85 @@ mod tests {
         keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
 
         assert_eq!(keys.find_slot(c"same"), Some(0));
+    }
+
+    #[test]
+    fn name_index_is_promoted_only_for_wide_key_stores() {
+        let names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        let mut keys = KeyList::new();
+        for name in &names[..NAME_INDEX_MIN_KEYS - 1] {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
+
+        keys.promote_name_index_if_wide();
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS - 1].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+
+        keys.promote_name_index_if_wide();
+        keys.promote_name_index_if_wide();
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot).unwrap()));
+        }
+        assert_eq!(keys.find_slot(c"missing"), None);
+        assert_eq!(
+            keys.store
+                .as_ref()
+                .unwrap()
+                .by_name
+                .as_ref()
+                .unwrap()
+                .slots
+                .len(),
+            NAME_INDEX_MIN_KEYS + 1
+        );
+    }
+
+    // First-wins resolution must survive index promotion: duplicates that
+    // exist when the index is built, and duplicates appended through the
+    // indexed path afterward, must keep resolving to the earliest slot.
+    #[test]
+    fn promoted_index_keeps_duplicates_resolving_to_first_slot() {
+        let names: Vec<_> = (0..NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        let mut keys = KeyList::new();
+        // A duplicate pair already present when the index is built.
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        for name in &names {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
+
+        keys.promote_name_index_if_wide();
+        assert!(keys.store.as_ref().unwrap().by_name.is_some());
+        assert_eq!(keys.find_slot(c"pre"), Some(0));
+
+        // A duplicate appended through the indexed path must not displace the
+        // first carrier — neither of a pre-promotion name...
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        assert_eq!(keys.find_slot(c"pre"), Some(0));
+
+        // ...nor of a name first seen after promotion.
+        let post_slot = keys.push_slot(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        assert_eq!(keys.find_slot(c"post"), Some(post_slot));
+
+        // Unique names still resolve to their own slots through the index.
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot + 2).unwrap()));
+        }
     }
 
     #[test]
