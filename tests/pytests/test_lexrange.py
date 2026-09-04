@@ -68,22 +68,23 @@ def search(env, query, *args):
 # ---------------------------------------------------------------------------
 
 def testLexRangeGatedOff(env):
-    """With the flag off every operator is rejected, and the error says how to
-    enable it.
+    """With the flag off the operator is not the gated syntax, and the query
+    keeps the meaning it has today.
 
-    Silently reading `@name:>{bob}` as the pre-feature `@name:{bob}` would hand a
-    client that reached for the operator a plausible but wrong result set.
+    `@name:>{bob}` already parses: `>` is punctuation the lexer drops, leaving
+    the tag clause `@name:{bob}`. Requirement 1 of
+    `docs/CONTRIBUTING-unstable-features.md` says a user who never enabled the
+    feature sees the same results and the same errors, so the gate must not
+    reject it.
     """
     run_command_on_all_shards(env, 'CONFIG', 'SET',
                               'search-enable-unstable-features', 'no')
     build_index(env)
 
-    for query in ('@name:>{bob}', '@name:>={bob}', '@name:<{bob}', '@name:<={bob}'):
-        env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', '2') \
-            .error().contains('search-enable-unstable-features')
-
-    # The clause without an operator is untouched.
-    env.assertEqual(search(env, '@name:{bob}'), ['doc2'])
+    plain = search(env, '@name:{bob}')
+    env.assertEqual(plain, ['doc2'])
+    for op in ('>', '>=', '<', '<='):
+        env.assertEqual(search(env, f'@name:{op}{{bob}}'), plain, message=op)
 
 
 def testOperatorWithoutABoundIsUnchanged(env):
@@ -376,6 +377,40 @@ def testRangeReadsTheFieldItNames(env):
     env.assertEqual(search(env, '@t2:>{a}'), [])
     # The unexpired field is unaffected.
     env.assertEqual(search(env, '@t1:>{a}'), ['doc1'])
+
+
+def testMultiValueTagRepeatsAcrossPages(env):
+    """Keyset pagination is for single-valued tag fields, and this pins why.
+
+    A multi-valued tag puts one trie entry per value, so a range matches the
+    document through any of them, exactly as `@name:{zulu}` does. SORTBY instead
+    keys on the whole unsplit field, which is not any one of those values. The
+    two orderings are over different things, so a cursor taken from the sort key
+    can still be below one of the document's own values and hand it back on the
+    next page.
+
+    Nothing here is fixable inside the range without teaching it about the
+    sorting vector: matching a document by any of its tag values is what a tag
+    query means. This asserts the repeat so that it stays a known limitation
+    rather than becoming a surprise.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'name', 'TAG', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 'name', 'alice,zulu')
+    conn.execute_command('HSET', 'doc2', 'name', 'bob')
+
+    page = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'name', 'ASC',
+                   'LIMIT', '0', '1', 'DIALECT', '2')
+    env.assertEqual(page[1:], ['doc1'])
+
+    # `zulu` sorts above the `alice,zulu` cursor, so doc1 comes back again.
+    env.assertEqual(search(env, '@name:>{"alice,zulu"}'), ['doc1', 'doc2'])
+
+    # A single-valued field pages cleanly, which is the supported shape.
+    conn = create_index(env, 'name', 'TAG', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 'name', 'alice')
+    conn.execute_command('HSET', 'doc2', 'name', 'bob')
+    env.assertEqual(search(env, '@name:>{alice}'), ['doc2'])
 
 
 def testSortableTagUsesTheIndexedValue(env):

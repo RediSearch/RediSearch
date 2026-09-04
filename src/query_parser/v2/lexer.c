@@ -153,10 +153,19 @@ int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok
       return 0;
     }
 
-    // The operator only means a lex range when a bound follows it, and only then
-    // does the flag change the outcome. `@f:>` alone is malformed either way, so
-    // pointing the caller at the flag would be wrong advice; leave it, and
-    // anything else without a brace, parsing exactly as it did before this
+    // Requirement 1 of docs/CONTRIBUTING-unstable-features.md: with the flag off
+    // an existing query keeps its results and its errors. `@f:>{v}` already
+    // parses - `>` is punctuation the lexer drops, leaving the tag clause
+    // `@f:{v}` - so rejecting it here would change what a user who never
+    // enabled the feature gets back. Leave the operator unemitted and let that
+    // parse stand. Checking before the scan below also keeps the flag-off cost
+    // to the one branch Requirement 4 asks for.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      return 1;
+    }
+
+    // The operator only means a lex range when a brace bound follows it. `@f:>`
+    // alone, or followed by anything else, keeps parsing as it did before this
     // syntax existed.
     const char *after = te;
     const char *queryEnd = q->raw + q->len;
@@ -165,15 +174,6 @@ int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok
     }
     if (after == queryEnd || *after != '{') {
       return 1;
-    }
-
-    if (!RSGlobalConfig.enableUnstableFeatures) {
-      QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_SYNTAX,
-        "Lexicographic comparison on a " SPEC_TAG_STR
-        " field is an unstable feature. Enable it with "
-        "`CONFIG SET search-enable-unstable-features yes`",
-        ", at offset %d near %.*s", (int)(ts - q->raw), (int)(te - ts), ts);
-      return 0;
     }
 
     tok.pos = (te - opLen) - q->raw;
