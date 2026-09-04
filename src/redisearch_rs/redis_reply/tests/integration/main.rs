@@ -30,7 +30,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 pub fn init() -> Replier {
     redis_mock::init_redis_module_mock();
     // SAFETY: Context is ignored in mock mode, using non-null dummy address
-    unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) }
+    unsafe { Replier::new(std::ptr::NonNull::<RedisModuleCtx>::dangling()) }
 }
 
 /// Extract a single reply, panicking if there are zero or multiple replies.

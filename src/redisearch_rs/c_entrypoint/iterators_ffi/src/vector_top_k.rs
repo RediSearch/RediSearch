@@ -208,5 +208,5 @@ pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
     debug_assert!(!it.is_null());
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { wrapper_mut(it) };
-    wrapper.inner.source_mut().key_handle = handle;
+    wrapper.inner.source_mut().key_handle = NonNull::new(handle);
 }
