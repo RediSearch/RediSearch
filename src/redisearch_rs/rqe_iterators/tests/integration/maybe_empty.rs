@@ -14,6 +14,7 @@ use rqe_iterators::{
     maybe_empty::MaybeEmpty,
 };
 use rqe_iterators_test_utils::ContractChecker;
+use std::ptr::NonNull;
 
 #[derive(Default)]
 #[repr(C)]
@@ -64,7 +65,11 @@ impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
         // SAFETY: `result_slot` points at an initialised `RSIndexResult<'index>`
         // and is unaliased; `into_suspended_in_place` is a safe widening
         // conversion with no further precondition.
-        unsafe { <index_result::RSIndexResult<'index>>::into_suspended_in_place(result_slot) };
+        unsafe {
+            <index_result::RSIndexResult<'index>>::into_suspended_in_place(
+                NonNull::new(result_slot).expect("`result_slot` must not be null"),
+            )
+        };
         // SAFETY: `Infinite<'index>` and `InfiniteSuspended<'index>` are
         // layout-identical (const proof above); the allocation is reused, so the
         // box address is preserved and the field is now the suspended form.
@@ -99,7 +104,9 @@ impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
         // pointers to re-validate; any borrowed query-pipeline data is covered by
         // the `'query: 'a` bound.
         unsafe {
-            <index_result::SuspendedIndexResult<'query>>::into_active_in_place::<'a>(result_slot)
+            <index_result::SuspendedIndexResult<'query>>::into_active_in_place::<'a>(
+                NonNull::new(result_slot).expect("`result_slot` must not be null"),
+            )
         };
         // SAFETY: layout-identical (const proof above); the allocation is reused,
         // so the box address is preserved and the field is now active for `'a`.

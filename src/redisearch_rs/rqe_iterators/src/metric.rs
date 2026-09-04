@@ -61,9 +61,9 @@ pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     ///
     /// The handle is either:
     ///
-    /// - A null pointer, indicating that the iterator is not associated with a key.
+    /// - [`None`], indicating that the iterator is not associated with a key.
     /// - A valid pointer to a [`RLookupKeyHandle`] instance.
-    key_handle: *mut RLookupKeyHandle<'query>,
+    key_handle: Option<NonNull<RLookupKeyHandle<'query>>>,
 }
 
 // Compile-time proof that the `Metric` and its suspended counterpart are layout-identical.
@@ -101,11 +101,11 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_
 
 impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
     fn drop(&mut self) {
-        if !self.key_handle.is_null() {
+        if let Some(mut key_handle) = self.key_handle {
             // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
-            // dereference it if it's not null.
+            // dereference the handle if it is present.
             unsafe {
-                (*self.key_handle).is_valid = false;
+                key_handle.as_mut().is_valid = false;
             }
         }
     }
@@ -145,7 +145,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             metric_data,
             type_: MetricType::VectorDistance,
             own_key: std::ptr::null_mut(),
-            key_handle: std::ptr::null_mut(),
+            key_handle: None,
         }
     }
 
@@ -163,7 +163,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             metric_data: OwnedSlice::default(),
             type_,
             own_key: std::ptr::null_mut(),
-            key_handle: std::ptr::null_mut(),
+            key_handle: None,
         }
     }
 
@@ -181,9 +181,12 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// The provided `key_handle` can either be:
     ///
-    /// - A null pointer, indicating that the metric iterator does not have a key.
+    /// - [`None`], indicating that the metric iterator does not have a key.
     /// - A valid pointer to a [`RLookupKeyHandle`] instance.
-    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle<'index>) {
+    pub const unsafe fn set_handle(
+        &mut self,
+        key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
+    ) {
         self.key_handle = key_handle;
     }
 
@@ -325,16 +328,19 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `Metric<'index, SORTED_BY_ID>`.
     /// 2. `slot` is unaliased for the duration of the call.
     pub(crate) unsafe fn suspend_in_place(
-        slot: *mut Self,
-    ) -> *mut SuspendedMetric<'index, SORTED_BY_ID> {
-        // SAFETY: `slot` is non-null, aligned, and initialized (caller contract 1).
+        slot: NonNull<Self>,
+    ) -> NonNull<SuspendedMetric<'index, SORTED_BY_ID>> {
+        // SAFETY: `slot` is aligned and initialized (caller contract 1).
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // `slot`'s provenance over the whole allocation intact for the cast below.
-        let base_slot = unsafe { &raw mut (*slot).base };
+        let base_slot = unsafe { &raw mut (*slot.as_ptr()).base };
+        // SAFETY: `base_slot` is a field pointer derived from the non-null `slot`, so it is
+        // non-null too.
+        let base_slot = unsafe { NonNull::new_unchecked(base_slot) };
         // SAFETY: `IdList::suspend_in_place`'s contract is met — `base_slot` is
         // initialized and unaliased (caller contracts 1 and 2).
         unsafe { IdList::<'index, SORTED_BY_ID>::suspend_in_place(base_slot) };
@@ -347,15 +353,15 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for Metric<'inde
     type Suspended = SuspendedMetric<'index, SORTED_BY_ID>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active: *mut Self = Box::into_raw(self);
+        let active = NonNull::from(Box::leak(self));
 
-        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
+        // SAFETY: `suspend_in_place`'s contract is met — `active` is aligned and
         // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
         let suspended_ptr = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(active) };
 
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::leak` above, so the
         // address is unchanged and every field is now valid at the suspended type.
-        unsafe { Box::from_raw(suspended_ptr) }
+        unsafe { Box::from_raw(suspended_ptr.as_ptr()) }
     }
 }
 
@@ -373,7 +379,7 @@ impl<'query, const SORTED_BY_ID: bool> SuspendedMetric<'query, SORTED_BY_ID> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `RawMetric<'query, Suspended, SORTED_BY_ID>`.
     /// 2. `slot` is unaliased for the duration of the call.
     ///
@@ -381,15 +387,18 @@ impl<'query, const SORTED_BY_ID: bool> SuspendedMetric<'query, SORTED_BY_ID> {
     /// at the active type for `'a`; in the `Err` case the slot is byte-for-byte
     /// unchanged and remains a valid `SuspendedMetric<'query, SORTED_BY_ID>`.
     pub(crate) unsafe fn resume_in_place<'a>(
-        slot: *mut Self,
-    ) -> Result<*mut Metric<'a, SORTED_BY_ID>, *mut Self>
+        slot: NonNull<Self>,
+    ) -> Result<NonNull<Metric<'a, SORTED_BY_ID>>, NonNull<Self>>
     where
         'query: 'a,
     {
-        // SAFETY: `slot` is non-null, aligned, and initialized (caller contract 1).
+        // SAFETY: `slot` is aligned and initialized (caller contract 1).
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // `slot`'s provenance over the whole allocation intact for the casts below.
-        let base_slot = unsafe { &raw mut (*slot).base };
+        let base_slot = unsafe { &raw mut (*slot.as_ptr()).base };
+        // SAFETY: `base_slot` is a field pointer derived from the non-null `slot`, so it is
+        // non-null too.
+        let base_slot = unsafe { NonNull::new_unchecked(base_slot) };
         // SAFETY: `SuspendedIdList::resume_in_place`'s contract is met — `base_slot`
         // is initialized and unaliased (caller contracts 1 and 2).
         match unsafe { SuspendedIdList::<'query, SORTED_BY_ID>::resume_in_place::<'a>(base_slot) } {
@@ -416,24 +425,26 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let suspended: *mut Self = Box::into_raw(self);
+        let suspended = NonNull::from(Box::leak(self));
 
         // SAFETY: `resume_in_place`'s contract is met:
-        // 1. `suspended` is non-null, aligned, and initialized — it just came from a `Box`.
+        // 1. `suspended` is aligned and initialized — it just came from a `Box`.
         // 2. `suspended` is not aliased, since this function has ownership of `self`.
         match unsafe {
             SuspendedMetric::<'query, SORTED_BY_ID>::resume_in_place::<'index>(suspended)
         } {
             Ok(active_ptr) => {
-                // SAFETY: `active_ptr` reuses the same allocation from `Box::into_raw` above, so
+                // SAFETY: `active_ptr` reuses the same allocation from `Box::leak` above, so
                 // the address is unchanged and every field is now valid at the active type for
                 // `'index`.
-                Ok(ResumeOutcome::Ok(unsafe { Box::from_raw(active_ptr) }))
+                Ok(ResumeOutcome::Ok(unsafe {
+                    Box::from_raw(active_ptr.as_ptr())
+                }))
             }
             Err(suspended_ptr) => {
                 // SAFETY: `suspended_ptr` is the same allocation, left untouched and still a valid
                 // `SuspendedMetric`. Reclaim ownership so it is dropped.
-                drop(unsafe { Box::from_raw(suspended_ptr) });
+                drop(unsafe { Box::from_raw(suspended_ptr.as_ptr()) });
                 Ok(ResumeOutcome::Aborted)
             }
         }
@@ -490,38 +501,39 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
 /// [`MetricLazySortedByScore`] — the four flavours that own a key slot.
 // TODO: this API should use proper Rust types instead of QueryIterator once top-k has been ported
 // to Rust (MOD-17755).
-pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut RLookupKey<'index> {
+pub unsafe fn own_key_ref<'index>(
+    header: NonNull<QueryIterator>,
+) -> NonNull<*mut RLookupKey<'index>> {
     // SAFETY: safe thanks to 1.
     let iterator_type = unsafe { header.as_ref().type_ };
-    let header = header.as_ptr();
 
     match iterator_type {
         IteratorType::MetricSortedById => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         IteratorType::MetricSortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         IteratorType::MetricLazySortedById => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         IteratorType::MetricLazySortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
@@ -538,7 +550,7 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 ///    for [`own_key_ref`] — metric-ness is a run-time check here too, not a
 ///    pre-condition.
 /// 2. The caller holds that iterator exclusively for the duration of the call.
-/// 3. `handle` is null, or points to a valid [`RLookupKeyHandle`] that outlives
+/// 3. `handle` is [`None`], or points to a valid [`RLookupKeyHandle`] that outlives
 ///    the iterator. The iterator clears the handle's validity flag on its way
 ///    out, so freeing the handle first is a use-after-free at a distance: the
 ///    write lands whenever the iterator is dropped, not during this call.
@@ -546,10 +558,12 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 /// # Panics
 ///
 /// Panics on any header [`own_key_ref`] would panic on.
-pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLookupKeyHandle<'_>) {
+pub unsafe fn set_key_handle(
+    header: NonNull<QueryIterator>,
+    handle: Option<NonNull<RLookupKeyHandle<'_>>>,
+) {
     // SAFETY: safe thanks to 1.
     let iterator_type = unsafe { header.as_ref().type_ };
-    let header = header.as_ptr();
 
     match iterator_type {
         IteratorType::MetricSortedById => {

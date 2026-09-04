@@ -303,6 +303,7 @@ mod via_resume {
     use rlookup::RLookupKeyHandle;
     use rqe_iterators::TypeErasedRQEIterator;
     use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+    use std::ptr::NonNull;
 
     #[test]
     fn revalidate() {
@@ -314,7 +315,7 @@ mod via_resume {
         };
         let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
         // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
-        unsafe { it.set_handle(&raw mut handle) };
+        unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
 
         let _it = revalidate_via_resume(
             TypeErasedRQEIterator::new(Box::new(it)),
@@ -345,17 +346,18 @@ fn key_mut_ref_initially_null() {
 #[test]
 fn set_handle_non_null_invalidates_on_drop() {
     use rlookup::RLookupKeyHandle;
+    use std::ptr::NonNull;
 
     let mut handle = RLookupKeyHandle {
         key_ptr: std::ptr::null_mut(),
         is_valid: true,
     };
-    let handle_ptr: *mut RLookupKeyHandle = &mut handle;
+    let handle_ptr = NonNull::from(&mut handle);
 
     {
         let mut it = MetricSortedById::new(vec![1], vec![0.5]);
         // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
-        unsafe { it.set_handle(handle_ptr) };
+        unsafe { it.set_handle(Some(handle_ptr)) };
         // it is dropped here
     }
 
@@ -407,10 +409,8 @@ mod header_dispatch {
     struct OwnedHeader(Option<NonNull<QueryIterator>>);
 
     impl OwnedHeader {
-        fn new(raw: *mut QueryIterator) -> Self {
-            Self(Some(
-                NonNull::new(raw).expect("boxed_new returns an owning pointer"),
-            ))
+        fn new(raw: NonNull<QueryIterator>) -> Self {
+            Self(Some(raw))
         }
 
         fn as_non_null(&self) -> NonNull<QueryIterator> {
@@ -473,7 +473,7 @@ mod header_dispatch {
             // SAFETY: `it` is a live metric iterator, held exclusively here.
             let slot = unsafe { metric::own_key_ref(it.as_non_null()) };
             // SAFETY: `slot` is that iterator's own key slot, live and initialised.
-            let key = unsafe { &mut *slot };
+            let key = unsafe { &mut *slot.as_ptr() };
             assert!(key.is_null(), "{name}: a fresh iterator has no key yet");
             *key = (&raw mut keys[i]).cast::<RLookupKey<'_>>();
         }
@@ -484,7 +484,7 @@ mod header_dispatch {
             // SAFETY: as above.
             let slot = unsafe { metric::own_key_ref(it.as_non_null()) };
             // SAFETY: as above.
-            let key = unsafe { &mut *slot };
+            let key = unsafe { &mut *slot.as_ptr() };
             assert_eq!(
                 *key,
                 (&raw mut keys[i]).cast::<RLookupKey<'_>>(),
@@ -506,7 +506,7 @@ mod header_dispatch {
         for ((name, it), handle) in headers.iter().zip(&mut handles) {
             // SAFETY: `it` is a live metric iterator held exclusively, and `handle`
             // outlives it — the iterators are freed before `handles` goes out of scope.
-            unsafe { metric::set_key_handle(it.as_non_null(), &raw mut *handle) };
+            unsafe { metric::set_key_handle(it.as_non_null(), Some(NonNull::from(&mut *handle))) };
             assert!(handle.is_valid, "{name}: wiring a handle must not clear it");
         }
 

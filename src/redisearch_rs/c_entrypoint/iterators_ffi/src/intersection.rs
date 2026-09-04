@@ -105,7 +105,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
                 max_slop,
                 in_order,
             );
-            RQEIteratorWrapper::boxed_new_compound(intersection)
+            RQEIteratorWrapper::boxed_new_compound(intersection).as_ptr()
         }
     };
 
@@ -134,9 +134,11 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     child: *mut QueryIterator,
 ) {
     debug_assert!(!header.is_null());
+    // SAFETY: `header` is non-null per 1.
+    let header = unsafe { NonNull::new_unchecked(header) };
     debug_assert_eq!(
         // SAFETY: safe thanks to 1
-        unsafe { (*header).type_ },
+        unsafe { header.as_ref().type_ },
         IteratorType::Intersect,
         "Expected an INTERSECT_ITERATOR"
     );

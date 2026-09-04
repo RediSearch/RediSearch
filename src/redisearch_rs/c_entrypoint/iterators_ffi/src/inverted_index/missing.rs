@@ -55,5 +55,5 @@ pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     // SAFETY: 3.-6. guarantee sctx, spec, field_index, and
     // missingFieldDict validity.
     let it = unsafe { new_missing_iterator(ii_ref, sctx_nn, field_index) };
-    RQEIteratorWrapper::boxed_new(it)
+    RQEIteratorWrapper::boxed_new(it).as_ptr()
 }

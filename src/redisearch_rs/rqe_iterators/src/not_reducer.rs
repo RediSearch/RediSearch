@@ -184,7 +184,14 @@ where
             // The snapshot is read from `query.sctx.diskSnapshot` so the NOT-optimized path
             // observes the same view as the rest of the query; `query.status` is the valid
             // `QueryError` of the evaluating query.
-            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query_ref.status) }
+            unsafe {
+                new_wildcard_iterator_on_disk(
+                    disk_spec,
+                    weight,
+                    snapshot,
+                    NonNull::new(query_ref.status),
+                )
+            }
         } else {
             // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
             // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
