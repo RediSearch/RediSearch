@@ -16,7 +16,6 @@
 
 #include "trie_node_internal.h"
 #include "query_request.h"
-#include "util/bsearch.h"
 #include "redisearch.h"
 #include "util/timeout.h"
 #include "trie/levenshtein.h"
@@ -45,27 +44,14 @@ typedef struct {
   rune * buf;
   TrieRangeCallback *callback;
   void *cbctx;
-  union {
-    struct {
-      // for lexrange
-      bool includeMin;
-      bool includeMax;
-    };
-    struct {
-      // for prefix, suffix, contains, wild card
-      const rune *origStr;
-      int lenOrigStr;
-      bool prefix;
-      union {
-        struct {
-          bool suffix;
-        };
-        struct {
-          bool containsStars;
-        };
-      };
-    };
-  };
+  // for prefix, suffix, contains, wild card
+  const rune *origStr;
+  int lenOrigStr;
+  bool prefix;
+  // Exactly one iteration mode is active per context, so the flags belonging to
+  // the other modes stay zero.
+  bool suffix;
+  bool containsStars;
   // stop if reach limit
   bool stop;
 
@@ -948,34 +934,6 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
   return 0;
 }
 
-typedef struct {
-  const rune *r;
-  uint16_t n;
-} rsbHelper;
-
-static int rsbCompareCommon(const void *h, const void *e, int prefix) {
-  const rsbHelper *term = h;
-  const TrieNode *elem = *(const TrieNode **)e;
-  int rc;
-
-  if (prefix) {
-    size_t minLen = MIN(elem->len, term->n);
-    rc = runecmp(term->r, minLen, elem->str, minLen);
-  } else {
-    rc = runecmp(term->r, term->n, elem->str, elem->len);
-  }
-
-  return rc;
-}
-
-static int rsbCompareExact(const void *h, const void *e) {
-  return rsbCompareCommon(h, e, 0);
-}
-
-static int rsbComparePrefix(const void *h, const void *e) {
-  return rsbCompareCommon(h, e, 1);
-}
-
 static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
@@ -986,7 +944,6 @@ static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
 
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-
   if (TrieNode_IsTerminal(n)) {
     if (r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs) != REDISEARCH_OK) {
       r->stop = 1;
@@ -1004,217 +961,6 @@ static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
 
   array_trimm_len(r->buf, n->len);
   return REDISEARCH_OK;
-}
-
-/**
- * Try to place as many of the common arguments in rangectx, so that the stack
- * size is not negatively impacted and prone to attack.
- */
-static void rangeIterate(const TrieNode *n, const rune *min, int nmin, const rune *max, int nmax,
-                         RangeCtx *r) {
-  // Push string to stack
-  r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-
-  // Declared before the first `goto clean_stack` below, which would otherwise
-  // jump over their initializers.
-  int beginEqIdx = -1;
-  int endEqIdx = -1;
-  int beginIdx = 0;
-  int endIdx = -1;
-  rsbHelper h = {0};
-  TrieNode **arr = TrieNode_Children(n);
-  size_t arrlen = n->numChildren;
-
-  // A stop inherited from an earlier subtree walk ends this one too, before the
-  // terminal below can call back again.
-  if (r->stop) {
-    goto clean_stack;
-  }
-
-  if (TrieNode_IsTerminal(n)) {
-    // The bound length still to consume places this key: positive means the
-    // bound continues below, so the key is a proper prefix of it and smaller;
-    // zero means the key is the bound, the only case the include flags decide;
-    // negative means unconstrained on that side. A negative min also arises when
-    // the bound ran out inside an ancestor's label, putting the key past it; the
-    // max side is never descended with a negative remainder, since an ancestor
-    // skips that subtree outright.
-    bool aboveMin = nmin < 0 || (nmin == 0 && r->includeMin);
-    bool belowMax = nmax != 0 || r->includeMax;
-    if (aboveMin && belowMax &&
-        r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs) != REDISEARCH_OK) {
-      // The callback asked to stop, and a boundary terminal can have descendants
-      // below it, so honour it here as `rangeIterateSubTree` does rather than
-      // walking on.
-      r->stop = 1;
-      goto clean_stack;
-    }
-  }
-
-  if (!arrlen) {
-    // no children, just return.
-    goto clean_stack;
-  }
-
-  // Find the minimum range here..
-  // Use binary search to find the beginning and end ranges:
-  if (nmin > 0) {
-    // searching for node that matches the prefix of our min value
-    h.r = min;
-    h.n = nmin;
-    beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
-  }
-
-  if (nmax > 0) {
-    // searching for node that matches the prefix of our max value
-    h.r = max;
-    h.n = nmax;
-    endEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
-  }
-
-  if (beginEqIdx == endEqIdx && endEqIdx != -1) {
-    // special case, min value and max value share a command prefix.
-    // we need to call recursively with the child contains this prefix
-    TrieNode *child = arr[beginEqIdx];
-
-    int nNextMax = nmax - child->len;
-    if (nNextMax < 0) {
-      // Max ran out inside the label, so every key here is past it.
-      goto clean_stack;
-    }
-
-    const rune *nextMin = min + child->len;
-    int nNextMin = nmin - child->len;
-    if (nNextMin < 0) {
-      // Min ran out inside the label, so the subtree is wholly above it and only
-      // max is left. A zero-length min would instead read as "this node is the
-      // min" and drop it on an exclusive bound.
-      nextMin = NULL;
-      nNextMin = -1;
-    }
-
-    rangeIterate(child, nextMin, nNextMin, max + child->len, nNextMax, r);
-    goto clean_stack;
-  }
-
-  if (nmin > 0) {
-    // search for the first element which are greater then our min value
-    h.r = min;
-    h.n = nmin;
-    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
-  }
-
-  endIdx = nmax ? arrlen - 1 : -1;
-  if (nmax > 0) {
-    // search for the first element which are less then our max value
-    h.r = max;
-    h.n = nmax;
-    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
-  }
-
-  if (beginEqIdx != -1) {
-    // The child the min bound runs into. Dropping the max bound while descending
-    // is only sound when that child is below it: when max prefix-matches a
-    // different child, which is necessarily a later one since min < max, or when
-    // there is no max at all. Otherwise max diverges from every child and
-    // `endIdx` is the last one below it, so a child past that is out of range
-    // entirely.
-    if (endEqIdx != -1 || nmax < 0 || beginEqIdx <= endIdx) {
-      TrieNode *child = arr[beginEqIdx];
-
-      int nNextMin = nmin - child->len;
-      if (nNextMin < 0) {
-        // Wholly above min, and no max left to apply, so take the subtree entire.
-        rangeIterateSubTree(child, r);
-      } else {
-        rangeIterate(child, min + child->len, nNextMin, NULL, -1, r);
-      }
-    }
-  }
-
-  // we need to iterate (without any checking) on all the subtree from beginIdx
-  // to endIdx, excluding the prefix-boundary children that the blocks above
-  // and below recurse on separately. Without these guards, when the min (or
-  // max) is a proper prefix of the boundary child's label, `rsb_gt`/`rsb_lt`
-  // include that child here as well, double-emitting the entire subtree.
-  if (beginEqIdx != -1 && beginIdx <= beginEqIdx) {
-    beginIdx = beginEqIdx + 1;
-  }
-  if (endEqIdx != -1 && endIdx >= endEqIdx) {
-    endIdx = endEqIdx - 1;
-  }
-  for (int ii = beginIdx; ii <= endIdx; ++ii) {
-    rangeIterateSubTree(arr[ii], r);
-  }
-
-  if (endEqIdx != -1) {
-    // we find a child that matches max prefix
-    // we should continue the search on this child but at this point we should
-    // not limit the min value
-    TrieNode *child = arr[endEqIdx];
-
-    int nNextMax = nmax - child->len;
-    // A negative remainder means max ran out inside the label, putting every key
-    // in the subtree past it.
-    if (nNextMax >= 0) {
-      rangeIterate(child, NULL, -1, max + child->len, nNextMax, r);
-    }
-  }
-
-clean_stack:
-  array_trimm_len(r->buf, n->len);
-}
-
-// LexRange iteration.
-// If min = NULL and nmin = -1 it tells us there is not limit on the min value
-// same rule goes for max value.
-void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeMin, const rune *max,
-                           int nmax, bool includeMax, TrieRangeCallback callback, void *ctx,
-                           QueryRequestTimeout *timeout) {
-  // A bound is dereferenced only while its length is positive, so a null pointer
-  // with a positive length would be read. The contract allows a null bound only
-  // at length 0 (empty string) or -1 (unbounded).
-  RS_LOG_ASSERT(min || nmin <= 0, "a null min bound requires a length of 0 or -1");
-  RS_LOG_ASSERT(max || nmax <= 0, "a null max bound requires a length of 0 or -1");
-  if (!min && nmin > 0) {
-    nmin = -1;
-  }
-  if (!max && nmax > 0) {
-    nmax = -1;
-  }
-
-  if (min && max) {
-    // min and max exists, lets compare them to make sure min < max
-    int cmp = runecmp(min, nmin, max, nmax);
-    if (cmp > 0) {
-      // min > max, no reason to continue
-      return;
-    }
-
-    if (cmp == 0) {
-      // At most one value, and only when both sides include it: [v, v) is empty.
-      if (includeMin && includeMax) {
-        TrieNode *node = TrieNode_Get(n, (rune *)min, nmin, true, NULL);
-        if (node && TrieNode_IsTerminal(node)) {
-          callback(min, nmin, ctx, node->payload, node->numDocs);
-        }
-      }
-      return;
-    }
-  }
-
-  // min < max we should start the scan
-  RangeCtx r = {
-      .callback = callback,
-      .cbctx = ctx,
-      .includeMin = includeMin,
-      .includeMax = includeMax,
-      .stop = 0,
-      .timeout = timeout,
-  };
-  r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
-  rangeIterate(n, min, nmin, max, nmax, &r);
-  array_free(r.buf);
 }
 
 static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r);

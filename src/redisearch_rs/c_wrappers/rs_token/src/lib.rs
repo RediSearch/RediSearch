@@ -129,85 +129,71 @@ impl<'a, const NUL_TERMINATED: bool> RSTokenRef<'a, NUL_TERMINATED> {
     /// when the lowercased string exceeds the maximum rune-string length, in
     /// which case it can name no stored term.
     pub fn as_lower_runes(&self) -> Option<Vec<u16>> {
-        bytes_to_lower_runes(self.as_bytes()?)
-    }
-}
+        let bytes = self.as_bytes()?;
 
-/// Lowercase a byte string and convert it to runes, e.g. for a trie lookup.
-///
-/// `bytes` is a byte string and need not be valid UTF-8, so it is decoded the
-/// same way a term is indexed (each codepoint folded to lowercase, then
-/// truncated to a rune) rather than validated. Malformed bytes therefore resolve
-/// the runes the index stored them as, instead of a key built from replacement
-/// characters that was never stored.
-///
-/// Content after a first interior NUL byte is ignored, matching the up-to-NUL
-/// rune sequence the indexer stores for such a term.
-///
-/// Returns `None` when the lowercased string exceeds the maximum rune-string
-/// length, in which case it can name no stored term.
-pub fn bytes_to_lower_runes(bytes: &[u8]) -> Option<Vec<u16>> {
-    // `strToLowerRunes` stops at the first NUL its decoder yields — a literal
-    // `0` byte or an overlong encoding of one — and reports the runes before
-    // it, matching the indexer, so we needn't strip interior NULs ourselves.
-    //
-    // But its decoder (`nu_utf8_read`) reads a fixed 2–4 bytes from a
-    // multibyte lead byte with no bounds check, so input ending in a
-    // truncated lead (e.g. a lone `0xF0`) would read past the end. Where that
-    // can happen, decode a private copy instead: one capped at
-    // `MAX_DECODE_BYTES`, since longer input decodes to more runes than any
-    // stored term can have and is rejected regardless, so the cap only avoids
-    // a needless huge transient copy; and padded with `NU_MAX_READAHEAD`
-    // trailing zero bytes so the decoder can never read past the content.
-    //
-    // The common case needs neither: input short enough to escape the cap
-    // and not ending in a truncated sequence — which is every well-formed
-    // one — is handed to C in place, with no copy at all.
-    if bytes.len() <= MAX_DECODE_BYTES && !tail_may_overread(bytes) {
-        // SAFETY: `tail_may_overread` ruled out every read past `bytes`, so
-        // the decoder stays within it (see that function's contract).
-        return unsafe { to_lower_runes(bytes.as_ptr(), bytes.len()) };
+        // `strToLowerRunes` stops at the first NUL its decoder yields — a literal
+        // `0` byte or an overlong encoding of one — and reports the runes before
+        // it, matching the indexer, so we needn't strip interior NULs ourselves.
+        //
+        // But its decoder (`nu_utf8_read`) reads a fixed 2–4 bytes from a
+        // multibyte lead byte with no bounds check, so a token ending in a
+        // truncated lead (e.g. a lone `0xF0`) would read past the end. Where that
+        // can happen, decode a private copy instead: one capped at
+        // `MAX_DECODE_BYTES`, since a longer token decodes to more runes than any
+        // stored term can have and is rejected regardless, so the cap only avoids
+        // a needless huge transient copy; and padded with `NU_MAX_READAHEAD`
+        // trailing zero bytes so the decoder can never read past the content.
+        //
+        // The common case needs neither: a token short enough to escape the cap
+        // and not ending in a truncated sequence — which is every well-formed
+        // one — is handed to C in place, with no copy at all.
+        if bytes.len() <= MAX_DECODE_BYTES && !tail_may_overread(bytes) {
+            // SAFETY: `tail_may_overread` ruled out every read past `bytes`, so
+            // the decoder stays within it (see that function's contract).
+            return unsafe { Self::to_lower_runes(bytes.as_ptr(), bytes.len()) };
+        }
+
+        let decode_len = bytes.len().min(MAX_DECODE_BYTES);
+        let mut buf = Vec::with_capacity(decode_len + NU_MAX_READAHEAD);
+        buf.extend_from_slice(&bytes[..decode_len]);
+        buf.resize(decode_len + NU_MAX_READAHEAD, 0);
+
+        // SAFETY: `buf` holds `decode_len` content bytes followed by
+        // `NU_MAX_READAHEAD` zero bytes; since `nu_utf8_read` reads at most
+        // `NU_MAX_READAHEAD` bytes past any lead byte it decodes, every read stays
+        // within `buf`.
+        unsafe { Self::to_lower_runes(buf.as_ptr(), decode_len) }
     }
 
-    let decode_len = bytes.len().min(MAX_DECODE_BYTES);
-    let mut buf = Vec::with_capacity(decode_len + NU_MAX_READAHEAD);
-    buf.extend_from_slice(&bytes[..decode_len]);
-    buf.resize(decode_len + NU_MAX_READAHEAD, 0);
-
-    // SAFETY: `buf` holds `decode_len` content bytes followed by
-    // `NU_MAX_READAHEAD` zero bytes; since `nu_utf8_read` reads at most
-    // `NU_MAX_READAHEAD` bytes past any lead byte it decodes, every read stays
-    // within `buf`.
-    unsafe { to_lower_runes(buf.as_ptr(), decode_len) }
-}
-
-/// Lowercase `len` bytes at `ptr` to runes via the C converter, returning
-/// `None` when it declines the conversion because the result would exceed the
-/// maximum rune-string length.
-///
-/// # Safety
-///
-/// `ptr` must address `len` initialized bytes, *and* the C decoder must not
-/// read past them: `nu_utf8_read` consumes a fixed 1–4 bytes from whatever
-/// lead byte it lands on with no bounds check, so the caller must either pad
-/// the allocation with [`NU_MAX_READAHEAD`] trailing bytes or establish that
-/// no such over-read can occur (see [`tail_may_overread`]).
-unsafe fn to_lower_runes(ptr: *const u8, len: usize) -> Option<Vec<u16>> {
-    let mut nrunes: usize = 0;
-    // SAFETY: the caller guarantees the decoder's reads stay in bounds. The
-    // call returns a freshly allocated buffer of `nrunes` runes, or NULL when
-    // the folded length exceeds the maximum.
-    let ptr = unsafe { ffi::strToLowerRunes(ptr.cast::<c_char>(), len, &mut nrunes) };
-    let ptr = NonNull::new(ptr)?;
-    // SAFETY: `ptr` points to `nrunes` valid runes written by the call above.
-    let runes = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), nrunes) }.to_vec();
-    // SAFETY: `RedisModule_Free` is set during module init and not mutated
-    // afterwards.
-    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
-    // SAFETY: `ptr` was allocated by the module allocator inside
-    // `strToLowerRunes`.
-    unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
-    Some(runes)
+    /// Lowercase `len` bytes at `ptr` to runes via the C converter, returning
+    /// `None` when it declines the conversion because the result would exceed the
+    /// maximum rune-string length.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must address `len` initialized bytes, *and* the C decoder must not
+    /// read past them: `nu_utf8_read` consumes a fixed 1–4 bytes from whatever
+    /// lead byte it lands on with no bounds check, so the caller must either pad
+    /// the allocation with [`NU_MAX_READAHEAD`] trailing bytes or establish that
+    /// no such over-read can occur (see [`tail_may_overread`]).
+    unsafe fn to_lower_runes(ptr: *const u8, len: usize) -> Option<Vec<u16>> {
+        let mut nrunes: usize = 0;
+        // SAFETY: the caller guarantees the decoder's reads stay in bounds. The
+        // call returns a freshly allocated buffer of `nrunes` runes, or NULL when
+        // the folded length exceeds the maximum.
+        let ptr = unsafe { ffi::strToLowerRunes(ptr.cast::<c_char>(), len, &mut nrunes) };
+        let ptr = NonNull::new(ptr)?;
+        // SAFETY: `ptr` points to `nrunes` valid runes written by the call above.
+        let runes = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), nrunes) }.to_vec();
+        // SAFETY: `RedisModule_Free` is set during module init and not mutated
+        // afterwards.
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
+        // SAFETY: `ptr` was allocated by the module allocator inside
+        // `strToLowerRunes`.
+        unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
+        Some(runes)
+    }
 }
 
 impl<'a> RSTokenRef<'a, false> {

@@ -156,20 +156,20 @@ int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok
     // The operator only means a lex range when a bound follows it, and only then
     // does the flag change the outcome. `@f:>` alone is malformed either way, so
     // pointing the caller at the flag would be wrong advice; leave it, and
-    // anything else without a delimiter, parsing exactly as it did before this
+    // anything else without a brace, parsing exactly as it did before this
     // syntax existed.
     const char *after = te;
     const char *queryEnd = q->raw + q->len;
     while (after < queryEnd && isspace((unsigned char)*after)) {
       ++after;
     }
-    if (after == queryEnd || (*after != '(' && *after != '{')) {
+    if (after == queryEnd || *after != '{') {
       return 1;
     }
 
     if (!RSGlobalConfig.enableUnstableFeatures) {
       QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_SYNTAX,
-        "Lexicographic comparison on a " SPEC_TAG_STR " or " SPEC_TEXT_STR
+        "Lexicographic comparison on a " SPEC_TAG_STR
         " field is an unstable feature. Enable it with "
         "`CONFIG SET search-enable-unstable-features yes`",
         ", at offset %d near %.*s", (int)(ts - q->raw), (int)(te - ts), ts);

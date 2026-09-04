@@ -17,15 +17,11 @@
 #include "rmalloc.h"
 #include "trie_rdb_ffi.h"
 
-#include <set>
 #include <string>
 #include <memory>
 #include <functional>
 #include <cstdint>
 #include <vector>
-#include <iterator>  // std::size
-
-typedef std::set<std::string> ElemSet;
 
 class TrieTest : public ::testing::Test {};
 
@@ -48,18 +44,6 @@ static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
   TrieNode *node = Trie_GetNode(t, runes, len, exact, NULL);
   runeBufFree(&buf);
   return TrieNode_GetPayloadData(node);
-}
-
-static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload,
-                     size_t numDocsInTerm) {
-  size_t n;
-  char *s = runesToStr(u16, nrune, &n);
-  std::string xs(s, n);
-  free(s);
-  ElemSet *e = (ElemSet *)ctx;
-  assert(e->end() == e->find(xs));
-  e->insert(xs);
-  return REDISEARCH_OK;
 }
 
 static int collectTermFunc(const rune *u16, size_t nrune, void *ctx, void *payload,
@@ -88,58 +72,6 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
   Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, &timeout);
   runeBufFree(&buf);
   return terms;
-}
-
-// Stops the walk after one emission, to check the callback is obeyed on the
-// boundary path as well as inside a subtree.
-struct StopAfterFirstCtx {
-  ElemSet found;
-};
-
-static int stopAfterFirstFunc(const rune *u16, size_t nrune, void *ctx, void *payload,
-                              size_t numDocsInTerm) {
-  size_t n;
-  char *s = runesToStr(u16, nrune, &n);
-  ((StopAfterFirstCtx *)ctx)->found.insert(std::string(s, n));
-  free(s);
-  return REDISEARCH_ERR;
-}
-
-static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, bool includeBegin,
-                             const char *end, size_t nend, bool includeEnd) {
-  rune r1[256] = {0};
-  rune r2[256] = {0};
-  size_t nr1, nr2;
-
-  rune *r1Ptr = r1;
-  rune *r2Ptr = r2;
-
-  nr1 = strToRunes(begin, nbegin, r1, std::size(r1));
-  nr2 = strToRunes(end, nend, r2, std::size(r2));
-
-  if (!begin) {
-    r1Ptr = NULL;
-    nr1 = -1;
-  }
-
-  if (!end) {
-    r2Ptr = NULL;
-    nr2 = -1;
-  }
-
-  ElemSet foundElements;
-  Trie_IterateRange(t, r1Ptr, nr1, includeBegin, r2Ptr, nr2, includeEnd, rangeFunc, &foundElements,
-                    NULL);
-  return foundElements;
-}
-
-static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const char *end,
-                             size_t nend) {
-  return trieIterRange(t, begin, nbegin, true, end, nend, false);
-}
-
-static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
-  return trieIterRange(t, begin, begin ? strlen(begin) : 0, end, end ? strlen(end) : 0);
 }
 
 // Collects every term the trie emits, preserving emission order so that callers
@@ -192,40 +124,6 @@ static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
   *prefixNodeOut = prefixNode;
 }
 
-// The range answers of a trie holding "0".."999".
-static void assertBasicRanges(Trie *t) {
-  for (size_t ii = 0; ii < 1000; ++ii) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    ASSERT_TRUE(trieInsert(t, buf));
-  }
-
-  // Every number within the lexical range of 1 and 1Z.
-  ASSERT_EQ(111, trieIterRange(t, "1", "1Z").size());
-
-  // A NULL range is unbounded on both sides: the entire trie.
-  ASSERT_EQ(Trie_Size(t), trieIterRange(t, NULL, NULL).size());
-
-  // Min and max the same: a single point, in range only when both sides include
-  // it. The two-argument helper is half-open ([min, max)), so it finds nothing.
-  ASSERT_EQ(0, trieIterRange(t, "1", "1").size());
-  ASSERT_EQ(1, trieIterRange(t, "1", 1, true, "1", 1, true).size());
-
-  ASSERT_EQ(11, trieIterRange(t, "10", 2, "11", 2).size());
-
-  // Min and Min+1.
-  ASSERT_EQ(1, trieIterRange(t, "10", 2, "10\x01", 3).size());
-
-  // No min, but a max.
-  ASSERT_EQ(445, trieIterRange(t, NULL, "5").size());
-}
-
-TEST_F(TrieTest, testBasicRange) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  assertBasicRanges(t);
-  TrieType_Free(t);
-}
-
 TEST_F(TrieTest, testGetScansPackedChildKeys) {
   Trie *t = nullptr;
   TrieNode *prefixNode = nullptr;
@@ -248,161 +146,6 @@ TEST_F(TrieTest, testDeleteScansPackedChildKeys) {
   rune key[] = {kPackedChildKeyPrefix, 0x20};
   ASSERT_EQ(1, Trie_DeleteRunes(t, key, 2));
   ASSERT_EQ(kPackedChildKeyChildCount, Trie_Size(t));
-
-  TrieType_Free(t);
-}
-
-// Regression test for `rangeIterate` double-emission when the boundary value
-// is a proper prefix of a child's collapsed label. The fixture uses textual
-// terms (rather than testBasicRange's numeric ones) so that root children
-// like "ban" have multi-character labels — only those expose the bug, because
-// `rsb_gt`/`rsb_lt` treat e.g. "b" < "ban" and thus include the boundary
-// child in the for-loop alongside the dedicated boundary recursion above it.
-// `rangeFunc`'s `assert(e->end() == e->find(xs))` aborts on any duplicate
-// emission, so a clean run is the regression signal.
-TEST_F(TrieTest, testRangeBoundaryPrefix) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"apple", "banana", "band", "bandana", "cherry", "date"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  // Min-only: [b, +inf). "b" is a proper prefix of the collapsed "ban" label.
-  // Pre-fix: ban-subtree fires once via the boundary recursion and again
-  // via the for-loop (`rsb_gt("b")` returns the same index as `beginEqIdx`).
-  auto retMin = trieIterRange(t, "b", NULL);
-  ElemSet expectedMin{"banana", "band", "bandana", "cherry", "date"};
-  EXPECT_EQ(expectedMin, retMin);
-
-  // Max-only: (-inf, banb). "ban" is a proper prefix of "banb", so
-  // `rsb_lt("banb")` includes the "ban" subtree alongside the boundary
-  // recursion. After the fix only entries strictly less than "banb" surface
-  // ("band"/"bandana" are lex-greater than "banb").
-  auto retMax = trieIterRange(t, NULL, "banb");
-  ElemSet expectedMax{"apple", "banana"};
-  EXPECT_EQ(expectedMax, retMax);
-
-  TrieType_Free(t);
-}
-
-// A bound that is a *proper prefix* of a term must still order that term, even
-// though the walk runs out of bound in the middle of the term's collapsed label.
-// The bound length left to consume is what tells `rangeIterate` where the key
-// sits, and a length that ran out inside a label used to be flattened to zero -
-// "the key *is* the bound" - which then dropped the term on an exclusive bound
-// and admitted it on an out-of-range inclusive one.
-TEST_F(TrieTest, testRangeBoundIsAProperPrefixOfATerm) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"apple", "banana", "cherry", "date"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  // "c" < "cherry", so cherry is in range whether or not the bound is inclusive.
-  ElemSet expectedAbove{"cherry", "date"};
-  EXPECT_EQ(expectedAbove, trieIterRange(t, "c", 1, /*includeBegin=*/false, NULL, 0, false));
-  EXPECT_EQ(expectedAbove, trieIterRange(t, "c", 1, /*includeBegin=*/true, NULL, 0, false));
-
-  // ... and out of range below it, again either way.
-  ElemSet expectedBelow{"apple", "banana"};
-  EXPECT_EQ(expectedBelow, trieIterRange(t, NULL, 0, false, "c", 1, /*includeEnd=*/false));
-  EXPECT_EQ(expectedBelow, trieIterRange(t, NULL, 0, false, "c", 1, /*includeEnd=*/true));
-
-  TrieType_Free(t);
-}
-
-// A term that is itself a proper prefix of the max bound is below it, so it is
-// in range; the walk reaches it along the max path, where the bound still has
-// characters left to consume.
-TEST_F(TrieTest, testRangeTermIsAProperPrefixOfTheMaxBound) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"ban", "banana", "band"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  ElemSet expected{"ban", "banana"};
-  EXPECT_EQ(expected, trieIterRange(t, NULL, 0, false, "banb", 4, /*includeEnd=*/false));
-
-  TrieType_Free(t);
-}
-
-// Both bounds inside one shared-prefix subtree: the walk descends once with both
-// still to consume, so each has to be read against the key independently.
-TEST_F(TrieTest, testRangeBothBoundsShareAPrefix) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"banana", "band", "bandana", "bank"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  ElemSet exclusive{"bandana"};
-  EXPECT_EQ(exclusive, trieIterRange(t, "band", 4, false, "bank", 4, false));
-
-  ElemSet inclusive{"band", "bandana", "bank"};
-  EXPECT_EQ(inclusive, trieIterRange(t, "band", 4, true, "bank", 4, true));
-
-  TrieType_Free(t);
-}
-
-// The min bound can run into a child that the max bound is already below, when
-// max diverges inside that same compressed label. Descending there while
-// dropping max, as the boundary recursion otherwise does, would take the whole
-// subtree even though every key in it sorts above max.
-TEST_F(TrieTest, testRangeMinBoundarySubtreeStillRespectsMax) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"bc", "bccbd"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  // (b, bba): "b" prefixes the collapsed "bc" label, while "bba" diverges inside
-  // it. Both terms sort above "bba", so the range is empty.
-  EXPECT_EQ(ElemSet{}, trieIterRange(t, "b", 1, false, "bba", 3, false));
-
-  // The same subtree is in range once the max bound clears it.
-  ElemSet expected{"bc", "bccbd"};
-  EXPECT_EQ(expected, trieIterRange(t, "b", 1, false, "bd", 2, false));
-
-  TrieType_Free(t);
-}
-
-// An inclusive bound that is itself a stored term with descendants is emitted on
-// the boundary path rather than through a subtree walk, so that path has to obey
-// a callback that asks to stop.
-TEST_F(TrieTest, testRangeStopsAtABoundaryTerminal) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"a", "ab", "ac"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  rune min[8] = {0};
-  size_t nmin = strToRunes("a", 1, min, std::size(min));
-
-  StopAfterFirstCtx ctx;
-  Trie_IterateRange(t, min, nmin, true, NULL, -1, false, stopAfterFirstFunc, &ctx, NULL);
-
-  // "a" is the inclusive minimum, so it is emitted first and ends the walk.
-  ASSERT_EQ(1, ctx.found.size());
-  EXPECT_EQ(ElemSet{"a"}, ctx.found);
-
-  TrieType_Free(t);
-}
-
-// A stop raised inside a middle subtree must also end the upper-bound recursion
-// that runs after it, which reaches its terminal on the boundary path rather
-// than through a subtree walk.
-TEST_F(TrieTest, testRangeStopIsInheritedByTheUpperBoundWalk) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"b", "c"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
-
-  rune max[8] = {0};
-  size_t nmax = strToRunes("c", 1, max, std::size(max));
-
-  StopAfterFirstCtx ctx;
-  Trie_IterateRange(t, NULL, -1, false, max, nmax, true, stopAfterFirstFunc, &ctx, NULL);
-
-  // "b" comes from the middle-subtree walk and stops it; "c", the inclusive
-  // maximum, must not be emitted afterwards.
-  ASSERT_EQ(1, ctx.found.size());
-  EXPECT_EQ(ElemSet{"b"}, ctx.found);
 
   TrieType_Free(t);
 }
@@ -1301,8 +1044,7 @@ TEST_F(TrieTest, testDecrementNumDocsUnrepresentableLongTerm) {
 }
 
 // Regression: TrieType_GenericLoad must preserve sort mode across reload, or a
-// Lex-sourced trie comes back score-sorted and emits terms in the wrong order,
-// which also breaks Trie_IterateRange's binary search over the child list.
+// Lex-sourced trie comes back score-sorted and emits terms in the wrong order.
 TEST_F(TrieTest, testRdbSaveLoadPreservesLexSortMode) {
   Trie *original = NewTrie(NULL, Trie_Sort_Lex);
   std::unique_ptr<Trie, std::function<void(Trie *)>> originalPtr(
@@ -1327,10 +1069,6 @@ TEST_F(TrieTest, testRdbSaveLoadPreservesLexSortMode) {
                                       "m"}),
             expected);
 
-  // The same reload must also keep a lex range answerable.
-  ElemSet expectedRange = trieIterRange(original, "d", "j");
-  ASSERT_EQ((ElemSet{"d", "e", "f", "g", "h", "i"}), expectedRange);
-
   RedisModuleIO *io = RMCK_CreateRdbIO();
   std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
       io, [](RedisModuleIO *p) { RMCK_FreeRdbIO(p); });
@@ -1346,10 +1084,8 @@ TEST_F(TrieTest, testRdbSaveLoadPreservesLexSortMode) {
   ASSERT_TRUE(loaded != nullptr);
   ASSERT_EQ(Trie_Size(original), Trie_Size(loaded));
 
-  // Same data, so the reloaded trie must emit in the same order, and answer the
-  // same lex range.
+  // Same data, so the reloaded trie must emit in the same order.
   EXPECT_EQ(expected, trieIterAllTerms(loaded));
-  EXPECT_EQ(expectedRange, trieIterRange(loaded, "d", "j"));
 }
 
 TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {

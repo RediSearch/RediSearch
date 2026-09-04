@@ -124,7 +124,6 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_FUZZY:           // TEXT
     case QN_PREFIX:          // TEXT
     case QN_WILDCARD_QUERY:  // TEXT
-    case QN_LEXRANGE:        // TEXT
       *reqScore = true;
       break;
 
@@ -142,6 +141,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_GEOMETRY:
     case QN_IDS:       // NO SCORE
     case QN_TAG:       // NO SCORE
+    case QN_LEXRANGE:  // NO SCORE, always a tag child
     case QN_VECTOR:    // NO SCORE
     case QN_WILDCARD:  // No SCORE
     case QN_NULL:

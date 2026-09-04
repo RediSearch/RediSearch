@@ -236,12 +236,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/phonetic_manager.h",
-        fns: &[],
-        types: &[],
-        vars: &["PHONETIC_PREFIX"],
-    },
-    HeaderAllowlist {
         path: "src/query.h",
         fns: &[
             "Query_EvalNode",
@@ -259,7 +253,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryGeofilterNode",
             "QueryGeometryNode",
             "QueryIdFilterNode",
-            "QueryLexRangeNode",
             "QueryMissingNode",
             "QueryNullNode",
             "QueryNumericNode",
@@ -379,12 +372,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
-        path: "src/stemmer.h",
-        fns: &[],
-        types: &[],
-        vars: &["STEM_PREFIX"],
-    },
-    HeaderAllowlist {
         path: "src/stopwords.h",
         fns: &["StopWordList_FreeGlobals"],
         types: &[],
@@ -402,12 +389,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         ],
         types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
-    },
-    HeaderAllowlist {
-        path: "src/synonym_map.h",
-        fns: &[],
-        types: &[],
-        vars: &["SYNONYM_PREFIX_CHAR"],
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
@@ -444,7 +425,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_IterateAll",
             "Trie_IterateContains",
             "Trie_IterateFuzzy",
-            "Trie_IterateRange",
             "Trie_IterateWildcard",
             "TrieType_Free",
         ],

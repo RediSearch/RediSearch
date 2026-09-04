@@ -1021,12 +1021,13 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
     case QN_VECTOR:
-    // Always a TEXT range: `Query_EvalTagNode` dispatches its own children.
-    case QN_LEXRANGE:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
+    // A lex range only ever hangs off a tag node, which evaluates its own
+    // children, so reaching it here is a bug.
+    case QN_LEXRANGE:  // LCOV_EXCL_LINE
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }

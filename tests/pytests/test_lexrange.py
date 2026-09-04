@@ -5,7 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-"""Lexicographic range queries on TAG and TEXT fields: `@field:>(v)`, `>=`, `<`, `<=`.
+"""Lexicographic range queries on TAG fields: `@field:>{v}`, `>=`, `<`, `<=`.
 
 The syntax is gated behind `ENABLE_UNSTABLE_FEATURES`; see
 `docs/CONTRIBUTING-unstable-features.md`.
@@ -19,7 +19,7 @@ from common import *
 NAMES = ['alice', 'bob', 'charlie', 'dave', 'eve']
 
 
-def build_index(env, field_type, *field_args):
+def build_index(env, field_type='TAG', *field_args):
     """Create `idx` with a single `name` field of `field_type`, holding NAMES."""
     env.flush()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', field_type,
@@ -28,15 +28,6 @@ def build_index(env, field_type, *field_args):
     for i, name in enumerate(NAMES):
         conn.execute_command('HSET', f'doc{i + 1}', 'name', name)
     return conn
-
-
-def bound(field_type, value):
-    """Wrap a range bound in the delimiter its field type takes.
-
-    Parentheses read a TEXT field and braces a TAG one, exactly as they do for an
-    ordinary clause, so the delimiter names the type the query expects.
-    """
-    return f'{{{value}}}' if field_type == 'TAG' else f'({value})'
 
 
 def search(env, query, *args):
@@ -58,27 +49,29 @@ def testLexRangeGatedOff(env):
     """With the flag off every operator is rejected, and the error says how to
     enable it.
 
-    Silently reading `@name:>(bob)` as the pre-feature `@name:(bob)` would hand a
+    Silently reading `@name:>{bob}` as the pre-feature `@name:{bob}` would hand a
     client that reached for the operator a plausible but wrong result set.
     """
     run_command_on_all_shards(env, 'CONFIG', 'SET',
                               'search-enable-unstable-features', 'no')
-    build_index(env, 'TEXT')
+    build_index(env)
 
-    for query in ('@name:>(bob)', '@name:>=(bob)', '@name:<(bob)', '@name:<=(bob)'):
+    for query in ('@name:>{bob}', '@name:>={bob}', '@name:<{bob}', '@name:<={bob}'):
         env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', '2') \
             .error().contains('search-enable-unstable-features')
 
     # The clause without an operator is untouched.
-    env.assertEqual(search(env, '@name:(bob)'), ['doc2'])
+    env.assertEqual(search(env, '@name:{bob}'), ['doc2'])
 
 
 def testOperatorWithoutABoundIsUnchanged(env):
-    """Without a bound delimiter the operator is not the gated syntax, so it
-    parses as it did before the feature existed and the gate stays quiet.
+    """Without a brace the operator is not the gated syntax, so it parses as it
+    did before the feature existed and the gate stays quiet.
 
     `@name:>` is malformed whether or not the flag is on, so naming the flag
-    would be wrong advice; `test_tags.py` pins it as a plain syntax error.
+    would be wrong advice; `test_tags.py` pins it as a plain syntax error. The
+    field here is TEXT because that is where the pre-feature reading of
+    `@name:>bob` is a result rather than an error.
     """
     build_index(env, 'TEXT')
 
@@ -95,7 +88,7 @@ def testOperatorWithoutABoundIsUnchanged(env):
 def testLexRangeNotInDialect1(env):
     """The syntax lives in the v2 parser only; DIALECT 1 never sees the operator."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     # Without the operator the clause is the tag match `@name:{bob}`.
     res = env.cmd('FT.SEARCH', 'idx', '@name:>{bob}', 'NOCONTENT', 'DIALECT', '1')
@@ -105,19 +98,19 @@ def testLexRangeNotInDialect1(env):
 def testLexRangeEnabled(env):
     """The same query becomes a range once the flag is on."""
     enable_unstable_features(env)
-    build_index(env, 'TEXT')
+    build_index(env)
 
-    env.assertEqual(search(env, '@name:>(bob)'), ['doc3', 'doc4', 'doc5'])
+    env.assertEqual(search(env, '@name:>{bob}'), ['doc3', 'doc4', 'doc5'])
 
 
 # ---------------------------------------------------------------------------
-# Operators, on both field types
+# Operators
 # ---------------------------------------------------------------------------
 
 def testTagOperators(env):
     """All four operators over a TAG field."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     env.assertEqual(search(env, '@name:>{charlie}'), ['doc4', 'doc5'])
     env.assertEqual(search(env, '@name:>={charlie}'), ['doc3', 'doc4', 'doc5'])
@@ -125,45 +118,23 @@ def testTagOperators(env):
     env.assertEqual(search(env, '@name:<={charlie}'), ['doc1', 'doc2', 'doc3'])
 
 
-def testTextOperators(env):
-    """All four operators over a TEXT field."""
+def testBraceDelimitsTheBound(env):
+    """Braces delimit the bound, as they do for an ordinary tag clause, and the
+    parenthesized spelling is not this syntax."""
     enable_unstable_features(env)
-    build_index(env, 'TEXT')
+    build_index(env)
 
-    env.assertEqual(search(env, '@name:>(charlie)'), ['doc4', 'doc5'])
-    env.assertEqual(search(env, '@name:>=(charlie)'), ['doc3', 'doc4', 'doc5'])
-    env.assertEqual(search(env, '@name:<(charlie)'), ['doc1', 'doc2'])
-    env.assertEqual(search(env, '@name:<=(charlie)'), ['doc1', 'doc2', 'doc3'])
-
-
-def testDelimiterNamesTheFieldType(env):
-    """The delimiter says which field type the bound is for, and a mismatch is
-    the same wrong-field-type error an ordinary clause gives."""
-    enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'tg', 'TAG', 'txt', 'TEXT').ok()
-    conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc1', 'tg', 'alice', 'txt', 'alice')
-    conn.execute_command('HSET', 'doc2', 'tg', 'zoe', 'txt', 'zoe')
-
-    env.assertEqual(search(env, '@tg:>{alice}'), ['doc2'])
-    env.assertEqual(search(env, '@txt:>(alice)'), ['doc2'])
-
-    # Braces on a TEXT field, and parentheses on a TAG one, are rejected.
-    env.expect('FT.SEARCH', 'idx', '@txt:>{alice}', 'DIALECT', '2').error().contains('TAG')
-    env.expect('FT.SEARCH', 'idx', '@tg:>(alice)', 'DIALECT', '2').error().contains('TEXT')
+    env.assertEqual(search(env, '@name:>{bob}'), ['doc3', 'doc4', 'doc5'])
+    # Parentheses make it a text clause, which a TAG field rejects.
+    env.expect('FT.SEARCH', 'idx', '@name:>(bob)', 'DIALECT', '2') \
+        .error().contains('TEXT')
 
 
 def testBoundOutsideTheIndex(env):
     """A bound need not be an indexed value - it only has to be comparable."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
-    for q in ['@name:>{c}', '@name:<{c}', '@name:>{zzz}', '@name:<{zzz}']:
-        try:
-            print("DEBUG", q, "=>", env.cmd('FT.EXPLAIN', 'idx', q, 'DIALECT', '2'))
-        except Exception as e:
-            print("DEBUG", q, "=> EXC", e)
     # "c" sits between "bob" and "charlie", and is itself indexed nowhere.
     env.assertEqual(search(env, '@name:>{c}'), ['doc3', 'doc4', 'doc5'])
     env.assertEqual(search(env, '@name:<{c}'), ['doc1', 'doc2'])
@@ -176,7 +147,7 @@ def testBoundOutsideTheIndex(env):
 def testEmptyBound(env):
     """The empty string is a bound of its own, not an unbounded side."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     # Every value sorts after the empty string.
     env.assertEqual(search(env, '@name:>{""}'), ['doc1', 'doc2', 'doc3', 'doc4', 'doc5'])
@@ -186,28 +157,26 @@ def testEmptyBound(env):
 def testIndexedEmptyValueIsInRange(env):
     """An INDEXEMPTY field's empty value participates in the ordering.
 
-    A zero-length key is refused by the tries, so an indexed empty value lives
-    only in its own inverted index and no range walk reaches it. It still sorts
-    below every other value, so a range covering it has to include it.
+    A zero-length key is refused by the value trie, so an indexed empty value
+    lives only in its own inverted index and no range walk reaches it. It still
+    sorts below every other value, so a range covering it has to include it.
     """
     enable_unstable_features(env)
     env.flush()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'txt', 'TEXT', 'INDEXEMPTY', 'tg', 'TAG', 'INDEXEMPTY').ok()
+               'tg', 'TAG', 'INDEXEMPTY').ok()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'empty', 'txt', '', 'tg', '')
-    conn.execute_command('HSET', 'alice', 'txt', 'alice', 'tg', 'alice')
+    conn.execute_command('HSET', 'empty', 'tg', '')
+    conn.execute_command('HSET', 'alice', 'tg', 'alice')
 
-    for field, ftype in (('txt', 'TEXT'), ('tg', 'TAG')):
-        empty, alice = bound(ftype, '""'), bound(ftype, 'alice')
-        # The empty value is at or below every bound that covers it.
-        env.assertEqual(search(env, f'@{field}:>={empty}'), ['alice', 'empty'], message=field)
-        env.assertEqual(search(env, f'@{field}:<={empty}'), ['empty'], message=field)
-        env.assertEqual(search(env, f'@{field}:<{alice}'), ['empty'], message=field)
+    # The empty value is at or below every bound that covers it.
+    env.assertEqual(search(env, '@tg:>={""}'), ['alice', 'empty'])
+    env.assertEqual(search(env, '@tg:<={""}'), ['empty'])
+    env.assertEqual(search(env, '@tg:<{alice}'), ['empty'])
 
-        # ... and out of range once the bound excludes it.
-        env.assertEqual(search(env, f'@{field}:>{empty}'), ['alice'], message=field)
-        env.assertEqual(search(env, f'@{field}:<{empty}'), [], message=field)
+    # ... and out of range once the bound excludes it.
+    env.assertEqual(search(env, '@tg:>{""}'), ['alice'])
+    env.assertEqual(search(env, '@tg:<{""}'), [])
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +217,7 @@ def testNumericLookingBound(env):
 def testParameterBound(env):
     """A bound may be a query parameter, which is what keyset pagination needs."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     res = env.cmd('FT.SEARCH', 'idx', '@name:>{$cursor}', 'PARAMS', '2', 'cursor', 'charlie',
                   'NOCONTENT', 'DIALECT', '2')
@@ -275,24 +244,19 @@ def testEscapedBound(env):
     env.assertEqual(sorted(res[1:]), ['doc2'])
 
 
-def testTagAndTextAgreeOnPrefixBounds(env):
-    """The two evaluators walk different tries; a bound that prefixes a term - or
-    a term that prefixes the bound - must still order them the same way.
+def testPrefixBounds(env):
+    """A bound that prefixes a value, or a value that prefixes the bound, must
+    still order the two correctly.
 
     That family of bounds is where the walk runs out of bound in the middle of a
-    stored key, and where the two implementations could disagree.
+    stored key, which is the case the trie descent is easiest to get wrong.
     """
     enable_unstable_features(env)
     env.flush()
-    env.expect('FT.CREATE', 'tag_idx', 'ON', 'HASH', 'PREFIX', '1', 'tag:',
-               'SCHEMA', 'v', 'TAG').ok()
-    env.expect('FT.CREATE', 'text_idx', 'ON', 'HASH', 'PREFIX', '1', 'txt:',
-               'SCHEMA', 'v', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'v', 'TAG').ok()
     conn = getConnectionByEnv(env)
-    values = ['ban', 'banana', 'band', 'bank']
-    for v in values:
-        conn.execute_command('HSET', f'tag:{v}', 'v', v)
-        conn.execute_command('HSET', f'txt:{v}', 'v', v)
+    for v in ['ban', 'banana', 'band', 'bank']:
+        conn.execute_command('HSET', v, 'v', v)
 
     # (operator, bound) -> the values in range.
     expected = {
@@ -307,12 +271,8 @@ def testTagAndTextAgreeOnPrefixBounds(env):
         ('<', 'bandana'): ['ban', 'banana', 'band'],
     }
     for (op, value), want in expected.items():
-        for idx, prefix, ftype in (('tag_idx', 'tag:', 'TAG'), ('text_idx', 'txt:', 'TEXT')):
-            query = f'@v:{op}{bound(ftype, value)}'
-            res = env.cmd('FT.SEARCH', idx, query, 'NOCONTENT', 'LIMIT', '0', '10',
-                          'DIALECT', '2')
-            got = sorted(k[len(prefix):] for k in res[1:])
-            env.assertEqual(got, want, message=f'{idx} {query}')
+        query = f'@v:{op}{{{value}}}'
+        env.assertEqual(search(env, query), want, message=query)
 
 
 # ---------------------------------------------------------------------------
@@ -348,15 +308,6 @@ def testTagCaseSensitive(env):
     env.assertEqual(search(env, '@name:>{a}'), ['doc2'])
 
 
-def testTextBoundIsLowercased(env):
-    """TEXT terms are indexed lowercased, so a TEXT bound is lowercased too."""
-    enable_unstable_features(env)
-    build_index(env, 'TEXT')
-
-    env.assertEqual(search(env, '@name:>(Charlie)'), search(env, '@name:>(charlie)'))
-    env.assertEqual(search(env, '@name:>(Charlie)'), ['doc4', 'doc5'])
-
-
 # ---------------------------------------------------------------------------
 # Composition
 # ---------------------------------------------------------------------------
@@ -364,7 +315,7 @@ def testTextBoundIsLowercased(env):
 def testBoundedRangeFromTwoClauses(env):
     """Two clauses intersect into a range closed on both sides."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     env.assertEqual(search(env, '@name:>{bob} @name:<={dave}'), ['doc3', 'doc4'])
     env.assertEqual(search(env, '@name:>={bob} @name:<{dave}'), ['doc2', 'doc3'])
@@ -406,11 +357,7 @@ def testKeysetPagination(env):
 def testSortableTagUsesTheIndexedValue(env):
     """A SORTABLE TAG field ranges over its indexed values, not the sorting vector."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TAG', 'SORTABLE').ok()
-    conn = getConnectionByEnv(env)
-    for i, name in enumerate(NAMES):
-        conn.execute_command('HSET', f'doc{i + 1}', 'name', name)
+    build_index(env, 'TAG', 'SORTABLE')
 
     env.assertEqual(search(env, '@name:>{charlie}'), ['doc4', 'doc5'])
 
@@ -418,81 +365,27 @@ def testSortableTagUsesTheIndexedValue(env):
 # The cap is per shard, so a cluster admits one expansion per shard and the
 # coordinator unions them; the counts below only hold for a single shard.
 @skip(cluster=True)
-def testSiblingFieldTermsDoNotSpendTheCap(env):
-    """A dense sibling TEXT field must not use up the queried field's allowance.
+def testExpansionCapStopsTheWalk():
+    """Past MAXPREFIXEXPANSIONS the walk stops and says so.
 
-    The terms trie is shared, so a range on a sparse field walks the sibling's
-    terms too. Those open no reader, and charging them to MAXPREFIXEXPANSIONS
-    would drop the sparse field's own matches.
-    """
-    enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'dense', 'TEXT', 'sparse', 'TEXT').ok()
-    conn = getConnectionByEnv(env)
-    # Terms sorting before the sparse one, present only in the sibling field.
-    for i in range(20):
-        conn.execute_command('HSET', f'dense{i}', 'dense', f'aterm{i:03d}')
-    conn.execute_command('HSET', 'target', 'sparse', 'zzz')
-
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
-    try:
-        # One expansion is all this range needs, and the twenty sibling terms
-        # walked on the way must not consume it.
-        res = env.cmd('FT.SEARCH', 'idx', '@sparse:>=("")', 'NOCONTENT',
-                      'LIMIT', '0', '100', 'DIALECT', '2')
-        env.assertEqual(sorted(res[1:]), ['target'])
-    finally:
-        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
-
-
-@skip(cluster=True)
-def testTraversalBudgetStopsARunawayWalk():
-    """Past its traversal budget the walk stops and says so.
-
-    The budget is `MAXPREFIXEXPANSIONS` times a fixed factor, so a cap of 1
-    allows 100 visits. Enough sibling-only terms to exceed that must end the walk
-    rather than let it scan on, and the truncation must be reported rather than
-    silently returning fewer documents.
+    An unbounded range over a high-cardinality field is unbounded work, so the
+    cap has to end the walk rather than merely decline to open further readers,
+    and the truncation has to be reported rather than silently returning fewer
+    documents.
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'dense', 'TEXT', 'sparse', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TAG').ok()
+    for i in range(20):
+        conn.execute_command('HSET', f'doc{i:03d}', 'name', f'v{i:03d}')
 
-    # 150 terms present only in the sibling field, all sorting before the one
-    # term the queried field holds, so the walk reaches the budget first.
-    for i in range(150):
-        conn.execute_command('HSET', f'dense{i}', 'dense', f'aterm{i:03d}')
-    conn.execute_command('HSET', 'target', 'sparse', 'zzz')
-
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '5')
     try:
-        res = env.cmd('FT.SEARCH', 'idx', '@sparse:>=("")', 'NOCONTENT', 'LIMIT', '0', '100')
+        res = env.cmd('FT.SEARCH', 'idx', '@name:>{""}', 'NOCONTENT',
+                      'LIMIT', '0', '100', 'DIALECT', '2')
         env.assertContains('Max prefix expansions limit was reached', res['warning'])
-        # The walk stopped before reaching the queried field's own term.
-        env.assertEqual(res['total_results'], 0, message=res)
-    finally:
-        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
-
-
-@skip(cluster=True)
-def testExpansionCapCountsTheEmptyTerm(env):
-    """The empty term is one of the terms in the range, so it is capped like any
-    other rather than appended past the limit."""
-    enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'txt', 'TEXT', 'INDEXEMPTY').ok()
-    conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'empty', 'txt', '')
-    conn.execute_command('HSET', 'alice', 'txt', 'alice')
-    conn.execute_command('HSET', 'bob', 'txt', 'bob')
-
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
-    try:
-        # The empty term sorts first, so it is the one expansion admitted.
-        env.assertEqual(search(env, '@txt:>=("")'), ['empty'])
+        env.assertEqual(res['total_results'], 5, message=res)
     finally:
         run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
@@ -506,7 +399,7 @@ def testRangeWeightAppliedOnce(env):
     weight applied twice would read 4 rather than 2.
     """
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     def scores(query):
         res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'WITHSCORES',
@@ -537,48 +430,35 @@ def testLiteralBoundAlongsideAnotherParameter(env):
                   'NOCONTENT', 'DIALECT', '2')
     env.assertEqual(sorted(res[1:]), ['doc3'])
 
-    # The same shape on a TEXT field, which does not go through the tag retag.
-    env.expect('FT.CREATE', 'txt_idx', 'ON', 'HASH', 'PREFIX', '1', 'doc',
-               'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
-    # The documents predate this index, so it is filled by a background backfill.
-    waitForIndex(env, 'txt_idx')
-    res = env.cmd('FT.SEARCH', 'txt_idx', '@name:>(bob) @age>=$min', 'PARAMS', '2', 'min', '0',
-                  'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['doc3'])
-
 
 def testInteriorNulTruncatesBoundAndValueAlike(env):
     """An interior NUL ends a bound, exactly as it ends an indexed value.
 
-    The indexer files `ab\\0z` under `ab` for both field types, and an
-    exact-match parameter truncates the same way, so a range bound has to as
-    well: keeping the suffix would compare against keys that cannot exist.
+    The indexer files `ab\\0z` under `ab`, and an exact-match parameter truncates
+    the same way, so a range bound has to as well: keeping the suffix would
+    compare against keys that cannot exist.
     """
     enable_unstable_features(env)
     env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'txt', 'TEXT', 'tg', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'tg', 'TAG').ok()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'plain', 'txt', 'ab', 'tg', 'ab')
-    conn.execute_command('HSET', 'nul', 'txt', 'ab\0z', 'tg', 'ab\0z')
+    conn.execute_command('HSET', 'plain', 'tg', 'ab')
+    conn.execute_command('HSET', 'nul', 'tg', 'ab\0z')
 
-    for field, ftype in (('txt', 'TEXT'), ('tg', 'TAG')):
-        cursor = bound(ftype, '$cursor')
-        # Both documents index under "ab", which an exact match confirms.
-        exact = env.cmd('FT.SEARCH', 'idx', f'@{field}:{{ab}}' if ftype == 'TAG'
-                        else f'@{field}:(ab)', 'NOCONTENT', 'DIALECT', '2')
-        env.assertEqual(sorted(exact[1:]), ['nul', 'plain'], message=field)
+    # Both documents index under "ab", which an exact match confirms.
+    exact = env.cmd('FT.SEARCH', 'idx', '@tg:{ab}', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(exact[1:]), ['nul', 'plain'])
 
-        # So a bound of "ab\0z" is the bound "ab", and both sides agree on it.
-        below = env.cmd('FT.SEARCH', 'idx', f'@{field}:<{cursor}',
-                        'PARAMS', '2', 'cursor', 'ab\0z',
-                        'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-        env.assertEqual(below[1:], [], message=field)
+    # So a bound of "ab\0z" is the bound "ab".
+    below = env.cmd('FT.SEARCH', 'idx', '@tg:<{$cursor}',
+                    'PARAMS', '2', 'cursor', 'ab\0z',
+                    'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+    env.assertEqual(below[1:], [])
 
-        at_or_below = env.cmd('FT.SEARCH', 'idx', f'@{field}:<={cursor}',
-                              'PARAMS', '2', 'cursor', 'ab\0z',
-                              'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-        env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'], message=field)
+    at_or_below = env.cmd('FT.SEARCH', 'idx', '@tg:<={$cursor}',
+                          'PARAMS', '2', 'cursor', 'ab\0z',
+                          'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
+    env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'])
 
 
 def testTagParameterBoundIsUnescapedLikeATagToken(env):
@@ -659,36 +539,36 @@ def testEscapedBoundIsNotUnescapedTwice(env):
 # ---------------------------------------------------------------------------
 
 def testWrongFieldType(env):
-    """Only TAG and TEXT fields can be compared lexicographically."""
+    """Only TAG fields can be compared lexicographically."""
     enable_unstable_features(env)
     env.flush()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'age', 'NUMERIC', 'loc', 'GEO').ok()
+               'age', 'NUMERIC', 'loc', 'GEO', 'txt', 'TEXT').ok()
 
-    env.expect('FT.SEARCH', 'idx', '@age:>(10)', 'DIALECT', '2').error().contains('TEXT')
-    env.expect('FT.SEARCH', 'idx', '@loc:>(10)', 'DIALECT', '2').error().contains('TEXT')
-    env.expect('FT.SEARCH', 'idx', '@age:>{10}', 'DIALECT', '2').error().contains('TAG')
-    env.expect('FT.SEARCH', 'idx', '@loc:>{10}', 'DIALECT', '2').error().contains('TAG')
+    for field in ('age', 'loc', 'txt'):
+        env.expect('FT.SEARCH', 'idx', f'@{field}:>{{10}}', 'DIALECT', '2') \
+            .error().contains('TAG')
 
 
 def testUnknownField(env):
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
     env.expect('FT.SEARCH', 'idx', '@nosuch:>{a}', 'DIALECT', '2').error().contains('Unknown field')
 
 
 def testMissingBound(env):
-    """The operator needs a bound, and the bound needs its delimiters."""
+    """The operator needs a bound, and the bound needs its braces."""
     enable_unstable_features(env)
-    build_index(env, 'TAG')
+    build_index(env)
 
     env.expect('FT.SEARCH', 'idx', '@name:>{}', 'DIALECT', '2').error()
     env.expect('FT.SEARCH', 'idx', '@name:>', 'DIALECT', '2').error()
 
-    # `@name:>bob` is not this grammar at all: with no delimiter the operator is
+    # `@name:>bob` is not this grammar at all: with no brace the operator is
     # dropped and the clause reads as `@name:(bob)`, which a TAG field rejects as
-    # a text clause. `testOperatorWithoutABoundIsUnchanged` shows the TEXT side,
-    # where the same spelling is a plain term search rather than an error.
+    # a text clause. `testOperatorWithoutABoundIsUnchanged` shows the same
+    # spelling on a TEXT field, where it is a plain term search rather than an
+    # error.
     env.expect('FT.SEARCH', 'idx', '@name:>bob', 'DIALECT', '2').error().contains('TEXT')
 
 
@@ -700,23 +580,23 @@ def testMissingBound(env):
 def testExplain(env):
     """FT.EXPLAIN spells out which side is bounded and whether the bound is in range."""
     enable_unstable_features(env)
-    build_index(env, 'TEXT')
+    build_index(env)
 
     def explain(query):
         return env.cmd('FT.EXPLAIN', 'idx', query, 'DIALECT', '2')
 
-    env.assertContains('LEXRANGE{(bob...+inf}', explain('@name:>(bob)'))
-    env.assertContains('LEXRANGE{[bob...+inf}', explain('@name:>=(bob)'))
-    env.assertContains('LEXRANGE{-inf...(bob}', explain('@name:<(bob)'))
-    env.assertContains('LEXRANGE{-inf...[bob}', explain('@name:<=(bob)'))
+    env.assertContains('LEXRANGE{(bob...+inf}', explain('@name:>{bob}'))
+    env.assertContains('LEXRANGE{[bob...+inf}', explain('@name:>={bob}'))
+    env.assertContains('LEXRANGE{-inf...(bob}', explain('@name:<{bob}'))
+    env.assertContains('LEXRANGE{-inf...[bob}', explain('@name:<={bob}'))
 
 
 @skip(cluster=True)
 def testProfile(env):
-    """The range is executed as a union of the per-term readers it expanded to."""
+    """The range is executed as a union of the per-value readers it expanded to."""
     enable_unstable_features(env)
-    build_index(env, 'TEXT')
+    build_index(env)
 
-    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@name:>(charlie)', 'NOCONTENT',
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@name:>{charlie}', 'NOCONTENT',
                   'DIALECT', '2')
     env.assertContains('LEXRANGE', str(res))

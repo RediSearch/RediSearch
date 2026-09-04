@@ -15,7 +15,6 @@ mod fuzzy;
 mod geo;
 mod geometry;
 mod ids;
-mod lex_range;
 mod missing;
 mod not;
 mod null;
