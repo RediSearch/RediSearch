@@ -13,6 +13,7 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
+#include "hybrid/hybrid_request.h"
 #include "info/info_redis/block_client.h"
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
@@ -26,6 +27,21 @@ static BlockedQueries *getBlockedQueries(void) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
   return blockedQueries;
+}
+
+static void QueryRequest_OnDisconnect(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(request);
+
+  QueryRequestTimeout_MarkTimedOut(&request->timeout);
+  if (request->kind == QUERY_REQUEST_KIND_HYBRID) {
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
+    HybridRequest_PropagateTimeoutToSubqueries(hreq);
+    HybridRequest_WakeAbortChannels(hreq);
+  } else {
+    QueryRequestAsyncState_WakeAbortChannel(&request->async);
+  }
 }
 
 static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
@@ -42,6 +58,11 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   request->registryInfo.cycle_start = time(NULL);
   dllist_prepend(list, &request->registryInfo.node);
   RedisModule_BlockClientSetPrivateData(bc, request);
+  // RETURN uses a worker-owned clock deadline rather than the blocked-client
+  // atomic and intentionally retains its existing disconnect behavior.
+  if (request->timeout.policy != TimeoutPolicy_Return) {
+    RedisModule_SetDisconnectCallback(bc, QueryRequest_OnDisconnect);
+  }
 }
 
 void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
