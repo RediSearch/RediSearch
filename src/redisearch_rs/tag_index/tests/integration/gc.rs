@@ -1,0 +1,257 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Tests for `TagIndex::gc`, the parent-process half of a fork-GC cycle.
+//!
+//! The child scans a tag's postings against the doc table and ships a
+//! `GcScanDelta`; the parent applies it. These tests cover what is specific to
+//! the *tag* index: the identity check that rejects a stale delta, dropping a tag
+//! that lost its last document from both the values trie and the suffix trie, and
+//! folding the discarded posting list into the reported totals.
+//!
+//! The block-level repair mechanics the delta describes — deleting a whole block,
+//! repairing one partially, and ignoring a last block that changed since the scan
+//! — belong to `InvertedIndex::apply_gc` and are covered by `inverted_index`'s own
+//! `tests/gc.rs`. They are not repeated here.
+
+use inverted_index::DocId;
+use tag_index::{InMemoryMode, TagIndex};
+
+use crate::util::{as_tag, commit_mem, gc_mem, index_mem, scan, unique_id};
+
+/// Build a memory-mode index holding `tags`, each carrying documents `1..=n`.
+/// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
+/// trie is populated too.
+fn indexed(tags: &[&[u8]], n: DocId, with_suffix: bool) -> TagIndex<InMemoryMode> {
+    let mut idx = TagIndex::<InMemoryMode>::new(with_suffix);
+    for doc_id in 1..=n {
+        index_mem(&mut idx, tags, doc_id);
+    }
+    if with_suffix {
+        commit_mem(&mut idx, tags);
+    }
+    idx
+}
+
+/// Collect the keys currently in the suffix trie.
+fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
+    let mut it = idx
+        .suffix_value_iter()
+        .expect("index was created with a suffix trie");
+    let mut keys = Vec::new();
+    while let Some(key) = it.advance() {
+        keys.push(key.as_bytes().to_vec());
+    }
+    keys
+}
+
+/// Applying a delta drops the deleted documents and reports how many entries
+/// went, leaving the tag in place because documents remain.
+#[test]
+fn gc_removes_deleted_documents() {
+    let mut idx = indexed(&[b"team"], 5, false);
+
+    // Documents 2 and 4 are gone from the doc table.
+    let delta = scan(&idx, b"team", |doc_id| doc_id != 2 && doc_id != 4)
+        .expect("two deleted documents need repairing");
+    let id = unique_id(&idx, b"team");
+
+    let info = idx
+        .gc(as_tag(b"team"), id, delta)
+        .expect("the delta is current");
+
+    assert_eq!(info.entries_removed, 2);
+    assert_eq!(
+        idx.find_value(b"team")
+            .expect("the tag still has documents")
+            .unique_docs(),
+        3
+    );
+}
+
+/// When the last document goes, the tag is dropped from the values trie *and*
+/// from the suffix trie, and the whole discarded posting list is folded into the
+/// reported totals.
+#[test]
+fn gc_drops_a_tag_that_lost_every_document() {
+    let mut idx = indexed(&[b"team"], 3, true);
+    assert_eq!(
+        suffix_keys(&idx),
+        [
+            b"am".to_vec(),
+            b"eam".to_vec(),
+            b"m".to_vec(),
+            b"team".to_vec()
+        ],
+        "the tag and each of its suffixes are indexed"
+    );
+
+    let delta = scan(&idx, b"team", |_| false).expect("every document is gone");
+    let id = unique_id(&idx, b"team");
+    let memory_before = idx
+        .find_value(b"team")
+        .expect("tag is indexed")
+        .memory_usage();
+
+    let info = idx
+        .gc(as_tag(b"team"), id, delta)
+        .expect("the delta is current");
+
+    assert!(idx.find_value(b"team").is_none(), "the tag is dropped");
+    assert_eq!(idx.n_tags(), 0);
+    assert!(
+        suffix_keys(&idx).is_empty(),
+        "the suffix trie drops the tag and all of its suffixes"
+    );
+    assert!(
+        info.bytes_freed >= memory_before,
+        "the whole posting list must be accounted as freed, not just the repaired blocks"
+    );
+    assert!(
+        info.block_count_delta < 0,
+        "the dropped list's blocks must be subtracted from the spec's block count"
+    );
+}
+
+/// Dropping a tag has to give its suffix-trie bytes back. The suffix entries own
+/// allocations outside their trie nodes — the tag term and each entry's member list —
+/// and the trie's own counter cannot see those, so a `delete` that failed to discount
+/// them would leave `mem_usage` permanently overstated after every GC pass.
+#[test]
+fn gc_drops_a_tag_and_gives_its_suffix_bytes_back() {
+    let mut idx = TagIndex::<InMemoryMode>::new(true);
+    let empty = idx.mem_usage();
+
+    index_mem(&mut idx, &[b"team"], 1);
+    commit_mem(&mut idx, &[b"team"]);
+    let indexed = idx.mem_usage();
+    assert!(indexed > empty, "indexing the tag has to cost something");
+
+    gc_mem(&mut idx, b"team", |_| false);
+
+    assert!(idx.find_value(b"team").is_none(), "the tag is dropped");
+    assert_eq!(
+        idx.mem_usage(),
+        empty,
+        "the last tag is gone from both tries, so the reported overhead must be back \
+         where it started"
+    );
+}
+
+/// The same, with a second tag left in place: dropping one tag must reduce the figure
+/// without taking the surviving tag's bytes with it.
+#[test]
+fn gc_dropping_one_of_two_tags_reduces_the_reported_overhead() {
+    let mut idx = TagIndex::<InMemoryMode>::new(true);
+    index_mem(&mut idx, &[b"keep"], 1);
+    commit_mem(&mut idx, &[b"keep"]);
+    let with_survivor_alone = idx.mem_usage();
+
+    index_mem(&mut idx, &[b"drop"], 2);
+    commit_mem(&mut idx, &[b"drop"]);
+    let with_both = idx.mem_usage();
+
+    gc_mem(&mut idx, b"drop", |_| false);
+
+    assert!(idx.find_value(b"keep").is_some(), "the other tag survives");
+    assert!(
+        idx.mem_usage() < with_both,
+        "dropping a tag must reduce the reported overhead"
+    );
+    assert!(
+        idx.mem_usage() >= with_survivor_alone,
+        "the surviving tag's own bytes must not be discounted along with the dropped one"
+    );
+}
+
+/// The empty tag (INDEXEMPTY) never entered the suffix trie, so dropping it must
+/// not try to delete it from there — `TagSuffixIndex::delete` would assert.
+#[test]
+fn gc_drops_the_empty_tag_without_touching_the_suffix_trie() {
+    let mut idx = indexed(&[b""], 2, true);
+    assert!(
+        suffix_keys(&idx).is_empty(),
+        "the empty tag is never indexed in the suffix trie"
+    );
+
+    let delta = scan(&idx, b"", |_| false).expect("every document is gone");
+    let id = unique_id(&idx, b"");
+
+    idx.gc(as_tag(b""), id, delta)
+        .expect("the delta is current");
+
+    assert!(idx.find_value(b"").is_none(), "the empty tag is dropped");
+}
+
+/// A delta scanned against a different posting list than the tag currently holds
+/// is stale: the GC ran while the tag was being rewritten, so applying it would
+/// corrupt the live list.
+#[test]
+fn gc_rejects_a_delta_scanned_against_another_index() {
+    let mut idx = indexed(&[b"team", b"other"], 3, false);
+
+    let delta = scan(&idx, b"team", |doc_id| doc_id != 2).expect("one document is gone");
+    // Stand in for the tag's index having been replaced since the scan.
+    let other = unique_id(&idx, b"other");
+
+    assert!(
+        idx.gc(as_tag(b"team"), other, delta).is_none(),
+        "a delta that does not match the tag's current index must not be applied"
+    );
+    assert_eq!(
+        idx.find_value(b"team")
+            .expect("the tag is untouched")
+            .unique_docs(),
+        3,
+        "rejecting the delta must leave the postings alone"
+    );
+}
+
+/// A tag the GC removed in an earlier pass is simply not there any more, so its
+/// delta is dropped rather than resurrecting the tag.
+#[test]
+fn gc_rejects_a_delta_for_a_tag_that_is_gone() {
+    let mut idx = indexed(&[b"team"], 3, false);
+
+    let delta = scan(&idx, b"team", |doc_id| doc_id != 2).expect("one document is gone");
+    let id = unique_id(&idx, b"team");
+    idx.delete_tag_value(as_tag(b"team"));
+
+    assert!(idx.gc(as_tag(b"team"), id, delta).is_none());
+    assert_eq!(idx.n_tags(), 0);
+}
+
+/// A tag removed and then indexed again gets a brand new posting list, and
+/// therefore a brand new [`IndexUniqueId`], even though the tag string resolves to
+/// something again. A raw pointer comparison could be fooled here if the freed
+/// allocation happened to be reused for the new one — the ID check rejects it
+/// unconditionally, regardless of what the allocator does with the address.
+#[test]
+fn gc_rejects_a_stale_id_after_the_tag_was_removed_and_reindexed() {
+    let mut idx = indexed(&[b"team"], 3, false);
+
+    let delta = scan(&idx, b"team", |doc_id| doc_id != 2).expect("one document is gone");
+    let stale_id = unique_id(&idx, b"team");
+
+    idx.delete_tag_value(as_tag(b"team"));
+    index_mem(&mut idx, &[b"team"], 1);
+
+    assert!(
+        idx.gc(as_tag(b"team"), stale_id, delta).is_none(),
+        "the delta was scanned against a posting list that no longer exists, even \
+         though the tag string resolves again"
+    );
+    assert_eq!(
+        idx.find_value(b"team")
+            .expect("the tag was reindexed")
+            .unique_docs(),
+        1,
+        "rejecting the stale delta must leave the freshly reindexed postings alone"
+    );
+}
