@@ -664,7 +664,13 @@ static bool tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return true;
   }
-  if (q->sctx->timeout && QueryRequestTimeout_IsTimedOut(q->sctx->timeout)) {
+  // The exact check, not the amortized one: that shares a counter with the
+  // result-processor loop and zeroes it on every detection, so consuming a
+  // timeout here would buy the pipeline another 100 reads before it looks at the
+  // clock again, and a union short enough to reach EOF inside that window would
+  // be reported as a complete result. The walk is bounded by the expansion cap,
+  // so the clock reads it costs are bounded too.
+  if (q->sctx->timeout && QueryRequestTimeout_IsTimedOutExact(q->sctx->timeout)) {
     return true;
   }
 
