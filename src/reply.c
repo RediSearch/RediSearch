@@ -550,8 +550,9 @@ char *escapeSimpleString(const char *str) {
 /* Based on the value type, serialize the RSValue into redis client response.
  * The value is resolved (references followed, trios collapsed) and its payload
  * fetched in a single FFI call. */
-int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  RSValueView view = RSValue_GetReplyView(v);
+static int replyRSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags,
+                        RSValueTrioSelection trioSelection) {
+  RSValueView view = RSValue_GetReplyView(v, trioSelection);
 
   switch (view.view_type) {
     case RSValueViewType_String:
@@ -591,7 +592,8 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
     case RSValueViewType_Array:
       RedisModule_Reply_Array(reply);
       for (uint32_t i = 0; i < view.len; i++) {
-        RedisModule_Reply_RSValue(reply, RSValue_ArrayItem(view.resolved, i), flags);
+        replyRSValue(reply, RSValue_ArrayItem(view.resolved, i), flags,
+                     RSValueTrioSelection_Middle);
       }
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
@@ -602,8 +604,8 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       for (uint32_t i = 0; i < view.len; i++) {
         RSValue *key, *val;
         RSValue_Map_GetEntry(view.resolved, i, &key, &val);
-        RedisModule_Reply_RSValue(reply, key, flags);
-        RedisModule_Reply_RSValue(reply, val, flags);
+        replyRSValue(reply, key, flags, RSValueTrioSelection_Middle);
+        replyRSValue(reply, val, flags, RSValueTrioSelection_Middle);
       }
       RedisModule_Reply_MapEnd(reply);
       break;
@@ -611,9 +613,20 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+  return replyRSValue(reply, v, flags, RSValueTrioSelection_Middle);
+}
+
 int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, const RLookupRow *row,
-                                 uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags,
-                                 unsigned int apiVersion) {
+                                 uint32_t requiredFlags, uint32_t excludeFlags,
+                                 SendReplyFlags flags, unsigned int apiVersion) {
+  RSValueTrioSelection trioSelection = RSValueTrioSelection_Left;
+  if (flags & SENDREPLY_FLAG_EXPAND) {
+    trioSelection = RSValueTrioSelection_Right;
+  } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+    trioSelection = RSValueTrioSelection_Middle;
+  }
+
   RLOOKUP_FOREACH(kk, lk, {
     const uint32_t kflags = RLookupKey_GetFlags(kk);
     if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) ||
@@ -625,16 +638,7 @@ int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, co
       continue;
     }
     RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
-    if (RSValue_IsTrio(v)) {
-      if (flags & SENDREPLY_FLAG_EXPAND) {
-        v = RSValue_Trio_GetRight(v);
-      } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-        v = RSValue_Trio_GetMiddle(v); // multi-value form
-      } else {
-        v = RSValue_Trio_GetLeft(v); // single-value form
-      }
-    }
-    RedisModule_Reply_RSValue(reply, v, flags);
+    replyRSValue(reply, v, flags, trioSelection);
   });
   return REDISMODULE_OK;
 }
