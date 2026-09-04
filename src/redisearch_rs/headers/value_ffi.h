@@ -356,7 +356,7 @@ void RSValue_MakeReference(const struct RSValue *dst, const struct RSValue *src)
  *
  * # Safety
  *
- * 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+ * 1. `map` must be a [valid] pointer to an [`RSValueMapBuilder`] created by
  *    [`RSValue_NewMapBuilder`].
  * 2. `key` and `value` must be [valid], non-null pointers to [`RSValue`]s.
  *
@@ -377,7 +377,7 @@ void RSValue_MapBuilderSetEntry(struct RSValueMapBuilder *map, size_t index, str
  * # Safety
  *
  * 1. `map` must be a [valid], non-null pointer to an [`RSValue`].
- * 2. `key` and `value` must be valid, non-null pointers to writable
+ * 2. `key` and `value` must be [valid], non-null pointers to writable
  *    `*mut RSValue` locations.
  *
  * # Panics
@@ -426,7 +426,9 @@ struct RSValue * *RSValue_NewArrayBuilder(uint32_t len);
  *
  * 1. `values` must have been allocated via [`RSValue_NewArrayBuilder`] with
  *    a capacity equal to `len`.
- * 2. All `len` entries in `values` must have been filled with valid [`RSValue`] pointers.
+ * 2. All `len` entries in `values` must have been filled with [valid] [`RSValue`] pointers.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSValue *RSValue_NewArrayFromBuilder(struct RSValue * *values, uint32_t len);
 
@@ -443,7 +445,7 @@ struct RSValue *RSValue_NewArrayFromBuilder(struct RSValue * *values, uint32_t l
  * 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
  * 2. A nul-terminator is expected in memory at `str+len`.
  * 3. The size determined by `len` excludes the nul-terminator.
- * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ * 4. The memory pointed to by `str` must remain [valid] and not be mutated for the entire
  *    lifetime of the returned [`RSValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -490,9 +492,11 @@ struct RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len);
  *
  * # Safety
  *
- * 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+ * 1. `map` must be a [valid] pointer to an [`RSValueMapBuilder`] created by
  *    [`RSValue_NewMapBuilder`].
  * 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSValue *RSValue_NewMapFromBuilder(struct RSValueMapBuilder *map);
 
@@ -576,7 +580,9 @@ struct RSValue *RSValue_NewRedisString(struct RedisModuleString *str);
  *
  * # Safety
  *
- * 1. `src` must point to a valid [`RSValue`].
+ * 1. `src` must point to a [valid] [`RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSValue *RSValue_NewReference(const struct RSValue *src);
 
@@ -737,7 +743,7 @@ void RSValue_Replace(struct RSValue * *dstpp, const struct RSValue *src);
  * 3. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
  * 4. A nul-terminator is expected in memory at `str+len`.
  * 5. The size determined by `len` excludes the nul-terminator.
- * 6. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ * 6. The memory pointed to by `str` must remain [valid] and not be mutated for the entire
  *    lifetime of the returned [`RSValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

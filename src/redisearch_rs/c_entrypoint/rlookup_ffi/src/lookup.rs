@@ -575,7 +575,7 @@ pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup)
 
 /// Releases any resources created by this lookup object. Note that if there are
 /// lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
-/// valid after this call!
+/// [valid] after this call!
 ///
 /// # Safety
 ///
@@ -611,7 +611,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `key` must be non-null even for a zero-length cstr.
 /// 7. The nul terminator must be within `isize::MAX` from `key`
-/// 8. `open_key`, if non-null, must be a valid, already-open `redis_module::RedisModuleKey` handle for
+/// 8. `open_key`, if non-null, must be a [valid], already-open `redis_module::RedisModuleKey` handle for
 ///    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
 /// 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
 ///
@@ -948,7 +948,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 2. The returned iterator must only be used as long as the `lookup` remains [valid].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -974,7 +974,7 @@ pub struct RLookupIterator<'a> {
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 2. The returned iterator must only be used as long as the `lookup` remains [valid].
 /// 3. The caller must treat the returned `current` pointer as pinned. Specifically
 ///    a. Not move (memcpy/memmove) out of the pointer.
 ///    b. The pointed-to value must remain at its original address in memory and never be relocated.

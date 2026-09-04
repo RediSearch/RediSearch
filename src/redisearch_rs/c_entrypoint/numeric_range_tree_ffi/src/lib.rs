@@ -101,8 +101,10 @@ pub extern "C" fn NewNumericRangeTree(compress_floats: bool) -> *mut NumericRang
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+/// - `t` must point to a [valid] [`NumericRangeTree`] obtained from
 ///   [`NewNumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _NumericRangeTree_Add(
     t: *mut NumericRangeTree,
@@ -132,10 +134,12 @@ pub unsafe extern "C" fn _NumericRangeTree_Add(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+/// - `t` must point to a [valid] [`NumericRangeTree`] obtained from
 ///   [`NewNumericRangeTree`], or be NULL (in which case this is a no-op).
 /// - After calling this function, `t` must not be used again.
 /// - Any iterators obtained from this tree must be freed before calling this.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_Free(t: *mut NumericRangeTree) {
     if t.is_null() {
@@ -155,8 +159,10 @@ pub unsafe extern "C" fn NumericRangeTree_Free(t: *mut NumericRangeTree) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+/// - `t` must point to a [valid] [`NumericRangeTree`] obtained from
 ///   [`NewNumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_MemUsage(t: *const NumericRangeTree) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -176,9 +182,11 @@ pub unsafe extern "C" fn NumericRangeTree_MemUsage(t: *const NumericRangeTree) -
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+/// - `t` must point to a [valid] [`NumericRangeTree`] obtained from
 ///   [`NewNumericRangeTree`] and cannot be NULL.
-/// - `nf` must point to a valid [`NumericFilter`] and cannot be NULL.
+/// - `nf` must point to a [valid] [`NumericFilter`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_Find(
     t: *const NumericRangeTree,
@@ -239,9 +247,11 @@ pub unsafe extern "C" fn NumericRangeTreeFindResult_Free(result: NumericRangeTre
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+/// - `t` must point to a [valid] [`NumericRangeTree`] obtained from
 ///   [`NewNumericRangeTree`] and cannot be NULL.
 /// - No iterators should be active on this tree while calling this function.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_TrimEmptyLeaves(
     t: *mut NumericRangeTree,

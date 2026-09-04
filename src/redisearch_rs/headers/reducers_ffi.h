@@ -47,10 +47,10 @@ extern "C" {
  * 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
  *    alive for the lifetime of the returned reducer.
  * 2. If `field_names_len > 0`, `field_names` must point to an array of at
- *    least `field_names_len` valid, NUL-terminated C strings. Ignored when
+ *    least `field_names_len` [valid], NUL-terminated C strings. Ignored when
  *    `load_all` is `true`.
  * 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
- *    least `sort_names_len` valid, NUL-terminated C strings.
+ *    least `sort_names_len` [valid], NUL-terminated C strings.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -69,7 +69,7 @@ Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *con
  *    `field_keys_len` [valid] `*const RLookupKey` pointers.
  * 2. If `sort_keys_len > 0`, `sort_keys` must point to an array of at least
  *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
- * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
+ * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain [valid] for the
  *    lifetime of the returned reducer.
  * 4. `srclookup` is either null or a [valid] pointer to a
  *    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
@@ -82,64 +82,80 @@ Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t CollectReducer_GetFieldKeysLen(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint64_t CollectReducer_GetLimitCount(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t CollectReducer_GetSortKeysLen(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool CollectReducer_HasLimit(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool CollectReducer_IsLoadAll(const Reducer *r);
 
 /**
  * # Safety
  *
- * 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
+ * 1. `r` must point to a [valid] [`LocalCollectReducer`] originally created by
  *    [`CollectReducer_CreateLocal`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 

@@ -201,7 +201,7 @@ void RLookupRow_Reset(struct RLookupRow *row);
  *
  * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
- *    The pointed-to vector must remain valid for the lifetime of the row.
+ *    The pointed-to vector must remain [valid] for the lifetime of the row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -320,7 +320,7 @@ void RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32
 /**
  * Releases any resources created by this lookup object. Note that if there are
  * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
- * valid after this call!
+ * [valid] after this call!
  *
  * # Safety
  *
@@ -571,7 +571,7 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 2. The returned iterator must only be used as long as the `lookup` remains [valid].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -583,7 +583,7 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 2. The returned iterator must only be used as long as the `lookup` remains [valid].
  * 3. The caller must treat the returned `current` pointer as pinned. Specifically
  *    a. Not move (memcpy/memmove) out of the pointer.
  *    b. The pointed-to value must remain at its original address in memory and never be relocated.
@@ -644,7 +644,7 @@ int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *ds
  *     1. The entire memory range of this `CStr` must be contained within a single allocation!
  *     2. `key` must be non-null even for a zero-length cstr.
  * 7. The nul terminator must be within `isize::MAX` from `key`
- * 8. `open_key`, if non-null, must be a valid, already-open `redis_module::RedisModuleKey` handle for
+ * 8. `open_key`, if non-null, must be a [valid], already-open `redis_module::RedisModuleKey` handle for
  *    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
  * 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
  *
@@ -719,9 +719,11 @@ void RLookup_WriteOwnKey(const RLookupKey *key, struct RLookupRow *row, struct R
  *
  * # Safety
  *
- * 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
- * 2. `h1` and `h2` must be valid, non-null pointers to a `SearchResult`.
- * 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
+ * 1. `keys` must point to an array of at least `nkeys` [valid], non-null `RLookupKey` pointers.
+ * 2. `h1` and `h2` must be [valid], non-null pointers to a `SearchResult`.
+ * 3. `qerr`, when non-null, must be a [valid], writable pointer to a `QueryError`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int SearchResult_CmpByFields(const RLookupKey *const *keys, size_t nkeys, const struct SearchResult *h1, const struct SearchResult *h2, uint64_t ascend_map, struct QueryError *qerr);
 

@@ -32,7 +32,7 @@ use vector_score_source::{NewVectorTopK, VectorTopKIterator, new_vector_top_k};
 /// [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
 /// accessors below must not be called on such a handle.
 ///
-/// Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+/// Pass `child = NULL` for a pure KNN query; pass a [valid] owning child iterator
 /// for a hybrid (filtered) query.
 ///
 /// The `query_params` pointer is read once to copy the parameters into the
@@ -199,7 +199,9 @@ pub unsafe extern "C" fn VectorTopK_GetOwnKeyRef(it: *mut QueryIterator) -> *mut
 ///
 /// 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
 ///    not reduce to `Empty`, whose `index` and `sctx` are still alive.
-/// 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+/// 2. `handle` is either null or a [valid] pointer to a [`RLookupKeyHandle`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
     it: *mut QueryIterator,

@@ -19,11 +19,12 @@ use thin_vec::SmallThinVec;
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 ///
 /// [`NewTrieMap`]: crate::NewTrieMap
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(
     t: *const TrieMap,
@@ -70,7 +71,9 @@ pub extern "C" fn TrieMapResultBuf_Free(buf: TrieMapResultBuf) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+/// - `buf` must point to a [valid] TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapResultBuf_GetByIndex(
     buf: *mut TrieMapResultBuf,
@@ -94,7 +97,9 @@ pub unsafe extern "C" fn TrieMapResultBuf_GetByIndex(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+/// - `buf` must point to a [valid] TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapResultBuf_Len(buf: *mut TrieMapResultBuf) -> usize {
     debug_assert!(!buf.is_null(), "buf cannot be NULL");

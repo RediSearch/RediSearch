@@ -78,13 +78,15 @@ extern "C" {
  *
  * **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
  * stores a borrowed reference to `child`. The caller retains ownership
- * and must ensure `child` remains valid for the lifetime of `parent`.
+ * and must ensure `child` remains [valid] for the lifetime of `parent`.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
- * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `parent` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ * - `child` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
 
@@ -94,7 +96,9 @@ void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t AggregateResult_Capacity(const RSAggregateResult *agg);
 
@@ -115,7 +119,9 @@ void AggregateResult_Free(RSAggregateResult agg);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const RSIndexResult *AggregateResult_Get(const RSAggregateResult *agg, size_t index);
 
@@ -125,9 +131,11 @@ const RSIndexResult *AggregateResult_Get(const RSAggregateResult *agg, size_t in
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 1. `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
  * 2. `index` must be lower than the length of the aggregate result children vector.
  * 3. `agg` must be of the `Owned` variant.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSIndexResult *AggregateResult_GetMutUnchecked(RSAggregateResult *agg, size_t index);
 
@@ -136,7 +144,9 @@ RSIndexResult *AggregateResult_GetMutUnchecked(RSAggregateResult *agg, size_t in
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const RSAggregateResult *agg);
 
@@ -146,8 +156,10 @@ struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const RSAggregateRe
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 1. `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
  * 2. `index` must be lower than the length of the aggregate result children vector.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const RSIndexResult *AggregateResult_GetUnchecked(const RSAggregateResult *agg, size_t index);
 
@@ -157,7 +169,9 @@ const RSIndexResult *AggregateResult_GetUnchecked(const RSAggregateResult *agg, 
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint8_t AggregateResult_KindMask(const RSAggregateResult *agg);
 
@@ -174,7 +188,9 @@ RSAggregateResult AggregateResult_New(size_t cap);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t AggregateResult_NumChildren(const RSAggregateResult *agg);
 
@@ -185,7 +201,9 @@ size_t AggregateResult_NumChildren(const RSAggregateResult *agg);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const RSAggregateResult *IndexResult_AggregateRef(const RSIndexResult *result);
 
@@ -200,8 +218,10 @@ const RSAggregateResult *IndexResult_AggregateRef(const RSIndexResult *result);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 1. `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
  * 2. `result`'s data payload must be of the aggregate kind
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSAggregateResult *IndexResult_AggregateRefMutUnchecked(RSIndexResult *result);
 
@@ -216,8 +236,10 @@ RSAggregateResult *IndexResult_AggregateRefMutUnchecked(RSIndexResult *result);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 1. `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
  * 2. `result`'s data payload must be of the aggregate kind
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const RSAggregateResult *IndexResult_AggregateRefUnchecked(const RSIndexResult *result);
 
@@ -228,7 +250,9 @@ const RSAggregateResult *IndexResult_AggregateRefUnchecked(const RSIndexResult *
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void IndexResult_AggregateReset(RSIndexResult *result);
 
@@ -240,7 +264,9 @@ void IndexResult_AggregateReset(RSIndexResult *result);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
 
@@ -249,7 +275,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
  * - `result` must have been created using one of these:
  *   - [`NewIntersectResult`]
  *   - [`NewUnionResult`]
@@ -259,6 +285,8 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
  *   - [`NewHybridResult`]
  *   - [`NewTokenRecord`]
  *   - [`IndexResult_DeepCopy`]
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void IndexResult_Free(RSIndexResult *result);
 
@@ -268,7 +296,9 @@ void IndexResult_Free(RSIndexResult *result);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexResult_IsAggregate(const RSIndexResult *result);
 
@@ -279,7 +309,9 @@ bool IndexResult_IsAggregate(const RSIndexResult *result);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 double IndexResult_NumValue(const RSIndexResult *result);
 
@@ -290,7 +322,9 @@ double IndexResult_NumValue(const RSIndexResult *result);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
 
@@ -301,7 +335,9 @@ struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void IndexResult_SetNumValue(RSIndexResult *result, double value);
 
@@ -312,7 +348,9 @@ void IndexResult_SetNumValue(RSIndexResult *result, double value);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const RSOffsetSlice *IndexResult_TermOffsetsRef(const RSIndexResult *result);
 
@@ -369,7 +407,9 @@ RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+ * - `filter` must point to a [valid] `NumericFilter` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool NumericFilter_Match(const struct NumericFilter *filter, double value);
 
@@ -382,10 +422,12 @@ bool NumericFilter_Match(const struct NumericFilter *filter, double value);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
- * - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ * - `dest` must point to a [valid] [`RSOffsetVector`] and cannot be NULL.
+ * - `src` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
  *   and cannot be NULL.
- * - `src` data should point to a valid array of `src.len` offsets.
+ * - `src` data should point to a [valid] array of `src.len` offsets.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
 
@@ -395,9 +437,11 @@ void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a [valid] [`RSOffsetVector`] and cannot be NULL.
  * - The data pointer of `offsets` had been allocated via the global allocator
  *   and points to an array matching the length of `offsets`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RSOffsetVector_FreeData(RSOffsetVector *offsets);
 
@@ -410,9 +454,11 @@ void RSOffsetVector_FreeData(RSOffsetVector *offsets);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ * - `offsets` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
  *   and cannot be NULL.
  * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const char *RSOffsetVector_GetData(const RSOffsetSlice *offsets, uint32_t *len);
 
@@ -422,8 +468,10 @@ const char *RSOffsetVector_GetData(const RSOffsetSlice *offsets, uint32_t *len);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ * - `offsets` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
  *   and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t RSOffsetVector_Len(const RSOffsetSlice *offsets);
 
@@ -436,10 +484,12 @@ uint32_t RSOffsetVector_Len(const RSOffsetSlice *offsets);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ * - `offsets` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
  *   and cannot be NULL.
  * - `data` must point to an array of `len` offsets.
  * - if `data` is NULL then `len` should be 0.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RSOffsetVector_SetData(RSOffsetSlice *offsets, const char *data, uint32_t len);
 

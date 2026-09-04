@@ -32,8 +32,10 @@ pub const extern "C" fn MetricsVec_New() -> MetricsVec<'static> {
 ///
 /// # Safety
 ///
-/// 1. `parent` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
-/// 2. `child` must point to a valid `MetricsVec`, or be null (no-op).
+/// 1. `parent` must point to a [valid] `MetricsVec` (e.g. `&result.metrics`).
+/// 2. `child` must point to a [valid] `MetricsVec`, or be null (no-op).
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSYieldableMetric_Concat<'a>(
     parent: *mut MetricsVec<'a>,
@@ -57,9 +59,11 @@ pub unsafe extern "C" fn RSYieldableMetric_Concat<'a>(
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a valid `RSIndexResult` and cannot be null.
-/// 2. `key` must be a valid `*const RLookupKey` that outlives the result
+/// 1. `r` must point to a [valid] `RSIndexResult` and cannot be null.
+/// 2. `key` must be a [valid] `*const RLookupKey` that outlives the result
 ///    (or null).
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ResultMetrics_Add(
     r: *mut RSIndexResult,
@@ -83,7 +87,9 @@ pub unsafe extern "C" fn ResultMetrics_Add(
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a valid `RSIndexResult` and cannot be null.
+/// 1. `r` must point to a [valid] `RSIndexResult` and cannot be null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ResultMetrics_Reset(r: *mut RSIndexResult) {
     debug_assert!(!r.is_null(), "result must not be null");
@@ -98,7 +104,9 @@ pub unsafe extern "C" fn ResultMetrics_Reset(r: *mut RSIndexResult) {
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a valid `RSIndexResult` and cannot be null.
+/// 1. `r` must point to a [valid] `RSIndexResult` and cannot be null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult) {
     debug_assert!(!r.is_null(), "result must not be null");
@@ -113,9 +121,11 @@ pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult) {
 ///
 /// # Safety
 ///
-/// 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
+/// 1. `metrics` must point to a [valid] `MetricsVec` (e.g. `&result.metrics`).
 /// 2. The returned slice borrows from the `MetricsVec`; the caller must
 ///    not mutate or free the `MetricsVec` while the slice is in use.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> MetricsSlice {
     debug_assert!(!metrics.is_null(), "metrics must not be null");
@@ -130,8 +140,10 @@ pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> Metri
 ///
 /// # Safety
 ///
-/// 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
-/// 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
+/// 1. `metrics` must point to a [valid] `MetricsVec` (e.g. `&result.metrics`).
+/// 2. `key` must point to a [valid] `RLookupKey`. Compared by pointer identity.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn MetricsVec_UpdateValue(
     metrics: *mut MetricsVec,

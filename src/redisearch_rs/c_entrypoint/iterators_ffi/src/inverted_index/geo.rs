@@ -21,14 +21,16 @@ use rqe_iterators::{IteratorsConfig, build_geo_range_iterator, free_geo_numeric_
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
+/// 1. `ctx` must be a [valid] non-NULL pointer to a `RedisSearchCtx`, remaining [valid] for the
 ///    lifetime of all returned iterators.
-/// 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
-/// 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
-///    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+/// 2. `ctx.spec` must be a [valid] non-NULL pointer to an `IndexSpec`.
+/// 3. `gf` must be a [valid] non-NULL pointer to a `GeoFilter`.
+///    - `gf.fieldSpec` must be a [valid] non-NULL pointer to a `FieldSpec`.
 ///    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
 ///      freed by `GeoFilter_Free`.
-/// 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
+/// 4. `config` must be a [valid] non-NULL pointer to an `IteratorsConfig`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewGeoRangeIterator(
     ctx: *const ffi::RedisSearchCtx,
