@@ -432,7 +432,7 @@ fn test_trie_iter_range() {
         key_len: size_t,
         ctx: *mut c_void,
         value: *mut c_void,
-    ) -> c_int {
+    ) -> bool {
         // Safety: the passed context was indeed a `&mut ResultsVec`
         let results = unsafe { &mut *(ctx as *mut ResultsVec) };
 
@@ -444,7 +444,7 @@ fn test_trie_iter_range() {
         let value = unsafe { *(value as *mut u8) };
 
         results.push((key, value));
-        0 // keep walking
+        false // keep walking
     }
 
     /// Stops the walk after the first key, to check the callback can end it.
@@ -453,10 +453,10 @@ fn test_trie_iter_range() {
         key_len: size_t,
         ctx: *mut c_void,
         value: *mut c_void,
-    ) -> c_int {
+    ) -> bool {
         // Safety: same contract as `callback`, which this delegates to.
         unsafe { callback(key, key_len, ctx, value) };
-        1 // stop
+        true // stop
     }
     fn do_iterate(
         min: Option<&str>,
@@ -516,7 +516,11 @@ fn test_trie_iter_range() {
                 )
             };
         });
-        assert_eq!(results.len(), 1, "the walk must stop on a non-zero return");
+        assert_eq!(
+            results.len(),
+            1,
+            "the walk must stop when the callback says so"
+        );
     }
 
     assert_range!(

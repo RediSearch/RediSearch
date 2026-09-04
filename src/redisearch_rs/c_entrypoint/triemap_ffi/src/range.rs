@@ -15,13 +15,12 @@ use trie_rs::iter::{RangeBoundary, RangeFilter, RangeLendingIter};
 
 /// Callback type for passing to [`TrieMap_IterateRange`].
 ///
-/// Returns `0` to continue the walk and any other value to stop it, the same
-/// convention `TrieRangeCallback` uses on the runes trie. A walk over a
-/// high-cardinality trie is unbounded work, so a caller that has seen enough -
-/// an expansion cap reached, a request timed out - must be able to end it rather
-/// than pay for every remaining key.
+/// Returns `true` to stop the walk. A walk over a high-cardinality trie is
+/// unbounded work, so a caller that has seen enough - an expansion cap reached,
+/// a request timed out - must be able to end it rather than pay for every
+/// remaining key.
 pub type TrieMapRangeCallback =
-    Option<unsafe extern "C" fn(*const c_char, size_t, *mut c_void, *mut c_void) -> c_int>;
+    Option<unsafe extern "C" fn(*const c_char, size_t, *mut c_void, *mut c_void) -> bool>;
 
 /// Iterate the trie within the specified key range.
 ///
@@ -31,7 +30,7 @@ pub type TrieMapRangeCallback =
 ///
 /// The passed [`TrieMapRangeCallback`] function is called for each key found,
 /// passing the key and its length, the value, and the `ctx` pointer passed to this
-/// function. The walk stops early as soon as it returns a non-zero value.
+/// function. The walk stops early as soon as it returns `true`.
 ///
 /// Panics in case the passed callback is NULL.
 ///
@@ -114,7 +113,7 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
         // Safety: caller is to ensure `callback` be
         // a valid pointer to a function of type [`TrieMapRangeCallback`]
         let stop = unsafe { (callback)(key_ptr, key_len, ctx, *value) };
-        if stop != 0 {
+        if stop {
             break;
         }
     }

@@ -22,7 +22,7 @@ typedef struct TrieMapIterator TrieMapIterator;
 // Must match `TrieMapRangeCallback` in triemap_ffi.h, which this header cannot
 // include (bindgen does not see the generated headers' directory). A mismatch is
 // a compile error in any translation unit that includes both.
-typedef int (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
+typedef bool (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 #ifdef __cplusplus
 extern "C" {

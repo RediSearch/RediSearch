@@ -653,8 +653,8 @@ typedef struct {
   t_fieldIndex fieldIndex;
 } TagRangeCtx;
 
-// Returns non-zero to stop the walk, per `TrieMapRangeCallback`.
-static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
+// Returns true to stop the walk, per `TrieMapRangeCallback`.
+static bool tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   TagRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
 
@@ -662,10 +662,10 @@ static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   // field is unbounded work, so declining to open a reader is not enough.
   if (ctx->nits >= q->config->maxPrefixExpansions) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    return REDISEARCH_ERR;
+    return true;
   }
   if (q->sctx->timeout && QueryRequestTimeout_IsTimedOut(q->sctx->timeout)) {
-    return REDISEARCH_ERR;
+    return true;
   }
 
   // Unit weight: the enclosing union applies the node's weight once, as it does
@@ -673,7 +673,7 @@ static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->idx, q->sctx, r, n, invidx, 1,
                                                            ctx->fieldIndex, q->status);
   if (!ir) {
-    return REDISEARCH_OK;
+    return false;
   }
 
   ctx->its[ctx->nits++] = ir;
@@ -681,7 +681,7 @@ static int tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
     ctx->cap *= 2;
     ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
   }
-  return REDISEARCH_OK;
+  return false;
 }
 
 /* Walk the tag index's value trie between the node's bounds, unioning the
