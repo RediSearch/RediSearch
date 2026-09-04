@@ -15,6 +15,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rs_wall_clock.h"
 
 struct TagIndex;
 struct NumericRangeTree;
@@ -76,6 +77,23 @@ typedef enum {
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
+
+typedef enum {
+  FIELD_INDEXING_PREPROCESS = 0,
+  FIELD_INDEXING_INDEX = 1,
+  FIELD_INDEXING_APPLY = 2,
+  FIELD_INDEXING_NUM_PHASES,
+} FieldIndexingPhase;
+
+typedef struct FieldIndexingPhaseStats {
+  uint64_t count;
+  rs_wall_clock_ns_t totalTimeNs;
+  rs_wall_clock_ns_t maxTimeNs;
+} FieldIndexingPhaseStats;
+
+typedef struct FieldIndexingStats {
+  FieldIndexingPhaseStats phases[FIELD_INDEXING_NUM_PHASES];
+} FieldIndexingStats;
 
 // Flags for tag fields
 typedef enum {
@@ -143,6 +161,7 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
+  FieldIndexingStats indexingStats;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))
@@ -192,6 +211,16 @@ void FieldSpec_AddError(FieldSpec *, ConstErrorMessage withoutUserData, ConstErr
 
 static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *queryError, RedisModuleString *key) {
   FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
+
+static inline void FieldSpec_AddIndexingTime(FieldSpec *fs, FieldIndexingPhase phase,
+                                             rs_wall_clock_ns_t duration) {
+  FieldIndexingPhaseStats *stats = &fs->indexingStats.phases[phase];
+  stats->count++;
+  stats->totalTimeNs += duration;
+  if (duration > stats->maxTimeNs) {
+    stats->maxTimeNs = duration;
+  }
 }
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);

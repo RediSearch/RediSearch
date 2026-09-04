@@ -30,6 +30,30 @@
 #define FIELD_DISK_TOTAL_BYTES     "disk_total_bytes"
 #define FIELD_DISK_NUM_KEYS        "disk_num_keys"
 
+typedef struct FieldIndexingPhaseReplyKeys {
+    const char *count;
+    const char *totalTimeNs;
+    const char *maxTimeNs;
+} FieldIndexingPhaseReplyKeys;
+
+static const FieldIndexingPhaseReplyKeys FieldIndexingReplyKeys[FIELD_INDEXING_NUM_PHASES] = {
+    [FIELD_INDEXING_PREPROCESS] = {
+        .count = "indexing_preprocess_count",
+        .totalTimeNs = "indexing_preprocess_time_ns",
+        .maxTimeNs = "indexing_preprocess_max_time_ns",
+    },
+    [FIELD_INDEXING_INDEX] = {
+        .count = "indexing_index_count",
+        .totalTimeNs = "indexing_index_time_ns",
+        .maxTimeNs = "indexing_index_max_time_ns",
+    },
+    [FIELD_INDEXING_APPLY] = {
+        .count = "indexing_apply_count",
+        .totalTimeNs = "indexing_apply_time_ns",
+        .maxTimeNs = "indexing_apply_max_time_ns",
+    },
+};
+
 static FieldType getFieldType(const char *type){
     if (strcmp(type, "vector") == 0) {
         return INDEXFLD_T_VECTOR;
@@ -61,6 +85,22 @@ static void PerFieldCfDiskMetrics_Combine(PerFieldCfDiskMetrics *dst,
     dst->available = true;
 }
 
+static void FieldIndexingPhaseStats_Combine(FieldIndexingPhaseStats *dst,
+                                            const FieldIndexingPhaseStats *src) {
+    dst->count += src->count;
+    dst->totalTimeNs += src->totalTimeNs;
+    if (src->maxTimeNs > dst->maxTimeNs) {
+        dst->maxTimeNs = src->maxTimeNs;
+    }
+}
+
+static void FieldIndexingStats_Combine(FieldIndexingStats *dst,
+                                       const FieldIndexingStats *src) {
+    for (FieldIndexingPhase phase = 0; phase < FIELD_INDEXING_NUM_PHASES; ++phase) {
+        FieldIndexingPhaseStats_Combine(&dst->phases[phase], &src->phases[phase]);
+    }
+}
+
 static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *second) {
     // The field type is consistent across shards; adopt it from the first shard
     // that reports one (non-vector fields carry type 0 on the coordinator).
@@ -70,6 +110,7 @@ static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *
     if (first->type == INDEXFLD_T_VECTOR) {
         VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
     }
+    FieldIndexingStats_Combine(&first->indexingStats, &second->indexingStats);
     // Disk metrics apply to every field type, independently of `type`.
     PerFieldTextDiskMetrics_Combine(&first->textDisk, &second->textDisk);
     PerFieldCfDiskMetrics_Combine(&first->cfDisk, &second->cfDisk);
@@ -141,6 +182,21 @@ static void FieldStats_DeserializeDiskMetrics(FieldSpecStats *stats, const MRRep
     }
 }
 
+static uint64_t FieldStats_DeserializeOptionalInteger(const MRReply *reply, const char *key) {
+    MRReply *metricReply = MRReply_MapElement(reply, key);
+    return metricReply ? (uint64_t)MRReply_Integer(metricReply) : 0;
+}
+
+static void FieldStats_DeserializeIndexingStats(FieldSpecStats *stats, const MRReply *reply) {
+    for (FieldIndexingPhase phase = 0; phase < FIELD_INDEXING_NUM_PHASES; ++phase) {
+        const FieldIndexingPhaseReplyKeys *keys = &FieldIndexingReplyKeys[phase];
+        FieldIndexingPhaseStats *phaseStats = &stats->indexingStats.phases[phase];
+        phaseStats->count = FieldStats_DeserializeOptionalInteger(reply, keys->count);
+        phaseStats->totalTimeNs = FieldStats_DeserializeOptionalInteger(reply, keys->totalTimeNs);
+        phaseStats->maxTimeNs = FieldStats_DeserializeOptionalInteger(reply, keys->maxTimeNs);
+    }
+}
+
 static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* reply){
     FieldSpecStats stats = {0};
     FieldType fieldType = getFieldType(type);
@@ -160,6 +216,7 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
         default:
             break;
     }
+    FieldStats_DeserializeIndexingStats(&stats, reply);
     // Disk metrics are field-type independent and keyed by name, so parse them
     // for every field regardless of the vector switch above.
     FieldStats_DeserializeDiskMetrics(&stats, reply);
@@ -167,6 +224,19 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
 }
 
 // IO and cluster traits
+
+static void FieldIndexingStats_Reply(const FieldIndexingStats* stats, RedisModule_Reply *reply){
+    for (FieldIndexingPhase phase = 0; phase < FIELD_INDEXING_NUM_PHASES; ++phase) {
+        const FieldIndexingPhaseStats *phaseStats = &stats->phases[phase];
+        if (phaseStats->count == 0) {
+            continue;
+        }
+        const FieldIndexingPhaseReplyKeys *keys = &FieldIndexingReplyKeys[phase];
+        REPLY_KVINT(keys->count, (long long)phaseStats->count);
+        REPLY_KVINT(keys->totalTimeNs, (long long)phaseStats->totalTimeNs);
+        REPLY_KVINT(keys->maxTimeNs, (long long)phaseStats->maxTimeNs);
+    }
+}
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
     RS_ASSERT(stats);
@@ -181,6 +251,8 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
         default:
             break;
     }
+
+    FieldIndexingStats_Reply(&stats->indexingStats, reply);
 
     // Per-field disk metrics (disk-backed indexes only; gated on `available`).
     if (stats->textDisk.available) {
@@ -306,12 +378,13 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
 FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
+  stats.indexingStats = fs->indexingStats;
   switch (stats.type) {
     case INDEXFLD_T_VECTOR:
       stats.vecStats = IndexSpec_GetVectorIndexStats(fs);
       return stats;
     default:
-      return (FieldSpecStats){0};
+      return stats;
   }
 }
 
