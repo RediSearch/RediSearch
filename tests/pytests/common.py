@@ -12,6 +12,7 @@ except ImportError:
     from collections import Iterable
 import time
 from packaging import version
+from contextlib import contextmanager
 from functools import wraps
 import signal
 import platform
@@ -611,6 +612,55 @@ def run_command_on_all_shards(env, *args):
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
+
+def create_diverged_index(env, idx='idx'):
+    """Create `idx` on every shard with a schema no other shard has, and return the
+    shard connections used, in shard order.
+
+    Internal `_FT.CREATE` does not fan out, so per-shard creates from an internal
+    client are the only way to build a deliberately inconsistent cluster. Shard `i`
+    gets `i` fields, so the cluster ends up with `env.shardsCount` distinct schemas.
+    The connections are returned because MARK-INTERNAL-CLIENT marks the connection,
+    not the shard.
+    """
+    assert env.shardsCount > 1, 'divergence needs at least two shards'
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        con = env.getConnection(shardId)
+        con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        schema = []
+        for field in range(shardId):
+            schema.extend([f'f{field}', 'TEXT'])
+        con.execute_command('_FT.CREATE', idx, 'SCHEMA', *schema)
+        conns.append(con)
+    return conns
+
+@contextmanager
+def stopped_shard(env, shardId):
+    """Stop shard `shardId` (1-based, as in `env.getConnection`) for the body of the
+    `with`, then restart it and wait for it to rejoin the cluster.
+
+    Without the restart and the wait, teardown and any later test reusing this env
+    run against a broken cluster.
+    """
+    shard = env.envRunner.shards[shardId - 1]
+
+    def rejoined():
+        # The port is dead until the restart completes, so a connection error is the
+        # expected state here rather than a failure. Anything else propagates.
+        try:
+            info = env.getConnection(shardId).execute_command('CLUSTER', 'INFO')
+        except redis_exceptions.RedisError as e:
+            return False, {'error': str(e)}
+        return 'cluster_state:ok' in info, {'cluster_info': info}
+
+    shard.stopEnv()
+    try:
+        yield shard
+    finally:
+        shard.startEnv()
+        wait_for_condition(rejoined, f'restarted shard {shardId} did not rejoin the cluster',
+                           timeout=30)
 
 def _cluster_bus_ports(env):
     """`{client port: cluster-bus port}` for every shard, from one `CLUSTER NODES` read.

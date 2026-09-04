@@ -1408,15 +1408,7 @@ def test_mod_6786(env:Env):
 
 @skip(cluster=False)
 def test_mod_7609(env:Env):
-  # Create the same named index on all shards, but with different schemas
-  for i in range(1, env.shardsCount + 1):
-    con = env.getConnection(i)
-    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
-    schema = []
-    for j in range(i):
-      schema.extend(['f'+str(j), 'TEXT'])
-    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
-
+  create_diverged_index(env, 'idx')
   env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
 
 @skip(cluster=True)

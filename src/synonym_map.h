@@ -132,6 +132,12 @@ SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap);
 void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
 
 /**
+ * Stable 64-bit hash of the synonym content: equal maps hash equal on any host, regardless
+ * of dict iteration order.
+ */
+uint64_t SynonymMap_Fingerprint(const SynonymMap* smap);
+
+/**
  * Loading smap from an rdb
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);

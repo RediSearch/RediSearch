@@ -64,6 +64,7 @@
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
+#include "coord/index_list_command.h"
 #include "info/global_stats.h"
 #include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
@@ -173,7 +174,7 @@ RedisModuleString *config_default_scorer = NULL;
 static void DEBUG_DistSearchCommandHandler(void* pd);
 /* ======================= DEBUG ONLY DECLARATIONS ======================= */
 
-static inline bool SearchCluster_Ready() {
+bool SearchCluster_Ready() {
   return NumShards != 0;
 }
 
@@ -1298,16 +1299,6 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc > 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  Indexes_List(&_reply, false);
-  return REDISMODULE_OK;
-}
-
 // Restore an index schema from the given string.
 // Currently behaves as FT._CREATEIFNX (No error if index exists).
 // FT._RESTOREIFNX SCHEMA {encode version} {schema string}
@@ -1836,6 +1827,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY_F(TrieType_Register, ctx);
 
   RM_TRY_F(Indexes_RegisterType, ctx);
+  RM_TRY_F(IndexSpec_RegisterSchemaFingerprintType, ctx);
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
 
@@ -1894,7 +1886,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",       SetFtExplaincliInfo, SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_DICT_DUMP,      DiskDisabledCmd(DictDumpCommand), "readonly",       SetFtDictdumpInfo,   SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SYNDUMP_CMD,    DiskDisabledCmd(SynDumpCommand),         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       SetFt_ListInfo,      SET_COMMAND_INFO, "slow admin", true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD_INTERNAL, IndexListInternal, "readonly",   SetDontCacheInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SYNADD_CMD,     DiskDisabledCmd(SynAddCommand),          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
     // read only commands
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
@@ -3665,11 +3657,11 @@ cleanup:
   return REDISMODULE_OK;
 }
 
-static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
+bool cannotBlockCtx(RedisModuleCtx *ctx) {
   return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
 }
 
-static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
+int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
 }
 
@@ -5100,6 +5092,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   SearchCommand readCommands[] = {
     // read commands
     DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,               SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD_PUBLIC, SafeCmd(IndexListCommandHandler), "readonly", SetFt_ListInfo,       SET_COMMAND_INFO,      "slow admin", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DistAggregateCommand),     "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,            SET_COMMAND_INFO,      "read", true, noKeyArgs, false),

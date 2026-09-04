@@ -52,6 +52,7 @@ exclude_commands:
     - _FT.PROFILE
     - _FT.SEARCH
     - _FT.INFO
+    - _FT._LIST
     - _FT.AGGREGATE
     - _FT.MGET
     - _FT.CURSOR
