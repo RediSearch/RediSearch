@@ -11,6 +11,7 @@
 #include "util/arr.h"
 #include "redismodule.h"
 
+#include <stdint.h>
 #ifndef __cplusplus
 #include <stdbool.h>
 #endif
@@ -80,6 +81,13 @@ int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply);
 /* Based on the value type, serialize the value into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);;
+
+struct RLookup;
+struct RLookupRow;
+/* Serialize a row's visible fields as alternating name/value entries, in lookup-key order.
+ * A field is emitted when its key carries all of `requiredFlags`, none of `excludeFlags`,
+ * and the row holds a value for it. The caller owns the enclosing map/array. */
+int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const struct RLookup *lk, const struct RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags, unsigned int apiVersion);
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);

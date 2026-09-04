@@ -444,50 +444,6 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
         .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
-/// Returns the number of visible fields in this RLookupRow.
-///
-/// Keys named after the schema rule's special fields (score, lang, payload)
-/// carry `RLOOKUP_F_HIDDEN` from creation (see the spec cache's rule names),
-/// so excluding `RLOOKUP_F_HIDDEN` also excludes them.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
-/// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
-/// 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetLength(
-    lookup: *const OpaqueRLookup,
-    row: *const OpaqueRLookupRow,
-    skip_field_index: *mut bool,
-    skip_field_index_len: size_t,
-    required_flags: u32,
-    excluded_flags: u32,
-) -> size_t {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
-    #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_GetLength");
-
-    // Safety: ensured by caller (2.)
-    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
-
-    assert!(
-        !skip_field_index.is_null(),
-        "`skip_field_index` must not be null"
-    );
-    // Safety: ensured by caller (3.)
-    let skip_field_index =
-        unsafe { slice::from_raw_parts_mut(skip_field_index, skip_field_index_len) };
-
-    let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
-    let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
-
-    row.get_length_no_alloc(lookup, required_flags, excluded_flags, skip_field_index)
-}
-
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
 ///
 /// # Safety
