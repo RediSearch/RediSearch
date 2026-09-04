@@ -14,6 +14,8 @@ from common import (
     index_info,
     TimeLimit,
     create_random_np_array_typed,
+    getWorkersThpoolStats,
+    workers_jobs_done,
 )
 import numpy as np
 import time
@@ -130,3 +132,78 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
     except Exception as e:
         message = f"wait_for_background_indexing: {index_state}, {message})"
         raise Exception(f'Timeout: {message}')
+
+# --- Tiered index transfers -------------------------------------------------------------------
+# A tiered index buffers writes in a frontend (flat) index and moves them into the backend index
+# in a background job - for SVS-VAMANA, a training one while the backend is still empty, and an
+# update one afterwards. The helpers below assert the state around such a transfer, on a single
+# shard, and default to the index and field the vecsim tests share.
+
+def svs_backend_marked_deleted(env, index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
+    return get_tiered_backend_debug_info(env, index_name, field_name)['NUMBER_OF_MARKED_DELETED']
+
+def assert_transfer_pending(env, message='', index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
+    """A transfer is scheduled but has not started - deterministic only with the workers paused.
+    BACKGROUND_INDEXING conflates queued with running, hence the queued-job count beside it,
+    which in turn assumes a single index and no fork GC."""
+    info = get_tiered_debug_info(env, index_name, field_name)
+    stats = getWorkersThpoolStats(env)
+    env.assertEqual(info['BACKGROUND_INDEXING'], 1,
+                    message=f"{message}: the index reports no pending update")
+    env.assertGreater(stats['lowPriorityPendingJobs'], 0,
+                      message=f"{message}: no queued job to be raced with: {stats}")
+
+def assert_transfer_did_not_complete(env, jobs_done_before, message=''):
+    """The transfer that was running when `jobs_done_before` was taken still is, so what happened
+    since raced it rather than followed it. Holds only while nothing since contended for the main
+    index lock: a training transfer holds it shared, an update transfer exclusively."""
+    env.assertEqual(workers_jobs_done(env), jobs_done_before,
+                    message=f"{message}: a background job completed while the deletions were "
+                            f"issued, so they did not all race a running transfer")
+
+def assert_deletions_reached_the_backend(env, marked_deleted_before, message='',
+                                         index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
+    """The transfer had already moved a doc to the backend when it was deleted, so the deletions
+    really did interleave with it. Without this witness a lost race would pass every other
+    assertion and lose the coverage silently. Specific only while no doc is overwritten around a
+    transfer, since re-adding a label the backend holds also marks the old entry deleted."""
+    env.assertGreater(svs_backend_marked_deleted(env, index_name, field_name), marked_deleted_before,
+                      message=f"{message}: no deleted doc reached the backend index, so the "
+                              f"deletions did not interleave with the transfer")
+
+def assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=1, message='',
+                            index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
+    """The tiered index holds exactly the live docs' labels and all of their vectors. Call once
+    settled and with periodic fork GC off - the tiered info and its two sub-index infos are read
+    under separate locks. INDEX_LABEL_COUNT is the deduplicated union of both sub-indexes;
+    summing their own counts would double count a doc whose vectors a transfer split between
+    them."""
+    info = get_tiered_debug_info(env, index_name, field_name)
+    frontend, backend = to_dict(info['FRONTEND_INDEX']), to_dict(info['BACKEND_INDEX'])
+    # One read, so the difference is consistent even if a GC did slip in.
+    live_vectors = frontend['INDEX_SIZE'] + backend['INDEX_SIZE'] - backend['NUMBER_OF_MARKED_DELETED']
+    ctx = (f"{message} | labels={info['INDEX_LABEL_COUNT']} live_vectors={live_vectors} "
+           f"frontend={frontend['INDEX_SIZE']} backend={backend['INDEX_SIZE']} "
+           f"backend_marked_deleted={backend['NUMBER_OF_MARKED_DELETED']}")
+    env.assertEqual(info['INDEX_LABEL_COUNT'], expected_live_docs,
+                    message=f"indexed labels != live docs: {ctx}")
+    env.assertEqual(live_vectors, vectors_per_doc * expected_live_docs,
+                    message=f"live vectors != vectors_per_doc * live docs: {ctx}")
+
+def assert_knn_page_live(env, k, query_vec, deleted_docs, message='',
+                         index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
+    """A KNN query returns a full page of `k` distinct live docs. Which docs is deliberately not
+    asserted: the graph is built concurrently, and a node can be unreachable from the entry point
+    however wide the search window (MOD-18162). The count is what detects a leftover entry for a
+    deleted doc - the pipeline drops results whose doc is gone from the doc table, so such an
+    entry costs a result slot instead of showing up by name. Weaker than the label accounting in
+    `assert_svs_tiered_state`, since an approximate search need not reach the leftover at all."""
+    res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN {k} @{field_name} $vec]',
+                              'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT', 'LIMIT', 0, k)
+    returned = res[1:]
+    env.assertEqual(res[0], k,
+                    message=f"{message}: got {res[0]} of {k} results, so a deleted doc is "
+                            f"probably still in the vector index, taking up a result slot: {res}")
+    env.assertEqual(len(set(returned)), len(returned), message=f"{message}: duplicate docs: {res}")
+    env.assertEqual(deleted_docs.intersection(returned), set(),
+                    message=f"{message}: deleted docs were returned: {res}")
