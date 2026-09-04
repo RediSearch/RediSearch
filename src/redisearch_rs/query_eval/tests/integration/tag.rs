@@ -1295,6 +1295,18 @@ fn eval_tag_phrase_child_truncates_a_token_at_a_nul() {
     );
 }
 
+#[test]
+fn eval_tag_phrase_child_treats_an_empty_token_as_a_zero_length_word() {
+    let values = values(&[(b"foo ", &[1]), (b"foo", &[2])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::Phrase(&[b"foo", b""])],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("\"foo \" is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![1]);
+}
+
 // ---------------------------------------------------------------------------
 // Escapes, case and binary values
 // ---------------------------------------------------------------------------

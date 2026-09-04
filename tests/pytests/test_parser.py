@@ -691,6 +691,7 @@ TAG:@tag {
     env.expect('FT.SEARCH', 'custom_idx', '@tag:{foo bar}', 'NOCONTENT').equal([1, 'doc5'])
     env.expect('FT.SEARCH', 'idx', '@tag:{cat foo dog}', 'NOCONTENT').equal([1, 'doc7'])
 
+@skip(cluster=True)
 def testTagExplainPhrase_MOD8666():
     """A tag phrase such as {bar foo} is a single tag value made of two words, not an
     intersection of two values; FT.EXPLAIN must match how the query is actually evaluated."""

@@ -805,7 +805,7 @@ static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *em
     const QueryNode *word = phrase->children[i];
     RS_ASSERT(word->type == QN_TOKEN);
     if (word->type != QN_TOKEN)
-      continue;  // never reachable from query syntax; keeps release builds safe
+      continue;  // LCOV_EXCL_LINE — never reachable from query syntax; keeps release builds safe
     if (i > 0) buf = sdscatlen(buf, " ", 1);
     buf = sdscat(buf, word->tn.len ? word->tn.str : emptyWord);
   }
