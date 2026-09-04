@@ -19,6 +19,8 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "search_result_ffi.h"
+#include "util/arr/arr.h"
 #include "util/misc.h"
 #include "util/timeout.h"
 
@@ -161,6 +163,85 @@ static inline void ChunkReplyState_Init(ChunkReplyState *state) {
   state->err = QueryError_Default();
 }
 
+// Request lifecycle operations have exclusive ownership; the lock is either
+// not initialized yet or has no concurrent users.
+static inline void SafeChunkReplyState_InitUnsafe(SafeChunkReplyState *safeState) {
+  ChunkReplyState_Init(&safeState->state);
+  pthread_mutex_init(&safeState->lock, NULL);
+}
+
+static inline void SafeChunkReplyState_ResetUnsafe(SafeChunkReplyState *safeState) {
+  ChunkReplyState_Destroy(&safeState->state);
+  ChunkReplyState_Init(&safeState->state);
+}
+
+static inline void SafeChunkReplyState_DestroyUnsafe(SafeChunkReplyState *safeState) {
+  ChunkReplyState_Destroy(&safeState->state);
+  pthread_mutex_destroy(&safeState->lock);
+}
+
+void QueryRequest_SetReplyResultsSafe(QueryRequest *request, SearchResult **results, int rc,
+                                      cachedVars cv, size_t limit, const QueryError *err) {
+  // Publication may race the strict timeout consumer, so all fields share one critical section.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
+  // Only strict flows append incrementally; other flows publish their completed local array here.
+  if (QueryRequest_RequiresReplyStateSafeAccess(request)) {
+    // Strict aggregation already appended directly to the shared array.
+    RS_ASSERT(results == NULL);
+    if (!stored->results) {
+      // A concrete empty array keeps stored-result serialization out of its live-result path.
+      stored->results = array_new(SearchResult *, 8);
+    }
+  } else {
+    // Non-synchronized flows publish their completed thread-local array once.
+    stored->results = results;
+  }
+  stored->rc = rc;
+  stored->cv = cv;
+  stored->limit = limit;
+  if (err) {
+    QueryError_ClearError(&stored->err);
+    QueryError_CloneFrom(err, &stored->err);
+  }
+  // Publish completion only after every field required by the consumer.
+  stored->hasStoredResults = true;
+  // The complete state is now published, so the strict consumer may proceed.
+  QueryRequest_ReleaseReplyStateSafe(request);
+}
+
+void QueryRequest_SetReplyErrorSafe(QueryRequest *request, const QueryError *err) {
+  // Error publication may race the strict timeout consumer.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
+  QueryError_ClearError(&stored->err);
+  QueryError_CloneFrom(err, &stored->err);
+  // The error is fully cloned, so the strict consumer may proceed.
+  QueryRequest_ReleaseReplyStateSafe(request);
+}
+
+void QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result) {
+  // Incremental publication is valid only for a strict cross-thread reply cycle.
+  RS_ASSERT(QueryRequest_RequiresReplyStateSafeAccess(request));
+
+  // A row already produced by the pipeline must precede the later main-thread drain.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
+  if (!stored->results) {
+    stored->results = array_new(SearchResult *, 8);
+  }
+  array_append(stored->results, result);
+  // The pointer, array header, resize, and new element are now published atomically.
+  QueryRequest_ReleaseReplyStateSafe(request);
+}
+
+ChunkReplyState QueryRequest_TakeReplyStateSafe(QueryRequest *request) {
+  // Ownership transfer must be atomic with respect to a strict-mode publisher.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
+  ChunkReplyState taken = *stored;
+  ChunkReplyState_Init(stored);
+  // Shared ownership is cleared, so serialization no longer needs the lock.
+  QueryRequest_ReleaseReplyStateSafe(request);
+  return taken;
+}
+
 static inline void QueryRequestAsyncState_Init(QueryRequestAsyncState *state) {
   state->requiresAggregateResultsSync = false;
   state->aggregatingResults = false;
@@ -222,7 +303,8 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
   request->blockedClientCycleActive = false;
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
-  ChunkReplyState_Init(&request->reply);
+  // Initialization has exclusive ownership and must create the mutex before safe access.
+  SafeChunkReplyState_InitUnsafe(&request->reply);
   QueryRequest_SetUseReplyCallback(request, false);
   QueryRequestTimeout_Init(&request->timeout, requestConfig->timeoutPolicy,
                            requestConfig->queryTimeoutMS);
@@ -237,15 +319,16 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
 }
 
 void QueryRequest_ResetReply(QueryRequest *request) {
-  ChunkReplyState_Destroy(&request->reply);
-  ChunkReplyState_Init(&request->reply);
+  // Cycle reset runs only after all worker and callback borrows have ended.
+  SafeChunkReplyState_ResetUnsafe(&request->reply);
 }
 
 void QueryRequest_Destroy(QueryRequest *request) {
   // Registration is strictly per-cycle; a request still linked here would
   // leave a dangling registry entry.
   RS_ASSERT(!RegistryInfo_IsLinked(&request->registryInfo));
-  QueryRequest_ResetReply(request);
+  // Destruction has exclusive ownership after all worker and callback borrows have ended.
+  SafeChunkReplyState_DestroyUnsafe(&request->reply);
   QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (request->args.argv) {

@@ -503,7 +503,8 @@ bool areq_timed_out(void *arg);
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   // Invariant: every AREQ reaching the strict-sync protocol is installed as a
   // blocked client's private data. Sub-/transient AREQs never run it.
-  return req->base.async.requiresAggregateResultsSync;
+  // The shared predicate keeps result synchronization aligned with safe state access.
+  return QueryRequest_RequiresReplyStateSafeAccess(&req->base);
 }
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.

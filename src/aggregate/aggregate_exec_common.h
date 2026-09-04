@@ -27,20 +27,10 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 void destroyResults(SearchResult **results);
 
-// TODO: replace `areq` with the borrowed atomic timed-out flag once it lives
-// on QueryProcessingCtx; the AREQ back-pointer is a temporary plumbing
-// shortcut for the main-thread RETURN-STRICT abort signal.
-SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
-
 typedef struct CommonPipelineCtx {
-  const struct QueryRequestTimeout *timeout;
+  // Top-level request being executed: AREQ.base or HybridRequest.base.
+  QueryRequest *request;
   RSOomPolicy oomPolicy;
-
-  // AREQ for the request being executed; consulted by AggregateResults (and
-  // its debug pause loop) to observe the request timeout. NULL on paths without
-  // a single owning AREQ (e.g. hybrid).
-  // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
-  struct AREQ *areq;
 } CommonPipelineCtx;
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
@@ -97,7 +87,7 @@ bool pipelineCanYieldPartialResults(struct AREQ *r);
 void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored);
 
 /**
- * Drain results buffered post-timeout into `req->base.reply.results`.
+ * Drain results buffered post-timeout into `req->base.reply.state.results`.
  * Only safe for pipelines classified as yielding partial results -- caller
  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
@@ -106,6 +96,12 @@ void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkRepl
  * Caller must also have already flipped the request's timeout flag and
  * waited for the BG worker to exit the pipeline (e.g. via
  * AREQ_WaitForAggregateResultsComplete).
+ *
+ * Transitional: the BG-completion wait is the ownership barrier for this
+ * drain. It guarantees that a result whose fetch started before timeout is
+ * appended before the main thread drains the remaining pipeline suffix. Do
+ * not remove the wait until a replacement handoff makes draining thread-safe
+ * and preserves that boundary result's ordering.
  *
  * The pager's internal `remaining` and `qctx->resultLimit` reflect the
  * post-abort budget, so this loop naturally respects the user's LIMIT and

@@ -1059,7 +1059,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   return REDISMODULE_OK;
 }
 
-// Drain any queued partial results into `base.reply.results` on the main
+// Drain any queued partial results into `base.reply.state.results` on the main
 // thread after the background pipeline has aborted. Flips RPNet to drainOnly
 // mode so the post-abort drain only pulls already-buffered shard replies, then
 // delegates the actual loop to the shared helper.
@@ -1085,8 +1085,10 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Signal timeout to the background thread
+  // Order the marker with reply publication; an in-flight row is still appended before draining.
+  pthread_mutex_lock(&req->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  pthread_mutex_unlock(&req->base.reply.lock);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
@@ -1110,10 +1112,14 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ_WaitForAggregateResultsComplete(req);
 
   // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
+  // The strict timeout callback consumes state published by the background thread.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
+  RS_ASSERT(stored->hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    stored->rc = RS_RESULT_TIMEDOUT;
   }
+  // The timeout metadata update is complete before the separate drain phase.
+  QueryRequest_ReleaseReplyStateSafe(&req->base);
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
@@ -1133,18 +1139,25 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
+  // This callback can consume state published under RETURN_STRICT synchronization.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1,
+                                         COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
+    // The callback finished consuming the protected error state.
+    QueryRequest_ReleaseReplyStateSafe(&req->base);
     return REDISMODULE_OK;
   }
+  // Availability was confirmed; ownership transfer will use its own safe section.
+  QueryRequest_ReleaseReplyStateSafe(&req->base);
 
   // Under RETURN-STRICT, a shard's TIMEDOUT warning does not abort the coord
   // pipeline (see processWarningsAndCleanup in src/coord/rpnet.c): RPNet keeps
@@ -1153,7 +1166,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // still produces rc=TIMEDOUT is the coord's own deadline firing, which
   // routes through DistAggregateTimeoutReturnStrictCallback -- not this
   // callback. Under FAIL, a shard timeout still bails the coord pipeline
-  // early; the BG thread stores the resulting error in base.reply.err
+  // early; the BG thread stores the resulting error in base.reply.state.err
   // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
@@ -1170,7 +1183,10 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
+  // Order the marker with reply publication; an in-flight row is still appended before draining.
+  pthread_mutex_lock(&req->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  pthread_mutex_unlock(&req->base.reply.lock);
 
   // Record the per-stage breakdown at the stage the deadline caught the request
   // (QUEUE while BG has not dequeued the read yet).
@@ -1193,21 +1209,27 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // cursor-shaped reply, signals completion, and parks/frees the cursor.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
+  // Strict timeout handling updates state shared with the background publisher.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
+  if (stored->hasStoredResults) {
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    stored->rc = RS_RESULT_TIMEDOUT;
+    // The timeout metadata update is complete before draining and ownership transfer.
+    QueryRequest_ReleaseReplyStateSafe(&req->base);
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
     // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
     // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
     // cursorRead bails here when the index was dropped while the cursor idled.
-    QueryError *err = &req->base.reply.err;
+    QueryError *err = &stored->err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);
+    // The callback finished consuming the protected error state.
+    QueryRequest_ReleaseReplyStateSafe(&req->base);
   }
   return REDISMODULE_OK;
 }

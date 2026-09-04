@@ -154,7 +154,8 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
 
   // Handle warnings from each subquery, adding appropriate suffix
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    QueryError* err = &hreq->requests[i]->base.reply.err;
+    // Serialization starts after subquery production completes, so the subrequest is exclusive.
+    QueryError *err = &QueryRequest_GetReplyStateUnsafe(&hreq->requests[i]->base)->err;
     const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
     warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
@@ -283,12 +284,8 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeout = &hreq->base.timeout,
+    .request = &hreq->base,
     .oomPolicy = hreq->reqConfig.oomPolicy,
-    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-    // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = hreq->requests[SEARCH_INDEX],
   };
 
 #ifdef ENABLE_ASSERT
@@ -411,7 +408,9 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   // query-scoped, not per-subquery, so it is emitted once here.
   bool oomWarning = QueryError_HasQueryOOMWarning(qctx->err);
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    oomWarning = oomWarning || QueryError_HasQueryOOMWarning(&hreq->requests[i]->base.reply.err);
+    // Serialization starts after subquery production completes, so the subrequest is exclusive.
+    QueryError *err = &QueryRequest_GetReplyStateUnsafe(&hreq->requests[i]->base)->err;
+    oomWarning = oomWarning || QueryError_HasQueryOOMWarning(err);
   }
   if (oomWarning) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
@@ -545,21 +544,19 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 #endif
 
 /**
- * Store pipeline results for reply_callback path (FAIL policy with workers).
- * Called after startPipelineHybrid when using reply_callback mode.
- * Stores results in hreq->base.reply so serializeStoredResults_hybrid can be called
- * from the reply_callback on the main thread.
+ * Finalize pipeline output for the reply_callback path.
+ * Strict flows already published each result to hreq->base.reply; other flows
+ * transfer their completed local array here. Final metadata is published in
+ * both cases for main-thread serialization.
  *
  * @param hreq The hybrid request
- * @param results Pipeline results (ownership transferred to hreq->base.reply)
+ * @param results Thread-local results to transfer, or NULL for a strict shared-array flow
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  */
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv) {
-  hreq->base.reply.results = results;
-  hreq->base.reply.rc = rc;
-  hreq->base.reply.cv = cv;
-  hreq->base.reply.hasStoredResults = true;
+  // RETURN_STRICT can race this publication with the timeout callback.
+  QueryRequest_SetReplyResultsSafe(&hreq->base, results, rc, cv, 0, NULL);
 
 }
 
@@ -573,8 +570,8 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
-    QueryError_ClearError(&hreq->base.reply.err);
-    QueryError_CloneFrom(status, &hreq->base.reply.err);
+    // RETURN_STRICT can race error publication with the timeout callback.
+    QueryRequest_SetReplyErrorSafe(&hreq->base, status);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else if (!ShouldReplyWithError(QueryError_GetCode(status),
@@ -665,7 +662,8 @@ done_err:
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
-    ChunkReplyState *stored = &hreq->base.reply;
+    // Transfer must exclude a strict-mode publisher before serialization proceeds unlocked.
+    ChunkReplyState stored = QueryRequest_TakeReplyStateSafe(&hreq->base);
 
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
@@ -681,20 +679,18 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     qctx->err = &err;
 
     // Get stored results and rc
-    SearchResult **results = stored->results;
-    int rc = stored->rc;
+    SearchResult **results = stored.results;
+    int rc = stored.rc;
 
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, &err);
-
-    // Clear stored results pointer since ownership was transferred
-    stored->results = NULL;
-    stored->hasStoredResults = false;
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored.cv, &r, &results, &err);
 
     // finishSendChunk_HREQ handles cleanup and stats
     finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
 
     // Clear the local error to avoid leak (QueryError may have allocated strings)
     QueryError_ClearError(&err);
+    QueryError_ClearError(&stored.err);
+    qctx->err = &hreq->tailPipelineError;
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -778,7 +774,8 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     }
     for (size_t i = 0; i < hreq->nrequests; i++) {
-      QueryError *err = &hreq->requests[i]->base.reply.err;
+      // Cursor publication has completed, so each subrequest warning is exclusively owned.
+      QueryError *err = &QueryRequest_GetReplyStateUnsafe(&hreq->requests[i]->base)->err;
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
         const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
         char buf[128];
@@ -1116,8 +1113,10 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Signal timeout to the worker and to all subquery depleters.
+  // Order the marker with reply publication; an in-flight row is still appended before draining.
+  pthread_mutex_lock(&hreq->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  pthread_mutex_unlock(&hreq->base.reply.lock);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
@@ -1137,7 +1136,11 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
-  RS_ASSERT(hreq->base.reply.hasStoredResults);
+  // Strict timeout consumption shares the parent state with its background publisher.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&hreq->base);
+  RS_ASSERT(stored->hasStoredResults);
+  // The protected availability check is complete before ownership transfer.
+  QueryRequest_ReleaseReplyStateSafe(&hreq->base);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
@@ -1161,8 +1164,10 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
 
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Signal timeout to background thread
+  // Order the marker with reply publication; an in-flight row is still appended before draining.
+  pthread_mutex_lock(&hreq->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  pthread_mutex_unlock(&hreq->base.reply.lock);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   // Record at the stage the deadline caught the request (REPLY once the cursors
   // were published, QUEUE/PIPELINE before that).
@@ -1186,10 +1191,13 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   RS_ASSERT(request != NULL);
 
   HybridRequest *req = QueryRequest_GetHybrid(request);
+  // FAIL unblocks only after BG publication ends, so this callback has exclusive access.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateUnsafe(&req->base);
 
-  if (QueryError_HasError(&req->base.reply.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, SHARD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+  if (QueryError_HasError(&stored->err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1,
+                                       SHARD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, &stored->err);
     return REDISMODULE_OK;
   }
 
@@ -1219,13 +1227,16 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   RS_ASSERT(request != NULL);
 
   HybridRequest *req = QueryRequest_GetHybrid(request);
+  // FAIL unblocks only after BG publication ends, so this callback has exclusive access.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateUnsafe(&req->base);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1,
+                                         COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
