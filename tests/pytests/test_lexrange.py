@@ -19,14 +19,34 @@ from common import *
 NAMES = ['alice', 'bob', 'charlie', 'dave', 'eve']
 
 
+def create_index(env, *schema):
+    """Create an empty `idx` with `schema`, and return a connection to fill it."""
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *schema).ok()
+    return getConnectionByEnv(env)
+
+
 def build_index(env, field_type='TAG', *field_args):
     """Create `idx` with a single `name` field of `field_type`, holding NAMES."""
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', field_type,
-               *field_args).ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'name', field_type, *field_args)
     for i, name in enumerate(NAMES):
         conn.execute_command('HSET', f'doc{i + 1}', 'name', name)
+    return conn
+
+
+def build_city_index(env):
+    """Create `idx` over a `city` TAG field holding two values, one with a space."""
+    conn = create_index(env, 'city', 'TAG')
+    conn.execute_command('HSET', 'doc1', 'city', 'new york')
+    conn.execute_command('HSET', 'doc2', 'city', 'paris')
+    return conn
+
+
+def build_named_ages(env):
+    """Create `idx` over a TAG name and a NUMERIC age, holding three documents."""
+    conn = create_index(env, 'name', 'TAG', 'age', 'NUMERIC')
+    for i, (name, age) in enumerate([('alice', 30), ('bob', 40), ('charlie', 50)]):
+        conn.execute_command('HSET', f'doc{i + 1}', 'name', name, 'age', age)
     return conn
 
 
@@ -162,10 +182,7 @@ def testIndexedEmptyValueIsInRange(env):
     sorts below every other value, so a range covering it has to include it.
     """
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'tg', 'TAG', 'INDEXEMPTY').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'tg', 'TAG', 'INDEXEMPTY')
     conn.execute_command('HSET', 'empty', 'tg', '')
     conn.execute_command('HSET', 'alice', 'tg', 'alice')
 
@@ -186,15 +203,10 @@ def testIndexedEmptyValueIsInRange(env):
 def testQuotedBoundWithSpace(env):
     """A bound containing a space is written quoted; unquoted it is a syntax error."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'city', 'TAG').ok()
-    conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc1', 'city', 'new york')
-    conn.execute_command('HSET', 'doc2', 'city', 'paris')
+    conn = build_city_index(env)
     conn.execute_command('HSET', 'doc3', 'city', 'amsterdam')
 
-    res = env.cmd('FT.SEARCH', 'idx', '@city:>{"new york"}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['doc2'])
+    env.assertEqual(search(env, '@city:>{"new york"}'), ['doc2'])
 
     # Two terms is not a bound: the grammar takes exactly one.
     env.expect('FT.SEARCH', 'idx', '@city:>{new york}', 'NOCONTENT', 'DIALECT', '2').error()
@@ -203,9 +215,7 @@ def testQuotedBoundWithSpace(env):
 def testNumericLookingBound(env):
     """A bound is compared as a string even when it looks like a number."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'sku', 'TAG').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'sku', 'TAG')
     for i, sku in enumerate(['1st', '5stars', '5zzz', '9']):
         conn.execute_command('HSET', f'doc{i + 1}', 'sku', sku)
 
@@ -219,29 +229,24 @@ def testParameterBound(env):
     enable_unstable_features(env)
     build_index(env)
 
-    res = env.cmd('FT.SEARCH', 'idx', '@name:>{$cursor}', 'PARAMS', '2', 'cursor', 'charlie',
-                  'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['doc4', 'doc5'])
+    env.assertEqual(search(env, '@name:>{$cursor}', 'PARAMS', '2', 'cursor', 'charlie'),
+                    ['doc4', 'doc5'])
 
     # A parameter value is taken literally, spaces and all.
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc6', 'name', 'zoe pratt')
-    res = env.cmd('FT.SEARCH', 'idx', '@name:>={$cursor}', 'PARAMS', '2', 'cursor', 'zoe pratt',
-                  'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['doc6'])
+    env.assertEqual(search(env, '@name:>={$cursor}', 'PARAMS', '2', 'cursor', 'zoe pratt'),
+                    ['doc6'])
 
 
 def testEscapedBound(env):
     """An escaped separator is part of the bound, not a second token."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'city', 'TAG').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'city', 'TAG')
     conn.execute_command('HSET', 'doc1', 'city', 'new york')
     conn.execute_command('HSET', 'doc2', 'city', 'paris')
 
-    res = env.cmd('FT.SEARCH', 'idx', '@city:>{new\\ york}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['doc2'])
+    env.assertEqual(search(env, '@city:>{new\\ york}'), ['doc2'])
 
 
 def testPrefixBounds(env):
@@ -252,9 +257,7 @@ def testPrefixBounds(env):
     stored key, which is the case the trie descent is easiest to get wrong.
     """
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'v', 'TAG').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'v', 'TAG')
     for v in ['ban', 'banana', 'band', 'bank']:
         conn.execute_command('HSET', v, 'v', v)
 
@@ -282,9 +285,7 @@ def testPrefixBounds(env):
 def testTagCaseInsensitiveByDefault(env):
     """A TAG field folds case unless declared CASESENSITIVE, and so does its bound."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TAG').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'name', 'TAG')
     conn.execute_command('HSET', 'doc1', 'name', 'Alice')
     conn.execute_command('HSET', 'doc2', 'name', 'Zoe')
 
@@ -296,10 +297,7 @@ def testTagCaseInsensitiveByDefault(env):
 def testTagCaseSensitive(env):
     """A CASESENSITIVE TAG field compares bound and values byte for byte."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'name', 'TAG', 'CASESENSITIVE').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'name', 'TAG', 'CASESENSITIVE')
     conn.execute_command('HSET', 'doc1', 'name', 'Zoe')
     conn.execute_command('HSET', 'doc2', 'name', 'alice')
 
@@ -324,12 +322,7 @@ def testBoundedRangeFromTwoClauses(env):
 def testCombinedWithOtherClauses(env):
     """A range composes with the rest of the query language."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'name', 'TAG', 'age', 'NUMERIC').ok()
-    conn = getConnectionByEnv(env)
-    for i, (name, age) in enumerate([('alice', 30), ('bob', 40), ('charlie', 50)]):
-        conn.execute_command('HSET', f'doc{i + 1}', 'name', name, 'age', age)
+    build_named_ages(env)
 
     env.assertEqual(search(env, '@name:>{alice} @age:[0 45]'), ['doc2'])
     env.assertEqual(search(env, '-@name:>{alice}'), ['doc1'])
@@ -419,16 +412,22 @@ def testLiteralBoundAlongsideAnotherParameter(env):
     query made resolution walk the tree.
     """
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'name', 'TAG', 'age', 'NUMERIC').ok()
-    conn = getConnectionByEnv(env)
-    for i, (name, age) in enumerate([('alice', 30), ('bob', 40), ('charlie', 50)]):
-        conn.execute_command('HSET', f'doc{i + 1}', 'name', name, 'age', age)
+    build_named_ages(env)
 
-    res = env.cmd('FT.SEARCH', 'idx', '@name:>{bob} @age>=$min', 'PARAMS', '2', 'min', '0',
-                  'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['doc3'])
+    env.assertEqual(search(env, '@name:>{bob} @age>=$min', 'PARAMS', '2', 'min', '0'),
+                    ['doc3'])
+
+
+def assertNulBoundTruncates(env):
+    """Assert `ab\\0z` is read as the bound `ab` on the `tg` field.
+
+    `plain` holds `ab` and `nul` holds `ab\\0z`, which the indexer files under
+    `ab` as well, so a strict upper bound of `ab` excludes both and an inclusive
+    one takes both.
+    """
+    env.assertEqual(search(env, '@tg:<{$cursor}', 'PARAMS', '2', 'cursor', 'ab\0z'), [])
+    env.assertEqual(search(env, '@tg:<={$cursor}', 'PARAMS', '2', 'cursor', 'ab\0z'),
+                    ['nul', 'plain'])
 
 
 def testInteriorNulTruncatesBoundAndValueAlike(env):
@@ -439,26 +438,13 @@ def testInteriorNulTruncatesBoundAndValueAlike(env):
     compare against keys that cannot exist.
     """
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'tg', 'TAG').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'tg', 'TAG')
     conn.execute_command('HSET', 'plain', 'tg', 'ab')
     conn.execute_command('HSET', 'nul', 'tg', 'ab\0z')
 
     # Both documents index under "ab", which an exact match confirms.
-    exact = env.cmd('FT.SEARCH', 'idx', '@tg:{ab}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(exact[1:]), ['nul', 'plain'])
-
-    # So a bound of "ab\0z" is the bound "ab".
-    below = env.cmd('FT.SEARCH', 'idx', '@tg:<{$cursor}',
-                    'PARAMS', '2', 'cursor', 'ab\0z',
-                    'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-    env.assertEqual(below[1:], [])
-
-    at_or_below = env.cmd('FT.SEARCH', 'idx', '@tg:<={$cursor}',
-                          'PARAMS', '2', 'cursor', 'ab\0z',
-                          'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-    env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'])
+    env.assertEqual(search(env, '@tg:{ab}'), ['nul', 'plain'])
+    assertNulBoundTruncates(env)
 
 
 def testTagParameterBoundIsUnescapedLikeATagToken(env):
@@ -472,25 +458,18 @@ def testTagParameterBoundIsUnescapedLikeATagToken(env):
     asserting either is right. Changing it means changing `@tag:{$p}` too.
     """
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'tg', 'TAG', 'CASESENSITIVE').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'tg', 'TAG', 'CASESENSITIVE')
     conn.execute_command('HSET', 'bang', 'tg', 'a!')
     conn.execute_command('HSET', 'esc', 'tg', 'a\\!')
     conn.execute_command('HSET', 'zed', 'tg', 'z')
 
     # An exact match on the parameter resolves it to "a!", not the literal "a\\!"
     # that the index holds separately...
-    exact = env.cmd('FT.SEARCH', 'idx', '@tg:{$p}', 'PARAMS', '2', 'p', 'a\\!',
-                    'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(exact[1:]), ['bang'])
+    env.assertEqual(search(env, '@tg:{$p}', 'PARAMS', '2', 'p', 'a\\!'), ['bang'])
 
     # ... and a range bound resolves it the same way, so everything above "a!"
     # matches, including the backslashed value.
-    above = env.cmd('FT.SEARCH', 'idx', '@tg:>{$p}', 'PARAMS', '2', 'p', 'a\\!',
-                    'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-    env.assertEqual(sorted(above[1:]), ['esc', 'zed'])
+    env.assertEqual(search(env, '@tg:>{$p}', 'PARAMS', '2', 'p', 'a\\!'), ['esc', 'zed'])
 
 
 def testInteriorNulTruncatesCaseSensitiveTagBound(env):
@@ -500,38 +479,24 @@ def testInteriorNulTruncatesCaseSensitiveTagBound(env):
     folding skipped, the length has to come from the truncated content instead.
     """
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'tg', 'TAG', 'CASESENSITIVE').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'tg', 'TAG', 'CASESENSITIVE')
     conn.execute_command('HSET', 'plain', 'tg', 'ab')
     conn.execute_command('HSET', 'nul', 'tg', 'ab\0z')
 
-    # Both index under "ab", so a bound of "ab\0z" is the bound "ab".
-    below = env.cmd('FT.SEARCH', 'idx', '@tg:<{$cursor}', 'PARAMS', '2', 'cursor', 'ab\0z',
-                    'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-    env.assertEqual(below[1:], [])
-
-    at_or_below = env.cmd('FT.SEARCH', 'idx', '@tg:<={$cursor}', 'PARAMS', '2', 'cursor', 'ab\0z',
-                          'NOCONTENT', 'LIMIT', '0', '100', 'DIALECT', '2')
-    env.assertEqual(sorted(at_or_below[1:]), ['nul', 'plain'])
+    assertNulBoundTruncates(env)
 
 
 def testEscapedBoundIsNotUnescapedTwice(env):
     """A TAG bound is unescaped once, by the tag evaluator, as a tag token is."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'v', 'TAG').ok()
-    conn = getConnectionByEnv(env)
+    conn = create_index(env, 'v', 'TAG')
     conn.execute_command('HSET', 'bang', 'v', 'a!')
     conn.execute_command('HSET', 'zed', 'v', 'z')
 
     # `a\!` in the query text is the value `a!`, so a strict lower bound on it
     # excludes the document holding exactly that value.
-    res = env.cmd('FT.SEARCH', 'idx', '@v:>{a\\!}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['zed'])
-    res = env.cmd('FT.SEARCH', 'idx', '@v:>={a\\!}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(sorted(res[1:]), ['bang', 'zed'])
+    env.assertEqual(search(env, '@v:>{a\\!}'), ['zed'])
+    env.assertEqual(search(env, '@v:>={a\\!}'), ['bang', 'zed'])
 
 
 # ---------------------------------------------------------------------------
@@ -541,9 +506,7 @@ def testEscapedBoundIsNotUnescapedTwice(env):
 def testWrongFieldType(env):
     """Only TAG fields can be compared lexicographically."""
     enable_unstable_features(env)
-    env.flush()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
-               'age', 'NUMERIC', 'loc', 'GEO', 'txt', 'TEXT').ok()
+    create_index(env, 'age', 'NUMERIC', 'loc', 'GEO', 'txt', 'TEXT')
 
     for field in ('age', 'loc', 'txt'):
         env.expect('FT.SEARCH', 'idx', f'@{field}:>{{10}}', 'DIALECT', '2') \
