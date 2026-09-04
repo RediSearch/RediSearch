@@ -379,37 +379,52 @@ def testRangeReadsTheFieldItNames(env):
     env.assertEqual(search(env, '@t1:>{a}'), ['doc1'])
 
 
-def testMultiValueTagRepeatsAcrossPages(env):
-    """Keyset pagination is for single-valued tag fields, and this pins why.
+def testSortOrderAndIndexOrderCanDiffer(env):
+    """Keyset pagination needs SORTBY and the range to agree, and they only do
+    when the field text is already an indexed tag value.
 
-    A multi-valued tag puts one trie entry per value, so a range matches the
-    document through any of them, exactly as `@name:{zulu}` does. SORTBY instead
-    keys on the whole unsplit field, which is not any one of those values. The
-    two orderings are over different things, so a cursor taken from the sort key
-    can still be below one of the document's own values and hand it back on the
-    next page.
+    A range walks the tag index, which splits a field on separators and trims
+    surrounding whitespace. SORTBY reads the sorting vector, which holds the
+    field text before any of that. When the two differ, so do the two orderings,
+    and a cursor taken from one is meaningless to the other.
 
-    Nothing here is fixable inside the range without teaching it about the
-    sorting vector: matching a document by any of its tag values is what a tag
-    query means. This asserts the repeat so that it stays a known limitation
-    rather than becoming a surprise.
+    Neither is fixable inside the range: matching a document by any of its tag
+    values is what a tag query means, and a bound is read exactly as an exact
+    match reads it. This pins both divergences so they stay known limitations,
+    and the supported shape next to them.
     """
     enable_unstable_features(env)
+
+    # Multiple values: one trie entry each, so a range matches through any of
+    # them, while the sort key is the whole unsplit field.
     conn = create_index(env, 'name', 'TAG', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 'name', 'alice,zulu')
     conn.execute_command('HSET', 'doc2', 'name', 'bob')
-
     page = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'name', 'ASC',
                    'LIMIT', '0', '1', 'DIALECT', '2')
     env.assertEqual(page[1:], ['doc1'])
-
     # `zulu` sorts above the `alice,zulu` cursor, so doc1 comes back again.
     env.assertEqual(search(env, '@name:>{"alice,zulu"}'), ['doc1', 'doc2'])
 
-    # A single-valued field pages cleanly, which is the supported shape.
+    # Surrounding whitespace: trimmed by indexing, kept by the sorting vector,
+    # so the two put the documents in different orders altogether.
+    conn = create_index(env, 'name', 'TAG', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 'name', 'alice ')
+    conn.execute_command('HSET', 'doc2', 'name', '  bob')
+    sorted_keys = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'name',
+                          'ASC', 'DIALECT', '2')[1:]
+    # '  bob' leads on the untrimmed sort key, though 'alice' leads in the index.
+    env.assertEqual(sorted_keys, ['doc2', 'doc1'])
+    env.assertEqual(search(env, '@name:{alice}'), ['doc1'])
+    env.assertEqual(search(env, '@name:>{alice}'), ['doc2'])
+
+    # The supported shape: one value per document, already in indexed form.
     conn = create_index(env, 'name', 'TAG', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 'name', 'alice')
     conn.execute_command('HSET', 'doc2', 'name', 'bob')
+    page = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'name', 'ASC',
+                   'LIMIT', '0', '1', 'DIALECT', '2')
+    env.assertEqual(page[1:], ['doc1'])
     env.assertEqual(search(env, '@name:>{alice}'), ['doc2'])
 
 
