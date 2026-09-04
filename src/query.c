@@ -798,6 +798,20 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
+// Appends the words of `phrase` joined by single spaces, writing the `emptyWord` argument in
+// place of any zero-length word.
+static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *emptyWord) {
+  for (size_t i = 0; i < QueryNode_NumChildren(phrase); ++i) {
+    const QueryNode *word = phrase->children[i];
+    RS_ASSERT(word->type == QN_TOKEN);
+    if (word->type != QN_TOKEN)
+      continue;  // never reachable from query syntax; keeps release builds safe
+    if (i > 0) buf = sdscatlen(buf, " ", 1);
+    buf = sdscat(buf, word->tn.len ? word->tn.str : emptyWord);
+  }
+  return buf;
+}
+
 static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               double weight, const FieldSpec *fs) {
   QueryIterator *ret = NULL;
@@ -825,15 +839,11 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
 
     case QN_PHRASE: {
-      char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
-        // tag phrase children are always tokens from query syntax
-        RS_ASSERT(n->children[i]->type == QN_TOKEN);
         tag_strtolower(&(n->children[i]->tn.str), &n->children[i]->tn.len, caseSensitive);
-        terms[i] = n->children[i]->tn.str;
       }
 
-      sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
+      sds s = tagPhraseAppendValue(sdsempty(), n, "");
 
       ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), effective_weight, fs->index, q->status);
       sdsfree(s);
@@ -1373,7 +1383,16 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%s {\n", HiddenString_GetUnsafe(qs->tag.fs->fieldName, NULL));
-      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
+        const QueryNode *child = qs->children[ii];
+        if (child->type == QN_PHRASE) {
+          s = doPad(s, depth + 1);
+          s = tagPhraseAppendValue(s, child, "\"\"");
+          s = sdscat(s, "\n");
+        } else {
+          s = QueryNode_DumpSds(s, spec, child, depth + 1);
+        }
+      }
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
