@@ -50,7 +50,18 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// An append-only list of [`RLookupKey`]s.
 ///
-/// This type maintains a mapping from string names to [`RLookupKey`]s.
+/// This type maintains a list of [`RLookupKey`]s addressable by string name.
+///
+/// # Sealing
+///
+/// At the end of pipeline construction the lookup is [sealed](Self::seal):
+/// from that point on it is *append-only*. Creating new keys stays legal —
+/// document loaders and the coordinator append keys during execution — but
+/// every operation that changes an existing key panics. Each mutating method
+/// documents on which side of that line it falls. The invariant exists so
+/// that state derived from the key set at finalization (cached
+/// [`RLookupKey`] pointers, compiled reply plans) stays valid for the rest of
+/// the request without re-validation.
 #[derive(Debug)]
 pub struct RLookup<'a> {
     keys: KeyList<'a>,
@@ -87,15 +98,37 @@ impl<'a> RLookup<'a> {
         self.keys.assert_valid(ctx);
     }
 
+    /// Seal this lookup: from now on it is **append-only** (see the
+    /// [type-level docs](Self#sealing)). Idempotent.
+    ///
+    /// The C pipeline-construction code calls this (through `RLookup_Seal`)
+    /// wherever a request's plan becomes final; the call sites are the
+    /// canonical record of where that is.
+    pub const fn seal(&mut self) {
+        self.keys.seal();
+    }
+
+    /// Whether [`Self::seal`] has been called.
+    pub const fn is_sealed(&self) -> bool {
+        self.keys.is_sealed()
+    }
+
     /// Set the [`IndexSpecCache`] associated with this [`RLookup`].
+    ///
+    /// Sealing: **forbidden** after [`Self::seal`] — the cache determines how
+    /// names resolve, so swapping it mutates the lookup's observable key set.
     ///
     /// # Panics
     ///
-    /// Panics this lookup already has an index spec cache.
+    /// Panics if this lookup already has an index spec cache, or is sealed.
     pub fn set_cache(&mut self, spcache: Option<IndexSpecCache>) {
         debug_assert!(
             self.index_spec_cache.is_none(),
             "cannot replace an existing index_spec_cache"
+        );
+        assert!(
+            !self.is_sealed(),
+            "cannot set the index spec cache of a sealed RLookup (sealed lookups are append-only)"
         );
 
         self.index_spec_cache = spcache;
@@ -129,10 +162,14 @@ impl<'a> RLookup<'a> {
         }
     }
 
+    /// Sealing: allowed after [`Self::seal`] — options only gate how *future*
+    /// keys are created (appends stay legal on sealed lookups); existing keys
+    /// are unaffected.
     pub fn disable_options(&mut self, options: RLookupOptions) {
         self.options &= !options;
     }
 
+    /// Sealing: allowed after [`Self::seal`]; see [`Self::disable_options`].
     pub fn enable_options(&mut self, options: RLookupOptions) {
         self.options |= options;
     }
@@ -165,6 +202,9 @@ impl<'a> RLookup<'a> {
     /// - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
     /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
     /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+    ///
+    /// Sealing: follows [`Self::get_key_write`] per key — appends are allowed
+    /// on a sealed `self`; overriding an existing key panics.
     pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
         debug_assert!(
             !flags.contains(RLookupKeyFlag::NameAlloc),
@@ -189,12 +229,6 @@ impl<'a> RLookup<'a> {
         self.keys.cursor_front()
     }
 
-    /// Returns a [`Cursor`] starting at the first key.
-    #[inline(always)]
-    pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
-        self.keys.cursor_front_mut()
-    }
-
     /// Returns an iterator over immutable references to keys.
     #[inline(always)]
     pub fn iter(&self) -> Iter<'_, 'a> {
@@ -203,9 +237,19 @@ impl<'a> RLookup<'a> {
 
     /// Returns an iterator over pinned mutable references to keys.
     ///
-    /// Use [`RLookup::cursor_mut`] to override a key during traversal.
+    /// Sealing: **forbidden** after [`Self::seal`] — the returned references
+    /// allow mutating existing keys behind the seal's back.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this lookup is sealed.
     #[inline(always)]
     pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        assert!(
+            !self.is_sealed(),
+            "cannot mutably iterate a sealed RLookup (sealed lookups are append-only)"
+        );
+
         self.keys.iter_mut()
     }
 
@@ -215,6 +259,9 @@ impl<'a> RLookup<'a> {
     ///
     /// If the flag `RLookupKeyFlag::AllowUnresolved` is set, it will create a new key if it does not exist in the lookup table
     /// nor in the schema.
+    ///
+    /// Sealing: allowed after [`Self::seal`] — this either finds an existing
+    /// key or appends a new one; it never changes an existing key.
     pub fn get_key_read(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
@@ -302,6 +349,10 @@ impl<'a> RLookup<'a> {
     ///
     /// This will never get a key from the cache, it will either create a new key, override an existing key or return `None` if the key
     /// is in exclusive mode.
+    ///
+    /// Sealing: the append and exclusive-mode arms are allowed after
+    /// [`Self::seal`]; overriding an existing key (the
+    /// [`RLookupKeyFlag::Override`] arm) panics on a sealed lookup.
     pub fn get_key_write(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
@@ -335,6 +386,9 @@ impl<'a> RLookup<'a> {
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
 
+    /// Sealing: the append arm is allowed after [`Self::seal`]; the arms that
+    /// change an existing key (override, or marking a found key as explicit
+    /// return) panic on a sealed lookup.
     pub fn get_key_load(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
@@ -346,6 +400,7 @@ impl<'a> RLookup<'a> {
 
         let name = name.into();
         let flags = flags | self.hidden_if_schema_special(&name);
+        let sealed = self.is_sealed();
 
         // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
         // 2. create a new key with the name of the field, and mark it as doc-source.
@@ -375,10 +430,19 @@ impl<'a> RLookup<'a> {
                     // 2. The key is already loaded (from the document) and the caller didn't request to override.
                     // 3. The key was created by the query (upstream) and the caller didn't request to override.
 
-                    let key = key.project();
-
                     // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
-                    key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+                    // Only touch the key when that actually changes it: execution-time callers
+                    // (the loaders' `load_all` paths) reach this arm with no flags to add, and a
+                    // no-op must not trip the sealing check.
+                    let add = flags & RLookupKeyFlag::ExplicitReturn;
+                    if !key.flags.contains(add) {
+                        assert!(
+                            !sealed,
+                            "cannot mutate key flags in a sealed RLookup (sealed lookups are append-only)"
+                        );
+                        let key = key.project();
+                        key.header.flags |= add;
+                    }
 
                     return None;
                 }
@@ -457,6 +521,11 @@ impl<'a> RLookup<'a> {
 
     /// `open_key`, when `Some`, is an already-open handle for `key_name` that the loader
     /// reuses instead of opening the document by name; it is borrowed, not closed here.
+    ///
+    /// Sealing: **forbidden** after [`Self::seal`] — every call blindly appends
+    /// one key per rule field, so repeated calls on the same lookup only make
+    /// sense while it is still being built (in practice: the indexing path's
+    /// transient lookups, which are never sealed).
     pub fn load_rule_fields(
         &mut self,
         search_ctx: &mut ffi::RedisSearchCtx,
@@ -465,6 +534,11 @@ impl<'a> RLookup<'a> {
         key_name: &CStr,
         open_key: Option<&redis_module::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
+        assert!(
+            !self.is_sealed(),
+            "cannot load rule fields into a sealed RLookup (sealed lookups are append-only)"
+        );
+
         // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
         // for every key.
         let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
@@ -1237,6 +1311,112 @@ mod tests {
 
         // Verify Hidden flag is now gone (src2 overwrote src1's hidden status)
         assert!(!dest_key_after_src2.flags.contains(RLookupKeyFlag::Hidden));
+    }
+
+    // A sealed lookup keeps accepting new keys through every get_key_* entry
+    // point (the execution-time paths are append-only), but returns existing
+    // keys untouched.
+    #[test]
+    fn sealed_rlookup_allows_appends() {
+        let mut rlookup = RLookup::new();
+        rlookup
+            .get_key_write(c"existing", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup.seal();
+        assert!(rlookup.is_sealed());
+
+        // get_key_write: append arm.
+        assert!(
+            rlookup
+                .get_key_write(c"written", RLookupKeyFlags::empty())
+                .is_some()
+        );
+        // get_key_write: exclusive-mode arm (existing key, no Override) — no
+        // mutation, no panic.
+        assert!(
+            rlookup
+                .get_key_write(c"existing", RLookupKeyFlags::empty())
+                .is_none()
+        );
+        // get_key_load: append arm (hash `load_all` on a first document).
+        assert!(
+            rlookup
+                .get_key_load(c"loaded", c"loaded_path", RLookupKeyFlags::empty())
+                .is_some()
+        );
+        // get_key_read: find arm.
+        assert!(
+            rlookup
+                .get_key_read(c"existing", RLookupKeyFlags::empty())
+                .is_some()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "sealed")]
+    fn sealed_rlookup_forbids_get_key_write_override() {
+        let mut rlookup = RLookup::new();
+        rlookup
+            .get_key_write(c"foo", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup.seal();
+
+        rlookup.get_key_write(c"foo", make_bitflags!(RLookupKeyFlag::Override));
+    }
+
+    #[test]
+    #[should_panic(expected = "sealed")]
+    fn sealed_rlookup_forbids_set_cache() {
+        let mut rlookup = RLookup::new();
+        rlookup.seal();
+
+        rlookup.set_cache(None);
+    }
+
+    // Marking a found key as explicit-return mutates it in place, which a
+    // sealed lookup forbids ...
+    #[test]
+    #[should_panic(expected = "sealed")]
+    fn sealed_rlookup_forbids_explicit_return_marking() {
+        let mut rlookup = RLookup::new();
+        rlookup
+            .keys
+            .push(RLookupKey::new(c"foo", RLookupKeyFlag::IsLoaded.into()));
+        rlookup.seal();
+
+        rlookup.get_key_load(c"foo", c"foo", RLookupKeyFlag::ExplicitReturn.into());
+    }
+
+    // ... but reaching the same arm with nothing to add must stay a no-op:
+    // the JSON `load_all` path calls get_key_load with empty flags for every
+    // document after the first, on a sealed lookup.
+    #[test]
+    fn sealed_rlookup_allows_noop_load_of_loaded_key() {
+        let mut rlookup = RLookup::new();
+        rlookup
+            .keys
+            .push(RLookupKey::new(c"foo", RLookupKeyFlag::IsLoaded.into()));
+        rlookup.seal();
+
+        assert!(
+            rlookup
+                .get_key_load(c"foo", c"foo", RLookupKeyFlags::empty())
+                .is_none()
+        );
+
+        // Same when the flag to add is already present on the key.
+        let mut rlookup = RLookup::new();
+        rlookup.keys.push(RLookupKey::new(
+            c"bar",
+            make_bitflags!(RLookupKeyFlag::{IsLoaded | ExplicitReturn}),
+        ));
+        rlookup.seal();
+
+        assert!(
+            rlookup
+                .get_key_load(c"bar", c"bar", RLookupKeyFlag::ExplicitReturn.into())
+                .is_none()
+        );
     }
 
     #[cfg(not(miri))]
