@@ -6,9 +6,12 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
-import re
-import threading
 import hashlib
+import re
+import subprocess
+import threading
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 from common import *
 from test_blocked_client_timeout import wait_for_blocked_query_client
@@ -191,12 +194,97 @@ def test_query_thread_crash():
     # A C crash stashes no Rust panic, so the bug report must not carry
     # Rust-panic fields.
     report_lines = bug_report_span(read_log_lines(log_path))
-    for field in ("search_panic_payload", "search_panic_location",
-                  "search_panic_recorded_at"):
+    for field in ("search_rust_backtrace", "search_panic_payload",
+                  "search_panic_location", "search_panic_recorded_at"):
         env.assertFalse(
             any(field in line for line in report_lines),
             message=f"{field} found in the bug report of a C crash",
         )
+
+
+@skip(cluster=True, macos=True, musl=True, asan=True, msan=True)
+@require_enable_assert
+def test_query_thread_crash_with_pending_spec_writer(_probe_env):
+    """MOD-17347: crash reporting must not reacquire the crashed query's spec lock."""
+    env = CrashingEnv(
+        testName="test_query_thread_crash_with_pending_spec_writer",
+        moduleArgs="WORKERS 1 TIMEOUT 0",
+        freshEnv=True,
+    )
+    prepare_index(env)
+
+    sync_point = "BeforeAggregateResultsClaim"
+    env.expect(debug_cmd(), "SYNC_POINT", "CLEAR").ok()
+    env.expect(debug_cmd(), "SYNC_POINT", "ARM", sync_point).ok()
+
+    query_conn = env.getConnection()
+    writer_conn = env.getConnection()
+    query_conn.set_retry(Retry(NoBackoff(), 0))
+    writer_conn.set_retry(Retry(NoBackoff(), 0))
+    process = env.envRunner.masterProcess
+    writer_thread = None
+    unexpected_errors = []
+
+    def run_ignoring_connection_error(conn, *cmd):
+        try:
+            conn.execute_command(*cmd)
+        except redis.exceptions.ConnectionError:
+            pass  # both commands lose their connection when Redis aborts
+        except Exception as error:
+            unexpected_errors.append(error)
+
+    query_thread = threading.Thread(
+        target=run_ignoring_connection_error,
+        args=(query_conn, debug_cmd(), "FT.SEARCH", "idx", "*", "CRASH",
+              "DEBUG_PARAMS_COUNT", 1),
+        daemon=True,
+    )
+    query_thread.start()
+
+    exited_promptly = False
+    try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), "SYNC_POINT", "IS_WAITING", sync_point) == 1, {}),
+            f"Timeout waiting for {sync_point}",
+            timeout=15,
+        )
+
+        # The worker holds the spec read lock at the sync point. This write
+        # blocks the main thread on the same spec and releases the worker via
+        # the sync point's pending-writer predicate. The worker then aborts.
+        writer_thread = threading.Thread(
+            target=run_ignoring_connection_error,
+            args=(writer_conn, "HSET", "doc:pending-writer", "text", "hello"),
+            daemon=True,
+        )
+        writer_thread.start()
+
+        try:
+            process.wait(timeout=15)
+            exited_promptly = True
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        query_thread.join(timeout=5)
+        if writer_thread is not None:
+            writer_thread.join(timeout=5)
+        query_conn.close()
+        writer_conn.close()
+
+    env.assertEqual(
+        unexpected_errors,
+        [],
+        message=f"Unexpected command errors: {unexpected_errors}",
+    )
+    env.assertFalse(query_thread.is_alive(), message="Crash query thread did not exit")
+    env.assertFalse(writer_thread.is_alive(), message="Pending writer thread did not exit")
+    env.assertTrue(
+        exited_promptly,
+        message="Redis hung while producing a crash report with a pending spec writer",
+    )
 
 
 # The Rust panic hook logs before Redis prints the bug report, so scanning the
@@ -226,6 +314,7 @@ def test_query_thread_crash_with_rust_panic():
             "search_index_properties_in_mb:",
             # The backtrace
             "# search_rust_backtrace",
+            "search_backtrace:",
         ],
         crash_in_rust=True,
         crash_report_only=True,
@@ -291,6 +380,10 @@ def test_query_thread_crash_with_rust_panic():
 
     # Verify Rust backtrace section is present
     env.assertIn("search_rust_backtrace", results["# search_rust_backtrace"])
+    env.assertTrue(
+        re.search(r"\d+:", results["search_backtrace:"]),
+        message="Rust panic backtrace is empty",
+    )
 
 
 def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
