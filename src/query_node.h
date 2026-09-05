@@ -87,6 +87,15 @@ typedef struct {
   size_t len;
 } QueryIdFilterNode;
 
+/* Bounds are NUL-terminated, which is the whole of them: the indexer files a
+ * value under its up-to-NUL prefix, so a bound cannot usefully outlast one. */
+typedef struct {
+  char *begin;
+  bool includeBegin;
+  char *end;
+  bool includeEnd;
+} QueryLexRangeNode;
+
 typedef struct {
   RSToken tok;
 } QueryVerbatimNode;
@@ -133,6 +142,7 @@ typedef struct RSQueryNode {
     QueryPrefixNode pfx;
     QueryTagNode tag;
     QueryFuzzyNode fz;
+    QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
   };

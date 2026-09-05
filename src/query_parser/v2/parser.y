@@ -191,6 +191,27 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
   reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
 
+/* Build the expression for `@field:>{v}` and friends.
+ *
+ * `lower` picks the side the bound closes (true for `>`/`>=`), `inclusive`
+ * whether the bound itself is in range.
+ *
+ * The range hangs off a tag node, which is what routes it to the tag index's
+ * value trie. Without a spec the node is still built and the field left
+ * unchecked, as the other field clauses do, since the coordinator may parse
+ * without one. */
+static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field, QueryToken *bound,
+                                          bool lower, bool inclusive) {
+  if (ctx->sctx->spec && !FIELD_IS(field->fs, INDEXFLD_T_TAG)) {
+    REPORT_WRONG_FIELD_TYPE((*field), SPEC_TAG_STR);
+    return NULL;
+  }
+
+  struct RSQueryNode *tag = NewTagNode(field->fs);
+  QueryNode_AddChild(tag, NewLexRangeNode_WithParams(ctx, bound, lower, inclusive));
+  return tag;
+}
+
 //! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
 static const char ToksepParserMap_g[256] = {
     [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
@@ -901,6 +922,42 @@ expr(A) ::= modifier(B) LE param_num(C) . {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
     A = NewNumericNode(qp, B.fs);
   }
+}
+
+/////////////////////////////////////////////////////////////////
+// Lexicographic Ranges (TAG fields)
+/////////////////////////////////////////////////////////////////
+
+// Gated: `RSQuery_ParseFieldColonOp_v2` only emits the operator token when
+// ENABLE_UNSTABLE_FEATURES is on.
+
+expr(A) ::= modifier(B) COLON GT tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, true, false);
+}
+
+expr(A) ::= modifier(B) COLON GE tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, true, true);
+}
+
+expr(A) ::= modifier(B) COLON LT tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, false, false);
+}
+
+expr(A) ::= modifier(B) COLON LE tag_bound(C) . {
+  A = lex_range_step(ctx, &B, &C, false, true);
+}
+
+// Braces delimit the bound, as they do for an ordinary tag clause.
+//
+// The bound is exactly one token, so `@city:>{New York}` is a syntax error. A
+// quoted bound is how you write one holding a space, and is accepted: it arrives
+// as EXACT, which the `%fallback` directive re-reads as TERM in this state, so
+// `@city:>{"New York"}` is a single bound of `New York`.
+//
+// `param_term_case` keeps the bound's case; `tag_strtolower` normalizes it at
+// evaluation, per the field's CASESENSITIVE.
+tag_bound(A) ::= LB param_term_case(B) RB . {
+  A = B;
 }
 
 /////////////////////////////////////////////////////////////////

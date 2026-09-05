@@ -78,6 +78,11 @@ static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
   }
 }
 
+static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
+  if (lx->begin) rm_free(lx->begin);
+  if (lx->end) rm_free(lx->end);
+}
+
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
   if (vn->vq) {
     VectorQuery_Free(vn->vq);
@@ -124,6 +129,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_FUZZY:
       QueryTokenNode_Free(&n->fz.tok);
+      break;
+    case QN_LEXRANGE:
+      QueryLexRangeNode_Free(&n->lxrng);
       break;
     case QN_VECTOR:
       QueryVectorNode_Free(&n->vn);
@@ -342,6 +350,37 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 QueryNode *NewMissingNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_MISSING);
   ret->miss.field = field;
+  return ret;
+}
+
+/* The lex-range payload is gated behind ENABLE_UNSTABLE_FEATURES, so it must not
+ * grow the node that every ordinary query allocates. Keep it within the largest
+ * union member that predates it. */
+_Static_assert(sizeof(QueryLexRangeNode) <= sizeof(QueryPrefixNode),
+               "QueryLexRangeNode must not enlarge the query-node union");
+
+QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
+                                      bool inclusive) {
+  QueryNode *ret = NewQueryNode(QN_LEXRANGE);
+  // The other side stays NULL, which both evaluators read as "no limit".
+  char **target = lower ? &ret->lxrng.begin : &ret->lxrng.end;
+  if (lower) {
+    ret->lxrng.includeBegin = inclusive;
+  } else {
+    ret->lxrng.includeEnd = inclusive;
+  }
+
+  // `QueryParam_SetParam` normalizes by token type, as it does for a token node:
+  // a TEXT bound (QT_TERM) is unescaped and lowercased here, a TAG one
+  // (QT_TERM_CASE) stays raw for `tag_strtolower` at evaluation. It resolves a
+  // literal in place and returns false, leaving an unused PARAM_NONE slot that
+  // must not survive: `QueryNode_AddChildren` retags every slot of a tag child
+  // as PARAM_TERM_CASE, and resolving one with no name dereferences NULL.
+  QueryNode_InitParams(ret, 1);
+  if (!QueryNode_SetParam(q, &ret->params[0], target, NULL, bound)) {
+    array_free(ret->params);
+    ret->params = NULL;
+  }
   return ret;
 }
 
@@ -604,6 +643,96 @@ static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
          q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
 }
 
+/* Collects one reader per tag value a lex-range walk visits. */
+typedef struct {
+  QueryEvalCtx *q;
+  TagIndex *idx;
+  QueryIterator **its;
+  size_t nits;
+  size_t cap;
+  t_fieldIndex fieldIndex;
+} TagRangeCtx;
+
+// Returns true to stop the walk, per `TrieMapRangeCallback`.
+static bool tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
+  TagRangeCtx *ctx = p;
+  QueryEvalCtx *q = ctx->q;
+
+  // Both limits end the walk: an unbounded range over a high-cardinality tag
+  // field is unbounded work, so declining to open a reader is not enough.
+  if (ctx->nits >= q->config->maxPrefixExpansions) {
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
+    return true;
+  }
+  // The exact check, not the amortized one: that shares a counter with the
+  // result-processor loop and zeroes it on every detection, so consuming a
+  // timeout here would buy the pipeline another 100 reads before it looks at the
+  // clock again, and a union short enough to reach EOF inside that window would
+  // be reported as a complete result. The walk is bounded by the expansion cap,
+  // so the clock reads it costs are bounded too.
+  if (q->sctx->timeout && QueryRequestTimeout_IsTimedOutExact(q->sctx->timeout)) {
+    return true;
+  }
+
+  // Unit weight: the enclosing union applies the node's weight once, as it does
+  // for the prefix and wildcard expansions.
+  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->idx, q->sctx, r, n, invidx, 1,
+                                                           ctx->fieldIndex, q->status);
+  if (!ir) {
+    return false;
+  }
+
+  ctx->its[ctx->nits++] = ir;
+  if (ctx->nits == ctx->cap) {
+    ctx->cap *= 2;
+    ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
+  }
+  return false;
+}
+
+/* Walk the tag index's value trie between the node's bounds, unioning the
+ * readers.
+ *
+ * `fieldIndex` is passed in rather than read from `qn->opts.fieldIndex`, which
+ * the parser never sets on a tag child: the default 0 would silently query the
+ * spec's first field. */
+static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
+                                                double weight, t_fieldIndex fieldIndex,
+                                                bool caseSensitive) {
+  RS_ASSERT(qn->type == QN_LEXRANGE);
+  if (!idx) return NULL;
+
+  // Normalize the bounds the way the indexed values were. `tag_strtolower`
+  // truncates at an interior NUL exactly as tag indexing does, so the bound's
+  // extent is its NUL-terminated length either way.
+  if (qn->lxrng.begin) {
+    size_t beginLen = strlen(qn->lxrng.begin);
+    tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
+  }
+  if (qn->lxrng.end) {
+    size_t endLen = strlen(qn->lxrng.end);
+    tag_strtolower(&(qn->lxrng.end), &endLen, caseSensitive);
+  }
+
+  TagRangeCtx ctx = {
+      .q = q,
+      .idx = idx,
+      .cap = 8,
+      .nits = 0,
+      .fieldIndex = fieldIndex,
+  };
+  ctx.its = rm_malloc(ctx.cap * sizeof(*ctx.its));
+
+  const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
+  // -1 is unbounded; 0 is the empty string, a legitimate bound of its own.
+  int nbegin = begin ? (int)strlen(begin) : -1, nend = end ? (int)strlen(end) : -1;
+
+  TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
+                              qn->lxrng.includeEnd, tagRangeIterCb, &ctx);
+
+  return NewUnionIterator(ctx.its, ctx.nits, true, weight, QN_LEXRANGE, NULL, q->config);
+}
+
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn, double weight,
                                               int withSuffixTrie, t_fieldIndex fieldIndex,
@@ -823,6 +952,8 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       return Query_EvalTagWildcardNode(q, idx, n, effective_weight, fs->index,
                                        caseSensitive);
 
+    case QN_LEXRANGE:
+      return Query_EvalTagLexRangeNode(q, idx, n, effective_weight, fs->index, caseSensitive);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
@@ -840,7 +971,8 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
 
-    default: // LCOV_EXCL_START — only TOKEN, PREFIX, WILDCARD_QUERY, PHRASE reach tag eval
+    default:  // LCOV_EXCL_START — only TOKEN, PREFIX, WILDCARD_QUERY, LEXRANGE, PHRASE reach tag
+              // eval
       RS_ABORT("Invalid tag query node type");
       return NULL;
   } // LCOV_EXCL_STOP
@@ -899,6 +1031,9 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
+    // A lex range only ever hangs off a tag node, which evaluates its own
+    // children, so reaching it here is a bug.
+    case QN_LEXRANGE:  // LCOV_EXCL_LINE
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
@@ -1011,6 +1146,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
     case QN_PHRASE:
     case QN_NOT:
     case QN_PREFIX:
+    case QN_LEXRANGE:
     case QN_FUZZY:
     case QN_OPTIONAL:
     case QN_IDS:
@@ -1146,6 +1282,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
             res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
           } else if (child->type == QN_WILDCARD_QUERY) {
             res = validateQueryNotDisk("TAG wildcard", status);
+          } else if (child->type == QN_LEXRANGE) {
+            res = validateQueryNotDisk("TAG lexrange", status);
           }
           if (res == REDISMODULE_ERR) {
             return res;
@@ -1180,6 +1318,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_PREFIX:
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
+    case QN_LEXRANGE:
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -1236,9 +1375,8 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
       QueryNode *child = children[ii];
-      if (child->type == QN_TOKEN || child->type == QN_PHRASE ||
-          child->type == QN_PREFIX ||
-          child->type == QN_WILDCARD_QUERY) {
+      if (child->type == QN_TOKEN || child->type == QN_PHRASE || child->type == QN_PREFIX ||
+          child->type == QN_LEXRANGE || child->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
         for(size_t jj = 0; jj < QueryNode_NumParams(child); ++jj) {
           Param *p = child->params + jj;
@@ -1345,6 +1483,14 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
                                         qs->pfx.prefix ? "*" : "");
       break;
 
+    case QN_LEXRANGE:
+      // Bracket for inclusive, parenthesis for exclusive, as in numeric ranges.
+      s = sdscatprintf(s, "LEXRANGE{%s%s...%s%s}",
+                       qs->lxrng.begin ? (qs->lxrng.includeBegin ? "[" : "(") : "",
+                       qs->lxrng.begin ? qs->lxrng.begin : "-inf",
+                       qs->lxrng.end ? (qs->lxrng.includeEnd ? "[" : "(") : "",
+                       qs->lxrng.end ? qs->lxrng.end : "+inf");
+      break;
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");

@@ -118,6 +118,9 @@ pub enum QueryNode<'a> {
         /// Maximum edit distance (1, 2, or 3).
         max_dist: i32,
     },
+    /// A lexicographic range on a tag field, carrying no payload: it is
+    /// evaluated in C, so nothing here reads its bounds.
+    LexRange,
     /// A vector similarity search node.
     Vector {
         /// The vector query parameters (field, blob, algorithm, K, etc.).
@@ -378,6 +381,11 @@ impl QueryNodeRef {
                     field: unsafe { &*miss.field },
                 }
             }
+            // Opaque: the bounds stay unread because C evaluates lex ranges, as
+            // a child of a tag node. Represented rather than rejected so this
+            // stays total over every real node type, `Max` being the one
+            // sentinel; `eval_node` hands it back to the C dispatcher.
+            QueryNodeType::LexRange => QueryNode::LexRange,
             QueryNodeType::Max => {
                 unreachable!("Max is a sentinel, not a real node type")
             }
