@@ -41,30 +41,6 @@ impl ResultProcessor for Counter {
             res.clear();
         }
 
-        // In profiling mode, RPProfile is interleaved into the result processor chain: A chain of
-        // processors A -> B -> C becomes A -> RPProfile -> B -> RPProfile -> C -> RPProfile, to
-        // profile each of the individual result processors.
-        //
-        // Because the Counter result processor returns Ok(None), this is equivalent to returning
-        // ffi::RPStatus_RS_RESULT_EOF (see ResultProcessorWrapper::result_processor_next). This
-        // apparently (in a way enricozb cannot figure out) prevents the very last RPProfile from
-        // appropriately counting, so this patches that by manually incrementing the counter.
-        if upstream.ty() == ffi::ResultProcessorType_RP_PROFILE {
-            // Safety: We trust that the result processor parent structure (QueryProcessingCtx) was
-            // constructed correctly, and thus has a valid pointer to the end processor.
-            let end_proc = unsafe {
-                *cx.parent()
-                    .expect("This processor has no parent.")
-                    .endProc
-                    .get()
-            };
-
-            // Safety: If the previous (upstream) result processor is a profiling result processor,
-            // then we are in profiling mode, and every other result processor is an RPProfile.
-            // Thus, the last result processor is also an RPProfile.
-            unsafe { ffi::RPProfile_IncrementCount(end_proc) };
-        }
-
         Ok(None)
     }
 }
