@@ -102,9 +102,7 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
  * `opLen` is the operator's length (1 for `<`/`>`, 2 for `<=`/`>=`).
  *
  * The single ENABLE_UNSTABLE_FEATURES gate for this syntax; the shard-local and
- * coordinator parses both come through here. With the flag off the query is
- * rejected rather than parsed as the pre-feature `@field:(v)`, which would
- * answer a client that reached for the operator with a wrong result set. */
+ * coordinator parses both come through here. */
 int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok,
       QueryParseCtx *q, const char *ts, const char *te, unsigned int opLen) {
     const char *name = ts + 1;
