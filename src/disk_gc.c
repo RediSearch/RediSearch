@@ -39,7 +39,8 @@ static bool periodicCb(void *privdata, bool force) {
   if (!sp) {
     return false;
   }
-  if (!sp->diskSpec) {
+  // Compaction waits for a memtable flush that cannot run while background work is paused.
+  if (!sp->diskSpec || SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
     IndexSpecRef_Release(spec_ref);
     return true;
   }
