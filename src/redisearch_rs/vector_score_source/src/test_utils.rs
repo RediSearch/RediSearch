@@ -20,8 +20,8 @@ use ffi::{
     QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode, VecSearchMode_EMPTY_MODE,
     VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
     VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
-    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams,
-    VecSimQuantType_VecSimQuant_NONE, VecSimType_VecSimType_FLOAT32, t_docId,
+    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
+    VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use top_k::Ascending;
