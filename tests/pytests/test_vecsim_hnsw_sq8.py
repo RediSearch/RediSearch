@@ -201,6 +201,44 @@ def test_hnsw_sq8_resize_limit_bounds_both_tiers_after_reload():
 
 
 @skip(cluster=True)
+def test_hnsw_sq8_resize_limit_includes_backend_normalization():
+    """Honor backend normalization overhead when it exceeds the frontend estimate."""
+    env = Env(moduleArgs='VSS_MAX_RESIZE 385')
+    # These SQ8 backend elements need 384 bytes without training and 388 with it;
+    # the full-precision frontend needs only 272 bytes on the supported 64-bit platforms.
+    params = [
+        'TYPE', 'FLOAT32', 'DIM', 64, 'DISTANCE_METRIC', 'IP',
+        'M', 32, 'COMPRESSION', 'SQ8',
+    ]
+    trained_params = [*params, 'TRAINING_THRESHOLD', 4]
+    env.expect(
+        'FT.CREATE', 'trained', 'SCHEMA', 'v', 'VECTOR', 'HNSW',
+        len(trained_params), *trained_params,
+    ).error().contains('Vector index element size')
+
+    for threshold, expected_block_size in ((0, 2), (4, 1)):
+        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 770).ok()
+        create_hnsw(env, 'idx', [*params, 'TRAINING_THRESHOLD', threshold])
+        info = get_vecsim_debug_dict(env, 'idx', 'v')
+        env.assertEqual(to_dict(info['FRONTEND_INDEX'])['BLOCK_SIZE'], expected_block_size,
+                        message=info)
+        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 385).ok()
+        if threshold == 0:
+            env.dumpAndReload()
+            info = get_vecsim_debug_dict(env, 'idx', 'v')
+            env.assertEqual(to_dict(info['FRONTEND_INDEX'])['BLOCK_SIZE'], 1, message=info)
+            env.assertEqual(to_dict(info['BACKEND_INDEX'])['BLOCK_SIZE'], 1, message=info)
+            env.expect('FT.DROPINDEX', 'idx').ok()
+        else:
+            try:
+                env.dumpAndReload()
+                env.assertTrue(False, message='Expected RDB rejection for backend normalization')
+            except ResponseError as error:
+                env.assertContains('Error trying to load the RDB dump', str(error))
+    env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 0).ok()
+
+
+@skip(cluster=True)
 def test_hnsw_sq8_reload_rejects_full_precision_resize_limit():
     """RDB validation rejects SQ8 when the new limit cannot fit a frontend vector."""
     env = Env(moduleArgs='VSS_MAX_RESIZE 12000')
