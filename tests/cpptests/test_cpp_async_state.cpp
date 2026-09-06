@@ -19,12 +19,14 @@
 
 // Test pool size constant
 #define TEST_ASYNC_POOL_SIZE 16
+// Deliberately larger than the pool, so the fixture exercises the decoupled shape
+#define TEST_ASYNC_QUEUE_SIZE (TEST_ASYNC_POOL_SIZE * 2)
 
 class AsyncStateTest : public ::testing::Test {
 protected:
   void SetUp() override {
     // Use the proper Init function - no async pool needed for state machine tests
-    IndexResultAsyncRead_Init(&state, TEST_ASYNC_POOL_SIZE);
+    IndexResultAsyncRead_Init(&state, TEST_ASYNC_POOL_SIZE, TEST_ASYNC_QUEUE_SIZE);
 
     // Manually allocate arrays for testing (normally done by SetupAsyncPool)
     state.readyResults = array_new(AsyncReadResult, TEST_ASYNC_POOL_SIZE);
@@ -82,6 +84,18 @@ protected:
 };
 
 // Test: Initial state is empty
+TEST_F(AsyncStateTest, testQueueAndPoolSizesAreIndependent) {
+  ASSERT_GT(TEST_ASYNC_QUEUE_SIZE, TEST_ASYNC_POOL_SIZE);
+  ASSERT_EQ(state.poolSize, TEST_ASYNC_POOL_SIZE);
+  ASSERT_EQ(state.queueSize, TEST_ASYNC_QUEUE_SIZE);
+
+  // Init allocates nothing, so no Free is needed for this scratch state
+  IndexResultAsyncReadState scratch;
+  IndexResultAsyncRead_Init(&scratch, 4, 32);
+  ASSERT_EQ(scratch.poolSize, 4);
+  ASSERT_EQ(scratch.queueSize, 32);
+}
+
 TEST_F(AsyncStateTest, testInitialState) {
   ASSERT_EQ(state.iteratorResultCount, 0);
   ASSERT_TRUE(DLLIST_IS_EMPTY(&state.iteratorResults));

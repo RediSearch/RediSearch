@@ -68,8 +68,16 @@ typedef enum ValidateStatus {
     VALIDATE_OK,      // Iterator still valid, same position
     VALIDATE_MOVED,   // Iterator still valid, but moved forward
     VALIDATE_ABORTED, // Iterator invalid, must be freed
+    VALIDATE_TIMEOUT, // Deadline expired mid-revalidation; iterator invalid, must be freed
 } ValidateStatus;
 ```
+
+`VALIDATE_TIMEOUT` has the same consequence for the iterator as `VALIDATE_ABORTED` — a
+revalidation that fails leaves its fix-up half-applied, so the iterator is unusable and gets freed.
+The two differ only in what the caller reports: an abort lets the query end as if the index were
+exhausted, while a timeout means the results are partial, so the result processor returns
+`RS_RESULT_TIMEDOUT` and the client is told. Composite iterators must therefore propagate it rather
+than folding it into an abort.
 
 Composite iterators handle these per child:
 

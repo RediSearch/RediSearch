@@ -23,7 +23,7 @@ use std::ptr;
 ///
 /// The metrics code only stores and compares the borrow's address, so the
 /// field values are intentionally meaningless.
-fn make_key() -> RLookupKey {
+const fn make_key() -> RLookupKey {
     RLookupKey {
         dstidx: 0,
         svidx: 0,

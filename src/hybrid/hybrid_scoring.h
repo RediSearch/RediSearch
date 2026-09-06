@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #ifndef __HYBRID_SCORING_H__
 #define __HYBRID_SCORING_H__
 
@@ -11,6 +20,8 @@ extern "C" {
 // Default constants for hybrid search parameters
 #define HYBRID_DEFAULT_WINDOW 20
 #define HYBRID_DEFAULT_RRF_CONSTANT 60
+#define HYBRID_DEFAULT_LINEAR_ALPHA 0.3
+#define HYBRID_DEFAULT_LINEAR_BETA 0.7
 
 typedef enum {
   HYBRID_SCORING_LINEAR,

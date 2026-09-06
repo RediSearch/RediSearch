@@ -18,15 +18,15 @@
 
 #define SPELL_CHECK_FOUND_TERM_IN_INDEX "term exists in index"
 
-typedef struct RS_Suggestion {
+typedef struct SpellCheckCandidate {
   double score;
-  char *suggestion;
+  char *candidate;
   size_t len;
-} RS_Suggestion;
+} SpellCheckCandidate;
 
-typedef struct RS_Suggestions {
-  Trie *suggestionsTrie;
-} RS_Suggestions;
+typedef struct SpellCheckCandidates {
+  Trie *candidatesTrie;
+} SpellCheckCandidates;
 
 typedef struct SpellCheckCtx {
   RedisSearchCtx *sctx;
@@ -38,16 +38,17 @@ typedef struct SpellCheckCtx {
   RedisModule_Reply *reply;
 } SpellCheckCtx;
 
-RS_Suggestions *RS_SuggestionsCreate();
-void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr);
-void RS_SuggestionsFree(RS_Suggestions *s);
+SpellCheckCandidates *SpellCheckCandidates_Create();
+void SpellCheckCandidates_Add(SpellCheckCandidates *s, char *term, size_t len, double score,
+                              int incr);
+void SpellCheckCandidates_Free(SpellCheckCandidates *s);
 
-RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s);
+SpellCheckCandidate **SpellCheckCandidates_GetSorted(SpellCheckCandidates *s);
 
-RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score);
-int RS_SuggestionCompare(const void *val1, const void *val2);
-void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
-                                uint64_t totalDocNumber);
+SpellCheckCandidate *SpellCheckCandidate_Create(char *candidate, size_t len, double score);
+int SpellCheckCandidate_Compare(const void *val1, const void *val2);
+void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len,
+                                SpellCheckCandidates *s, uint64_t totalDocNumber);
 void SpellCheck_Reply(SpellCheckCtx *ctx, QueryAST *q);
 
 #endif /* SRC_SPELL_CHECK_H_ */

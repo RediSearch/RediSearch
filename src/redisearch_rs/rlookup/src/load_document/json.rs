@@ -18,29 +18,29 @@ use lending_iterator::LendingIterator;
 use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi, SerializeError};
 use redis_module::RedisString;
 use std::ffi::CStr;
-use std::ptr::NonNull;
-use value::SharedValue;
+use std::ptr::{self, NonNull};
+use value::{SharedValue, Value};
 
 const JSON_ROOT: &CStr = c"$";
 
 pub struct JsonDocumentFormat<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
-    api_version: u32,
+    api_version: u8,
 }
 
 pub struct JsonFieldLoader<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
-    api_version: u32,
+    api_version: u8,
 }
 
 impl<'a> JsonDocumentFormat<'a> {
     pub const fn new(
-        ctx: NonNull<ffi::RedisModuleCtx>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         japi: &'a RedisJsonApi,
-        api_version: u32,
+        api_version: u8,
     ) -> Self {
         Self {
             ctx,
@@ -72,6 +72,29 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
         let value = self.open_key(key_name).ok_or(LoadFieldError::KeyNotFound)?;
+
+        Ok(JsonFieldLoader {
+            ctx: self.ctx,
+            value,
+            key_name,
+            api_version: self.api_version,
+        })
+    }
+
+    fn borrow<'key>(
+        &'key self,
+        open_key: &'key redis_module::RedisModuleKey,
+        key_name: &'key RedisString,
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
+        // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`.
+        let value = unsafe {
+            self.japi
+                .open_from_handle(ptr::from_ref(open_key).cast_mut().cast())
+        }
+        // If we fail to open the JSON root from the borrowed handle: fall back to
+        // open the document by name.
+        .or_else(|| self.open_key(key_name))
+        .ok_or(LoadFieldError::KeyNotFound)?;
 
         Ok(JsonFieldLoader {
             ctx: self.ctx,
@@ -156,11 +179,11 @@ impl FieldLoader for JsonFieldLoader<'_> {
 ///
 /// Multi-value is supported with `apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST`.
 fn json_iter_to_value(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     mut iter: redis_json_api::ResultsIter<'_>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, SerializeError> {
-    if api_version < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
+    if u32::from(api_version) < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
         // Preserve single value behavior for backward compatibility
         let Some(json) = iter.next() else {
             return Ok(None);
@@ -207,7 +230,7 @@ fn json_iter_to_value(
 // The iterator is being reset and is not being freed.
 // Required japi_ver >= 4
 fn json_iter_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     iter: redis_json_api::ResultsIter<'_>,
 ) -> SharedValue {
     debug_assert!(!iter.is_empty(), "should be checked by caller");
@@ -220,7 +243,7 @@ fn json_iter_to_value_expanded(
 }
 
 fn json_val_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     json: JsonValueRef,
 ) -> SharedValue {
     match json.get_type() {
@@ -253,7 +276,10 @@ fn json_val_to_value_expanded(
     }
 }
 
-fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) -> SharedValue {
+fn json_val_to_value(
+    ctx: NonNull<redis_module::RedisModuleCtx>,
+    json: JsonValueRef<'_>,
+) -> SharedValue {
     // Currently `getJSON` cannot fail here also the other japi APIs below
     match json.get_type() {
         JsonType::String => {
@@ -275,7 +301,11 @@ fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) 
         JsonType::Object | JsonType::Array => {
             // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
             let v = unsafe { json.serialize(ctx.cast().as_ptr()).unwrap() };
-            SharedValue::new_string(v.to_vec())
+            redis_module::raw::string_retain_string(ptr::null_mut(), v.inner);
+            // SAFETY: `v` is a valid Redis string and we retained it above to
+            // transfer one owned reference into the RSValue.
+            let v = unsafe { value::RedisString::from_raw(v.inner.cast()) };
+            SharedValue::new(Value::RedisString(v))
         }
         JsonType::Null => SharedValue::null_static(),
     }

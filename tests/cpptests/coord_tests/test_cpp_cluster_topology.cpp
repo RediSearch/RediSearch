@@ -96,6 +96,26 @@ TEST_F(ClusterTopologyFromAPITest, ThreeMasters_LocalIsMaster) {
   MRClusterTopology_Free(topo);
 }
 
+TEST_F(ClusterTopologyFromAPITest, EndpointTransportUsesNodeInfoFlags) {
+  addNode(NODE_A, "127.0.0.1", 6379, REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
+          {{0, 8191}});
+  addNode(NODE_B, "127.0.0.2", 6380, REDISMODULE_NODE_MASTER | REDISMODULE_NODE_PORT_TLS,
+          {{8192, 16383}});
+
+  uint32_t my_shard_idx = UINT32_MAX;
+  MRClusterTopology *topo = MRClusterTopology_FromAPI(ctx, nullptr, 0, &my_shard_idx);
+  ASSERT_NE(topo, nullptr);
+
+  int tcp_shard = findShardByNodeId(topo, NODE_A);
+  int tls_shard = findShardByNodeId(topo, NODE_B);
+  ASSERT_GE(tcp_shard, 0);
+  ASSERT_GE(tls_shard, 0);
+  EXPECT_FALSE(topo->shards[tcp_shard].node.endpoint.isTls);
+  EXPECT_TRUE(topo->shards[tls_shard].node.endpoint.isTls);
+
+  MRClusterTopology_Free(topo);
+}
+
 // ============================================================================
 // Auth NULL/empty should leave the password unset on every shard.
 // ============================================================================

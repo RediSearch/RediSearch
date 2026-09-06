@@ -1,0 +1,33 @@
+name: Auto-backport scripts tests
+
+# Runs the stdlib unit tests for the auto-backport resolver/applier scripts on
+# any PR that touches the flow. These scripts run inside privileged workflows
+# (and the appliers hold the write token), so their tests — which encode the
+# manifest-validation and injection-resistance invariants — must gate changes.
+#
+# Read-only, no secrets, no network beyond checkout; the tests stub `git`/`gh`.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/auto_backport/**'
+      - '.github/workflows/task-backport_pr-agent.yml'
+      - '.github/workflows/task-backport_pr-agent-fix.yml'
+      - '.github/codex/prompts/pr-backport-auto.md'
+      - '.github/codex/prompts/pr-backport-auto-fix.md'
+      - '.github/workflows/task-backport-agent-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: auto_backport unit tests
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Run unit tests
+        run: python3 -m unittest discover -s scripts/auto_backport/tests -v

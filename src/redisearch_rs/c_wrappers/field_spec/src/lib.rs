@@ -11,7 +11,8 @@
 
 use enumflags2::BitFlags;
 use enumflags2::bitflags;
-use hidden_string::HiddenStringRef;
+use hidden_string::HiddenString;
+use numeric_range_tree::NumericRangeTree;
 #[cfg(feature = "unittest")]
 use std::ffi::CStr;
 use std::fmt;
@@ -61,10 +62,14 @@ impl FieldSpec {
     ///
     /// 1. `ptr` must be a valid non-null pointer to an `ffi::FieldSpec` that is properly initialized.
     ///    This also applies to any of its subfields.
+    /// 2. The name buffers behind `fieldName` and `fieldPath` must each satisfy
+    ///    clauses (2.) and (3.) of [`HiddenString::from_raw`] for `'a`. They are
+    ///    separate allocations the specs merely borrow, so that does not follow
+    ///    from (1.).
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::FieldSpec) -> &'a Self {
-        // Safety: ensured by caller (1.)
+        // Safety: ensured by caller (1., 2.)
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
@@ -74,16 +79,40 @@ impl FieldSpec {
         std::ptr::from_ref(&self.0)
     }
 
-    /// Get the underlying field name as a `HiddenStringRef`.
-    pub const fn field_name(&self) -> HiddenStringRef<'_> {
-        // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenStringRef::from_raw(self.0.fieldName) }
+    /// Get the underlying field name as a `&HiddenString`.
+    pub const fn field_name(&self) -> &HiddenString {
+        // Safety: (1.) and (2.) of `FieldSpec::from_raw`.
+        unsafe { HiddenString::from_raw(self.0.fieldName) }
     }
 
-    /// Get the underlying field path as a `HiddenStringRef`.
-    pub const fn field_path(&self) -> HiddenStringRef<'_> {
-        // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenStringRef::from_raw(self.0.fieldPath) }
+    /// Get the underlying field path as a `&HiddenString`.
+    pub const fn field_path(&self) -> &HiddenString {
+        // Safety: (1.) and (2.) of `FieldSpec::from_raw`.
+        unsafe { HiddenString::from_raw(self.0.fieldPath) }
+    }
+
+    /// Return the field types as a typed [`FieldSpecTypes`] bitmask.
+    pub fn types(&self) -> FieldSpecTypes {
+        BitFlags::from_bits_truncate(self.0.types())
+    }
+
+    /// Return a reference to the numeric range tree, or `None` if not initialised.
+    pub fn tree(&self) -> Option<&NumericRangeTree> {
+        // SAFETY: when non-null, fs.tree is a valid NumericRangeTree allocated by
+        // open_numeric_or_geo_index and stored in the FieldSpec.
+        unsafe {
+            std::ptr::NonNull::new(self.0.tree.cast::<NumericRangeTree>()).map(|p| p.as_ref())
+        }
+    }
+
+    /// Return a mutable reference to the numeric range tree, or `None` if not initialised.
+    pub fn tree_mut(&mut self) -> Option<&mut NumericRangeTree> {
+        // SAFETY: when non-null, fs.tree is a valid NumericRangeTree allocated by
+        // open_numeric_or_geo_index and stored in the FieldSpec. We have exclusive
+        // access to `self`, so handing out a mutable reference to the owned tree is sound.
+        unsafe {
+            std::ptr::NonNull::new(self.0.tree.cast::<NumericRangeTree>()).map(|mut p| p.as_mut())
+        }
     }
 }
 

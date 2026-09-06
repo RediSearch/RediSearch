@@ -22,7 +22,8 @@ use thin_vec::ThinVec;
 /// A single metric: a borrowed key and a numeric value.
 #[derive(Debug)]
 #[repr(C)]
-pub struct RawMetricEntry<'query> {
+#[cheadergen::config(export)]
+pub struct MetricEntry<'query> {
     /// Borrowed reference to the lookup key that identifies this metric,
     /// or `None` when the metric has no associated key.
     ///
@@ -42,13 +43,9 @@ pub struct RawMetricEntry<'query> {
     pub value: f64,
 }
 
-/// Lifetime-parameterised alias for [`RawMetricEntry`].
-#[cheadergen::config(export)]
-pub type MetricEntry<'a> = RawMetricEntry<'a>;
+impl Copy for MetricEntry<'_> {}
 
-impl Copy for RawMetricEntry<'_> {}
-
-impl Clone for RawMetricEntry<'_> {
+impl Clone for MetricEntry<'_> {
     fn clone(&self) -> Self {
         *self
     }
@@ -74,7 +71,7 @@ impl<'a> MetricEntry<'a> {
     }
 }
 
-impl RawMetricEntry<'_> {
+impl MetricEntry<'_> {
     /// Returns the metric value.
     pub const fn value(&self) -> f64 {
         self.value
@@ -113,14 +110,12 @@ impl<'a> PartialEq for MetricEntry<'a> {
 /// and can be embedded directly in `repr(C)` structs.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct RawMetricsVec<'query> {
-    inner: ThinVec<RawMetricEntry<'query>>,
+#[cheadergen::config(export)]
+pub struct MetricsVec<'query> {
+    inner: ThinVec<MetricEntry<'query>>,
 }
 
-/// Lifetime-parameterised alias for [`RawMetricsVec`].
-pub type MetricsVec<'a> = RawMetricsVec<'a>;
-
-impl Clone for RawMetricsVec<'_> {
+impl Clone for MetricsVec<'_> {
     fn clone(&self) -> Self {
         let Self { inner } = self;
         Self {
@@ -143,19 +138,17 @@ impl<'a> PartialEq for MetricsVec<'a> {
 /// from C. The pointed-to data is valid as long as the originating
 /// [`MetricsVec`] is not mutated or dropped.
 #[repr(C)]
-pub struct RawMetricsSlice<'query> {
+#[cheadergen::config(export)]
+pub struct MetricsSlice<'query> {
     /// Pointer to the first [`MetricEntry`].  May be dangling (but not null)
     /// when `len == 0`.
-    pub data: *const RawMetricEntry<'query>,
+    pub data: *const MetricEntry<'query>,
 
     /// Number of entries.
     pub len: usize,
 }
 
-/// Lifetime-parameterised alias for [`RawMetricsSlice`].
-pub type MetricsSlice<'a> = RawMetricsSlice<'a>;
-
-impl<'query> RawMetricsVec<'query> {
+impl<'query> MetricsVec<'query> {
     /// Creates an empty metrics collection. Does not allocate.
     pub const fn new() -> Self {
         Self {
@@ -184,9 +177,9 @@ impl<'query> RawMetricsVec<'query> {
     }
 
     /// Returns a C-compatible slice view for zero-copy iteration.
-    pub fn as_metrics_slice(&self) -> RawMetricsSlice<'query> {
+    pub fn as_metrics_slice(&self) -> MetricsSlice<'query> {
         let slice = self.inner.as_slice();
-        RawMetricsSlice {
+        MetricsSlice {
             data: slice.as_ptr(),
             len: slice.len(),
         }
@@ -194,24 +187,24 @@ impl<'query> RawMetricsVec<'query> {
 
     /// Returns a reference to the entry at `index`, or `None` if out of
     /// bounds.
-    pub fn get(&self, index: usize) -> Option<&RawMetricEntry<'query>> {
+    pub fn get(&self, index: usize) -> Option<&MetricEntry<'query>> {
         self.inner.as_slice().get(index)
     }
 
     /// Returns a mutable reference to the entry at `index`, or `None` if
     /// out of bounds.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut RawMetricEntry<'query>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut MetricEntry<'query>> {
         self.inner.as_mut_slice().get_mut(index)
     }
 
     /// Returns an iterator over the entries.
-    pub fn iter(&self) -> impl Iterator<Item = &RawMetricEntry<'query>> {
+    pub fn iter(&self) -> impl Iterator<Item = &MetricEntry<'query>> {
         self.inner.as_slice().iter()
     }
 
     /// Finds the first entry whose key matches `key` (pointer equality)
     /// and returns a mutable reference to it.
-    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut RawMetricEntry<'query>> {
+    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut MetricEntry<'query>> {
         let needle = key as *const RLookupKey;
         self.inner
             .as_mut_slice()
@@ -232,7 +225,7 @@ impl<'a> MetricsVec<'a> {
     }
 }
 
-impl Default for RawMetricsVec<'_> {
+impl Default for MetricsVec<'_> {
     fn default() -> Self {
         Self::new()
     }

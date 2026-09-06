@@ -10,13 +10,22 @@
 #if defined(__linux__)
 #include <sys/prctl.h>
 #endif
+#include <rmutil/rm_assert.h>  // Include the assertion header
+#include <stdint.h>
+#include <stdio.h>
+
 #include "io_runtime_ctx.h"
 #include "rmalloc.h"
 #include "conn.h"
-#include "cluster.h"
-#include <rmutil/rm_assert.h>  // Include the assertion header
 #include "../config.h"
 #include "info/global_stats.h"
+#include "hiredis/read.h"
+#include "redismodule.h"
+#include "rmr/cluster_topology.h"
+#include "rmr/node.h"
+#include "rmr/rq.h"
+#include "util/dict/dict.h"
+#include "uv.h"
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
@@ -371,6 +380,10 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {
   RQ_Done(io_runtime_ctx->queue);
+}
+
+void IORuntimeCtx_RequestStarted(IORuntimeCtx *io_runtime_ctx) {
+  RQ_IncrPending(io_runtime_ctx->queue);
 }
 
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership) {

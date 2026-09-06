@@ -4,7 +4,7 @@
 #include "casemap.h"
 #include "strings.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -50,7 +50,7 @@ const char* _nu_tounaccent(const char *encoded, const char *limit, nu_read_itera
 
 #endif /* NU_WITH_UNACCENT */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

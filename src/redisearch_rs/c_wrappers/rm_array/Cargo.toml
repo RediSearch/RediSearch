@@ -9,5 +9,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ffi.workspace = true
+redis-module.workspace = true
 workspace_hack.workspace = true

@@ -19,11 +19,13 @@ extern "C" {
 typedef struct MREndpoint {
   char *host;
   int port;
+  bool isTls;
   char *unixSock;
   char *password;
 } MREndpoint;
 
-/* Parse a TCP address into an endpoint, in the format of host:port */
+/* Parse a TCP address into an endpoint, in the format of host:port.
+   The port is assumed to be a TCP port (isTls is always false) */
 int MREndpoint_Parse(const char *addr, MREndpoint *ep);
 
 /* Copy the endpoint's internal strings so freeing it will not hurt another copy of it */

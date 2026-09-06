@@ -11,7 +11,7 @@ use crate::trie_map::node::Node;
 
 /// Consume a [`TrieMap`](crate::TrieMap) instance to iterate over its values, in lexicographical order.
 ///
-/// It only yields the values attached to the nodes, without reconstructing
+/// Like [`Values`](super::Values), it only yields values without reconstructing
 /// the corresponding keys.
 ///
 /// It can be instantiated by calling [`TrieMap::into_values`](crate::TrieMap::into_values).

@@ -13,7 +13,7 @@ on:
       arch:
         type: string
         default: x86_64
-        description: "CPU arch to build for. `x86_64` (default) runs on GitHub's ubuntu-24.04; `aarch64` runs on ubuntu-24.04-arm. Must match the target EC2 DB architecture at benchmark time."
+        description: "CPU arch to build for. `x86_64` runs on the medium x64 runner; `aarch64` runs on the medium ARM64 runner. Must match the target EC2 DB architecture at benchmark time."
 
 jobs:
   build:
@@ -22,7 +22,7 @@ jobs:
     # the target EC2 instance. build.sh derives the output dir from `uname -m`,
     # so we run the build natively on the matching-arch runner instead of
     # cross-compiling.
-    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.arch == 'aarch64' && (vars.RUNS_ON_ARM64_MEDIUM || vars.RUNS_ON_ARM || 'ubuntu-24.04-arm') || (vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-24.04') }}
     permissions:
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3
@@ -36,7 +36,7 @@ jobs:
       BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Setup specific
@@ -63,7 +63,7 @@ jobs:
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Upload redisearch.so artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name }}
           path: |

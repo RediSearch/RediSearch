@@ -18,6 +18,11 @@ use std::{
     time::Duration,
 };
 
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Provide Redis allocator shims so the C dict functions can allocate memory.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 #[test]
 fn reads_available_data() {
     let (mut reader, mut writer) = io::pipe().unwrap();

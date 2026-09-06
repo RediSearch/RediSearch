@@ -7,31 +7,42 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "redismodule.h"
+#include <dlfcn.h>
+// __USE_GNU; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdbool.h>
+#include <string.h>
 
+#include "redismodule.h"
 #include "module.h"
 #include "indexes.h"
 #include "config.h"
-#include <assert.h>
-#include <dlfcn.h>
-#include "concurrent_ctx.h"
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"
 #include "notifications.h"
-#include "aggregate/aggregate.h"
+#include "util/misc.h"
 #include "ext/default.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
-#include "util/array.h"
-#include "cursor.h"
-#include "fork_gc.h"
-#include "info/info_command.h"
-#include "profile/profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/functions/function.h"
+#include "gc.h"
+#include "hiredis/sds.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "util/timeout.h"
+#include "vector_index.h"
+#include "version.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -100,6 +111,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   DO_LOG("debug", "RediSearch base address: %p", info.dli_fbase);
 #endif
   RS_Initialized = 1;
+  MainThread_Set();
 
   if (!RSDummyContext) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
@@ -135,7 +147,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   // and may allocate VecSim internal structures (shared SVS thread pool).
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
-  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.
@@ -185,7 +197,6 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
 
   ASM_StateMachine_Init();
   Initialize_ServerEventNotifications(ctx);
-  Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);
 

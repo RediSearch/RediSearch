@@ -9,8 +9,8 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{GeoFilter, RSGlobalConfig};
-use rqe_iterators::{IteratorsConfig, build_geo_range_iterator};
+use ffi::GeoFilter;
+use rqe_iterators::{IteratorsConfig, build_geo_range_iterator, free_geo_numeric_filters};
 
 /// Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
 ///
@@ -41,10 +41,26 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
+    let compress = global_config::numeric_compress();
 
     // SAFETY: preconditions 1–3 map directly to those of `build_geo_range_iterator`.
     unsafe { build_geo_range_iterator(sctx, geo, min_union_iter_heap, compress) }
         .map_or(ptr::null_mut(), NonNull::as_ptr)
+}
+
+/// Frees the `numericFilters` array that [`NewGeoRangeIterator`] populated on a
+/// `GeoFilter`, together with the per-range `NumericFilter`s it owns.
+///
+/// The array is allocated in Rust (`build_geo_numeric_filters` boxes it), so it
+/// must be released with the Rust allocator.
+///
+/// # Safety
+///
+/// `filters` must be NULL, or the array stored in `gf.numericFilters` by
+/// [`NewGeoRangeIterator`] (i.e. by `build_geo_numeric_filters`) and not yet
+/// freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoFilter_FreeNumericFilters(filters: *mut *mut ffi::NumericFilter) {
+    // SAFETY: the safety contract is forwarded to `free_geo_numeric_filters`.
+    unsafe { free_geo_numeric_filters(filters.cast()) };
 }

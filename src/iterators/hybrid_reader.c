@@ -7,14 +7,29 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
+#include "query_request.h"
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
 #include "query.h"
+#include "doc_table.h"
+#include "field.h"
+#include "index_result_rs.h"
+#include "iterator_api.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "search_result_rs.h"
+
+struct IndexSpec;
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
 
@@ -156,7 +171,13 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
+int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout) = VecSim_TimedOut;
+
+// Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so the
+// test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
+int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout) {
+  return vecsimTimeoutCallback(timeout);
+}
 
 // Updates both locations where scores are stored:
 // 1. IndexResult numeric value (used by VECTOR_SCORE macro for heap ordering)
@@ -197,7 +218,7 @@ static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
   IteratorStatus child_status;
   while ((child_status = hr->child->Read(hr->child)) != ITERATOR_EOF) {
     // Check for timeout.
-    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(&hr->timeoutCtx)) {
+    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(hr->timeout)) {
       rc = VecSim_QueryReply_TimedOut;
       break;
     }
@@ -274,8 +295,13 @@ static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
 
   // Normalize query vector for cosine metric (RAM path only - disk handles this internally).
   if (hr->indexMetric == VecSimMetric_Cosine) {
-    qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
-    memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
+    size_t vec_size = hr->dimension * VecSimType_sizeof(hr->vecType);
+    // For some cases blob_size may be larger than vec_size.
+    // For example, for INT8/UINT8, VecSim_Normalize appends the norm (a float) at the
+    // end of the blob.
+    size_t blob_size = VecSimParams_GetQueryBlobSize(hr->vecType, hr->dimension, hr->indexMetric);
+    qvector = rm_malloc(blob_size);
+    memcpy(qvector, hr->query.vector, vec_size);
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 
@@ -283,7 +309,7 @@ static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
   IteratorStatus child_status;
   while ((child_status = hr->child->Read(hr->child)) != ITERATOR_EOF) {
     // Check for timeout.
-    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(&hr->timeoutCtx)) {
+    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(hr->timeout)) {
       rc = VecSim_QueryReply_TimedOut;
       break;
     }
@@ -435,7 +461,7 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
-                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
+                                                 hr->filterCtx.predicate, &hr->sctx->currentTime)) {
     return ITERATOR_NOTFOUND;
   }
   hr->base.lastDocId = hr->base.current->docId;
@@ -454,7 +480,7 @@ static IteratorStatus HR_ReadHybridUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadHybridUnsortedSingle(hr);
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(hr->timeout)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -473,7 +499,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
-                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
+                                                 hr->filterCtx.predicate, &hr->sctx->currentTime)) {
     return ITERATOR_NOTFOUND;
   }
 
@@ -495,7 +521,7 @@ static IteratorStatus HR_ReadKnnUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadKnnUnsortedSingle(hr);
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(hr->timeout)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -573,12 +599,16 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
 
 // Revalidate the hybrid iterator.
 // If we already have the results prepared, we are OK, and if not, we didn't execute the query yet so we are also OK.
-// Only if we have a child iterator, and it aborted, we need to abort the hybrid iterator.
+// Only if we have a child iterator, and it aborted or timed out, we need to give up on the hybrid
+// iterator - propagating the child's status, since the two are handled differently upstream.
 // If the child iterator is OK or MOVED, we are OK whether we have results prepared or not.
 static ValidateStatus HR_Revalidate(QueryIterator *ctx, struct IndexSpec *spec) {
   HybridIterator *hr = (HybridIterator *)ctx;
-  if (hr->child && hr->child->Revalidate(hr->child, spec) == VALIDATE_ABORTED) {
-    return VALIDATE_ABORTED;
+  if (hr->child) {
+    ValidateStatus childStatus = hr->child->Revalidate(hr->child, spec);
+    if (childStatus == VALIDATE_ABORTED || childStatus == VALIDATE_TIMEOUT) {
+      return childStatus;
+    }
   }
   hr->checkFieldExpiration = hr->sctx && hr->filterCtx.field.index != RS_INVALID_FIELD_INDEX &&
                              hr->sctx->spec->docs.ttl;
@@ -600,6 +630,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   if (ri) {
     return ri;
   }
+  RS_ASSERT(hParams.sctx);
 
   HybridIterator *hi = rm_new(HybridIterator);
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
@@ -622,9 +653,9 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
-  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = hParams.sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
-  hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
+  RS_ASSERT(hParams.sctx->timeout);
+  hi->timeout = hParams.sctx->timeout;
+  hi->runtimeParams.timeoutCtx = hi->timeout;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
   // Hoist the per-posting field-expiration gate: sctx, fieldIndex and the spec

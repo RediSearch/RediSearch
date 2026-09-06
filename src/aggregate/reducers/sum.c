@@ -7,7 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "value_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "util/block_alloc.h"
 
 typedef struct {
   size_t count;

@@ -46,10 +46,13 @@
 //! accessible even though they are inactive.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
@@ -72,6 +75,9 @@ use index_spec::IndexSpecReadGuard;
 /// - [`revalidate`](RQEIterator::revalidate): trimmed unions run in a
 ///   single, short-lived read path that does not interleave with GC cycles,
 ///   so revalidation should never be needed.
+/// - [`suspend`](RQEIteratorBoxed::suspend) and
+///   [`resume`](RQESuspendedIterator::resume): the suspend/resume successors of
+///   [`revalidate`](RQEIterator::revalidate), unreachable for the same reason.
 ///
 /// # Type Parameters
 ///
@@ -332,5 +338,70 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Unreachable for the reason `RQEIterator::revalidate` documents: the
+        // partial-range pipeline never releases the spec read lock underneath a
+        // trimmed union. A trimmed union is also always the *root* iterator —
+        // `QOptimizer_Iterators` only trims when the AST root is a numeric node
+        // whose iterator is the union itself — so no composite parent has to
+        // transition it as a child slot either.
+        //
+        // On top of being unnecessary, implementing the transition would be
+        // pointless: the only thing to do with a suspended trimmed union is
+        // resume it, and `resume` cannot exist (see its own panic). Refusing
+        // here reports the misuse at the call that requested it, one lock cycle
+        // before `resume` would.
+        unreachable!(
+            "suspend is not supported on UnionTrimmed — trimmed unions are not subject to GC"
+        );
+    }
+}
+
+/// Suspended counterpart of the [`RQEIteratorBoxed`] impl above. It exists only
+/// to name a type satisfying that trait's
+/// [`Suspended`](RQEIteratorBoxed::Suspended) bound — no value of it can be
+/// built, since [`suspend`](RQEIteratorBoxed::suspend) panics instead of
+/// producing one.
+impl<'query, S> RQESuspendedIterator<'query> for RawUnionTrimmed<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionTrimmed<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // This is a design constraint, not a gap to be filled later: a trimmed
+        // union yields documents out of doc-id order and its `skip_to` panics,
+        // so there is no position to re-derive once the children have moved.
+        // That is also why `suspend` — the only way to obtain a `self` to call
+        // this on — refuses to run.
+        unreachable!(
+            "resume is not supported on UnionTrimmed — a trimmed union has no position to re-derive"
+        );
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
     }
 }

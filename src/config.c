@@ -7,26 +7,36 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "thpool/thpool.h"
-#include "err.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmutil/args.h"
+
 #include <string.h>
-#include <stdlib.h>
 #include <limits.h>
 #include <unistd.h>
-#include "util/minmax.h"
+#include <strings.h>
+#include <sys/param.h>
+
+#include "thpool/thpool.h"
+#include "rmutil/args.h"
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
 #include "indexes.h"
 #include "extension.h"
-#include "util/dict.h"
-#include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
 #include "search_disk.h"
+#include "aggregate/reducer.h"
+#include "doc_table.h"
+#include "obfuscation/hidden.h"
+#include "query_error_ffi.h"
+#include "query_types.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "util/config_macros.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
@@ -117,6 +127,8 @@ configPair_t __configPairs[] = {
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
   {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
   {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
+  {"search-_disk-async-read-pool-size",   "search-_disk-async-read-pool-size"},
+  {"search-_disk-async-read-queue-factor", "search-_disk-async-read-queue-factor"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -191,6 +203,59 @@ static int set_uint_clamped_numeric_config(const char *name, long long val,
 static long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
+}
+
+// True only while RedisModule_LoadConfigs (called from RediSearch_InitModuleConfig) is running.
+static bool loadingStartupConfig = false;
+
+void RSConfig_SetLoadingStartupConfig(bool loading) {
+  loadingStartupConfig = loading;
+}
+
+// Startup must never abort, so an out-of-range value keeps the config's current value with a
+// warning; CONFIG SET stays strict.
+static int warn_or_reject_size_t_config(const char *name, long long val, const size_t *privdata,
+                                         RedisModuleString **err) {
+  if (loadingStartupConfig) {
+    RedisModule_Log(RSDummyContext, "warning", "%s: value %lld is out of range, keeping %zu",
+                     name, val, *privdata);
+    return REDISMODULE_OK;
+  }
+  RS_ASSERT(err);
+  *err = RedisModule_CreateStringPrintf(NULL, "%s: value %lld is out of range", name, val);
+  return REDISMODULE_ERR;
+}
+
+// Legacy MAXSEARCHRESULTS/MAXAGGREGATERESULTS -1 means unlimited; shared with setMaxSearchResults
+// and setMaxAggregateResults so the legacy and native paths cannot drift.
+static size_t translateOrClampMaxResults(long long val, size_t max) {
+  if (val < 0) {
+    return max;
+  }
+  return (size_t)MIN(val, (long long)max);
+}
+
+static int set_max_search_results_config(const char *name, long long val, void *privdata,
+                                          RedisModuleString **err) {
+  // Only the -1 sentinel means unlimited; any other negative is out of range.
+  if (val < -1) {
+    return warn_or_reject_size_t_config(name, val, (const size_t *)privdata, err);
+  }
+  *(size_t *)privdata = translateOrClampMaxResults(val, MAX_SEARCH_REQUEST_RESULTS);
+  return REDISMODULE_OK;
+}
+
+// Like search-max-search-results, -1 translates to unlimited rather than being rejected: the
+// default on Flex/SearchDisk installs is DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX (1,000,000),
+// not the max, so defaulting a legacy -1 would silently impose a 1M cap.
+static int set_max_aggregate_results_config(const char *name, long long val, void *privdata,
+                                             RedisModuleString **err) {
+  // Only the -1 sentinel means unlimited; any other negative is out of range.
+  if (val < -1) {
+    return warn_or_reject_size_t_config(name, val, (const size_t *)privdata, err);
+  }
+  *(size_t *)privdata = translateOrClampMaxResults(val, MAX_AGGREGATE_REQUEST_RESULTS);
+  return REDISMODULE_OK;
 }
 
 // Signed-int getter, for fields that use a negative sentinel (e.g. -1 = "unlimited").
@@ -283,6 +348,24 @@ static int set_bool_config(const char *name, int val, void *privdata,
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *(bool *)privdata = val;
+  return REDISMODULE_OK;
+}
+
+static void warnPartialIndexedDocsDeprecated(void) {
+  RedisModule_Log(RSDummyContext, "warning",
+                  "PARTIAL_INDEXED_DOCS is deprecated and has no effect. Hash field-change "
+                  "detection now comes from subkey notifications when the server supports "
+                  "them, and is unavailable otherwise.");
+}
+
+static int set_deprecated_partial_indexed_docs(const char *name, int val, void *privdata,
+                                               RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(bool *)privdata = val;
+  if (val) {
+    warnPartialIndexedDocsDeprecated();
+  }
   return REDISMODULE_OK;
 }
 
@@ -513,12 +596,7 @@ CONFIG_SETTER(setMaxSearchResults) {
   long long newSize = 0;
   int acrc = AC_GetLongLong(ac, &newSize, 0);
   CHECK_RETURN_PARSE_ERROR(acrc)
-  if (newSize < 0) {
-    newSize = MAX_SEARCH_REQUEST_RESULTS;
-  } else {
-    newSize = MIN(newSize, MAX_SEARCH_REQUEST_RESULTS);
-  }
-  config->maxSearchResults = newSize;
+  config->maxSearchResults = translateOrClampMaxResults(newSize, MAX_SEARCH_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 
@@ -535,12 +613,7 @@ CONFIG_SETTER(setMaxAggregateResults) {
   long long newSize = 0;
   int acrc = AC_GetLongLong(ac, &newSize, 0);
   CHECK_RETURN_PARSE_ERROR(acrc)
-  if (newSize < 0) {
-    newSize = MAX_AGGREGATE_REQUEST_RESULTS;
-  } else {
-    newSize = MIN(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
-  }
-  config->maxAggregateResults = newSize;
+  config->maxAggregateResults = translateOrClampMaxResults(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 
@@ -668,7 +741,12 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     val = MIN_WORKER_THREADS_FLEX;
@@ -712,7 +790,12 @@ CONFIG_GETTER(getMinOperationWorkers) {
 static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
@@ -1195,11 +1278,14 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcConfigParams.gcPolicy));
 }
 
-// PARTIAL_INDEXED_DOCS
+// PARTIAL_INDEXED_DOCS -- retained as a no-op, see the field's comment in config.h.
 CONFIG_SETTER(setFilterCommand) {
   int filterCommands;
   int acrc = AC_GetInt(ac, &filterCommands, AC_F_GE0);
   config->filterCommands = (bool)filterCommands;
+  if (config->filterCommands) {
+    warnPartialIndexedDocsDeprecated();
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -1732,7 +1818,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getNoMemPools,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "PARTIAL_INDEXED_DOCS",
-         .helpText = "Enable commands filter which optimize indexing on partial hash updates",
+         .helpText = "Deprecated, has no effect. Partial hash updates are now optimized via "
+                     "subkey notifications, with no configuration",
          .setValue = setFilterCommand,
          .getValue = getFilterCommand,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -2145,7 +2232,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-clean-threshold",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
     )
@@ -2205,8 +2292,11 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-max-aggregate-results",
       SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
                              : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
+      REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
+      // Registered max is LLONG_MAX, not MAX_AGGREGATE_REQUEST_RESULTS: an over-cap value must
+      // reach set_max_aggregate_results_config(), which clamps it via translateOrClampMaxResults,
+      // rather than being rejected by core before the setter runs.
+      LLONG_MAX, get_size_t_numeric_config, set_max_aggregate_results_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
     )
   )
@@ -2251,8 +2341,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-search-results", DEFAULT_MAX_SEARCH_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_SEARCH_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
+      // See the matching comment on search-max-aggregate-results: registered max is LLONG_MAX so
+      // an over-cap value reaches set_max_search_results_config() to be clamped, not rejected.
+      LLONG_MAX, get_size_t_numeric_config, set_max_search_results_config, NULL,
       (void *)&(RSGlobalConfig.maxSearchResults)
     )
   )
@@ -2297,7 +2389,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-multi-text-slop", DEFAULT_MULTI_TEXT_SLOP,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.multiTextOffsetDelta)
     )
@@ -2316,7 +2408,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-timeout",
       SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
     )
@@ -2558,7 +2650,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterBoolConfig(
       ctx, "search-partial-indexed-docs", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
+      get_bool_config, set_deprecated_partial_indexed_docs, NULL,
       (void *)&(RSGlobalConfig.filterCommands)
     )
   )
@@ -2623,6 +2715,24 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, -1,
       INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
       (void *)&(RSGlobalConfig.diskMaxOpenFiles)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-async-read-pool-size", DEFAULT_DISK_ASYNC_READ_POOL_SIZE,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_POOL_SIZE_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadPoolSize)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-async-read-queue-factor", DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_QUEUE_FACTOR_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadQueueFactor)
     )
   )
 

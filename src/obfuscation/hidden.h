@@ -23,6 +23,16 @@ typedef struct HiddenString HiddenString;
 // This is a security measure to prevent leaking user data
 // The additional takeOwnership determines whether to duplicate the buffer or directly point at the given buffer
 // HiddenString_Free must be called for the object to release it
+//
+// name must be readable for length bytes; length excludes the terminator.
+// With takeOwnership = false the buffer is borrowed, so it must also carry a NUL
+// at name[length] and stay alive and unmodified while the string points at it.
+// With takeOwnership = true rm_strndup copies the bytes and adds its own
+// terminator, so neither applies.
+//
+// Interior NUL bytes are accepted but not honoured: the comparison functions and
+// any %s formatting stop at the first one, so names differing only after it are
+// indistinguishable.
 HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value, bool tookOwnership);
@@ -54,6 +64,12 @@ RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* valu
 // 1. Logs
 // 2. Metrics
 // 3. Command responses
+//
+// Returns the name buffer, writing its length to length when that is non-NULL.
+// Its shape is NewHiddenString's contract above.
+//
+// HiddenString_Clone and HiddenString_TakeOwnership point the string at a
+// different buffer, so a pointer retained across either is stale.
 const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length);
 
 #ifdef __cplusplus

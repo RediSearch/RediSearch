@@ -7,13 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
  #include "aggregate_exec_common.h"
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
  #include "search_result_ffi.h"
  #include "aggregate.h"
  #include "util/timeout.h"
- #include "info/global_stats.h"
  #include "rmalloc.h"
- #include "util/array.h"
- #include "debug_commands.h"
+#include "query_error_ffi.h"
+#include "reply.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // usleep, used by debugCheckAndPauseAfterAggregateResult
@@ -70,7 +76,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && AREQ_TimedOut(areq)) {
+    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -99,7 +105,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Honour a main-thread timeout flag at the row boundary: buffering
      // stages (safe loader, sorter yield) can keep emitting from internal
      // buffers without re-touching upstream's per-row timeout check.
-     if (areq && AREQ_TimedOut(areq)) {
+     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -113,11 +119,11 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
      // Check timeout after aggregation
-     if (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
+     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
@@ -195,7 +201,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  /**
-  * Drain results buffered post-timeout into `req->storedReplyState.results`.
+  * Drain results buffered post-timeout into `req->base.reply.results`.
   * Only safe for pipelines classified as yielding partial results -- caller
   * must gate on `qctx->canYieldPartialResults` and perform any root-specific
   * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
@@ -226,5 +232,5 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 
  void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
    Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->storedReplyState);
+                                           &req->base.reply);
  }

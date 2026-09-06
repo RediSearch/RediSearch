@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdint.h>
+#include <string.h>
 #include "hiredis/sds.h"
 #include "redismodule.h"
 
@@ -208,7 +209,20 @@ static inline const char *AC_Strerror(int code) {
 #define AC_IsAtEnd(ac) ((ac)->offset >= (ac)->argc)
 #define AC_NumRemaining(ac) ((ac)->argc - (ac)->offset)
 #define AC_NumArgs(ac) (ac)->argc
-#define AC_StringArg(ac, N) (const char *)((ac)->objs[N])
+
+/* Return the N'th argument as a C string, for any cursor type. `len` is
+ * optional. (A blind `objs[N]` cast is only valid for C-string/sds cursors —
+ * an RString cursor's objs are RedisModuleString pointers.) */
+static inline const char *AC_StringArg(const ArgsCursor *ac, size_t n, size_t *len) {
+  if (ac->type == AC_TYPE_RSTRING) {
+    return RedisModule_StringPtrLen((RedisModuleString *)ac->objs[n], len);
+  }
+  const char *s = (const char *)ac->objs[n];
+  if (len) {
+    *len = ac->type == AC_TYPE_SDS ? sdslen((sds)s) : strlen(s);
+  }
+  return s;
+}
 #ifdef __cplusplus
 }
 

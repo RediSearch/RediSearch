@@ -1,0 +1,59 @@
+name: Get Redis Tag
+
+on:
+  workflow_call:
+    inputs:
+      prefix:
+        description: "Prefix to filter tags, for getting latest release of a specific version"
+        type: string
+        default: ''
+      pinned-ref:
+        description: "Redis ref to use instead of the latest release tag. Empty uses the latest release tag."
+        type: string
+        # TODO: Replace with a released Redis version once one includes the hexpired notification fix.
+        default: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+    outputs:
+      tag:
+        description: "Redis tag or pinned ref"
+        value: ${{ jobs.resolve.outputs.tag }}
+
+jobs:
+  pinned-ref:
+    if: ${{ inputs.pinned-ref != '' }}
+    runs-on: ubuntu-slim
+    outputs:
+      tag: ${{ steps.redis-ref.outputs.tag }}
+    steps:
+      - id: redis-ref
+        env:
+          PINNED_REDIS_REF: ${{ inputs.pinned-ref }}
+        run: |
+          echo "Using pinned Redis ref: $PINNED_REDIS_REF"
+          echo "tag=$PINNED_REDIS_REF" >> "$GITHUB_OUTPUT"
+
+  latest-release-tag:
+    if: ${{ inputs.pinned-ref == '' }}
+    permissions: {}
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: ${{ inputs.prefix }}
+
+  resolve:
+    needs: [pinned-ref, latest-release-tag]
+    if: ${{ always() && !cancelled() && !failure() }}
+    runs-on: ubuntu-slim
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - id: resolve
+        env:
+          PINNED_TAG: ${{ needs.pinned-ref.outputs.tag }}
+          LATEST_TAG: ${{ needs.latest-release-tag.outputs.tag }}
+        run: |
+          TAG="${PINNED_TAG:-$LATEST_TAG}"
+          if [[ -z "$TAG" ]]; then
+            echo "Failed to resolve Redis ref" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"

@@ -1,4 +1,10 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import random
 import time
 
@@ -1340,6 +1346,88 @@ def test_hybrid_query_non_vector_score():
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop():
+    """A filtered KNN query scores its text prefilter as if the matched terms
+    were adjacent: the scorer receives the prefilter alongside the distance
+    metric, and the slop walk pairs only top-level siblings, so the terms' real
+    offset distance never reaches the divisor."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    # Each doc carries both terms once, so they share TF, IDF and max term
+    # frequency; the gap between the terms is the only input that differs.
+    conn.execute_command('HSET', 'adjacent', 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'separated', 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    def scores(query, scorer):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'SCORER', scorer, 'WITHSCORES',
+                      'NOCONTENT', 'PARAMS', 2, 'vec_param', query_vec)
+        return {res[i]: float(res[i + 1]) for i in range(1, len(res), 2)}
+
+    for scorer in ('TFIDF', 'BM25'):
+        text_only = scores('@t:(hello world)', scorer)
+        hybrid = scores('(@t:(hello world))=>[KNN 2 @v $vec_param]', scorer)
+
+        env.assertEqual(sorted(hybrid.keys()), ['adjacent', 'separated'],
+                        message=[scorer, hybrid])
+
+        # Adjacent terms are a distance of one apart, so `adjacent` is scored
+        # undivided and any score read against it recovers its own divisor.
+        undivided = text_only['adjacent']
+        env.assertAlmostEqual(undivided / text_only['separated'], 3.0, 0.01,
+                              message=[scorer, text_only])
+        env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
+                              message=[scorer, hybrid])
+        # Under a KNN the gap between the terms is invisible, so the divisor
+        # falls back to a distance of one rather than the distance they are at.
+        env.assertAlmostEqual(undivided / hybrid['separated'], 1.0, 0.01,
+                              message=[scorer, hybrid])
+
+
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop_ranking():
+    """The ranking a filtered KNN query replies with: a boosted document whose
+    matched terms are far apart outranks a tighter, unboosted one, because under
+    a KNN the distance between the terms is not charged against it. The same
+    prefilter on its own ranks the two the other way round."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'boost', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'tight', 'boost', 1, 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'boosted', 'boost', 2, 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    # No SORTBY, so both replies are ordered by relevance score. TFIDF is one of
+    # the scorers that divides by the slop; the default one does not.
+    env.expect('FT.SEARCH', 'idx', '@t:(hello world)', 'SCORER', 'TFIDF',
+               'NOCONTENT').equal([2, 'tight', 'boosted'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted', 'tight'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted'])
+    # `k` selects candidates by vector distance before any scoring, so the
+    # nearest vector is the answer whatever the relevance ranking says.
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
+
+
 @skip(cluster=False)
 def test_single_entry():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
@@ -2506,6 +2594,30 @@ def test_score_name_case_sensitivity():
 
 
 @skip(cluster=True)
+def test_score_name_long_field_name():
+    """KNN derives the default `__<field>_score` name from the vector field name
+    when resolving the distance field. Cover that with a long name, including the
+    path that compares against the derived default."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 2
+    vec_fieldname = 'v' * (9 * 1024 * 1024)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    blob = create_np_array_typed([0] * dim).tobytes()
+
+    # Naming the distance field through both syntaxes at once is the only path that compares
+    # the given name against the default derived from the field name.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB AS score]=>{{$yield_distance_as: score2}}',
+               'PARAMS', 2, 'BLOB', blob).error().contains(
+                   'Distance field was specified twice for vector query: score and score2')
+
+    # Naming it through neither yields under the derived default, which the query must still
+    # be able to build from a name this long.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB]',
+               'PARAMS', 2, 'BLOB', blob).equal([0])
+
+
+@skip(cluster=True)
 def test_tiered_index_gc():
     N = 100
     env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
@@ -2548,7 +2660,7 @@ def test_tiered_index_gc():
 
     # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    forceInvokeGC(env, 'idx')
 
     debug_info = get_debug_info()
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
@@ -2644,3 +2756,45 @@ def test_vector_index_ptr_valid(env):
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()
+
+
+def test_hybrid_adhoc_int8_uint8_cosine():
+    """
+    Test hybrid ad-hoc brute force search with INT8/UINT8 vectors and Cosine metric.
+    This covers query-vector normalization in computeDistances_RAM.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    qty = 10
+    k = 3
+
+    for data_type in ('INT8', 'UINT8'):
+        index_args = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'COSINE']
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT',
+                             len(index_args), *index_args, 't', 'TEXT')
+
+        query_vec = None
+        for i in range(1, qty + 1):
+            type_limit = 127 if data_type == 'INT8' else 255
+            vector_values = [min(type_limit, i + j) for j in range(dim)]
+            query_vec = create_np_array_typed(vector_values, data_type)
+            conn.execute_command('HSET', i, 'v', query_vec.tobytes(), 't', 'text')
+
+        res = env.cmd('FT.SEARCH', 'idx', f'(text)=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
+                      'SORTBY', '__v_score',
+                      'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+                      'RETURN', 2, 't', '__v_score')
+
+        env.assertEqual(res[0], k, message=f'{data_type}: expected {k} results')
+        debug_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))
+        env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF', message=data_type)
+
+        env.assertEqual(res[1], str(qty),
+                        message=f'{data_type}: expected doc {qty} to be the closest result. res = {res}')
+        first_res_values = res[2]
+        first_res_dist = first_res_values[first_res_values.index('__v_score') + 1]
+        env.assertEqual(float(first_res_dist), 0,
+                        message=f'{data_type}: expected exact self-match distance to be 0. res = {res}')
+
+        conn.execute_command('FLUSHALL')

@@ -7,15 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "workers_pool.h"
 #include "workers.h"
 #include "redismodule.h"
 #include "config.h"
 #include "logging.h"
 #include "rmutil/rm_assert.h"
 #include "VecSim/vec_sim.h"
-
-#include <pthread.h>
 
 //------------------------------------------------------------------------------
 // Thread pool

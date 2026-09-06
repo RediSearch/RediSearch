@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "hiredis/sds.h"
+#include "util/dict.h"
 }
 
 #include "buffer/buffer.h"
@@ -131,7 +132,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteForwardIndexEntry(idx, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
@@ -294,7 +295,7 @@ TEST_F(IndexTest, testNot) {
   MockQueryEvalCtx mockQctx(16, 16);
   irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   MockQueryEvalCtx mockQctx2(10, 10);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, NULL, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -316,7 +317,7 @@ TEST_F(IndexTest, testPureNot) {
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   MockQueryEvalCtx mockQctx(10, 10);
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, NULL, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -387,10 +388,10 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write add an index block of 48 bytes
+    // The first write add an index block of 56 bytes
     // and the vector header
     if (i < 1) {
-      expected_sz += 48 + 8;
+      expected_sz += 56 + 8;
     }
 
     // Check if the write matches the simulation
@@ -636,8 +637,11 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // Create a mock context for timeout configuration
+  // Revalidation looks up the term through the spec's keys dictionary, as it does in production.
   MockQueryEvalCtx mockQctx(max_id, max_id);
+  mockQctx.spec.keysDict = dictCreate(&invIdxDictType, nullptr);
+  CharBuf termKey = {.buf = const_cast<char *>("term"), .len = 4};
+  dictAdd(mockQctx.spec.keysDict, &termKey, w);
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
@@ -654,6 +658,9 @@ TEST_F(IndexTest, testHybridVector) {
   QueryError err = QueryError_Default();
   QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  HybridIterator *vectorReader = (HybridIterator *)vecIt;
+  ASSERT_EQ(vectorReader->timeout, mockQctx.sctx.timeout);
+  ASSERT_EQ(vectorReader->timeout->kind, QUERY_REQUEST_TIMEOUT_UNARMED);
 
   size_t count = 0;
 
@@ -682,6 +689,8 @@ TEST_F(IndexTest, testHybridVector) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   HybridIterator *hr = (HybridIterator *)hybridIt;
+  ASSERT_EQ(hr->timeout, mockQctx.sctx.timeout);
+  ASSERT_EQ(hr->timeout->kind, QUERY_REQUEST_TIMEOUT_UNARMED);
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
@@ -764,7 +773,7 @@ TEST_F(IndexTest, testHybridVector) {
   }
   hybridIt->Free(hybridIt);
 
-  InvertedIndex_Free(w);
+  dictRelease(mockQctx.spec.keysDict);
   VecSimIndex_Free(index);
 }
 
@@ -827,11 +836,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
   // first Read/SkipTo (see MOD-16437), so the iterator must hold the *raw* query vector (`query`
-  // outlives it). A far-future deadline disables the timeout for this test.
-  struct timespec never_timeout = {.tv_sec = INT64_MAX, .tv_nsec = 0};
+  // outlives it). The explicit UNARMED timeout mirrors request-owned state without imposing a
+  // deadline on the test.
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.radius, queryParams, range_query.order,
-      /*yields_metric=*/true, never_timeout);
+      /*yields_metric=*/true, &timeout);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -1186,16 +1197,16 @@ TEST_F(IndexTest, testIndexFlags) {
   // storing fieldmask on idx             16
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(73, sz);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(81, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(sz2, 60);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(sz2, 68);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
@@ -1203,7 +1214,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth);
+  ASSERT_EQ(85, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -1215,8 +1226,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(24, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(59, sz);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
@@ -1225,8 +1236,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(67, sz);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(75, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1271,11 +1282,9 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_EQ((int)dmd->score, i);
     ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
-    t_docId xid = DocIdMap_Get(&dt.dim, buf, strlen(buf));
-
-    ASSERT_EQ((int)xid, i + 1);
-
-    ASSERT_TRUE(DocTable_Pop(&dt, dmd->keyPtr, sdslen(dmd->keyPtr)) != NULL);
+    // key -> docId is no longer stored in the DocTable (it lives on the Redis
+    // key as DocIdMeta); delete by the docId we already hold.
+    ASSERT_TRUE(DocTable_DeleteById(&dt, dmd->id) != NULL);
     DMD_Return(dmd);
 
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
@@ -1284,7 +1293,6 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_TRUE(!dmd);
   }
 
-  ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
   ASSERT_FALSE(DocTable_Borrow(&dt, N + 2));
 
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
@@ -1295,14 +1303,12 @@ TEST_F(IndexTest, testDocTable) {
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
-  ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
   ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
+  // A fresh Put always assigns a new incremental docId (no key-based dedup).
   ASSERT_NE(dmd->id, strDocId);
-  ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
-  ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DMD_Return(dmd);
   DocTable_Free(&dt);
 }
@@ -1333,18 +1339,18 @@ TEST_F(IndexTest, testDeltaSplits) {
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
   IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};

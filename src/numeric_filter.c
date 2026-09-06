@@ -7,11 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "numeric_filter.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "rmutil/vector.h"
-#include "query_param.h"
+
+#include <errno.h>
+#include <math.h>
+#include <string.h>
+#include <strings.h>
+
 #include "fast_float/fast_float_strtod.h"
+#include "geo_index.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "rmalloc.h"
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {

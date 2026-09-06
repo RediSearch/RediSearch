@@ -193,6 +193,16 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           RLookup *lk, const RLookupKey **keys,
                                                           size_t nkeys, uint32_t *outStateFlags);
 
+/**
+ * @brief Hand the disk async-loader result processor its request sync context, so it can run
+ * the same RETURN_STRICT GIL handshake as RP_SAFE_LOADER (see aggregate.h). Called from
+ * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
+ *
+ * @param rp  The disk async-loader ResultProcessor, from SearchDisk_NewAsyncLoaderResultProcessor
+ * @param request `QueryRequest *`, or NULL to clear
+ */
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request);
+
 // Index API wrappers
 
 /**
@@ -311,6 +321,11 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  * the compaction callback table that was bound to the IndexSpec at open time;
  * those callbacks take the IndexSpec write lock around the update window.
  *
+ * MUST NOT be called while background work is paused
+ * (SearchDisk_IsBackgroundWorkPaused): the compaction flushes the memtable
+ * first with wait=true, and that flush can only be scheduled once background
+ * work resumes.
+ *
  * On return, `stats` is populated with per-cycle counters
  * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
  * `stats` before the call.
@@ -383,24 +398,6 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  * @param snapshot Snapshot handle returned by `SearchDisk_CreateSnapshot`
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
-
-/**
- * @brief Create a numeric range IndexIterator over the disk-backed index
- *
- * Wraps the disk API's per-bucket readers in a union iterator that yields
- * doc-ids matching `filter`'s range. The disk snapshot is taken from
- * `sctx->diskSnapshot` (which must be non-NULL) so the buckets are read at
- * the same point in time as sibling iterators in the same query.
- *
- * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view. The
- *             `diskSnapshot` field is required to be non-NULL.
- * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
- * @param fieldIndex Field index for the numeric field
- * @param status QueryError to populate with the cause when creation fails (may be NULL)
- * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
- */
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
 
 // DocTable API wrappers
 
@@ -480,6 +477,14 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
+ * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
+ *
+ * @return sds JSON string (release with sdsfree), or NULL when the field has
+ *         no numeric index on this handle.
+ */
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID
@@ -599,6 +604,17 @@ bool SearchDisk_IsEnabled();
  */
 bool SearchDisk_IsEnabledForValidation();
 
+/**
+ * @brief Report whether disk vector indexes are currently throttling writers.
+ *
+ * A disk tiered vector index raises the Redis client-postpone throttle when its flat buffer
+ * fills, but that only gates client commands. The async reindex scan bypasses command
+ * dispatch, so it consults this between batches to apply the same back-pressure to itself.
+ *
+ * @return true if one or more indexes are currently throttling.
+ */
+bool SearchDisk_IsVectorWriteThrottling(void);
+
 // Vector API wrappers
 
 /**
@@ -623,6 +639,15 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
+ * @brief Check whether a disk vector index contains data.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param takeLocks Whether to synchronize with concurrent index mutations
+ * @return true when the index contains data, false otherwise
+ */
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks);
+
+/**
  * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
  *        the field's RedisModuleIO RDB stream.
  *
@@ -631,9 +656,10 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
  *
  * @param vecIndex VecSimIndex* handle
  * @param rdb RedisModuleIO stream to write into
+ * @param takeLocks Whether to synchronize with concurrent index mutations
  * @return true on success, false otherwise
  */
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb);
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
 /**
  * @brief Create a VecSimIndex with no SpeedB storage bound.
@@ -718,19 +744,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
  * @return Inverted index memory in bytes
  */
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
-
-/**
- * @brief Get vector index memory for a disk index
- *
- * Returns disk-side vector index memory in bytes from the latest collected snapshot.
- * Does not include RAM-only accounting from non-disk paths.
- * Call SearchDisk_CollectIndexMetrics(index) before this getter.
- * Requires initialized SearchDisk and non-null index (RS_ASSERT).
- *
- * @param index Pointer to the disk index spec
- * @return Vector index memory in bytes
- */
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Get the disk-owned total number of records for a disk index
@@ -845,42 +858,70 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
+ * @brief Seal all memtables and schedule a flush without waiting for it.
  *
- * Acquires the IndexSpec read lock (blocks writes, allows queries) and
- * dispatches to the disk-side preCheckpoint hook.
+ * Rolls every column family's active memtable into an immutable one and
+ * schedules a flush, returning immediately instead of blocking until the data
+ * reaches L0 (unlike SearchDisk_Flush). Test-support primitive: paired with a
+ * paused background worker it lets flush-state INFO metrics be observed
+ * deterministically. A blocking flush would deadlock against a paused worker.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Pause background flush and compaction work on the index's database.
+ *
+ * Reference-counted: each call must be balanced by
+ * SearchDisk_ContinueBackgroundWork. Blocks until in-flight background jobs
+ * drain. Test-support primitive used with SearchDisk_FlushNoWait to observe
+ * flush-state INFO metrics deterministically. While paused, neither
+ * SearchDisk_Flush nor SearchDisk_RunGC may be issued — both wait on the
+ * parked worker.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Resume background work paused by SearchDisk_PauseBackgroundWork.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_ContinueBackgroundWork(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Whether background work is currently paused on the index's database.
+ *
+ * @param index Pointer to the disk index spec
+ * @return true if background work is paused
+ */
+bool SearchDisk_IsBackgroundWorkPaused(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Open the consistency window on a single index.
+ *
+ * Disables and cancels manual compactions and closes the numeric consistency gate; does not
+ * flush - the caller does that under the vector consistency lock. Idempotent within a cycle.
+ * Takes no IndexSpec lock: running on the main thread is what keeps writes out.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
-void SearchDisk_PreCheckpoint(IndexSpec *sp);
+void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 
 /**
- * @brief Master-side SST replication PRE_FORK hook for a single index.
+ * @brief Close the consistency window on a single index, re-enabling compactions.
  *
- * Dispatches to the disk-side preFork hook.
- *
- * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
- */
-void SearchDisk_PreFork(IndexSpec *sp);
-
-/**
- * @brief Master-side SST replication POST_FORK hook for a single index.
- *
- * Dispatches to the disk-side postFork hook.
+ * Replaces the former PostFork/ReplicationAbort/HotRestartSaveEnded trio. Tolerates a
+ * window that was never opened, so the abort paths need no special case. Pass
+ * reopenNumericGate=false on a successful hot restart, where the gate must stay closed
+ * through process exit.
  *
  * @param sp Pointer to the IndexSpec
+ * @param reopenNumericGate Whether to reopen the numeric consistency gate
  */
-void SearchDisk_PostFork(IndexSpec *sp);
-
-/**
- * @brief Master-side SST replication ABORT hook for a single index.
- *
- * Dispatches to the disk-side replicationAbort hook, then releases whichever
- * subset of locks (fork lock, read lock) is currently held for this cycle.
- *
- * @param sp Pointer to the IndexSpec
- */
-void SearchDisk_ReplicationAbort(IndexSpec *sp);
+void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
  * @brief Update the buffer budget and WBM in response to RAM configuration changes
@@ -917,7 +958,17 @@ void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
-  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // The cycle's first index_spec_open_consistency_window, before
+  // disable_compactions() (main thread); cross-wake source for releasing a
+  // compaction the window is about to block on.
+  SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN = 2,
+  // A numeric split between its Step B scan and its Step C+D commit (GC
+  // thread) — the mid-flight, nothing-committed point.
+  SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT = 3,
+  // index_spec_open_consistency_window right after the consistency gate of the
+  // numeric index closes (main thread); cross-wake source for
+  // deterministically deferring a held split.
+  SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
 } SearchDiskCompactionSite;
 
 /**
@@ -933,8 +984,8 @@ void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
  * @brief Configures a cross-wake: reaching `trigger` releases `target`.
  *
  * This is what breaks the replication-vs-compaction deadlock — a main-thread
- * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
- * to block on. A `target` of -1 clears the link.
+ * site (e.g. CONSISTENCY_WINDOW_OPEN) can release a background compaction it is
+ * about to block on. A `target` of -1 clears the link.
  */
 void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 
@@ -950,6 +1001,7 @@ void SearchDisk_DebugCoordinatorRelease(int site);
  * @brief Returns how many times `site` has been reached since the last reset.
  */
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
+
 
 /**
  * @brief Resets the coordinator.

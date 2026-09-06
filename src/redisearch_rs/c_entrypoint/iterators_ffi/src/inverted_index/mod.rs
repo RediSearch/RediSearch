@@ -14,4 +14,5 @@ mod tag;
 mod term;
 mod wildcard;
 
+pub use tag::CTagIndexLookup;
 pub use term::NewInvIndIterator_TermQuery;

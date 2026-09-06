@@ -80,3 +80,65 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
         true
     }
 }
+
+/// Move a block's encoded-entry buffer to a different address, leaving its bytes and the index's
+/// `gc_marker` alone — what a write that outgrows the buffer's allocation does to a reader parked
+/// on that block.
+///
+/// Appending cannot stand in for this: whether `reserve_exact` growth moves the buffer or extends
+/// it in place is the allocator's choice, so a test that appends until the address changes may
+/// never see it change. Here the replacement is built while the original is still alive, so the
+/// two cannot share an address whatever the allocator does. The original is then freed, which is
+/// what makes a reader's cached pointer genuinely dangle.
+///
+/// The guarantee is only against the address being replaced here, not against any address a
+/// caller sampled earlier: an address freed before this call can be handed back by the allocator.
+///
+/// Returns the buffer's new base address.
+///
+/// # Panics
+///
+/// If `block_idx` is out of range.
+pub fn relocate_block_buffer<E: crate::Encoder + crate::DecodedBy>(
+    index: &mut crate::InvertedIndex<E>,
+    block_idx: usize,
+) -> *const u8 {
+    let block = &mut index.blocks[block_idx];
+
+    // Hold the original allocation while the replacement is allocated, so they cannot overlap.
+    let original = std::mem::take(&mut block.buffer);
+    let original_base = original.as_ptr();
+    let mut relocated = Vec::with_capacity(original.len().max(1));
+    relocated.extend_from_slice(&original);
+
+    let base = relocated.as_ptr();
+    block.buffer = relocated;
+    drop(original);
+
+    // Guaranteed by construction: `original` was still alive when `relocated` was allocated.
+    assert_ne!(
+        base, original_base,
+        "must not reuse the address it just replaced"
+    );
+    base
+}
+
+/// Give a block's buffer enough spare capacity for `extra` more bytes, so that appends of up to
+/// that size grow it in place instead of reallocating.
+///
+/// The counterpart to [`relocate_block_buffer`]: it makes the *other* outcome of an append — the
+/// buffer keeping its address while its length grows — reachable on demand rather than at the
+/// allocator's discretion.
+///
+/// # Panics
+///
+/// If `block_idx` is out of range.
+pub fn reserve_block_buffer<E: crate::Encoder + crate::DecodedBy>(
+    index: &mut crate::InvertedIndex<E>,
+    block_idx: usize,
+    extra: usize,
+) -> *const u8 {
+    let buffer = &mut index.blocks[block_idx].buffer;
+    buffer.reserve(extra);
+    buffer.as_ptr()
+}

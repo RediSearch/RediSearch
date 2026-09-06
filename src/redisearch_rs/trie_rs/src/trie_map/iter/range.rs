@@ -34,7 +34,9 @@ pub struct RangeIter<'tm, 'f, Data> {
 #[derive(Clone, Copy, Debug)]
 /// One of the bounds for a [`RangeFilter`].
 pub struct RangeBoundary<'f> {
+    /// The boundary value.
     pub value: &'f [u8],
+    /// Whether `value` itself falls inside the range.
     pub is_included: bool,
 }
 
@@ -56,9 +58,14 @@ impl<'f> RangeBoundary<'f> {
     }
 }
 
+/// A key range with optional lower and upper bounds.
+///
+/// A `None` bound leaves that side unbounded; [`RangeFilter::all`] leaves both open.
 #[derive(Clone, Copy, Debug)]
 pub struct RangeFilter<'f> {
+    /// Lower bound; `None` leaves the range open at the bottom.
     pub min: Option<RangeBoundary<'f>>,
+    /// Upper bound; `None` leaves the range open at the top.
     pub max: Option<RangeBoundary<'f>>,
 }
 

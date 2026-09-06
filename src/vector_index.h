@@ -6,7 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
+#ifndef VECTOR_INDEX_H__
+#define VECTOR_INDEX_H__
 #include "VecSim/vec_sim.h"
 #include "iterators/iterator_api.h"
 #include "query_node.h"
@@ -192,11 +193,14 @@ extern "C" {
 
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. The
 // underlying VecSim range query runs on the iterator's first read (see MOD-16437). Used by the
-// range branch of NewVectorIterator and by unit tests. See the definition for ownership details.
+// range branch of NewVectorIterator and by unit tests. The timeout is required and must outlive
+// the iterator. See the definition for ownership details.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    struct timespec timeout);
+                                                    QueryRequestTimeout *timeout);
 #ifdef __cplusplus
 }
 #endif
+
+#endif // VECTOR_INDEX_H__

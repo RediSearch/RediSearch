@@ -11,9 +11,9 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame,
+    Frame, HandleError,
     existing_docs::{
-        HandleError, apply_existing_docs, collect_existing_docs, receive_existing_docs,
+        ExistingDocsDeleted, apply_existing_docs, collect_existing_docs, receive_existing_docs,
     },
 };
 use index_result::RSIndexResult;
@@ -22,13 +22,10 @@ use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 use serde::Serialize as _;
 
-// `collect_existing_docs` calls `spec.doc_exists()`, which calls `DocTable_Exists`
-// from the C library. That symbol is unavailable in pure-Rust test binaries, so we
-// provide a stub that always returns `false` (every doc treated as absent).
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DocTable_Exists(_: *const ffi::DocTable, _: rqe_core::DocId) -> bool {
-    false
-}
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Provide Redis allocator shims so the C dict functions can allocate memory.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only access; existingDocs is
@@ -84,6 +81,7 @@ fn empty_existing_docs_writes_only_terminator() {
 /// (stub returns false), `scan_gc` produces a delta. The output is an Empty
 /// frame, the serialised [`GcScanDelta`], then a Terminator.
 #[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn existing_docs_with_deleted_entries_writes_delta() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
@@ -121,11 +119,14 @@ fn receive_terminator_returns_none() {
 }
 
 #[test]
-fn receive_malformed_frame_returns_child_error() {
+fn receive_malformed_frame_returns_codec_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_existing_docs(&mut cursor),
-        Err(HandleError::ChildError)
+        Err(HandleError::Codec {
+            msg: "reading the existing-docs header frame",
+            ..
+        })
     ));
 }
 
@@ -152,11 +153,12 @@ fn apply_returns_err_when_existing_docs_absent() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
         apply_existing_docs(delta, &mut *guard),
-        Err(HandleError::ExistingDocsDeleted)
+        Err(HandleError::Custom(ExistingDocsDeleted))
     ));
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn roundtrip_all_docs_deleted_clears_index() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
@@ -177,8 +179,8 @@ fn roundtrip_all_docs_deleted_clears_index() {
     let delta = receive_existing_docs(&mut cursor).unwrap().unwrap();
 
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let info = apply_existing_docs(delta, &mut *write_guard).unwrap();
+    let stats = apply_existing_docs(delta, &mut *write_guard).unwrap();
 
     assert!(write_guard.existing_docs_mut().is_none());
-    assert!(info.bytes_freed > 0);
+    assert!(stats.bytes_collected > 0);
 }

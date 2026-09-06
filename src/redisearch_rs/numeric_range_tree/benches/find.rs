@@ -19,8 +19,8 @@ use std::time::Duration;
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
 use inverted_index::NumericFilter;
-use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::{build_large_tree, build_tree};
+use numeric_range_tree::{NumericRangeTree, RangeWindow};
 
 fn bench_leaf_only(group: &mut BenchmarkGroup<'_, WallTime>, tree: &NumericRangeTree) {
     let filter = NumericFilter {
@@ -103,15 +103,19 @@ fn bench_with_offset_limit(group: &mut BenchmarkGroup<'_, WallTime>, tree: &Nume
     let filter = NumericFilter {
         min: 0.0,
         max: 5000.0,
-        offset: 100,
-        limit: 10,
         ..Default::default()
     };
+    let window = RangeWindow {
+        offset: 100,
+        limit: 10,
+    };
     assert!(
-        !tree.find(&filter).is_empty(),
+        !tree.find_windowed(&filter, window).is_empty(),
         "With Offset/Limit: should return some ranges"
     );
-    group.bench_function("With Offset/Limit", |b| b.iter(|| tree.find(&filter)));
+    group.bench_function("With Offset/Limit", |b| {
+        b.iter(|| tree.find_windowed(&filter, window))
+    });
 }
 
 fn benchmark_find(c: &mut Criterion) {

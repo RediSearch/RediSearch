@@ -146,14 +146,29 @@ Only applies when changes touch `src/rdb.c` or serialization logic:
 - Loop counters use appropriate types for the range of iteration.
 - Arithmetic that might overflow is guarded.
 
-#### 2g. Null pointer safety
+#### 2g. String length handling
+
+- Determine the authoritative length from the interface contract, distinguishing a
+  binary-safe byte extent from a C-string length that ends at the first NUL. Preserve and
+  propagate that length from the point where the string enters or is created; do not discard
+  it and later recover it with `strlen`. Do not change the contract merely to eliminate
+  `strlen`; review such a change under **Interface and compatibility changes**.
+- If a boundary genuinely provides only a NUL-terminated pointer, call `strlen` once and
+  retain the result while the byte sequence remains unchanged. Update the tracked length
+  after every operation that can transform, append to, or truncate the string.
+- For a string literal whose authoritative length is its full byte extent, use the compile-time
+  `sizeof("literal") - 1` instead of `strlen("literal")`. With an embedded NUL, verify that the
+  callee expects the full extent: `strlen` stops at the first NUL, whereas
+  `sizeof("literal") - 1` covers the entire literal.
+
+#### 2h. Null pointer safety
 
 - Pointers from Redis API calls (`RedisModule_OpenKey`, `RedisModule_CallReplyStringPtr`, etc.)
   are checked for NULL before use.
 - Function parameters documented as nullable are checked.
 - Struct member access through pointers validates the pointer first.
 
-#### 2h. Style and conventions
+#### 2i. Style and conventions
 
 - By default, only report style and convention issues when they violate an explicit
   project rule and would block maintainability. If `--include-nits` is requested,
@@ -165,7 +180,7 @@ Only applies when changes touch `src/rdb.c` or serialization logic:
 - No commented-out code left in the diff.
 - No `TODO` or `FIXME` comments without a tracking issue reference.
 
-#### 2i. Security impact
+#### 2j. Security impact
 
 Treat security-sensitive C issues as in scope for automated review. Prioritize findings
 that can lead to crashes, memory corruption, data exposure, unauthorized access, or
@@ -190,7 +205,7 @@ Check especially for:
 For any security-sensitive finding, state the concrete impact and the input or code path
 that can trigger it.
 
-#### 2j. Interface and compatibility changes
+#### 2k. Interface and compatibility changes
 
 Treat every accepted input/output boundary as a compatibility contract. This includes
 public commands, internal commands, coordinator-to-shard commands, replication/restore
@@ -255,7 +270,7 @@ automated mixed-version coverage is impractical, require a documented manual ver
 plan with exact versions and commands, or explicitly call out the change as breaking with
 its intended release and upgrade impact.
 
-#### 2k. PR description
+#### 2l. PR description
 
 Only applies when reviewing a PR (not files or commits directly):
 - Exactly one release notes checkbox is checked (`This PR requires release notes`

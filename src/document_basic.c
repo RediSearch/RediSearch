@@ -6,13 +6,37 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+#include <time.h>
+
 #include "document.h"
-#include "stemmer.h"
 #include "rmalloc.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
-#include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
+#include "aggregate/reducer.h"
+#include "config.h"
+#include "document_rs.h"
+#include "field_spec.h"
+#include "json.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rejson_api.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/arr/arr.h"
+#include "value_ffi.h"
 
 #define MILLISECOND_IN_ONE_SECOND 1000
 #define NANOSECOND_IN_ONE_MILLISECOND 1000000
@@ -258,7 +282,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
   // Fetch the JSON root straight off the open handle: RedisJSON validates it is a JSON
   // module type and returns the root without opening the key a second time by name.
-  jsonRoot = japi->getJsonFromHandle(k);
+  jsonRoot = JSON_GetJsonFromHandleCompat(k);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -277,7 +301,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
     jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
-        continue;
+      continue;
     }
 
     size_t len = japi->len(jsonIter);
@@ -534,12 +558,17 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
+  // A lazily patched rule field must also reach the spec cache: queries read
+  // the special-field names from the cache snapshot (the rule itself may be
+  // gone by reply time), so a stale cache would leave the patched field
+  // visible in replies.
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     array_append(arguments, globalAddRSstrings[0]);
     array_append(arguments, opts->scoreStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -550,6 +579,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -560,6 +590,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }

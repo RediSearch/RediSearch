@@ -14,12 +14,13 @@
 #include <assert.h>
 
 #include "indexes_scanner.h"
-
 #include "spec.h"
 #include "config.h"
 #include "rmalloc.h"
 #include "debug_commands.h"
 #include "util/redis_mem_info.h"
+#include "info/index_error.h"
+#include "rmutil/rm_assert.h"
 
 extern DebugCTX globalDebugCtx;
 
@@ -38,9 +39,11 @@ static_assert(
 );
 
 // Record a background-indexing failure on the scanner's spec so clients see it. See the
-// header for the full contract. Promotes the scanner's spec and, while it is alive,
-// records `error` as the spec's last indexing error (visible in FT.INFO "Index Errors"),
-// so a partially-built index is not silently treated as complete. When `oom` is set it
+// header for the full contract. Promotes the scanner's spec and, while it is alive AND this
+// scanner is still the spec's current one (a newer scan may have superseded it while the GIL
+// was released — see the inline note), records `error` as the spec's last indexing error
+// (visible in FT.INFO "Index Errors"), so a partially-built index is not silently treated as
+// complete. When `oom` is set it
 // additionally marks the failure as out-of-memory: it sets the spec's scan_failed_OOM
 // flag (consulted at query time to warn results may be incomplete, aggregated in
 // FT.INFO) and raises the OOM background-index status flag — pass false for non-OOM
@@ -70,12 +73,33 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
   StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
   IndexSpec *sp = StrongRef_Get(curr_run_ref);
   if (sp) {
-    // Error message does not contain user data. scanner->OOMkey may be NULL when no
-    // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
-    IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
-    if (oom) {
-      sp->scan_failed_OOM = true;
-      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+    // A newer scan may have superseded this one while the GIL was released (the async OOM path
+    // drops it between aborting the cursor and re-taking it here): a recovery FT.ALTER would have
+    // run IndexesScanner_New, which cancels this scanner, installs a replacement as sp->scanner,
+    // and cleared the OOM state. Recording this stale scanner's failure now would clobber that
+    // fresh state — re-raising scan_failed_OOM makes IndexSpec_UpdateDoc reject the replacement
+    // scan's keys, leaving the index permanently partial. So only record while this scanner is
+    // still the spec's current one. Both this function and IndexesScanner_New run under the GIL.
+    if (sp->scanner == scanner) {
+      // Error message does not contain user data. scanner->OOMkey may be NULL when no
+      // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
+      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
+      if (oom) {
+        RS_AtomicBoolStoreRelaxed(&sp->scan_failed_OOM, true);
+        // Freeze how far the aborted scan got: once IndexesScanner_Free clears the
+        // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and hide
+        // the incomplete build. Store the raw scanned-key count (the scanner is still
+        // alive here); IndexesScanner_IndexedPercent divides it by the live DbSize so the
+        // partial build is not reported as complete.
+        sp->scan_failed_OOM_scanned_keys = scanner->scannedKeys;
+        IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+      }
+    } else {
+      RedisModule_Log(ctx, "notice",
+                      "Scanning index %s in background: %s but a newer scan superseded it; "
+                      "not recording the failure",
+                      scanner->spec_name_for_logs,
+                      oom ? "cancelled due to OOM" : "failed");
     }
     StrongRef_Release(curr_run_ref);
   } else {
@@ -95,7 +119,7 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   RedisModule_Log(ctx, "warning", "%s", error);
 
   if (!scanner->global) {
-    scanner->cancelled = true;
+    IndexesScanner_Cancel(scanner);
   }
   IndexesScanner_RecordBackgroundFailure(ctx, scanner, error, /*oom=*/true);
   rm_free(error);
@@ -114,35 +138,52 @@ bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   return (used_memory_ratio > memory_limit_ratio) ;
 }
 
-// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit: checks the higher of
-// the RAM-only and total usage ratios against indexingMemoryLimit %.
-bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
-  // if memory limit is set to 0, we don't need to check for memory usage
-  if (RSGlobalConfig.indexingMemoryLimit == 0) {
-    return false;
+// Margin (percentage points) a RAM term must exceed its budget by before the guard believes it.
+// The swapout term is the engine's control variable: whenever max_ram is the binding limit — i.e.
+// max_ram_by_data_ratio sits above it — eviction parks that term *at* max_ram and holds it there
+// with no low watermark, so its budget is the healthy operating point and only a departure from it
+// is a signal. Measured parked at 0.99988 of max_ram, rippling by ~0.14%, so this clears the ripple
+// by an order of magnitude. Proportional, so it scales with the budget rather than assuming one.
+#define ASYNC_BG_INDEXING_RAM_MARGIN_PCT 2
+
+BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx) {
+  const RedisMemoryFlexRatios mem = RedisMemory_GetFlexRatios(ctx);
+
+  if (mem.total_memory_ratio >= 1.0f) {
+    return BG_INDEXING_MEM_EXHAUSTED;
   }
 
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioFlex(ctx);
-  float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
+  // Either RAM term past its budget by the margin. Which of the two reads higher is not fixed: the
+  // swapout term usually does, carrying the unused memtable budget, but that budget scales with
+  // max_ram and the memtables can hold more than it just after a budget cut — measured inverted at
+  // 16.0MB swapout against 22.8MB allocated on an 8mb budget. Testing both keeps that ordering from
+  // being load-bearing.
+  const float ram_over = 1.0f + (float)ASYNC_BG_INDEXING_RAM_MARGIN_PCT / 100;
+  if (mem.ram_ratio > ram_over || mem.ram_for_swapout_ratio > ram_over) {
+    return BG_INDEXING_MEM_THROTTLE;
+  }
 
-  return (used_memory_ratio > memory_limit_ratio);
+  return BG_INDEXING_MEM_OK;
 }
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
-  if (scanner || sp->scan_in_progress) {
-    if (scanner) {
-      size_t totalKeys = RedisModule_DbSize(ctx);
-      // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
-      // at-least-once) can push it past totalKeys; clamp so the reported percent never
-      // exceeds 100%.
-      double pct = totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
-      return pct > 1.0 ? 1.0 : pct;
-    } else {
-      return 0;
-    }
+  // Pick the scanned-key count to measure against the current DbSize:
+  size_t scannedKeys;
+  if (scanner) {
+    scannedKeys = scanner->scannedKeys;             // active scan: live progress
+  } else if (sp->scan_in_progress) {
+    return 0.0;                                     // scan pending, no scanner yet: 0%
+  } else if (RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)) {
+    scannedKeys = sp->scan_failed_OOM_scanned_keys; // last build OOM-aborted: frozen progress
   } else {
-    return 1.0;
+    return 1.0;                                     // no scan pending: build completed
   }
+  size_t totalKeys = RedisModule_DbSize(ctx);
+  // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
+  // at-least-once) can push it past totalKeys; clamp so the reported percent never
+  // exceeds 100%.
+  double pct = totalKeys > 0 ? (double)scannedKeys / totalKeys : 0.0;
+  return pct > 1.0 ? 1.0 : pct;
 }
 
 IndexesScanner *IndexesScanner_NewGlobal() {
@@ -178,6 +219,14 @@ IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   }
   spec->scanner = scanner;
   spec->scan_in_progress = true;
+  // A fresh scan supersedes any earlier OOM-aborted build: clear the persisted OOM state so
+  // percent_indexed, FT.INFO's background-indexing status, and the new-document write-block in
+  // IndexSpec_UpdateDoc reflect this run rather than the old failure. If this scan also aborts on
+  // OOM, IndexesScanner_RecordBackgroundFailure re-sets them (and its supersession guard keeps a
+  // stale, superseded scanner from re-setting them behind this scan's back).
+  RS_AtomicBoolStoreRelaxed(&spec->scan_failed_OOM, false);
+  spec->scan_failed_OOM_scanned_keys = 0;
+  IndexError_ClearBackgroundIndexFailureFlag(&spec->stats.indexError);
 
   return scanner;
 }
@@ -206,7 +255,9 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
 }
 
 void IndexesScanner_Cancel(IndexesScanner *scanner) {
-  scanner->cancelled = true;
+  // Relaxed atomic: paired with IndexesScanner_IsCancelled so an off-GIL reader (async scan
+  // backoff waits) sees the latch without a data race. See the `cancelled` field docs.
+  __atomic_store_n(&scanner->cancelled, true, __ATOMIC_RELAXED);
 }
 
 void IndexesScanner_ResetProgression(IndexesScanner *scanner) {

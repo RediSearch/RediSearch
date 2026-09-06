@@ -147,6 +147,26 @@ fn insert_overwrite() {
     assert_eq!(SharedValue::refcount(&mock_to_be_overwritten), 2); // we have both mock_to_be_overwritten and prev
 }
 
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn move_dynamic_key_transfers_ownership() {
+    let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+    let value = SharedValue::new_num(42.0);
+    let mut src = RLookupRow::new();
+    let mut dst = RLookupRow::new();
+    src.write_key(&key, value.clone());
+
+    src.move_dynamic_key_to(&key, &mut dst);
+
+    assert_eq!(src.num_dyn_values(), 0);
+    assert!(src.get(&key).is_none());
+    assert_eq!(dst.get(&key).and_then(|value| value.as_num()), Some(42.0));
+    assert_eq!(SharedValue::refcount(&value), 2);
+}
+
 struct WriteKeyMock<'a> {
     row: RLookupRow<'a>,
     num_resize: usize,

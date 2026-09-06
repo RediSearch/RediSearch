@@ -9,7 +9,7 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{FieldSpec, RSGlobalConfig};
+use ffi::FieldSpec;
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use rqe_iterators::{IteratorsConfig, open_numeric_or_geo_index};
@@ -32,8 +32,7 @@ pub unsafe extern "C" fn openNumericOrGeoIndex(
     // SAFETY: 2. guarantees fs is valid and non-null.
     let fs = unsafe { &mut *fs };
 
-    // SAFETY: RSGlobalConfig is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
+    let compress = global_config::numeric_compress();
     // SAFETY: 1. and 2. are forwarded from this function's safety contract.
     match unsafe { open_numeric_or_geo_index(spec, fs, create_if_missing, compress) } {
         Some(tree) => std::ptr::from_mut(tree).cast::<ffi::NumericRangeTree>(),
@@ -81,8 +80,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     let sctx = unsafe { &*ctx };
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
+    let compress = global_config::numeric_compress();
 
     // SAFETY: preconditions 1–3/5 map directly to those of
     // `build_numeric_filter_iterator`.

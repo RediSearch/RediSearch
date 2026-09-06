@@ -6,14 +6,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <util/minmax.h>
-#include "value_ffi.h"
-#include <util/array.h>
-#include <util/block_alloc.h>
 #include <aggregate/expr/expression.h>
-#include <ctype.h>
+#include <math.h>
+#include <stdint.h>
+#include <time.h>
 
-#include "function.h"
+#include "value_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmutil/rm_assert.h"
+
+struct tm;
 
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1

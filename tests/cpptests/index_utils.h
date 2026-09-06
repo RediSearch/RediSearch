@@ -10,6 +10,7 @@
 #pragma once
 
 #include "query_ctx.h"
+#include "query_request.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "ttl_table.h"
@@ -42,6 +43,7 @@ class MockQueryEvalCtx {
 public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
+  QueryRequestTimeout *timeout;
   IndexSpec spec;
   SchemaRule rule;
 
@@ -50,8 +52,9 @@ public:
     std::memset(&rule, 0, sizeof(rule));
     rule.index_all = false;
 
-    // Initialize IndexSpec
-    spec = {0};
+    // Initialize IndexSpec. memset instead of aggregate assignment: the
+    // atomic scan_failed_OOM member deletes IndexSpec's assignment operator.
+    std::memset(&spec, 0, sizeof(spec));
     spec.rule = &rule;
     spec.existingDocs = nullptr;
     spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
@@ -63,7 +66,10 @@ public:
     // Initialize RedisSearchCtx
     sctx = {0};
     sctx.spec = &spec;
-    sctx.time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true};
+    sctx.currentTime = {0, 0};
+    timeout = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(*timeout)));
+    QueryRequestTimeout_Init(timeout, TimeoutPolicy_Return, 0);
+    sctx.timeout = timeout;
 
     // Initialize QueryEvalCtx
     qctx = {0};
@@ -86,6 +92,7 @@ public:
   }
 
   ~MockQueryEvalCtx() noexcept {
+    rm_free(timeout);
     if (spec.existingDocs) {
       InvertedIndex_Free(spec.existingDocs);
     }

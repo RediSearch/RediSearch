@@ -15,7 +15,7 @@
 #include "strings.h"
 #include "udb.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -156,7 +156,7 @@ ssize_t _nu_strtransformnlen(const char *encoded, size_t max_len, nu_read_iterat
 
 #endif /* NU_WITH_N_EXTRA */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

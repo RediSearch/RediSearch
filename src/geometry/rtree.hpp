@@ -8,21 +8,42 @@
 */
 #pragma once
 
+#include <boost/geometry/geometry.hpp>             // duh...
+#include <boost/optional/optional.hpp>             // boost::optional<T const&>
+#include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
+#include <vector>                                  // std::vector
+#include <variant>                                 // std::variant
+#include <utility>                                 // std::pair
+#include <functional>                              // std::hash, std::equal_to
+#include <string_view>                             // std::string_view
+#include <cstddef>
+
 #include "allocator/allocator.hpp"
 #include "allocator/stateful_allocator.hpp"
 #include "allocator/tracking_allocator.hpp"
 #include "../iterators/iterator_api.h"  // QueryIterator
 #include "field.h"                      // FieldFilterContext
 #include "geometry_types.h"
+#include "boost/geometry/core/coordinate_system.hpp"
+#include "boost/geometry/core/coordinate_type.hpp"
+#include "boost/geometry/core/cs.hpp"
+#include "boost/geometry/core/point_type.hpp"
+#include "boost/geometry/geometries/box.hpp"
+#include "boost/geometry/geometries/point.hpp"
+#include "boost/geometry/geometries/polygon.hpp"
+#include "boost/geometry/index/detail/rtree/node/variant_static.hpp"
+#include "boost/geometry/index/detail/rtree/node/variant_visitor.hpp"
+#include "boost/geometry/index/equal_to.hpp"
+#include "boost/geometry/index/indexable.hpp"
+#include "boost/geometry/index/parameters.hpp"
+#include "boost/geometry/index/rtree.hpp"
+#include "boost/iterator/iterator_facade.hpp"
+#include "boost/optional/detail/optional_reference_spec.hpp"
+#include "boost/variant/detail/apply_visitor_unary.hpp"
+#include "redismodule.h"
+#include "rqe_core.h"
 
-#include <vector>                                  // std::vector
-#include <variant>                                 // std::variant
-#include <utility>                                 // std::pair
-#include <functional>                              // std::hash, std::equal_to
-#include <string_view>                             // std::string_view
-#include <boost/geometry/geometry.hpp>             // duh...
-#include <boost/optional/optional.hpp>             // boost::optional<T const&>
-#include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
+struct RedisSearchCtx;
 
 namespace RediSearch {
 namespace GeoShape {

@@ -25,7 +25,7 @@ pub use bindings::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
 pub use load_document::{
     DocumentFormat, DocumentLoader, FieldLoader, HashDocumentFormat, JsonDocumentFormat,
-    LoadAllError, LoadFieldError,
+    LoadAllError, LoadFieldError, LoadFieldProfile,
 };
 pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,

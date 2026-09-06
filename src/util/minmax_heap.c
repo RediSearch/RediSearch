@@ -6,10 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
-#include <stdint.h>
 #include <stdbool.h>
 
 #include "minmax_heap.h"

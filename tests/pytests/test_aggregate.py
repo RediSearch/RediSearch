@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 import bz2
@@ -824,6 +831,26 @@ def testAggregateGroupByOnEmptyField(env):
     for var in expected:
         env.assertContains(var, res)
 
+
+def testReducerAliasesMayReuseDocumentControlFieldNames(env):
+    """Reducer aliases are query output, not schema document-control fields."""
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCORE_FIELD', '__score',
+        'LANGUAGE_FIELD', '__language',
+        'PAYLOAD_FIELD', '__payload',
+        'SCHEMA', 't', 'TEXT'
+    ).ok()
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', '{doc}:1', 't', 'value')
+
+    for alias in ('__score', '__language', '__payload'):
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*',
+            'GROUPBY', '0',
+            'REDUCE', 'COUNT', '0', 'AS', alias
+        ).equal([1, [alias, '1']])
+
 def test_groupby_array(env: Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
   with env.getClusterConnectionIfNeeded() as con:
@@ -1279,6 +1306,15 @@ def testGroupProperties(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
+
+    max_groupby_properties = (1 << 16) - 1
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', str(max_groupby_properties + 1), '@t').error().contains(
+                    'Bad arguments for GROUPBY: Expected an argument, but none provided')
+    too_many_properties = ['@t'] * (max_groupby_properties + 1)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', str(len(too_many_properties)), *too_many_properties).error().contains(
+                    'Bad arguments for GROUPBY: Value is outside acceptable bounds')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '-1').error().contains(
+                    'Bad arguments for GROUPBY: Value is outside acceptable bounds')
 
     # Check groupby properties
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(

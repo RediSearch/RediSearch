@@ -282,6 +282,11 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_TO_SUBSCRIBER_MODULES (1<<0)
 #define REDISMODULE_NOTIFY_TO_SUBSCRIBER_CLIENTS (1<<1)
 
+/* Delivery flags for RM_SubscribeToKeyspaceEventsWithSubkeys.
+ * These are passed in the 'flags' parameter, not in 'types'. */
+#define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
+#define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
+
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
 #define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)
@@ -300,6 +305,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NODE_PFAIL      (1<<3)
 #define REDISMODULE_NODE_FAIL       (1<<4)
 #define REDISMODULE_NODE_NOFAILOVER (1<<5)
+#define REDISMODULE_NODE_PORT_TLS   (1<<6)
 
 #define REDISMODULE_CLUSTER_FLAG_NONE 0
 #define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
@@ -598,7 +604,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_KEY 17
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
-#define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE 20
+#define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
 
 /* RL Extension: Use IDs >= 1000 to maintain ABI compatibility with OSS Redis */
 #define REDISMODULE_EVENT_SHARDING 1000
@@ -741,6 +748,10 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
         1
     },
+    RedisModuleEvent_ClusterTopologyChange = {
+        REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE,
+        1
+    },
     RedisModuleEvent_SSTReplication = {
         REDISMODULE_EVENT_SST_REPLICATION,
         1
@@ -855,6 +866,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
 #define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
+
+/* RedisModuleEvent_ClusterTopologyChange has no meaningful subevent. */
+#define _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT 0
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -1020,6 +1034,26 @@ typedef struct RedisModuleClusterSlotMigrationTrimInfo {
 
 #define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
 
+/* Reason flags reported in RedisModuleClusterTopologyChangeInfo.change_flags.
+ * More than one bit may be set when several changes were collapsed into a
+ * single (debounced) RedisModuleEvent_ClusterTopologyChange notification. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1<<0) /* Slot ownership changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1<<1) /* A node changed its primary/replica role. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1<<2) /* The cluster OK/FAIL state changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster, or its address changed. */
+
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION 1
+
+typedef struct RedisModuleClusterTopologyChangeInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint64_t change_flags;  /* Bitmask of REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_*
+                               reasons that contributed to this notification. */
+} RedisModuleClusterTopologyChangeInfoV1;
+
+#define RedisModuleClusterTopologyChangeInfo RedisModuleClusterTopologyChangeInfoV1
+
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
     REDISMODULE_ACL_LOG_CMD, /* Command authorization failure */
@@ -1145,6 +1179,7 @@ typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
+typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
 typedef void (*RedisModulePostNotifyJobFunc) (RedisModuleCtx *ctx, void *pd);
 typedef void (*RedisModulePostNotifyJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
 /* Backward-compatible alias for the original (pre-rename) name. */
@@ -1626,6 +1661,9 @@ REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx)
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_NotifyKeyspaceEventWithSubkeys)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddPostNotificationJobForKey)(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
@@ -2100,6 +2138,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
     REDISMODULE_GET_API(UnsubscribeFromKeyspaceEvents);
+    REDISMODULE_GET_API(SubscribeToKeyspaceEventsWithSubkeys);
+    REDISMODULE_GET_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
+    REDISMODULE_GET_API(NotifyKeyspaceEventWithSubkeys);
     REDISMODULE_GET_API(AddPostNotificationJob);
     REDISMODULE_GET_API(AddPostNotificationJobForKey);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);

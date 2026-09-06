@@ -18,12 +18,12 @@
 
 #include <sys/types.h>
 
-#include "config.h"
 #include "casemap.h"
+#include "config.h"
 #include "defines.h"
 #include "strings.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -192,7 +192,7 @@ const char* nu_strcasenstr(const char *haystack, size_t haystack_max_len,
 
 #endif /* NU_WITH_N_COLLATION */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

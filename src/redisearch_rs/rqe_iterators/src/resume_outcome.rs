@@ -28,11 +28,9 @@ pub enum ResumeOutcome<I> {
     /// Resumed, but the position moved forward (the previous `last_doc_id` was
     /// deleted or otherwise no longer present).
     ///
-    /// The move may have landed on a live document or run off the end. Check
-    /// `at_eof()` first: if it is not at EOF, `current()` holds the new
-    /// position; if it is at EOF, `current()` is meaningless — like the real
-    /// iterators, it keeps returning `Some` even past the end, so it must not
-    /// be trusted once `at_eof()` is true.
+    /// The move may have landed on a live document or run off the end;
+    /// [`current`](crate::RQEIterator::current) on the returned iterator tells
+    /// the two apart, and hands back the new position when there is one.
     Moved(I),
     /// Unrecoverable: no active iterator is produced and the suspended iterator
     /// was dropped.

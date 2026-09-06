@@ -7,9 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "exprast.h"
-#include "value_ffi.h"
+
 #include <ctype.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "value_ffi.h"
 #include "obfuscation/obfuscation_api.h"
+#include "aggregate/expr/expression.h"
+#include "hiredis/sds.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 

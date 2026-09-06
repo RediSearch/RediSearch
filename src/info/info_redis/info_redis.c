@@ -7,21 +7,36 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_redis.h"
+
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdio.h>
+
 #include "module.h"
 #include "version.h"
 #include "info/global_stats.h"
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
-#include <inttypes.h>
 #include "module_init_ffi.h"
 #include "info/info_redis/types/blocked_queries.h"
+#include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "obfuscation/obfuscation_api.h"
+#include "query_request.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
+#include "config.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "info/info_redis/types/spec_info.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "util/dllist.h"
+#include "util/references.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -321,7 +336,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_syntax", stats.shard_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_arguments", stats.shard_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout", stats.shard_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_while_queued", stats.shard_errors.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_while_executing", stats.shard_errors.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_while_replying", stats.shard_errors.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout", stats.shard_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_while_queued", stats.shard_warnings.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_while_executing", stats.shard_warnings.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_while_replying", stats.shard_warnings.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_oom", stats.shard_errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_unavailable_slots", stats.shard_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
@@ -333,7 +354,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_while_queued", stats.coord_errors.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_while_executing", stats.coord_errors.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_while_replying", stats.coord_errors.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_while_queued", stats.coord_warnings.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_while_executing", stats.coord_warnings.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_while_replying", stats.coord_warnings.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_unavailable_slots", stats.coord_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
@@ -445,14 +472,10 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
   }
   // Assumes no other thread is currently accessing the active-threads container
   DLLIST_FOREACH(node, &(activeQueries->queries)) {
-    BlockedQueryNode *at = DLLIST_ITEM(node, BlockedQueryNode, llnode);
-    IndexSpec *sp = StrongRef_Get(at->spec);
-    // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
-    if (!sp) {
-      continue;
-    }
-    RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
+    QueryRequest *at = DLLIST_ITEM(node, QueryRequest, registryInfo.node);
+    char buffer[MAX_OBFUSCATED_INDEX_NAME];
+    RedisModule_InfoBeginDictField(ctx, QueryRequest_ReportIndexName(at, buffer));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->registryInfo.cycle_start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
@@ -463,13 +486,13 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     return;
   }
   DLLIST_FOREACH(node, &(activeQueries->cursors)) {
-    BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
-    IndexSpec *spec = StrongRef_Get(at->spec);
+    QueryRequest *at = DLLIST_ITEM(node, QueryRequest, registryInfo.node);
     char buffer[21]; // 20 is the max length of a uint64_t
-    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorInfo.id);
     RedisModule_InfoBeginDictField(ctx, buffer);
-    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
+    char nameBuffer[MAX_OBFUSCATED_INDEX_NAME];
+    RedisModule_InfoAddFieldCString(ctx, "index", QueryRequest_ReportIndexName(at, nameBuffer));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->registryInfo.cycle_start);
     RedisModule_InfoEndDictField(ctx);
   }
 }

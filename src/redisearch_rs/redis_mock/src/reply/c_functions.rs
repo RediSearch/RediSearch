@@ -29,7 +29,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithLongLong(
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::LongLong(ll));
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplyWithDouble`.
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithDouble(_ctx: *mut RedisModuleCtx, 
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::Double(d));
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplyWithSimpleString`.
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithSimpleString(
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::SimpleString(s));
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplyWithStringBuffer`.
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithStringBuffer(
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::StringBuffer(s));
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplyWithEmptyArray`.
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithEmptyArray(_ctx: *mut RedisModuleC
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::Array(vec![]));
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplyWithArray`.
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithArray(
         if len == 0 {
             // Zero-length array - immediately push an empty array
             state.push_value(ReplyValue::Array(vec![]));
-        } else if len == ffi::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong {
+        } else if len == redis_module::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong {
             // Postponed length - will be finalized by ReplySetArrayLength
             state.start_array(None);
         } else {
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithArray(
             state.start_array(Some(len as usize));
         }
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplyWithMap`.
@@ -145,7 +145,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithMap(
         let mut state = state.borrow_mut();
         if len == 0 {
             state.push_value(ReplyValue::Map(vec![]));
-        } else if len == ffi::REDISMODULE_POSTPONED_LEN as c_longlong {
+        } else if len == redis_module::REDISMODULE_POSTPONED_LEN as c_longlong {
             // Postponed length - will be finalized by ReplySetMapLength
             state.start_map(None);
         } else {
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithMap(
             state.start_map(Some(len as usize));
         }
     });
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Mock implementation of `RedisModule_ReplySetArrayLength`.

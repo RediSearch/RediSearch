@@ -52,7 +52,7 @@ fn print<I: ProfilePrint>(
     })
 }
 
-/// Print an iterator's profile with counters injected.
+/// Print an iterator's profile with counters and a captured estimate injected.
 fn print_with_counters<I: ProfilePrint>(
     replier: &mut Replier,
     iter: &I,
@@ -61,7 +61,7 @@ fn print_with_counters<I: ProfilePrint>(
 ) -> ReplyValue {
     capture_single_reply(|| {
         let base_ctx = ProfilePrintCtx::new(false, false);
-        let mut ctx = base_ctx.with_counters(counters, wall_time_ns);
+        let mut ctx = base_ctx.with_counters(counters, wall_time_ns, 0);
         let mut map = replier.map();
         iter.print_profile(&mut map, &mut ctx);
     })
@@ -122,7 +122,7 @@ fn leaf_with_clock() {
             skip_to: 0,
             eof: false,
         };
-        let mut ctx = base_ctx.with_counters(&counters, 1_500_000);
+        let mut ctx = base_ctx.with_counters(&counters, 1_500_000, 0);
         let mut map = replier.map();
         rqe_iterators::Empty.print_profile(&mut map, &mut ctx);
     });
@@ -180,7 +180,8 @@ fn profile_wrapping_empty_after_reads() {
 fn not_with_child() {
     let mut replier = init();
     let child = rqe_iterators::Empty;
-    let iter = rqe_iterators::not::Not::new(child, 100, 1.0, rqe_iterators::utils::NoTimeout);
+    let iter =
+        rqe_iterators::not::Not::new(child, 100, 1.0, rqe_iterators::utils::NoTimeoutChecker);
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
 }
@@ -195,7 +196,7 @@ fn not_optimized_with_child() {
         child,
         100,
         1.0,
-        rqe_iterators::utils::NoTimeout,
+        rqe_iterators::utils::NoTimeoutChecker,
     );
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -237,7 +238,7 @@ fn intersection_two_children() {
 
 #[test]
 fn union_full_print() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -254,7 +255,7 @@ fn union_full_print() {
 
 #[test]
 fn union_limited_non_union_type() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -279,7 +280,7 @@ fn union_limited_non_union_type() {
 
 #[test]
 fn union_limited_geo_prints_full() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -299,29 +300,8 @@ fn union_limited_geo_prints_full() {
 }
 
 #[test]
-fn union_limited_lexrange_prints_full() {
-    use ffi::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
-
-    let mut replier = init();
-    let children = vec![rqe_iterators::Empty];
-    let flat = UnionFullFlat::new(children);
-    let iter = UnionOpaque {
-        variant: UnionVariant::FlatFull(flat),
-        query_node_type: QueryNodeType::LexRange,
-        query_string: None,
-    };
-    let reply = capture_single_reply(|| {
-        let mut ctx = ProfilePrintCtx::new(true, false);
-        let mut map = replier.map();
-        iter.print_profile(&mut map, &mut ctx);
-    });
-    insta::assert_debug_snapshot!(reply);
-}
-
-#[test]
 fn union_with_query_string() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
@@ -384,6 +364,54 @@ fn term_with_query_term() {
     insta::assert_debug_snapshot!(reply);
 }
 
+/// The production shape: every printed node is wrapped by
+/// [`Profile`](rqe_iterators::profile::Profile), whose construction-time
+/// estimate capture feeds the "Estimated number of matches" line — the bare
+/// prints above legitimately omit it.
+#[test]
+fn term_profile_wrapped() {
+    use ffi::{
+        IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
+    };
+    use inverted_index::full::Full;
+    use query_term::RSQueryTerm;
+
+    let mut replier = init();
+    let flags = IndexFlags_Index_StoreFreqs
+        | IndexFlags_Index_StoreTermOffsets
+        | IndexFlags_Index_StoreFieldFlags
+        | IndexFlags_Index_StoreByteOffsets;
+    let mut ii = inverted_index::InvertedIndex::<Full>::new(flags);
+    let offsets: &[u8] = &[0, 1, 2, 3];
+    let record = index_result::RSIndexResult::build_term()
+        .borrowed_record(
+            Some(RSQueryTerm::new("hello", 1, 0)),
+            index_result::RSOffsetSlice::from_slice(offsets),
+        )
+        .doc_id(1)
+        .field_mask(1)
+        .frequency(1)
+        .build();
+    ii.add_record(&record).expect("add_record");
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(1, 1);
+    let reader = ii.reader();
+    // SAFETY: mock_ctx provides a valid RedisSearchCtx.
+    let iter = unsafe {
+        rqe_iterators::inverted_index::Term::new(
+            reader,
+            mock_ctx.sctx(),
+            RSQueryTerm::new("hello", 1, 0),
+            1.0,
+            rqe_iterators::NoOpChecker,
+        )
+    };
+    let mut profile = rqe_iterators::profile::Profile::new(iter);
+    let _ = profile.read();
+    let reply = print(&mut replier, &profile, false);
+    insta::assert_debug_snapshot!(reply);
+}
+
 // ── Tag (inverted index) ────────────────────────────────────────
 
 #[test]
@@ -408,7 +436,7 @@ fn tag_with_query_term() {
         rqe_iterators::inverted_index::Tag::new(
             reader,
             mock_ctx.sctx(),
-            mock_ctx.tag_index(),
+            iterators_ffi::inverted_index::CTagIndexLookup::new(mock_ctx.tag_index()),
             RSQueryTerm::new("my_tag", 0, 0),
             0.0,
             rqe_iterators::NoOpChecker,

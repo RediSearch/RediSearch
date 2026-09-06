@@ -1,8 +1,8 @@
-#include "defines.h"
 #include "extra.h"
+#include "defines.h"
 #include "strings.h"
 
-#if defined (NU_WITH_Z_EXTRA) || defined(NU_WITH_N_EXTRA)
+#if defined(NU_WITH_Z_EXTRA) || defined(NU_WITH_N_EXTRA)
 
 static int _nu_readstr(const char *encoded, const char *limit, uint32_t *unicode, nu_read_iterator_t it) {
 	const char *p = encoded;

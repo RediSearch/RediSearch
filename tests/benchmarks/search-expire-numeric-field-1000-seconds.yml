@@ -4,6 +4,7 @@ description: |
   TTL table benchmark for field-level expiration with long TTL values.
   This keeps keys available to search and stresses lookup behavior while
   field expiration metadata is updated continuously.
+timeout_seconds: 2700
 
 metadata:
   component: "search"

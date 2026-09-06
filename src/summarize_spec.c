@@ -6,11 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
+#include <stddef.h>
+
 #include "rmutil/args.h"
 #include "util/array.h"
 #include "search_options.h"
+#include "redismodule.h"
+#include "rmalloc.h"
 
 /**
  * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]

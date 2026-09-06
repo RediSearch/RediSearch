@@ -72,7 +72,7 @@ pub unsafe extern "C" fn RedisModule_OpenKey(
     let key = Box::new(UserKey {
         ctx,
         ty: cloned_value,
-        name: keyname_user_string.user,
+        name: keyname_user_string.user(),
     });
     Box::into_raw(key).cast()
 }

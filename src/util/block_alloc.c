@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "block_alloc.h"
-#include <assert.h>
-#include <stdio.h>
+
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 

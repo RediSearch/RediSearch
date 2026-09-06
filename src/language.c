@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "language.h"
-#include "rmutil/alloc.h"
+
+#include <strings.h>
+
 #include "util/strconv.h"
-#include <string.h>
 
 typedef struct langPair_s
 {

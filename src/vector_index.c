@@ -7,6 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+
+#include <string.h>
+// __GLIBC__; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h> // IWYU pragma: keep
+#include <strings.h>
+#include <time.h>
+
 #include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
@@ -16,11 +28,26 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 #include "search_disk.h"
-
-#include <string.h>
+#include "config.h"
+#include "field.h"
+#include "geometry/geometry_types.h"
+#include "param.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_request.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rqe_iterators.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/timeout.h"
 
 #if defined(__x86_64__) && defined(__GLIBC__)
-#include <cpuid.h>
+#include <cpuid.h> // IWYU pragma: keep
 #define CPUID_AVAILABLE 1
 #endif
 
@@ -106,13 +133,10 @@ typedef struct {
   VecSimIndex *vecsim;          // borrowed; valid for the iterator's lifetime
   const void *vector;           // borrowed from the query AST (not owned, not freed)
   double radius;
-  VecSimQueryParams qParams;    // resolved at build time; POD, copied by value
+  // Resolved at build time and copied by value. Its timeoutCtx borrows the request timeout,
+  // which must outlive the lazy iterator and any reply retained while it is drained.
+  VecSimQueryParams qParams;
   VecSimQueryReply_Order order;
-  // Timeout context that `qParams.timeoutCtx` points to. It must live as long as the query
-  // reply is in use: a tiered index defers part of the search (and its timeout checks) to the
-  // reply iteration, so a stack-local would dangle by then. Stored here so it lives until the
-  // whole producer context is freed (after the reply is drained).
-  TimeoutCtx timeoutCtx;
 } VectorRangeProducerCtx;
 
 // Runs the deferred vector range query. On timeout, frees the reply, marks `out` and returns NULL;
@@ -121,7 +145,6 @@ typedef struct {
 // documents whose id exceeds the query's snapshot are dropped downstream when their (missing)
 // metadata is looked up in the doc table.
 static VecSimQueryReply *runVectorRangeQuery(VectorRangeProducerCtx *ctx, VectorRangeResults *out) {
-  ctx->qParams.timeoutCtx = &ctx->timeoutCtx;
   VecSimQueryReply *reply =
       VecSimIndex_RangeQuery(ctx->vecsim, ctx->vector, ctx->radius, &ctx->qParams, ctx->order);
   if (VecSimQueryReply_GetCode(reply) == VecSim_QueryReply_TimedOut) {
@@ -159,12 +182,13 @@ static void vectorRangeFreeCtx(void *ctxp) {
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. Shared
 // by NewVectorIterator's range branch and by unit tests, so both drive the same deferred path
 // (the query runs on the iterator's first read, after the spec lock is released; see MOD-16437).
-// `vector` is borrowed and must outlive the iterator; `timeout` is the query deadline (monotonic
-// clock). Ownership of the freshly-allocated context transfers to the returned iterator.
+// `vector` and `timeout` are borrowed and must outlive the iterator. Ownership of the
+// freshly-allocated context transfers to the returned iterator.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    struct timespec timeout) {
+                                                    QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout);
   VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
   *ctx = (VectorRangeProducerCtx){
       .vecsim = vecsim,
@@ -172,8 +196,8 @@ QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const v
       .radius = radius,
       .qParams = qParams,
       .order = order,
-      .timeoutCtx = {.timeout = timeout, .counter = 0},
   };
+  ctx->qParams.timeoutCtx = timeout;
   ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
   return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,
                                     order == BY_ID, VecSimIndex_IndexSize(vecsim), VECTOR_DISTANCE);
@@ -236,6 +260,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
       }
+      // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
+      // it, fall back to the index's create-time RERANK default
+      if (vq->field->vectorOpts.diskCtx.indexName != NULL &&
+          qParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_UNSET) {
+        qParams.hnswDiskRuntimeParams.shouldRerank =
+            vq->field->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
+      }
       if (vq->knn.k > MAX_KNN_K) {
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
@@ -250,7 +281,6 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                       .vectorScoreField = vq->scoreField,
                                       .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
-                                      .timeout = q->sctx->time.timeout,
                                       .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
       };
@@ -281,7 +311,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       return NewLazyVectorRangeIteratorFromParams(vecsim, vq->range.vector, vq->range.radius,
                                                   qParams, vq->range.order,
                                                   /*yields_metric=*/vq->scoreField != NULL,
-                                                  q->sctx->time.timeout);
+                                                  q->sctx->timeout);
     }
   }
   return NULL;

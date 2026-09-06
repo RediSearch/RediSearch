@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 impl<Data> Node<Data> {
     /// Inserts a new key-value pair into the trie.
     ///
-    /// If the key already exists, the current value is passede to provided function,
+    /// If the key already exists, the current value is passed to the provided function,
     /// and replaced with the value returned by that function.
     pub fn insert_or_replace_with<F>(
         &mut self,
@@ -220,7 +220,7 @@ impl<Data> Node<Data> {
         }
     }
 
-    /// Find the root of the subtree associated with a the given prefix—i.e. the root of the subtree
+    /// Find the root of the subtree associated with the given prefix—i.e. the root of the subtree
     /// containing all keys that start with the given prefix.
     ///
     /// Returns `None` if there is no such subtree—i.e. none of the keys stored in the trie

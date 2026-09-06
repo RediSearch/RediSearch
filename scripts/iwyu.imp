@@ -1,0 +1,16 @@
+# include-what-you-use mapping overrides for RediSearch.
+#
+# Entries are ["private-header", "private", "public-header", "public"]: IWYU
+# will suggest the public header whenever a symbol is found in the private one.
+
+[
+  # OpenSSL exposes its declarations through <openssl/ssl.h>. The headers below
+  # are implementation details whose names and contents differ across the
+  # OpenSSL versions we build against (1.1.1 has <openssl/ossl_typ.h> and no
+  # <openssl/types.h>; 3.x is the reverse), so they must never be named
+  # directly.
+  { include: ["<openssl/types.h>", "private", "<openssl/ssl.h>", "public"] },
+  { include: ["<openssl/ossl_typ.h>", "private", "<openssl/ssl.h>", "public"] },
+  { include: ["<openssl/ssl3.h>", "private", "<openssl/ssl.h>", "public"] },
+  { include: ["<openssl/tls1.h>", "private", "<openssl/ssl.h>", "public"] },
+]

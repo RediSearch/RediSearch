@@ -22,6 +22,7 @@
 
 pub mod heap;
 pub mod iterator;
+pub mod order;
 pub mod traits;
 
 #[cfg(test)]
@@ -32,6 +33,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 #[cfg(feature = "test-utils")]
 pub mod mock;
 
-pub use heap::{ScoredResult, TopKHeap};
-pub use iterator::{TopKIterator, TopKMode};
+pub use heap::{HeapResult, ScoredResult, TopKHeap};
+pub use iterator::{TopKIterator, TopKMode, TopKSourceProfile};
+pub use order::{Ascending, Descending, RuntimeOrder, ScoreOrdering};
 pub use traits::{BatchStrategy, ScoreBatch, ScoreSource};

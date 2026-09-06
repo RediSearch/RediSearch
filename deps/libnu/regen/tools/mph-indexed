@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-#-*- coding: UTF-8
 
 # VALUES_I is holding final values (weights), VALUES_C is holding original
 # Unicode codepoints for collision detection
@@ -9,10 +8,11 @@ import mph
 
 
 def usage():
-	print('usage: %s [TAG] [BMP_ONLY]' % sys.argv[0])
-	print()
+	print(f'usage: {sys.argv[0]} [TAG] [BMP_ONLY]')
+	print('')
 	print('  [TAG]      - tag to use to prefix hashtables')
 	print('  [BMP_ONLY] - flag to indicate if set is BMP-only, 0 or 1 (false or true)')
+
 
 if __name__ == '__main__':
 	if len(sys.argv) < 3:
@@ -20,24 +20,26 @@ if __name__ == '__main__':
 		sys.exit(1)
 
 	TAG = sys.argv[1]
-	bmp_only = bool(int(sys.argv[2]))
+	BMP_ONLY = bool(int(sys.argv[2]))
 
-	dict = {}
+	d: mph.Table = {}
 
 	for i, line in enumerate(sys.stdin):
-		codepoint, replacement = list(filter(bool, line.strip().split(' ')))
+		assert isinstance(line, str)
+
+		codepoint, replacement = (x for x in line.strip().split(' ') if x)
 
 		if not replacement:
 			continue
 
 		replacement = int(replacement.strip(), base=16)
-		dict[codepoint] = (codepoint, replacement)
+		d[codepoint] = (codepoint, replacement)
 
-	(G, V) = mph.create_minimal_perfect_hash(dict)
+	(G, V) = mph.create_minimal_perfect_hash(d)
 
-	assert(len(G) == len(V))
+	assert len(G) == len(V)
 
-	mph.gen_header(TAG, G, [])
+	mph.gen_header(TAG, G, "")
 	mph.gen_includes()
 	mph.gen_G(TAG, G)
-	mph.gen_values(TAG, G, V, bmp_only)
+	mph.gen_values(TAG, V, BMP_ONLY)

@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from RLTest import Env
 from includes import *
 from common import *
@@ -57,10 +64,9 @@ class TestMaxForegroundTimeoutLimit:
                                  'v', np.array([float(i), 0.0]).astype(np.float32).tobytes())
 
     def _reset(self, *, workers, timeout, limit):
-        """Pin all three knobs on every shard. timeout=0 routes via legacy
-        _FT.CONFIG SET because native search-timeout is gated at min=1.
-        Propagation is required so any test that previously set a knob via
-        run_command_on_all_shards cannot leak its value into the next test."""
+        """Pin all three knobs on every shard. Propagation is required so any
+        test that previously set a knob via run_command_on_all_shards cannot
+        leak its value into the next test."""
         env = self.env
         # Drop the limit first so intermediate states never violate the
         # cross-knob invariant during the transition.
@@ -68,11 +74,8 @@ class TestMaxForegroundTimeoutLimit:
                                         'search-_max-foreground-timeout-limit', '0')
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
                                         'search-workers', str(workers))
-        if timeout == 0:
-            verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '0')
-        else:
-            verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
-                                            'search-timeout', str(timeout))
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                        'search-timeout', str(timeout))
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
                                         'search-_max-foreground-timeout-limit', str(limit))
 
@@ -104,8 +107,8 @@ class TestMaxForegroundTimeoutLimit:
         self._assert_config('TIMEOUT', '7000')
 
     def test_runtime_accept_unlimited_timeout_when_limit_active_legacy(self):
-        # Native search-timeout is gated at the registered min (1); TIMEOUT 0
-        # is only reachable via the legacy _FT.CONFIG SET path.
+        # search-timeout 0 via the legacy _FT.CONFIG SET path; the native
+        # path equivalent is covered in test_config.py's numericConfigs loop.
         self._reset(workers=0, timeout=100, limit=1000)
         env = self.env
         env.expect(config_cmd(), 'SET', 'TIMEOUT', '0').ok()
@@ -292,3 +295,30 @@ class TestMaxForegroundTimeoutLimit:
         env.assertContains(CAP_WARNING, _get_warnings(res[0]),
                            message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
                                    f"limit tightened (cluster), got: {res}")
+
+    def test_cursor_read_arms_cap_after_workers_disabled(self):
+        skipTest(cluster=True)
+        self._reset(workers=1, timeout=100, limit=1)
+        env = self.env
+        conn = getConnectionByEnv(env)
+
+        env.expect('FT.CREATE', 'cursor_cap_idx', 'PREFIX', '1', 'cursor_cap:',
+                   'SCHEMA', 't', 'TEXT').ok()
+        doc_count = 20000
+        with conn.pipeline(transaction=False) as pipeline:
+            for i in range(doc_count):
+                pipeline.execute_command('HSET', f'cursor_cap:{i}', 't', 'common')
+            pipeline.execute()
+
+        _, cursor_id = env.cmd('FT.AGGREGATE', 'cursor_cap_idx', '*',
+                               'LOAD', '1', '@__key', 'TIMEOUT', '0',
+                               'WITHCURSOR', 'COUNT', '1')
+        env.expect('CONFIG', 'SET', 'search-workers', '0').ok()
+
+        res, _ = env.cmd('FT.CURSOR', 'READ', 'cursor_cap_idx', cursor_id,
+                         'COUNT', doc_count)
+        warnings = _get_warnings(res)
+        env.assertContains('Timeout limit was reached', warnings,
+                           message=f"Cursor READ did not arm the newly active cap: {res}")
+        env.assertContains(CAP_WARNING, warnings,
+                           message=f"Cursor READ did not report the newly active cap: {res}")

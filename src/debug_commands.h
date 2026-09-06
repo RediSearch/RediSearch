@@ -149,8 +149,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
 #define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
+#define SYNC_POINT_BEFORE_HYBRID_DEPLETION              "BeforeHybridDepletion"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
+#define SYNC_POINT_BEFORE_HYBRID_ARM_READS              "BeforeHybridArmReads"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
@@ -163,11 +165,35 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the deadlock test (MOD-15306) uses to hold a writer against the loader.
 #define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
 #define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
+#define SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE      "GcBeforeDeletedIdsRemove"
+// Disk shutdown teardown: parked in DeleteDiskIndexesOnShutdown. Lets a test keep
+// the process alive after the free so a GC run parked at
+// SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE deterministically wakes into the freed DB
+// (use-after-free) when the disk-GC/teardown handshake was missing.
+#define SYNC_POINT_AFTER_DISK_INDEX_CLOSE               "AfterDiskIndexClose"
 // Disk async loader: parked right after a swap-prefetch is issued for a non-resident key and
 // before the worker waits for the completion (RSE redisearch_disk). Lets a test mutate or delete
 // the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
 // and lets a test hold the load past the query timeout to exercise the ON_TIMEOUT policy.
 #define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
+// Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
+// runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
+// A disk numeric split parked while it still holds the write lock on its routing map, the
+// state a fork child would inherit locked with the owner thread gone. Signalled from the
+// disk-GC drain, the only step that waits such a writer out before a fork.
+#define SYNC_POINT_NUMERIC_MAP_WRITE_LOCKED             "NumericMapWriteLocked"
+#define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
+// Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
+// thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a
+// test can land a stop and a drop in it deterministically.
+#define SYNC_POINT_GC_BEFORE_REARM_POST                 "GCBeforeRearmPost"
+// Fork-GC worker: parked before the GIL handshake that precedes the fork, so a test can take
+// the single child slot while a cycle waits here and make the EEXIST retry deterministic.
+#define SYNC_POINT_GC_BEFORE_FORK                       "GCBeforeFork"
+// Fork-GC worker: parked after a fork attempt failed because another child holds the slot, with
+// the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
+// really did hit EEXIST rather than winning the slot outright.
+#define SYNC_POINT_GC_FORK_SLOT_BUSY                    "GCForkSlotBusy"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -183,6 +209,13 @@ bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of times a thread entered the named sync point since it was armed
+uint32_t SyncPoint_HitCount(const char *name);
+// Monotonic event ids for ordering sync-point hits and releases
+uint64_t SyncPoint_LastHitSeq(const char *name);
+uint64_t SyncPoint_LastReleaseSeq(const char *name);
+// Publish a sync-point event sequence without letting an older event regress it
+void SyncPoint_PublishMaxSeq(_Atomic uint64_t *target, uint64_t seq);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
@@ -231,11 +264,11 @@ void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
-// Coord request ctx free counter. Bumped on every CoordRequestCtx_Free so
+// Blocked-request OnFree counter. Bumped on every QueryRequest_OnFree so
 // tests can deterministically observe that free_privdata has fired without
 // blocking the main thread inside the callback.
-void CoordReqCtxFreeDebug_Increment(void);
-uint64_t CoordReqCtxFreeDebug_GetCount(void);
+void QueryRequestOnFreeDebug_Increment(void);
+uint64_t QueryRequestOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
@@ -251,6 +284,11 @@ void DebugBgIterator_Clear(struct MRIterator *it);
 // Yield counter functions
 void IncrementLoadYieldCounter(void);
 void IncrementBgIndexYieldCounter(void);
+
+// GC timer arm counters. `FromOneShot` counts the arms that went through the main-thread
+// one-shot; a test asserts the two are equal to prove no arm happened on the GC thread.
+void IncrementGCTimerArm(void);
+void IncrementGCTimerArmFromOneShot(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);

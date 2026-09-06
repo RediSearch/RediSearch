@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 @skip(cluster=False)
@@ -18,7 +25,9 @@ def testInfo(env):
     env.assertGreater(float(idx_info['offset_vectors_sz_mb']), 0)
     env.assertGreater(float(idx_info['doc_table_size_mb']), 0)
     env.assertGreater(float(idx_info['sortable_values_size_mb']), 0)
-    env.assertGreater(float(idx_info['key_table_size_mb']), 0)
+    # The key->docId mapping now lives in Redis key-metadata (not module-tracked
+    # memory), so key_table_size_mb is always 0.
+    env.assertEqual(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
 @skip(cluster=False)
@@ -85,6 +94,36 @@ def test_required_fields(env):
     env.expect('ft.search', 'idx', 'hello', 'nocontent', 'SORTBY', 't', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', '$hello'])
     # Field is not in Rlookup, will not load
     env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', None])
+
+@skip(cluster=True)
+def test_required_fields_key_cache(env):
+    """The shard-side `_REQUIRED_FIELDS` key cache: a key resolved on one row is reused on
+    later rows (cache hit), a name unresolvable on early rows resolves once a later
+    document's load creates its key (the NULL retry), and a NULL entry left by one cursor
+    chunk is still retried on later `FT.CURSOR READ` chunks."""
+    env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
+    # doc1 lacks `dyn`; doc2 carries it. Without sorting, reply order is docId
+    # (insertion) order, so doc1 serializes first.
+    env.cmd('HSET', 'doc1', 't', 'hello')
+    env.cmd('HSET', 'doc2', 't', 'hello', 'dyn', 'world')
+
+    # Content loading creates each document's keys just before its row is serialized:
+    # `t` resolves on row 1 and must be served from the cache on row 2, while `dyn` is
+    # unresolvable on row 1 (doc1's load did not create it) and must resolve on row 2.
+    env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't', 'dyn').equal(
+        [2, 'doc1', '$hello', None, ['t', 'hello'],
+            'doc2', '$hello', '$world', ['t', 'hello', 'dyn', 'world']])
+
+    # Same late resolution across cursor chunks: chunk 1 serializes only doc1, leaving
+    # `dyn` unresolved in the cached request; the next chunk's `LOAD *` row creates the
+    # key, and the retained NULL entry must be retried rather than frozen.
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*',
+                          '_REQUIRED_FIELDS', '1', 'dyn', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res, [1, None, ['t', 'hello']], message=res)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    env.assertEqual(res, [1, '$world', ['t', 'hello', 'dyn', 'world']], message=res)
+    if cursor:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
 
 
 def check_info_commandstats(env, cmd):
@@ -207,12 +246,24 @@ def test_index_missing_on_one_shard(env):
     except Exception as e:
         env.assertContains(error_msg, str(e))
 
+    # Should fail regardless of which shard is the coordinator
+    read_only_cmds = (
+        ('FT.INFO', index_name),
+        ('FT.SEARCH', index_name, '*'),
+        ('FT.AGGREGATE', index_name, '*'),
+        ('FT.HYBRID', index_name, 'SEARCH', '*',
+         'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb'),
+    )
+    for shard in range(1, env.shardsCount + 1):
+        shard_conn = env.getConnection(shard)
+        for cmd in read_only_cmds:
+            try:
+                shard_conn.execute_command(*cmd)
+                env.assertTrue(False, message=f'{cmd[0]} should have failed on shard {shard}')
+            except Exception as e:
+                env.assertContains(error_msg, str(e))
+
     # Query via the cluster connection
-    env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
-    env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
-    env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
-               'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb')\
-                .error().contains(error_msg)
     env.expect('FT.SYNUPDATE', index_name, '1', 'a', 'b')\
                 .error().contains(error_msg)
     env.expect('FT.ALTER', index_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC')\

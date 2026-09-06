@@ -50,59 +50,28 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Returns the default [`QueryError`].
- */
-struct QueryError QueryError_Default(void);
-
-/**
- * Returns true if `query_error` has no error code set.
+ * Clears any error set on a [`QueryErrorCode`].
+ *
+ * This is equivalent to resetting `query_error` to the value returned by
+ * [`QueryError_Default`].
  *
  * # Safety
  *
- * `query_error` must have been created by [`QueryError_Default`].
+ * - `query_error` must have been created by [`QueryError_Default`].
  */
-bool QueryError_IsOk(const struct QueryError *query_error);
+void QueryError_ClearError(struct QueryError *query_error);
 
 /**
- * Returns true if `query_error` has an error code set.
+ * Clones the `src` [`QueryError`] into `dest`.
+ *
+ * This does nothing if `dest` already has an error set.
  *
  * # Safety
  *
- * `query_error` must have been created by [`QueryError_Default`].
+ * - `src` must have been created by [`QueryError_Default`].
+ * - `dest` must have been created by [`QueryError_Default`].
  */
-bool QueryError_HasError(const struct QueryError *query_error);
-
-/**
- * Returns the full default error string for a [`QueryErrorCode`] (prefix + message).
- *
- * This function should always return without a panic for any value provided.
- * It is unique among the `QueryError_*` API as the only function which allows
- * an invalid [`QueryErrorCode`] to be provided.
- */
-const char *QueryError_Strerror(uint8_t maybe_code);
-
-/**
- * Returns only the error prefix string for a [`QueryErrorCode`] (e.g. `"SEARCH_TIMEOUT: "`).
- *
- * Returns an empty string for `Ok` and `"Unknown status code"` for invalid codes.
- */
-const char *QueryError_StrerrorPrefix(uint8_t maybe_code);
-
-/**
- * Returns only the default message for a [`QueryErrorCode`] (without the prefix).
- *
- * Returns `"Unknown status code"` for invalid codes.
- */
-const char *QueryError_StrerrorDefaultMessage(uint8_t maybe_code);
-
-/**
- * Returns a human-readable string representing the provided [`QueryWarningCode`].
- *
- * This function should always return without a panic for any value provided.
- * It is unique among the `QueryWarning_*` API as the only function which allows
- * an invalid [`QueryWarningCode`] to be provided.
- */
-const char *QueryWarning_Strwarning(uint8_t maybe_code);
+void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest);
 
 /**
  * Returns the maximum valid numeric value for [`QueryErrorCode`].
@@ -111,6 +80,20 @@ const char *QueryWarning_Strwarning(uint8_t maybe_code);
  * hardcoding the current "last" variant.
  */
 uint8_t QueryError_CodeMaxValue(void);
+
+/**
+ * Returns the default [`QueryError`].
+ */
+struct QueryError QueryError_Default(void);
+
+/**
+ * Returns the [`QueryErrorCode`] set for a [`QueryError`].
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
 
 /**
  * Returns a [`QueryErrorCode`] given an error message.
@@ -132,14 +115,74 @@ uint8_t QueryError_CodeMaxValue(void);
 QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
 
 /**
- * Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
+ * Returns an message of a [`QueryError`].
  *
- * The public message is stored as-is (for obfuscated display).
- * The private message is stored with the error code prefix prepended
- * (e.g. `"SEARCH_TIMEOUT: "` + message), so that Redis error stats
- * can track errors by their unique prefix.
+ * This preferentially returns the private message if any, or the public
+ * message if any, lastly defaulting to the error code's string error.
  *
- * This does not mutate `query_error` if it already has an error set.
+ * If `obfuscate` is set, the private message is not returned. The public
+ * message is returned, if any, defaulting to the error code's string error.
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+const char *QueryError_GetDisplayableError(const struct QueryError *query_error, bool obfuscate);
+
+/**
+ * Returns the private message set for a [`QueryError`]. If no private message
+ * is set, this returns the string error message for the code that is set,
+ * like [`QueryError_Strerror`].
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+const char *QueryError_GetUserError(const struct QueryError *query_error);
+
+/**
+ * Returns true if `query_error` has an error code set.
+ *
+ * # Safety
+ *
+ * `query_error` must have been created by [`QueryError_Default`].
+ */
+bool QueryError_HasError(const struct QueryError *query_error);
+
+/**
+ * Returns whether the [`QueryError`] has the `out_of_memory` warning set.
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
+
+/**
+ * Returns whether the [`QueryError`] has the `reached_max_prefix_expansions`
+ * warning set.
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *query_error);
+
+/**
+ * Returns true if `query_error` has no error code set.
+ *
+ * # Safety
+ *
+ * `query_error` must have been created by [`QueryError_Default`].
+ */
+bool QueryError_IsOk(const struct QueryError *query_error);
+
+/**
+ * Sets the [`QueryErrorCode`] for a [`QueryError`].
+ *
+ * This does not mutate `query_error` if it already has an error set, or
+ * if the private message is set. This differs from [`QueryError_SetCode`],
+ * as that function does not care if the private message is set.
  *
  * # Panics
  *
@@ -148,9 +191,8 @@ QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
- * - `message` must be a valid C string or a NULL pointer.
  */
-void QueryError_SetError(struct QueryError *query_error, uint8_t code, const char *message);
+void QueryError_MaybeSetCode(struct QueryError *query_error, uint8_t code);
 
 /**
  * Sets the [`QueryErrorCode`] for a [`QueryError`].
@@ -178,70 +220,14 @@ void QueryError_SetCode(struct QueryError *query_error, uint8_t code);
 void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
 
 /**
- * Clones the `src` [`QueryError`] into `dest`.
+ * Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
  *
- * This does nothing if `dest` already has an error set.
+ * The public message is stored as-is (for obfuscated display).
+ * The private message is stored with the error code prefix prepended
+ * (e.g. `"SEARCH_TIMEOUT: "` + message), so that Redis error stats
+ * can track errors by their unique prefix.
  *
- * # Safety
- *
- * - `src` must have been created by [`QueryError_Default`].
- * - `dest` must have been created by [`QueryError_Default`].
- */
-void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest);
-
-/**
- * Returns the private message set for a [`QueryError`]. If no private message
- * is set, this returns the string error message for the code that is set,
- * like [`QueryError_Strerror`].
- *
- * # Safety
- *
- * - `query_error` must have been created by [`QueryError_Default`].
- */
-const char *QueryError_GetUserError(const struct QueryError *query_error);
-
-/**
- * Returns an message of a [`QueryError`].
- *
- * This preferentially returns the private message if any, or the public
- * message if any, lastly defaulting to the error code's string error.
- *
- * If `obfuscate` is set, the private message is not returned. The public
- * message is returned, if any, defaulting to the error code's string error.
- *
- * # Safety
- *
- * - `query_error` must have been created by [`QueryError_Default`].
- */
-const char *QueryError_GetDisplayableError(const struct QueryError *query_error, bool obfuscate);
-
-/**
- * Returns the [`QueryErrorCode`] set for a [`QueryError`].
- *
- * # Safety
- *
- * - `query_error` must have been created by [`QueryError_Default`].
- */
-QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
-
-/**
- * Clears any error set on a [`QueryErrorCode`].
- *
- * This is equivalent to resetting `query_error` to the value returned by
- * [`QueryError_Default`].
- *
- * # Safety
- *
- * - `query_error` must have been created by [`QueryError_Default`].
- */
-void QueryError_ClearError(struct QueryError *query_error);
-
-/**
- * Sets the [`QueryErrorCode`] for a [`QueryError`].
- *
- * This does not mutate `query_error` if it already has an error set, or
- * if the private message is set. This differs from [`QueryError_SetCode`],
- * as that function does not care if the private message is set.
+ * This does not mutate `query_error` if it already has an error set.
  *
  * # Panics
  *
@@ -250,18 +236,18 @@ void QueryError_ClearError(struct QueryError *query_error);
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
+ * - `message` must be a valid C string or a NULL pointer.
  */
-void QueryError_MaybeSetCode(struct QueryError *query_error, uint8_t code);
+void QueryError_SetError(struct QueryError *query_error, uint8_t code, const char *message);
 
 /**
- * Returns whether the [`QueryError`] has the `reached_max_prefix_expansions`
- * warning set.
+ * Sets the `out_of_memory` warning on the [`QueryError`].
  *
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
  */
-bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *query_error);
+void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 
 /**
  * Sets the `reached_max_prefix_expansions` warning on the [`QueryError`].
@@ -273,22 +259,27 @@ bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *qu
 void QueryError_SetReachedMaxPrefixExpansionsWarning(struct QueryError *query_error);
 
 /**
- * Returns whether the [`QueryError`] has the `out_of_memory` warning set.
+ * Returns the full default error string for a [`QueryErrorCode`] (prefix + message).
  *
- * # Safety
- *
- * - `query_error` must have been created by [`QueryError_Default`].
+ * This function should always return without a panic for any value provided.
+ * It is unique among the `QueryError_*` API as the only function which allows
+ * an invalid [`QueryErrorCode`] to be provided.
  */
-bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
+const char *QueryError_Strerror(uint8_t maybe_code);
 
 /**
- * Sets the `out_of_memory` warning on the [`QueryError`].
+ * Returns only the default message for a [`QueryErrorCode`] (without the prefix).
  *
- * # Safety
- *
- * - `query_error` must have been created by [`QueryError_Default`].
+ * Returns `"Unknown status code"` for invalid codes.
  */
-void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
+const char *QueryError_StrerrorDefaultMessage(uint8_t maybe_code);
+
+/**
+ * Returns only the error prefix string for a [`QueryErrorCode`] (e.g. `"SEARCH_TIMEOUT: "`).
+ *
+ * Returns an empty string for `Ok` and `"Unknown status code"` for invalid codes.
+ */
+const char *QueryError_StrerrorPrefix(uint8_t maybe_code);
 
 /**
  * Returns a [`QueryWarningCode`] given an warnings message.
@@ -304,6 +295,15 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
  * - `message` must be a valid C string or a NULL pointer.
  */
 QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
+
+/**
+ * Returns a human-readable string representing the provided [`QueryWarningCode`].
+ *
+ * This function should always return without a panic for any value provided.
+ * It is unique among the `QueryWarning_*` API as the only function which allows
+ * an invalid [`QueryWarningCode`] to be provided.
+ */
+const char *QueryWarning_Strwarning(uint8_t maybe_code);
 
 #ifdef __cplusplus
 }  // extern "C"

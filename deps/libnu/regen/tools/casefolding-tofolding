@@ -1,35 +1,41 @@
 #!/usr/bin/env python3
-#-*- coding: UTF-8
 
 import sys
 from unidata import *
 
-d = dict()
+CLASS_PRIORITY = ('F', 'C', 'S')
 
-CLASS_PRIORITY = ( 'F', 'C', 'S', )
+if __name__ == '__main__':
+	d: dict[str, tuple[str, list[str]]] = dict()
 
-for line in sys.stdin:
-	if unidata_comment(line):
-		continue
+	for line in sys.stdin:
+		assert isinstance(line, str)
 
-	tokens = line.split(';')
-	codepoint, folding_type, folding = tokens[0], tokens[1], tokens[2]
-	folding_type = folding_type.strip()
-
-	try: CLASS_PRIORITY.index(folding_type.strip())
-	except ValueError: continue
-
-	codepoint = unidata_strip(codepoint)
-
-	existing = d.get(codepoint)
-	if existing is not None:
-		e_folding_type, e_folding = existing
-		current_priority = CLASS_PRIORITY.index(folding_type)
-		existing_priority = CLASS_PRIORITY.index(e_folding_type)
-		if existing_priority < current_priority:
+		if unidata_comment(line):
 			continue
 
-	d[codepoint] = (folding_type, unidata_split(folding))
+		tokens = line.split(';')
+		codepoint, folding_type, folding = tokens[0], tokens[1], tokens[2]
+		folding_type = folding_type.strip()
 
-for codepoint, (_, folding) in sorted(d.items()):
-	print('%06X %s' % (int(codepoint, base=16), ','.join(folding)))
+		try:
+			_ = CLASS_PRIORITY.index(folding_type.strip())
+		except ValueError:
+			continue
+
+		codepoint = unidata_strip(codepoint)
+
+		existing = d.get(codepoint)
+		if existing is not None:
+			e_folding_type, e_folding = existing
+			current_priority = CLASS_PRIORITY.index(folding_type)
+			existing_priority = CLASS_PRIORITY.index(e_folding_type)
+			if existing_priority < current_priority:
+				continue
+
+		d[codepoint] = (folding_type, unidata_split(folding))
+
+	for codepoint, (_, folding) in sorted(d.items()):
+		c = int(codepoint, base=16)
+		folding_str = ','.join(folding)
+		print(f'{c:06X} {folding_str}')

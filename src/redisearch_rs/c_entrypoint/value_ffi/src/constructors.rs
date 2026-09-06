@@ -9,8 +9,8 @@
 
 use crate::RSValue;
 use crate::util::{expect_shared_value, into_rs_value, into_shared_value};
-use ffi::RedisModuleString;
 use libc::size_t;
+use redis_module::RedisModuleString;
 use std::ffi::{c_char, c_double};
 use std::ops::Deref;
 use value::util::str_to_float;

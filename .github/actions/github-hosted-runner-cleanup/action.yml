@@ -1,0 +1,52 @@
+name: GitHub-hosted runner cleanup
+description: Free disk space by removing large preinstalled GitHub-hosted runner directories.
+
+runs:
+  using: composite
+  steps:
+    - name: Free runner disk space
+      shell: bash -l -eo pipefail {0}
+      env:
+        RUNNER_ENVIRONMENT_CONTEXT: ${{ runner.environment }}
+        RUNNER_OS_CONTEXT: ${{ runner.os }}
+      run: |
+        if [ "$RUNNER_ENVIRONMENT_CONTEXT" != "github-hosted" ]; then
+          echo "Skipping cleanup on $RUNNER_ENVIRONMENT_CONTEXT runner."
+          exit 0
+        fi
+
+        if [ "$RUNNER_OS_CONTEXT" != "Linux" ]; then
+          echo "Skipping cleanup on $RUNNER_OS_CONTEXT runner."
+          exit 0
+        fi
+
+        echo "Before cleanup:"
+        df -h
+
+        mount_prefix=
+        if [ -d /host/usr/share/dotnet ] || [ -d /host/usr/local/lib/android ] || [ -d /host/opt/ghc ]; then
+          mount_prefix=/host
+        fi
+
+        for path in \
+          /usr/share/dotnet \
+          /usr/local/lib/android \
+          /opt/ghc \
+          /opt/hostedtoolcache/CodeQL \
+          /usr/local/share/boost
+        do
+          target="${mount_prefix}${path}"
+          [ -e "$target" ] || continue
+
+          echo "Removing $target"
+          if [ "$(id -u)" -eq 0 ]; then
+            find "$target" -mindepth 1 -delete || true
+          else
+            sudo find "$target" -mindepth 1 -delete || true
+          fi
+        done
+
+        [ -n "$mount_prefix" ] || docker system prune -af 2>/dev/null || true
+
+        echo "After cleanup:"
+        df -h

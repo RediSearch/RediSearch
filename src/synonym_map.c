@@ -6,14 +6,17 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <inttypes.h>
+#include <string.h>
+
 #include "spec.h"
 #include "synonym_map.h"
 #include "rmalloc.h"
-#include "fnv_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "rdb.h"
 #include "util/likely.h"
-#include <inttypes.h>
+#include "util/arr/arr.h"
+#include "util/strconv.h"
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"

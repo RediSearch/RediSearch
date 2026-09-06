@@ -30,7 +30,7 @@ extern "C" {
 #pragma pack(1)
 struct TriePayload {
   uint32_t len;  // 4G payload is more than enough!!!!
-  char data[];   // this means the data will not take an extra pointer.
+  char data[];   // `len` bytes plus a NUL terminator, inline so it costs no extra pointer.
 };
 #pragma pack()
 
@@ -75,6 +75,11 @@ struct TrieNode {
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode,
                         size_t numDocs);
+
+/* Restore descending-subtreeMaxScore child order after children[idx]'s bound
+ * rose: rotate it left into its slot, keeping the child-key cache in sync.
+ * Equal-score siblings keep their order. Score-mode tries only. */
+void __trieNode_rotateChildIntoPlace(TrieNode *n, int idx);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {

@@ -1,0 +1,398 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Safe wrapper around [`ffi::RSToken`].
+
+use std::{
+    ffi::{CStr, c_char},
+    ptr::NonNull,
+};
+
+use query_term::RSTokenFlags;
+use rqe_wildcard::remove_escape_in_place;
+use string_utils::libnu::{NU_MAX_READAHEAD, tail_may_overread};
+
+/// Upper bound on how many token bytes are copied for a rune conversion. A term
+/// is stored under at most [`ffi::MAX_RUNE_STR_LEN`] runes, and every UTF-8
+/// codepoint — at most four bytes — folds to at least one rune, so any input
+/// longer than this decodes to more runes than `MAX_RUNE_STR_LEN`. Such a token
+/// is rejected by the C `strToLowerRunes` and can match no stored term either
+/// way, so capping the copy here keeps a huge token from forcing an equally huge
+/// transient allocation before that rejection.
+const MAX_DECODE_BYTES: usize = 4 * (ffi::MAX_RUNE_STR_LEN as usize + 1);
+
+/// Safe, read-only, [`Copy`] handle borrowing a query-node's [`ffi::RSToken`].
+///
+/// An [`ffi::RSToken`] is a plain-data struct — a `(string, length)` pair plus a
+/// packed flags bitfield. This handle borrows one for the lifetime `'a` and
+/// exposes the string as a byte slice and the flags as a scalar, keeping the raw
+/// pointer handling behind a safe surface. It is a thin, [`Copy`] wrapper, so it
+/// is passed by value rather than behind another reference.
+///
+/// # Why the accessors are safe
+///
+/// A query node's token is **not immutable**: evaluation rewrites it in place
+/// (escape removal, case folding) and can even `free` its backing buffer and
+/// install a new one. What keeps a view of the string from dangling is the
+/// lifetime `'a`: a handle is only ever minted from a shared borrow of the
+/// owning node, and every mutation path — including handing the node to the C
+/// evaluator — requires an exclusive borrow of it. So while a handle, or
+/// anything derived from it, is live, no mutation of the token can be
+/// expressed. Constructing a handle whose `'a` does *not* come from such a
+/// borrow is what the `unsafe` constructors guard.
+///
+/// `'a` being a no-mutation window is also what lets the handle simply hold a
+/// `&'a `[`ffi::RSToken`]: the freeze a shared reference asserts is exactly the
+/// window's guarantee, so there is nothing left for a raw pointer to buy.
+///
+/// The `NUL_TERMINATED` const parameter is a typestate flag recording whether the
+/// token string is NUL-terminated:
+///
+/// - [`RSTokenRef<'a, true>`] additionally guarantees the string is
+///   NUL-terminated, which is what unlocks
+///   [`as_c_str`](RSTokenRef::as_c_str). Query-node tokens produced by the parser
+///   for prefix, fuzzy, and verbatim nodes are NUL-terminated and use this
+///   variant.
+/// - [`RSTokenRef<'a, false>`] (the default) makes no such promise: tokens built
+///   from a raw `(pointer, length)` slice — e.g. tag values or trie-expansion
+///   terms — may not be NUL-terminated, so `as_c_str` is not available on it.
+///   Plain term (`QN_TOKEN`) nodes also use this variant, because token
+///   expansion can replace their string with a length-delimited one.
+#[derive(Clone, Copy)]
+pub struct RSTokenRef<'a, const NUL_TERMINATED: bool = false> {
+    tok: &'a ffi::RSToken,
+}
+
+/// An [`RSTokenRef`] whose string is known to be NUL-terminated.
+pub type RSTokenRefNulTerminated<'a> = RSTokenRef<'a, true>;
+
+impl<'a, const NUL_TERMINATED: bool> RSTokenRef<'a, NUL_TERMINATED> {
+    /// A pointer to the underlying [`ffi::RSToken`], for the few call sites that
+    /// must hand the token back to C. The pointer is valid for `'a`, and — like
+    /// everything else reachable through this handle — C may only read through
+    /// it: `'a` is a no-mutation window.
+    pub const fn as_ptr(&self) -> *const ffi::RSToken {
+        std::ptr::from_ref(self.tok)
+    }
+
+    /// The length in bytes of the token string.
+    pub const fn len(&self) -> usize {
+        self.tok.len
+    }
+
+    /// Whether the token string is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.tok.len == 0
+    }
+
+    /// The token's per-term flags (stemming, phonetic, expansion, …).
+    pub fn flags(&self) -> RSTokenFlags {
+        self.tok.flags()
+    }
+
+    /// The token string as a byte slice, or `None` when the token carries no
+    /// string (a null `str_` pointer).
+    ///
+    /// The slice borrows for `'a`, not for `&self`: the handle is [`Copy`], so
+    /// tying the slice to a particular copy of it would be arbitrary. `'a` is the
+    /// borrow of the owning node, which is exactly as long as the string is
+    /// guaranteed to stay put — see [the type's docs](RSTokenRef).
+    pub fn as_bytes(&self) -> Option<&'a [u8]> {
+        let ptr = NonNull::new(self.tok.str_)?;
+        // SAFETY: the constructors' contract guarantees a non-null `str_`
+        // addresses `len` initialized bytes, and that they stay readable and
+        // unmutated for `'a` — no mutation of the token can be expressed while a
+        // borrow of the owning node is outstanding.
+        Some(unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), self.tok.len) })
+    }
+
+    /// Lowercase the token string and convert it to runes, e.g. for a trie
+    /// lookup.
+    ///
+    /// A token is a byte string and need not be valid UTF-8, so the bytes are
+    /// decoded the same way a term is indexed — each codepoint folded to
+    /// lowercase before being truncated to a rune — rather than validated. A
+    /// token carrying malformed bytes therefore resolves the runes the index
+    /// stored them as, instead of a key built from replacement characters that
+    /// was never stored.
+    ///
+    /// Content after a first interior NUL byte is ignored, matching the
+    /// up-to-NUL rune sequence the indexer stores for such a term.
+    ///
+    /// Returns `None` when the token carries no string (a null `str_` pointer) or
+    /// when the lowercased string exceeds the maximum rune-string length, in
+    /// which case it can name no stored term.
+    pub fn as_lower_runes(&self) -> Option<Vec<u16>> {
+        let bytes = self.as_bytes()?;
+
+        // `strToLowerRunes` stops at the first NUL its decoder yields — a literal
+        // `0` byte or an overlong encoding of one — and reports the runes before
+        // it, matching the indexer, so we needn't strip interior NULs ourselves.
+        //
+        // But its decoder (`nu_utf8_read`) reads a fixed 2–4 bytes from a
+        // multibyte lead byte with no bounds check, so a token ending in a
+        // truncated lead (e.g. a lone `0xF0`) would read past the end. Where that
+        // can happen, decode a private copy instead: one capped at
+        // `MAX_DECODE_BYTES`, since a longer token decodes to more runes than any
+        // stored term can have and is rejected regardless, so the cap only avoids
+        // a needless huge transient copy; and padded with `NU_MAX_READAHEAD`
+        // trailing zero bytes so the decoder can never read past the content.
+        //
+        // The common case needs neither: a token short enough to escape the cap
+        // and not ending in a truncated sequence — which is every well-formed
+        // one — is handed to C in place, with no copy at all.
+        if bytes.len() <= MAX_DECODE_BYTES && !tail_may_overread(bytes) {
+            // SAFETY: `tail_may_overread` ruled out every read past `bytes`, so
+            // the decoder stays within it (see that function's contract).
+            return unsafe { Self::to_lower_runes(bytes.as_ptr(), bytes.len()) };
+        }
+
+        let decode_len = bytes.len().min(MAX_DECODE_BYTES);
+        let mut buf = Vec::with_capacity(decode_len + NU_MAX_READAHEAD);
+        buf.extend_from_slice(&bytes[..decode_len]);
+        buf.resize(decode_len + NU_MAX_READAHEAD, 0);
+
+        // SAFETY: `buf` holds `decode_len` content bytes followed by
+        // `NU_MAX_READAHEAD` zero bytes; since `nu_utf8_read` reads at most
+        // `NU_MAX_READAHEAD` bytes past any lead byte it decodes, every read stays
+        // within `buf`.
+        unsafe { Self::to_lower_runes(buf.as_ptr(), decode_len) }
+    }
+
+    /// Lowercase `len` bytes at `ptr` to runes via the C converter, returning
+    /// `None` when it declines the conversion because the result would exceed the
+    /// maximum rune-string length.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must address `len` initialized bytes, *and* the C decoder must not
+    /// read past them: `nu_utf8_read` consumes a fixed 1–4 bytes from whatever
+    /// lead byte it lands on with no bounds check, so the caller must either pad
+    /// the allocation with [`NU_MAX_READAHEAD`] trailing bytes or establish that
+    /// no such over-read can occur (see [`tail_may_overread`]).
+    unsafe fn to_lower_runes(ptr: *const u8, len: usize) -> Option<Vec<u16>> {
+        let mut nrunes: usize = 0;
+        // SAFETY: the caller guarantees the decoder's reads stay in bounds. The
+        // call returns a freshly allocated buffer of `nrunes` runes, or NULL when
+        // the folded length exceeds the maximum.
+        let ptr = unsafe { ffi::strToLowerRunes(ptr.cast::<c_char>(), len, &mut nrunes) };
+        let ptr = NonNull::new(ptr)?;
+        // SAFETY: `ptr` points to `nrunes` valid runes written by the call above.
+        let runes = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), nrunes) }.to_vec();
+        // SAFETY: `RedisModule_Free` is set during module init and not mutated
+        // afterwards.
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
+        // SAFETY: `ptr` was allocated by the module allocator inside
+        // `strToLowerRunes`.
+        unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
+        Some(runes)
+    }
+}
+
+impl<'a> RSTokenRef<'a, false> {
+    /// Wrap a raw pointer to an [`ffi::RSToken`] whose string is *not* guaranteed
+    /// to be NUL-terminated (e.g. a token built from a raw `(pointer, length)`
+    /// slice).
+    ///
+    /// If the string *is* known to be NUL-terminated, use
+    /// [`from_nul_terminated_ffi`](RSTokenRef::from_nul_terminated_ffi) instead.
+    ///
+    /// # Safety
+    ///
+    /// - `tok` must be non-null and point to a valid [`ffi::RSToken`] that stays
+    ///   allocated and readable for the whole of the handle's `'a` lifetime; when
+    ///   its `str_` is non-null it must address `len` initialized bytes.
+    /// - Neither the token nor the bytes its `str_` addresses may be mutated or
+    ///   freed for `'a`. This is what makes the accessors safe, so `'a` must be
+    ///   chosen to make it true — in practice by deriving it from a borrow that
+    ///   every mutation path already conflicts with — for a query-node token,
+    ///   the shared borrow of the owning node it was read out of. A `'a` picked
+    ///   freely (e.g. inferred as `'static`) would let a view outlive the bytes.
+    pub const unsafe fn from_ffi(tok: *const ffi::RSToken) -> Self {
+        debug_assert!(!tok.is_null(), "token pointer must not be null");
+        // SAFETY: the caller guarantees `tok` is non-null, points to a valid
+        // `RSToken`, and that it is neither mutated nor freed for `'a`, which is
+        // what the shared reference asserts.
+        let tok = unsafe { &*tok };
+        Self { tok }
+    }
+}
+
+impl<'a> RSTokenRef<'a, true> {
+    /// Wrap a raw pointer to an [`ffi::RSToken`] whose string is known to be
+    /// NUL-terminated, such as a query-node token produced by the parser. This
+    /// unlocks the safe [`as_c_str`](RSTokenRef::as_c_str) accessor.
+    ///
+    /// # Safety
+    ///
+    /// In addition to [`from_ffi`](RSTokenRef::from_ffi)'s requirements, a
+    /// non-null `str_` must be terminated by a NUL byte at index `len` — i.e.
+    /// `str_[len]` is readable and equal to `0`, so the allocation spans at least
+    /// `len + 1` bytes (a C string of content length `len`).
+    pub const unsafe fn from_nul_terminated_ffi(tok: *const ffi::RSToken) -> Self {
+        debug_assert!(!tok.is_null(), "token pointer must not be null");
+        // SAFETY: as for `from_ffi` — the caller guarantees `tok` is non-null and
+        // points to a valid `RSToken` that is neither mutated nor freed for `'a`.
+        let tok = unsafe { &*tok };
+        // In debug builds, sanity-check the NUL-termination the caller promised.
+        #[cfg(debug_assertions)]
+        if !tok.str_.is_null() {
+            // SAFETY: the caller guarantees `str_` is a NUL-terminated string of
+            // content length `len`, so `str_.add(len)` is the in-bounds
+            // terminator address.
+            let terminator_ptr = unsafe { tok.str_.add(tok.len) };
+            // SAFETY: `terminator_ptr` addresses the in-bounds terminator byte.
+            let terminator = unsafe { *terminator_ptr };
+            assert!(terminator == 0, "token string must be NUL-terminated");
+        }
+        Self { tok }
+    }
+
+    /// The token string as a NUL-terminated [`CStr`], or `None` when the token
+    /// carries no string (a null `str_` pointer).
+    ///
+    /// The NUL-termination requirement is discharged once, at construction time,
+    /// by [`from_nul_terminated_ffi`](RSTokenRef::from_nul_terminated_ffi)'s
+    /// `unsafe` contract, so this accessor exists only on this variant.
+    ///
+    /// Content after a first interior NUL byte is ignored, as for
+    /// [`as_lower_runes`](RSTokenRef::as_lower_runes): the result ends at that
+    /// NUL, so it is shorter than [`len`](RSTokenRef::len) and covers less than
+    /// [`as_bytes`](RSTokenRef::as_bytes).
+    ///
+    /// As for [`as_bytes`](RSTokenRef::as_bytes), the result borrows for `'a`.
+    pub fn as_c_str(&self) -> Option<&'a CStr> {
+        let ptr = NonNull::new(self.tok.str_)?;
+        // SAFETY: this is an `RSTokenRef<true>`, so its constructor guaranteed a
+        // non-null `str_` points to a NUL-terminated string that stays readable
+        // and unmutated for `'a` — no mutation of the token can be expressed
+        // while a borrow of the owning node is outstanding.
+        Some(unsafe { CStr::from_ptr(ptr.as_ptr()) })
+    }
+}
+
+/// Safe, exclusive handle to an [`ffi::RSToken`] whose string may be rewritten in
+/// place.
+///
+/// This is the mutating counterpart to [`RSTokenRef`], and the two split a
+/// token's lifecycle between them: a shared handle's `'a` is a window in which no
+/// mutation can be expressed (see [its docs](RSTokenRef#why-the-accessors-are-safe)),
+/// and this handle is how a mutation is expressed outside every such window. It is
+/// deliberately **not** [`Copy`]: the rewrites below are
+/// [not idempotent](Self::remove_wildcard_escapes), and two handles to the same
+/// token, each able to apply one, is precisely the hazard the exclusive borrow
+/// rules out.
+///
+/// Unlike [`RSTokenRef`], this type carries no NUL-termination typestate. Every
+/// in-place rewrite shortens the string and re-terminates it at its new end, so
+/// all of them need the terminator — requiring it unconditionally at construction
+/// leaves one contract to satisfy instead of two.
+pub struct RSTokenMut<'a> {
+    tok: &'a mut ffi::RSToken,
+}
+
+impl<'a> RSTokenMut<'a> {
+    /// Wrap a raw pointer to an [`ffi::RSToken`] for in-place rewriting.
+    ///
+    /// # Safety
+    ///
+    /// - `tok` must be non-null and point to a valid [`ffi::RSToken`] that stays
+    ///   allocated for the whole of the handle's `'a` lifetime.
+    /// - The handle must be the **only** way to reach the token for `'a`: no other
+    ///   handle, reference, or C-side pointer may read or write either the token
+    ///   or the bytes its `str_` addresses while it is live. `'a` must be chosen to
+    ///   make that true — in practice by deriving it from an exclusive borrow of
+    ///   whatever owns the token, such as a query node.
+    /// - A non-null `str_` must address `len` initialized bytes that are
+    ///   **writable**, and the allocation must extend one byte further: `str_[len]`
+    ///   must be readable and equal to `0`. A rewrite writes only within
+    ///   `str_[0..len]`, re-terminating the string at its new end; the extra byte
+    ///   is what already terminates it when a rewrite leaves the length alone, and
+    ///   what [`as_ref`](Self::as_ref)'s NUL-terminated handle rests on throughout.
+    /// - A null `str_` implies `len == 0`, since a rewrite dereferences the string
+    ///   whenever `len` is non-zero.
+    pub unsafe fn from_nul_terminated_ffi(tok: *mut ffi::RSToken) -> Self {
+        debug_assert!(!tok.is_null(), "token pointer must not be null");
+        // SAFETY: the caller guarantees `tok` is non-null, points to a valid
+        // `RSToken`, and that nothing else reaches it for `'a`, which is what the
+        // exclusive reference asserts.
+        let tok = unsafe { &mut *tok };
+        // In debug builds, sanity-check the NUL-termination the caller promised.
+        #[cfg(debug_assertions)]
+        if !tok.str_.is_null() {
+            // SAFETY: the caller guarantees `str_` is a NUL-terminated string of
+            // content length `len`, so `str_.add(len)` is the in-bounds terminator
+            // address.
+            let terminator_ptr = unsafe { tok.str_.add(tok.len) };
+            // SAFETY: `terminator_ptr` addresses the in-bounds terminator byte.
+            let terminator = unsafe { *terminator_ptr };
+            assert!(terminator == 0, "token string must be NUL-terminated");
+        }
+        Self { tok }
+    }
+
+    /// Reborrow this handle as a shared, read-only [`RSTokenRef`].
+    ///
+    /// The result borrows `*self`, so the token cannot be rewritten while it — or
+    /// anything derived from it — is live. That is the no-mutation window
+    /// [`RSTokenRef`]'s accessors rest on, established here by the borrow checker
+    /// rather than by an `unsafe` assertion.
+    pub const fn as_ref(&self) -> RSTokenRefNulTerminated<'_> {
+        // SAFETY: the constructor's contract guarantees a valid, NUL-terminated
+        // token, and `&self` is what keeps it unmutated for the result's lifetime.
+        unsafe { RSTokenRef::from_nul_terminated_ffi(std::ptr::from_ref(self.tok)) }
+    }
+
+    /// Collapse `\x` escapes in this token's wildcard pattern, in place,
+    /// shortening its length to match.
+    ///
+    /// The pattern is unescaped in the token itself rather than in a copy because
+    /// the unescaped string is also what a query reports as the pattern it ran
+    /// when it is profiled — a copy would leave `w'a\*b'` profiling as `a\*b`.
+    ///
+    /// A token is binary data, not text, so the rewrite works on bytes. One
+    /// consequence is that an interior NUL ends the pattern, escape or no escape:
+    /// `a\0b` searches for `a`. Only a query parameter can carry such a token. The
+    /// rules are [`remove_escape_in_place`]'s; this adds the token bookkeeping
+    /// around them — the new length, and the terminator at the new end that keeps
+    /// the string readable as a C string.
+    ///
+    /// Escape removal is single-level and destructive, which makes this method
+    /// **not idempotent**: it must be applied at most once per token — `a\\b`
+    /// becomes `a\b`, and applying it again would yield `ab`. The exclusive borrow
+    /// keeps two handles from each applying it, but not one handle from applying it
+    /// twice, so a token reachable from more than one evaluation path must be
+    /// unescaped by exactly one of them.
+    pub fn remove_wildcard_escapes(&mut self) {
+        let len = self.tok.len;
+
+        // A token carrying no string is an empty one, per the constructor's
+        // contract, so returning here is what keeps the slice below off a null
+        // pointer. An empty token has nothing to unescape either way.
+        if len == 0 {
+            return;
+        }
+
+        let str_ = self.tok.str_;
+        debug_assert!(!str_.is_null(), "a non-empty token always carries a string");
+
+        // SAFETY: per the constructor's contract, `str_` addresses `len`
+        // initialized, writable bytes, and this handle is the only way to reach
+        // them, so the exclusive slice is sound.
+        let pattern = unsafe { std::slice::from_raw_parts_mut(str_.cast::<u8>(), len) };
+        // A shortened string comes back re-terminated at its new end; an unshortened
+        // one still ends at the terminator the constructor's contract requires. So
+        // the string stays readable as a C string either way, and nothing writes
+        // past `str_[len - 1]`.
+        let new_len = remove_escape_in_place(pattern);
+        debug_assert!(new_len <= len, "escape removal must not lengthen the token");
+        self.tok.len = new_len;
+    }
+}

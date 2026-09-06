@@ -7,13 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reply.h"
+
+#include <stdarg.h>
+#include <stdint.h>
+#include <sys/types.h> // for ssize_t
+
 #include "resp3.h"
 #include "query_error_ffi.h"
 #include "value_ffi.h"
-
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
-
-#include <math.h>
+#include "rmalloc.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -114,11 +118,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0 };
 #endif
   return reply;
 }
@@ -128,6 +132,11 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
   if (reply->stack) {
     array_free(reply->stack);
   }
+  if (reply->scratch) {
+    rm_free(reply->scratch);
+    reply->scratch = NULL;
+    reply->scratch_cap = 0;
+  }
 #ifdef REDISMODULE_REPLY_DEBUG
   if (reply->json) {
     array_free(reply->json);
@@ -135,6 +144,40 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
 #endif
   reply->stack = 0;
   return REDISMODULE_OK;
+}
+
+// Retention bound for the reply-owned scratch buffer. Values that fit reuse one
+// retained allocation (power-of-two growth capped by this bound); larger values
+// take an exact-sized temporary freed right after emission, so a huge field can
+// neither be rounded up by the geometric growth nor stay pinned until EndReply.
+#define REPLY_SCRATCH_RETAIN_MAX 4096
+
+static char *reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
+  RS_LOG_ASSERT(len <= REPLY_SCRATCH_RETAIN_MAX, "scratch request above retention bound");
+  if (reply->scratch_cap < len) {
+    size_t cap = reply->scratch_cap ? reply->scratch_cap : 128;
+    while (cap < len) {
+      cap *= 2;
+    }
+    reply->scratch = rm_realloc(reply->scratch, cap);
+    reply->scratch_cap = cap;
+  }
+  return reply->scratch;
+}
+
+int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s,
+                                           size_t n) {
+  RS_LOG_ASSERT(n < SIZE_MAX, "prefixed string length overflow");
+  const size_t total = n + 1;
+  char *buf = total <= REPLY_SCRATCH_RETAIN_MAX ? reply_ScratchBuffer(reply, total)
+                                                : rm_malloc(total);
+  buf[0] = prefix;
+  memcpy(buf + 1, s, n);
+  int rc = RedisModule_Reply_StringBuffer(reply, buf, total);
+  if (buf != reply->scratch) {
+    rm_free(buf);
+  }
+  return rc;
 }
 
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
@@ -521,9 +564,6 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
 
     case RSValueType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        char buf[32];
-        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
-
         if (flags & SENDREPLY_FLAG_TYPED) {
           if (reply->resp3) {
             return RedisModule_Reply_Double(reply, RSValue_Number_Get(v));
@@ -531,9 +571,13 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
              // In RESP2, RM_ReplyWithDouble() does not tag the response as
              // double, it's just a plain string. So we send it as simple string
              // that is converted to double by MRReply_ToValue().
+            char buf[32];
+            RSValue_NumToString(v, buf, sizeof(buf));
             return RedisModule_Reply_Error(reply, buf);
           }
         } else {
+          char buf[32];
+          size_t len = RSValue_NumToString(v, buf, sizeof(buf));
           return RedisModule_Reply_StringBuffer(reply, buf, len);
         }
       } else {
@@ -577,6 +621,34 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
     default:
       RedisModule_Reply_Null(reply);
   }
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, const RLookupRow *row,
+                                 uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags,
+                                 unsigned int apiVersion) {
+  RLOOKUP_FOREACH(kk, lk, {
+    const uint32_t kflags = RLookupKey_GetFlags(kk);
+    if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) ||
+        (kflags & requiredFlags) != requiredFlags) {
+      continue;
+    }
+    const RSValue *v = RLookupRow_Get(kk, row);
+    if (!v) {
+      continue;
+    }
+    RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+    if (RSValue_IsTrio(v)) {
+      if (flags & SENDREPLY_FLAG_EXPAND) {
+        v = RSValue_Trio_GetRight(v);
+      } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+        v = RSValue_Trio_GetMiddle(v); // multi-value form
+      } else {
+        v = RSValue_Trio_GetLeft(v); // single-value form
+      }
+    }
+    RedisModule_Reply_RSValue(reply, v, flags);
+  });
   return REDISMODULE_OK;
 }
 

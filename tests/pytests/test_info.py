@@ -1,50 +1,12 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import time
-
-# The output for this test can be used for recreating documentation for `FT.INFO`
-@skip()
-def testInfo(env):
-  count = 345678
-  conn = env.getConnection()
-  pl = conn.pipeline()
-
-  idx = 'wikipedia'
-
-  for i in range(count):
-    geo = '1.23456,1.' + str(i / float(count))
-    pl.execute_command('HSET', 'doc%d' % i, 'title', 'hello%d' % i,
-                                            'body', '%dhello%dworld%dhow%dare%dyou%dtoday%d' % (i, i, i, i, i, i, i),
-                                            'n', i / 17.0,
-                                            'geo', geo)
-    if i % 10000 == 0:
-      pl.execute()
-  pl.execute()
-
-  env.expect('FT.CREATE', idx, 'STOPWORDS', 3, 'TLV', 'summer', '2020',
-                               'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                                         'body', 'TEXT',
-                                         'id', 'NUMERIC',
-                                         'subject location', 'GEO').ok()
-
-  waitForIndex(env, idx)
-
-  for i in range(count):
-    pl.execute_command('DEL', 'doc%d' % i)
-    if i % 10000 == 0:
-      pl.execute()
-      forceInvokeGC(env, idx)
-  pl.execute()
-
-  #  GC stats
-  for i in range(25):
-    forceInvokeGC(env, idx)
-
-  # cursor stats
-  #query = ['FT.AGGREGATE', idx, '*', 'WITHCURSOR']
-  #res = env.cmd(*query)
-  #env.cmd('FT.CURSOR', 'READ', idx, str(res[1]))
-
-  #print info
 
 def test_vecsim_info():
   env = Env(protocol=3)
@@ -232,8 +194,11 @@ def test_vecsim_info_stats_marked_deleted():
   data_type = 'FLOAT16'
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
   load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok() # wait for HNSW graph construction to finish
-  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok() # pause to prevent repair jobs on the graph
+  # Run the worker-pool sync on every shard: in cluster mode the docs (and the GC below) are
+  # spread across all shards, so draining/pausing only the default shard leaves the other shards'
+  # repair jobs racing the GC, which flakily leaves vectors marked-deleted (MOD-16881).
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN') # wait for HNSW graph construction to finish
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE') # pause to prevent repair jobs on the graph
 
   # Set the GC clean threshold to 0
   run_command_on_all_shards(env, config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
@@ -246,9 +211,9 @@ def test_vecsim_info_stats_marked_deleted():
   info = index_info(env, 'idx')
   env.assertTrue("field statistics" in info)
   env.assertEqual(info["field statistics"][0]["marked_deleted"], docs_to_delete)
-  env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
   # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
   res = run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx', '100000')
   env.assertTrue(all([r == 'DONE' for r in res]))
   info = index_info(env, 'idx')

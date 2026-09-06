@@ -92,7 +92,7 @@ where
 ///
 /// Generic over the [`TimeoutContext`] implementation chosen by the caller
 /// (typically [`AnyTimeoutContext`](crate::utils::AnyTimeoutContext) at the
-/// FFI boundary, or [`TimeoutContextClock`](crate::utils::TimeoutContextClock)
+/// FFI boundary, or [`NoTimeoutChecker`](timeout::NoTimeoutChecker)
 /// in tests).
 pub enum NewNotIterator<'index, I, TC> {
     /// The child is empty → NOT matches everything → wildcard.
@@ -113,7 +113,7 @@ pub enum NewNotIterator<'index, I, TC> {
 /// [`NewNotIterator::ReducedWildcard`] or [`NewNotIterator::ReducedEmpty`].
 ///
 /// `timeout_ctx` is handed to the constructed iterator unchanged. Pass
-/// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+/// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
 /// entirely; the caller is otherwise responsible for picking the right
 /// concrete type (typically
 /// [`AnyTimeoutContext`](crate::utils::AnyTimeoutContext) at the FFI

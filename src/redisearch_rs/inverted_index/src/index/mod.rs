@@ -8,12 +8,14 @@
 */
 
 mod core;
+mod expiration_bits;
 pub mod opaque;
 pub(crate) mod unique_id;
 mod with_entries;
 mod with_mask;
 
 pub use self::core::*;
+pub(crate) use expiration_bits::ExpirationBits;
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;
 

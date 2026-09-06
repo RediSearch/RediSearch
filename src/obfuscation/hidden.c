@@ -8,11 +8,14 @@
 */
 
 #include "hidden.h"
+
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "rmalloc.h"
-#include "util/minmax.h"
 #include "redis_index.h"
-#include "query_node.h"
-#include "reply_macros.h"
+#include "search_disk_api.h"
 
 typedef struct {
   const char *user;

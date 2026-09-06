@@ -19,6 +19,10 @@
 #include "obfuscation/hidden.h"
 #include "search_disk_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct FieldSpecStats {
   union {
     VectorIndexStats vecStats;
@@ -91,3 +95,7 @@ size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);
 
 //Get the combined stats of all vector fields in the index.
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
+
+#ifdef __cplusplus
+}
+#endif

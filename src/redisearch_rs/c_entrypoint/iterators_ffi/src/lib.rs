@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod debug;
 pub mod deferred;
 pub mod empty;
 pub mod geo_shape;
@@ -19,4 +20,5 @@ pub mod optional;
 pub mod profile;
 mod profile_print;
 pub mod union;
+pub mod vector_top_k;
 pub mod wildcard;

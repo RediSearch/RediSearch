@@ -18,8 +18,8 @@
 // The key invariants asserted:
 //   - LIMIT on the remote is always rewritten to `0 (offset + count)`.
 //   - LIMIT on the local keeps the user's original offset/count.
-//   - All other tokens (FIELDS, SORTBY, `FIELDS *`) are forwarded verbatim
-//     from the original argv, with no normalization.
+//   - Option keywords are normalized to uppercase on the remote side; all
+//     other tokens — and the entire local argv — are forwarded verbatim.
 //   - The local reducer's `inputAlias` matches the remote reducer's `alias`,
 //     wiring the merge step to its shard payload source.
 
@@ -72,19 +72,19 @@ protected:
   }
 
   // Compile + distribute. Sets *outPlan and returns the AREQ; caller frees
-  // the AREQ via AREQ_DecrRef when done. *outPlan is owned by the AREQ.
+  // the AREQ via AREQ_Free when done. *outPlan is owned by the AREQ.
   AREQ *compileAndDistribute(const std::vector<std::string> &collectTokens,
                              AGGPlan **outPlan) {
     auto argv = buildAggregateArgv(collectTokens);
     RMCK::ArgvList rmArgs(ctx, argv);
 
     QueryError qerr = QueryError_Default();
-    AREQ *r = AREQ_New();
+    AREQ *r = AREQ_New(rmArgs, rmArgs.size());
     AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
-    int rc = AREQ_Compile(r, ctx, rmArgs, rmArgs.size(), false, &qerr);
+    int rc = AREQ_Compile(r, ctx, 0, false, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {
-      AREQ_DecrRef(r);
+      AREQ_Free(r);
       return nullptr;
     }
 
@@ -92,7 +92,7 @@ protected:
     rc = AGGPLN_Distribute(plan, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {
-      AREQ_DecrRef(r);
+      AREQ_Free(r);
       return nullptr;
     }
 
@@ -176,14 +176,15 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_NoLimit) {
   ASSERT_NE(pair.remote->alias, nullptr);
   EXPECT_STREQ(pair.local->inputAlias, pair.remote->alias);
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   AGGPlan *plan = nullptr;
   // The user omits the per-key direction (`SORTBY 1 @price`, not
-  // `SORTBY 2 @price ASC`). SORTBY is forwarded verbatim with no normalization,
-  // so the omitted direction stays omitted on both sides.
+  // `SORTBY 2 @price ASC`). SORTBY is forwarded as-is (keywords normalized to
+  // uppercase on the remote side only), so the omitted direction stays omitted
+  // on both sides.
   AREQ *r = compileAndDistribute(
       {"FIELDS", "1", "@name", "SORTBY", "1", "@price"}, &plan);
   ASSERT_NE(r, nullptr);
@@ -197,7 +198,7 @@ TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   EXPECT_EQ(argsAsStrings(pair.remote), expected);
   EXPECT_EQ(argsAsStrings(pair.local), expected);
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsList_NoSortBy_Limit_RewritesRemoteLimit) {
@@ -219,7 +220,7 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_Limit_RewritesRemoteLimit) {
             (std::vector<std::string>{"FIELDS", "1", "@name",
                                       "LIMIT", "2", "3"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsList_SortBy_Limit_RewritesRemoteLimit) {
@@ -243,7 +244,7 @@ TEST_F(DistributeCollectTest, FieldsList_SortBy_Limit_RewritesRemoteLimit) {
                                       "SORTBY", "2", "@price", "ASC",
                                       "LIMIT", "2", "3"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 // ----------------------------------------------------------------------------
@@ -264,7 +265,7 @@ TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_NoLimit) {
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsStar_SortByOnly_NoLimit) {
@@ -282,7 +283,7 @@ TEST_F(DistributeCollectTest, FieldsStar_SortByOnly_NoLimit) {
   EXPECT_EQ(argsAsStrings(pair.remote), expected);
   EXPECT_EQ(argsAsStrings(pair.local), expected);
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_Limit_RewritesRemoteLimit) {
@@ -299,7 +300,7 @@ TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_Limit_RewritesRemoteLimit) {
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*", "LIMIT", "1", "4"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
@@ -323,7 +324,28 @@ TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
                                       "SORTBY", "2", "@price", "DESC",
                                       "LIMIT", "5", "10"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
+}
+
+// ----------------------------------------------------------------------------
+// Keyword case normalization
+// ----------------------------------------------------------------------------
+
+TEST_F(DistributeCollectTest, KeywordCase_NormalizedOnRemote_VerbatimOnLocal) {
+  AGGPlan *plan = nullptr;
+  AREQ *r = compileAndDistribute({"fields", "1", "@name"}, &plan);
+  ASSERT_NE(r, nullptr);
+
+  auto pair = locateCollectPair(plan);
+  ASSERT_NE(pair.remote, nullptr);
+  ASSERT_NE(pair.local, nullptr);
+
+  EXPECT_EQ(argsAsStrings(pair.remote),
+            (std::vector<std::string>{"FIELDS", "1", "@name"}));
+  EXPECT_EQ(argsAsStrings(pair.local),
+            (std::vector<std::string>{"fields", "1", "@name"}));
+
+  AREQ_Free(r);
 }
 
 }  // namespace

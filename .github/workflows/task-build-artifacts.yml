@@ -38,19 +38,23 @@ env:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}
-      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
 
   build:
@@ -59,7 +63,7 @@ jobs:
     if: |
       !cancelled() &&
       needs.get-config.result == 'success'
-    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions:
       id-token: write # Required for OIDC role assumption during upload
       contents: read  # Required for actions/checkout
@@ -72,7 +76,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '')
         )
       || null }}
 
@@ -129,7 +133,7 @@ jobs:
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           ref: ${{ env.REF }}

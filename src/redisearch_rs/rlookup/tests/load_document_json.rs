@@ -24,7 +24,7 @@
 
 use proptest::prelude::{Just, Strategy, any, prop_oneof};
 use proptest::proptest;
-use redis_json_api::mock::with_json_api;
+use redis_json_api::mock::{with_json_api, with_json_api_broken_handle};
 use redis_module::RedisString;
 use rlookup::{
     DocumentFormat, FieldLoader, JsonDocumentFormat, LoadAllError, RLookup, RLookupKeyFlags,
@@ -39,12 +39,12 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// The first API version that returns the multi-value `Trio`. Below it, the
 /// loader takes only the first match as a plain value.
-const MULTI: u32 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST;
-const PRE_MULTI: u32 = MULTI - 1;
+const MULTI: u8 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST as u8;
+const PRE_MULTI: u8 = MULTI - 1;
 
-/// Construct a `RedisString` from a `CStr` the caller keeps alive. The mock
-/// `RedisModule_CreateString` stores the pointer rather than copying, so the
-/// bytes must outlive the returned `RedisString`.
+/// Construct a `RedisString` from a `CStr`. The mock
+/// `RedisModule_CreateString` copies its input, so the source bytes need not
+/// outlive the returned `RedisString`.
 fn make_redis_string(bytes: &CStr) -> RedisString {
     unsafe { RedisString::from_raw_parts(None, bytes.as_ptr(), bytes.to_bytes().len()) }
 }
@@ -53,7 +53,7 @@ fn make_redis_string(bytes: &CStr) -> RedisString {
 /// the value written to the row, if any.
 fn load_field_value(
     doc: serde_json::Value,
-    api_version: u32,
+    api_version: u8,
     path: &'static CStr,
 ) -> Option<SharedValue> {
     redis_mock::init_redis_module_mock();
@@ -80,7 +80,7 @@ fn load_field_value(
 /// written to the `$` key, or the propagated [`LoadAllError`].
 fn load_all_dollar(
     doc: Option<serde_json::Value>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, LoadAllError> {
     redis_mock::init_redis_module_mock();
     with_json_api(doc, |japi, ctx| {
@@ -112,6 +112,10 @@ fn assert_value_matches(actual: &SharedValue, expected: &serde_json::Value) {
         serde_json::Value::Number(n) => assert_eq!(actual.as_num(), n.as_f64()),
         serde_json::Value::String(s) => assert_eq!(actual.as_str_bytes(), Some(s.as_bytes())),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            assert!(
+                matches!(&**actual, Value::RedisString(_)),
+                "expected serialized RedisString, got {actual:?}"
+            );
             let expected = serde_json::to_string(expected).unwrap();
             assert_eq!(actual.as_str_bytes(), Some(expected.as_bytes()));
         }
@@ -213,6 +217,16 @@ fn load_all_reports_missing_root_values() {
     ));
 }
 
+#[test]
+#[cfg_attr(miri, ignore)]
+fn pre_multi_non_scalar_values_are_redis_strings() {
+    for value in [json!(["red", "blue"]), json!({ "name": "alice" })] {
+        let val = load_field_value(json!({ "x": value.clone() }), PRE_MULTI, c"$.x")
+            .expect("value should be loaded");
+        assert_value_matches(&val, &value);
+    }
+}
+
 proptest! {
     /// Assert that the sentinel path `__key` resolves to the document key name, written as
     /// a string value.
@@ -310,4 +324,88 @@ proptest! {
         assert_eq!(expanded.len(), 1);
         assert_expanded_matches(&expanded[0], &value);
     }
+}
+
+/// The borrowed-handle path (`DocumentFormat::borrow`, used when a pinned key is
+/// delivered to an AsyncScan callback and is not addressable by name) must load a
+/// field identically to opening the key by name.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn borrow_loads_field_like_open() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(json!({ "name": "alice" })), |japi, ctx| {
+        // `borrow` resolves the pinned handle through the C helper
+        // `JSON_GetJsonFromHandleCompat`, which dispatches on the *global*
+        // `japi`/`japi_ver` rather than this handle's vtable. Point those globals
+        // at the mock vtable (advertised as V8, so the helper uses the mock's
+        // `getJsonFromHandle` slot) for the duration of the test, then restore.
+        // Safety: the test is single-threaded and the mock vtable is 'static.
+        let (saved_api, saved_ver) = unsafe { (ffi::japi, ffi::japi_ver) };
+        unsafe {
+            ffi::japi = japi.vtable().as_ptr();
+            ffi::japi_ver = redis_json_api::LATEST_API_VERSION;
+        }
+
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        let key_name = make_redis_string(c"doc:1");
+
+        let load = |via_borrow: bool| {
+            let mut rlookup = RLookup::new();
+            let key = rlookup
+                .get_key_load(c"$.name", c"$.name", RLookupKeyFlags::empty())
+                .unwrap();
+            let mut row = RLookupRow::new();
+            let loader = if via_borrow {
+                // The mock models the pinned handle by the context pointer.
+                // Safety: the mock resolves the handle to the document root.
+                let open_key = unsafe { ctx.cast::<redis_module::RedisModuleKey>().as_ref() };
+                format.borrow(open_key, &key_name).unwrap()
+            } else {
+                format.open(&key_name).unwrap()
+            };
+            loader.load_field(key, &mut row).unwrap();
+            row.get(key).cloned()
+        };
+
+        let opened = load(false).expect("open should load the field");
+        let borrowed = load(true).expect("borrow should load the field");
+        assert_eq!(opened.as_str_bytes(), borrowed.as_str_bytes());
+        assert_eq!(borrowed.as_str_bytes(), Some(&b"alice"[..]));
+
+        // Restore the globals so other tests in this process see a clean state.
+        // Safety: single-threaded test.
+        unsafe {
+            ffi::japi = saved_api;
+            ffi::japi_ver = saved_ver;
+        }
+    });
+}
+
+/// When the borrowed handle cannot be resolved to a JSON root, `borrow` must fall
+/// back to opening the document by name.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn borrow_falls_back_to_open_by_name() {
+    redis_mock::init_redis_module_mock();
+    with_json_api_broken_handle(Some(json!({ "name": "alice" })), |japi, ctx| {
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        let key_name = make_redis_string(c"doc:1");
+
+        let mut rlookup = RLookup::new();
+        let key = rlookup
+            .get_key_load(c"$.name", c"$.name", RLookupKeyFlags::empty())
+            .unwrap();
+        let mut row = RLookupRow::new();
+
+        // The mock models the pinned handle by the context pointer.
+        // Safety: the mock resolves the handle to the document root.
+        let open_key = unsafe { ctx.cast::<redis_module::RedisModuleKey>().as_ref() };
+        format
+            .borrow(open_key, &key_name)
+            .expect("borrow should fall back to open-by-name")
+            .load_field(key, &mut row)
+            .unwrap();
+
+        assert_eq!(row.get(key).unwrap().as_str_bytes(), Some(&b"alice"[..]));
+    });
 }

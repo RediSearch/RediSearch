@@ -28,27 +28,34 @@ typedef struct QueryError QueryError;
  *
  * **Parameters:**
  *   - `<QUERY>`:
- *     - Any valid `FT.SEARCH` or `FT.AGGREGATE` command.
+ *     - Any valid `FT.SEARCH`, `FT.AGGREGATE`, or `FT.PROFILE` command for search or
+ *       aggregate.
  *     - Supported in both standalone (SA) and cluster mode.
  *
  *   - `<DEBUG_QUERY_ARGS>`:
  *     - Currently supports:
+ *       - On a multi-shard coordinator, `_FT.DEBUG` requires `ON_TIMEOUT RETURN` for direct
+ *         search, aggregate, and hybrid queries and their `FT.PROFILE` variants. `ON_TIMEOUT FAIL`
+ *         and `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks, which are
+ *         incompatible with query debug execution. Rejected requests return
+ *         `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *       - **`TIMEOUT_AFTER_N <N> [INTERNAL_ONLY]`**:
  *         - Simulates a timeout after processing `<N>` results.
  *         - Internally inserts a result processor (RP) as the downstream processor
  *           of the final execution step (e.g., `RP_INDEX` in SA or `RP_NETWORK` in the
  *           coordinator).
  *         - **Policy constraints:**
+ *           - `TIMEOUT_AFTER_N` uses in-pipeline timeout simulation and is incompatible with
+ *             blocked-client timeout handling. Its parser reports this incompatibility as
+ *             `TIMEOUT_AFTER_N is not supported with blocked-client timeout handling`.
  *           - **Shard/SA (not coordinator):** Requires `ON_TIMEOUT RETURN` policy, or
  *             `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
- *             `ON_TIMEOUT RETURN-STRICT` is never supported. This restriction applies because
- *             `TIMEOUT_AFTER_N` uses in-pipeline timeout simulation. With workers enabled,
- *             `ON_TIMEOUT FAIL` relies on blocked client timeout instead of in-pipeline checks,
- *             making it incompatible with `TIMEOUT_AFTER_N`.
- *           - **Coordinator with `INTERNAL_ONLY`:** No policy constraint on the coordinator
- *             itself—the debug timeout only affects the shard query pipeline. A special
- *             handling exists for `N == 0` with query timeout disabled to prevent infinite
- *             loops (see RESP2/RESP3 details below).
+ *             `ON_TIMEOUT RETURN-STRICT` is never supported. With workers enabled,
+ *             `ON_TIMEOUT FAIL` relies on blocked-client timeout handling and is also unsupported.
+ *           - **Coordinator with `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` under the
+ *             coordinator-wide query debug constraint. The debug timeout itself only affects
+ *             the shard query pipeline. A special handling exists for `N == 0` with query
+ *             timeout disabled to prevent infinite loops (see RESP2/RESP3 details below).
  *           - **Coordinator without `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` policy
  *             only. `ON_TIMEOUT FAIL` and `ON_TIMEOUT RETURN-STRICT` are not supported.
  *       - **`INTERNAL_ONLY` (optional)**:
@@ -94,7 +101,8 @@ typedef struct QueryError QueryError;
  *   - Shard/SA: Requires `ON_TIMEOUT RETURN`, or `ON_TIMEOUT FAIL` without workers
  *     (WORKERS=0). `ON_TIMEOUT RETURN-STRICT` is never supported.
  *   - Coordinator without `INTERNAL_ONLY`: Requires `ON_TIMEOUT RETURN` only.
- *   - Coordinator with `INTERNAL_ONLY`: No policy constraint (debug timeout is shard-only).
+ *   - Coordinator with `INTERNAL_ONLY`: Requires `ON_TIMEOUT RETURN` under the coordinator-wide
+ *     query debug constraint; the debug timeout itself remains shard-only.
  *
  * -----------------------------------------------------------------------------
  *
@@ -263,10 +271,14 @@ typedef struct {
 typedef struct {
   AREQ r;
   AREQ_Debug_params debug_params;
+  // Validation uses the requested policy even if inline execution later falls back to RETURN.
+  RSTimeoutPolicy requestedTimeoutPolicy;
 } AREQ_Debug;
 
 // Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
 // expecting AREQ, including AREQ_Free
+// Allocate the final object before initializing the embedded pthread synchronization state.
+AREQ_Debug *AREQ_New_AREQ_Debug(RedisModuleString **argv, uint32_t argc);
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
 // Release the debug argv copies owned by the request (see AREQ_Debug_New).
 void AREQ_Debug_FreeParams(AREQ_Debug *debug_req);

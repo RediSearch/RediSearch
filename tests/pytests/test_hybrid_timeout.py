@@ -1,6 +1,14 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from RLTest import Env
 from includes import *
 from common import *
+from test_info_modules import info_modules_to_dict
 import psutil
 
 # Test data with deterministic vectors
@@ -107,6 +115,25 @@ def test_hybrid_debug_unrecognized_argument():
                'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('Unrecognized argument')
 
+def test_hybrid_debug_malformed_query_no_crash():
+    """A parse failure after the debug request was constructed must not crash
+    the server (MOD-17665).
+
+    A malformed SEARCH expression with a valid DEBUG_PARAMS_COUNT is the only
+    error shape that makes ``HybridRequest_Debug_New`` fail *after* the hybrid
+    request, which owns the search context, was built. Pre-fix the handler
+    freed that context a second time on the NULL return: a double free
+    (deterministic crash under ASAN).
+    """
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', '@bad:[synta',
+               'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+               'TIMEOUT_AFTER_N_SEARCH', '1',
+               'DEBUG_PARAMS_COUNT', '2').error()
+    # The shard survived the failed command.
+    env.assertTrue(env.cmd('PING'))
+
 @skip(cluster=True)
 def test_hybrid_debug_no_component_timeout_sa():
     """Test error when no component timeout parameter is specified (SA).
@@ -154,25 +181,45 @@ def test_hybrid_debug_missing_timeout_value():
                'DEBUG_PARAMS_COUNT', '1') \
         .error().contains('TIMEOUT_AFTER_N_SEARCH')
 
+@skip(cluster=False)
+def test_hybrid_debug_coordinator_timeout_policy():
+    """Coordinator hybrid query debug requires the non-blocking RETURN policy."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    error = '_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN'
+    try:
+        for policy in ('FAIL', 'RETURN-STRICT'):
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+            env.expect(
+                *_base_hybrid_debug_cmd(),
+                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2',
+            ).error().contains(error)
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
+@skip(cluster=True)
 def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+@skip(cluster=True)
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+@skip(cluster=True)
 def test_debug_timeout_fail_both():
     """Test FAIL policy with both components timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+@skip(cluster=True)
 def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
@@ -359,6 +406,10 @@ def test_maxprefixexpansions_warning_both_components():
     conn = env.getClusterConnectionIfNeeded()
     add_run_prefix_docs(conn)
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    coord_section = 'search_coordinator_warnings_and_errors'
+    metric = 'search_coord_total_query_warnings_max_prefix_expansions'
+    before_info = info_modules_to_dict(env)
+    base_warning_count = int(before_info[coord_section][metric])
 
     # Both SEARCH and VSIM return results
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
@@ -366,6 +417,9 @@ def test_maxprefixexpansions_warning_both_components():
     warning = get_warnings(response)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
+    after_info = info_modules_to_dict(env)
+    env.assertEqual(after_info[coord_section][metric], str(base_warning_count + 1),
+                    message="Coordinator max-prefix warning should be +1 per query")
 
 @skip(cluster=True)
 def test_tail_property_not_loaded_error_standalone():
@@ -418,6 +472,7 @@ def test_tail_property_not_loaded_warning_coordinator():
     env.assertTrue(any('__score' in w for w in warnings),
                    message=f"Expected warning about __score, got: {warnings}")
 
+@skip(cluster=True)
 def test_debug_timeout_return_strict_rejected():
     """Test that _FT.DEBUG FT.HYBRID rejects ON_TIMEOUT RETURN-STRICT policy."""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN-STRICT')
@@ -431,10 +486,12 @@ def test_debug_timeout_return_strict_rejected():
 
 @skip(cluster=False)
 def test_return_timeout_setup_phase_hybrid():
-    """RETURN setup-phase timeout, one shard suspended: the in-band deadline fires; reply is empty + warning.
+    """RETURN timeout with one shard suspended: the in-band deadline fires; reply is partial + warning.
 
     Lives here (not test_blocked_client_timeout.py): RETURN uses the in-band
-    deadline, not the blocked-client CLIENT UNBLOCK mechanism.
+    deadline, not the blocked-client CLIENT UNBLOCK mechanism. The suspended
+    shard never publishes its cursor mapping, so its reads are never armed;
+    the read-side pop deadline must fire instead of blocking forever.
     """
     # WORKERS 1 dispatches the query to a BG thread so the cursor-setup wait is
     # reachable; cluster mode gives us a non-coordinator shard to suspend.
@@ -470,7 +527,7 @@ def test_return_timeout_setup_phase_hybrid():
         'SEARCH', '*',
         'VSIM', '@embedding', '$BLOB',
         'PARAMS', '2', 'BLOB', query_vec,
-        'TIMEOUT', '200',
+        'TIMEOUT', '2000',
     ]
 
     shard_to_pause_p.suspend()
@@ -481,12 +538,21 @@ def test_return_timeout_setup_phase_hybrid():
             'Timeout while waiting for shard to pause'
         )
 
-        # The deadline fires in the setup wait; RETURN policy yields an empty
-        # result set with a timeout warning rather than an error (a hang would
-        # trip the harness test timeout).
+        # The in-band deadline bounds the cursor-read waits; RETURN policy
+        # yields whatever the responsive shards delivered by the deadline —
+        # partial results with a timeout warning rather than an error or a
+        # hang (a hang would trip the harness test timeout). The deadline is
+        # generous relative to the responsive shards' reply latency, so their
+        # rows are admitted before it fires: total_results must be positive,
+        # proving RETURN preserves responsive-shard rows and not merely that
+        # the query terminated.
         result = env.cmd(*query_args)
-        env.assertEqual(result['total_results'], 0,
-                        message=f"Expected 0 results, got {result}")
+        env.assertGreater(result['total_results'], 0,
+                          message=f"Expected the responsive shards' rows "
+                                  f"under RETURN, got {result}")
+        env.assertLess(result['total_results'], 100,
+                       message=f"Expected partial results (one shard is "
+                               f"suspended), got {result}")
         assert_timeout_warning(env, result, message="RETURN-policy setup-phase timeout")
     finally:
         # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees

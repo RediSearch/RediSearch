@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import redis
 import random
@@ -1966,7 +1971,9 @@ def testInfoCommand(env):
             env.assertEqual(int(d['num_records']), N * 2)
 
             env.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            env.assertGreater(float(d['key_table_size_mb']), 0)
+            # The key->docId mapping now lives in Redis key-metadata (not
+            # module-tracked memory), so key_table_size_mb is always 0.
+            env.assertEqual(float(d['key_table_size_mb']), 0)
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
@@ -2278,6 +2285,84 @@ def testDuplicateSpec(env):
     with env.assertResponseError():
         env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
                 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
+
+def testEmptyFieldNameRejected(env):
+    # An empty field name is unsupported.
+    for field_type in ('TAG', 'TEXT', 'NUMERIC'):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', '', field_type) \
+            .error().contains('Field name cannot be empty')
+    # empty name supplied via an explicit AS alias
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'myfield', 'AS', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+    # empty name added via FT.ALTER
+    env.cmd('FT.CREATE', 'idx_alter', 'SCHEMA', 't', 'TAG')
+    env.expect('FT.ALTER', 'idx_alter', 'SCHEMA', 'ADD', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+
+def testFieldNameWithNullByteRejected(env):
+    # Without AS, the schema token is both the document path and the field name.
+    # With AS, the alias is the field name.
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_prefix', 'SCHEMA', b'\x00tag', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_embedded', 'SCHEMA', b'tag\x00name', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_alias', 'SCHEMA', 'tag', 'AS', b'\x00alias', 'TAG')
+
+def testHashFieldPathWithNullByteRejected(env):
+    # With AS, the original schema token is stored as a field path separate from
+    # the alias field name.
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_path_nul_prefix', 'SCHEMA', b'\x00real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_path_nul_embedded', 'SCHEMA', b'real\x00tail', 'AS', 'tag', 'TAG')
+
+@skip(no_json=True)
+def testJsonFieldPathWithNullByteRejected(env):
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_prefix', 'ON', 'JSON',
+                             'SCHEMA', b'\x00$.real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_embedded', 'ON', 'JSON',
+                             'SCHEMA', b'$.real\x00tail', 'AS', 'tag', 'TAG')
+
+def testAlterFailureDoesNotLeaveSuffixTrie(env):
+    env.cmd('FT.CREATE', 'idx_suffix_rollback', 'SCHEMA', 't', 'TEXT')
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    waitForIndex(env, 'idx_suffix_rollback')
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+    env.expect('FT.ALTER', 'idx_suffix_rollback', 'SCHEMA', 'ADD',
+               'suffix', 'TEXT', 'WITHSUFFIXTRIE',
+               '', 'TEXT') \
+        .error().contains('Field name cannot be empty')
+
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+def testAlterFailureDoesNotConsumeTextFieldIds(env):
+    env.cmd('FT.CREATE', 'idx_text_id_rollback', 'MAXTEXTFIELDS', 'SCHEMA', 'base', 'TEXT')
+    max_text_fields = arch_int_bits()
+
+    # Exercise the whole TEXT field-id space, not just one failed ALTER. If rollback
+    # leaks fieldIdToIndex entries, the failure only becomes visible once later valid
+    # additions reach the architecture-specific field-mask limit.
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'tmp{i}', 'TEXT',
+                   '', 'TAG') \
+            .error().contains('Field name cannot be empty')
+
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'valid_text_{i}', 'TEXT').ok()
+
+    env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+               'overflow_text', 'TEXT') \
+        .error().contains(f'Schema is limited to {max_text_fields} TEXT fields')
 
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
@@ -4043,13 +4128,6 @@ def test_mod1548(env):
     res = env.cmd('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_dotnotation')
     env.assertEqual(res,  [2, 'prod:1', ['prod:id_dotnotation', '35114964'], 'prod:2', ['prod:id_dotnotation', '35114965']])
 
-def test_empty_field_name(env):
-    conn = getConnectionByEnv(env)
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
-    conn.execute_command('hset', 'doc1', '', 'foo')
-    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
-
 @skip(cluster=True)
 def test_free_resources_on_thread(env):
     conn = getConnectionByEnv(env)
@@ -4106,7 +4184,9 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    info = to_dict(env.cmd('ft.info', 'idx'))
+    env.assertEqual(info['number_of_uses'], 1, message=info)
+    env.assertEqual(info['number_of_admin_ops'], 2, message=info)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -4445,9 +4525,7 @@ def test_cluster_set_myself_excluded(env: Env):
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
-# TODO(MOD-15868): re-enable once https://redislabs.atlassian.net/browse/MOD-15868 is resolved
-@skip()
-#@skip(cluster=False) # this test is only relevant on cluster
+@skip(cluster=True) # only parsing errors are tested, no need for an actual cluster
 def test_cluster_set_errors(env: Env):
 
     # Check general values parsing
@@ -4459,12 +4537,23 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
     env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
 
-    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
+    # These 3-arg forms dispatch to the short form (`SEARCH.CLUSTERSET AUTH <pass>`) only
+    # when the `RedisModule_GetClusterNodeSlotRanges` module API is present — added by
+    # Redis #14953 (OSS 8.10; RE 8.4+ via a later patch). Our pinned enterprise Redis
+    # predates that patch, so the API is absent and these fall through to the long-form
+    # keyword parser ("Bad value for ...") rather than the short-form "Expected `AUTH`"
+    # error. TODO(MOD-17151): un-gate once the RoR pin advances past the patch.
+    if not RS_TEST_ENTERPRISE:
+        env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
+        env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
+        env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
+
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
 
     # Check shard values parsing
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
@@ -4654,7 +4743,6 @@ def test_with_tls():
     common_with_auth(env)
 
 # TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
-@skip_until("2026-07-29", reason="Flaky test, see RED-176581")
 @skip(cluster=False, macos=True, asan=True)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
@@ -4670,7 +4758,7 @@ def test_with_tls_and_non_tls_ports():
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     common_with_auth(env)
@@ -4687,7 +4775,7 @@ def test_dual_tls():
               dualTLS=True)         # Sets the ports to be both TLS and regular ports.
 
     # Turn off tls-cluster, which means it's not the preferred port type anymore (but still available)
-    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     # Verify all nodes has both `port` (tcp) and `tls-port`

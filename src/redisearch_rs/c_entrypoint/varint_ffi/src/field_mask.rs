@@ -9,7 +9,6 @@
 
 use buffer::{BufferReader, BufferWriter};
 use rqe_core::FieldMask;
-use std::ptr::NonNull;
 use varint::VarintEncode;
 
 /// Read a varint-encoded field mask from the given buffer.
@@ -23,10 +22,9 @@ use varint::VarintEncode;
 /// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
 #[unsafe(no_mangle)]
-pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask {
-    let mut buffer_reader = b.unwrap();
+pub unsafe extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
     // Safety: Safe thanks to invariants 1. and 2.
-    let buffer_reader = unsafe { buffer_reader.as_mut() };
+    let buffer_reader = unsafe { b.as_mut() }.expect("b must not be NULL");
     varint::read(buffer_reader).unwrap()
 }
 
@@ -44,13 +42,12 @@ pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> Field
 /// 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer writer.
 #[unsafe(no_mangle)]
-pub extern "C" fn WriteVarintFieldMask(
+pub unsafe extern "C" fn WriteVarintFieldMask(
     value: FieldMask,
-    writer: Option<NonNull<BufferWriter>>,
+    writer: *mut BufferWriter,
 ) -> usize {
-    let mut writer = writer.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
-    let writer = unsafe { writer.as_mut() };
+    let writer = unsafe { writer.as_mut() }.expect("writer must not be NULL");
     let cap = writer.buffer().capacity();
     value.write_as_varint(&mut *writer).unwrap();
     writer.buffer().capacity() - cap

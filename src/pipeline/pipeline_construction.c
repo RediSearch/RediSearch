@@ -1,12 +1,52 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "pipeline/pipeline_construction.h"
-#include "ext/default.h"
+
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "query_optimizer.h"
 #include "vector_normalization.h"
 #include "vector_index.h"
-#include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
 #include "util/misc.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/expr/expression.h"
+#include "config.h"
+#include "document.h"
+#include "extension.h"
+#include "field_spec.h"
+#include "profile/profile.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_types.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "score_explain.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/dllist.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -577,7 +617,8 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(params->language, params->outFields, lookup);
+    rp = RPHighlighter_New(params->language, params->outFields, lookup,
+                           isSpecJson(params->common.sctx->spec));
     PUSH_RP();
   }
 

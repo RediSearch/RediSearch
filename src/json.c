@@ -8,13 +8,27 @@
 */
 
 #include "json.h"
+
+#include <math.h>
+#include <string.h>
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+
 #include "value_ffi.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "VecSim/vec_sim_common.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
 
-#include <math.h>
-#include <string.h>
+struct RedisModuleCtx;
 
 // REJSON APIs
 RedisJSONAPI *japi = NULL;
@@ -53,6 +67,19 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
                                          (RedisModuleEventCallback) ModuleChangeHandler);
     }
     return 0;
+}
+
+RedisJSON JSON_GetJsonFromHandleCompat(RedisModuleKey *key) {
+  if (!japi || !key) {
+    return NULL;
+  }
+  // getJsonFromHandle is a V8 addition; only read that vtable slot when the
+  // acquired API is V8+. On V7, fall back to the module value after confirming
+  // the key holds JSON.
+  if (japi_ver >= 8) {
+    return japi->getJsonFromHandle(key);
+  }
+  return japi->isJSON(key) ? RedisModule_ModuleTypeGetValue(key) : NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

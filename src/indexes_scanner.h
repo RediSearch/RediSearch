@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include "redismodule.h"
+#include "util/redis_mem_info.h"
 #include "util/references.h"
 
 #ifdef __cplusplus
@@ -63,14 +64,25 @@ extern struct IndexesScanner *global_spec_scanner;
 
 typedef struct IndexesScanner {
   bool global;
+  // Cancellation latch, read by scan workers that may not hold the GIL. Access ONLY through
+  // IndexesScanner_IsCancelled / IndexesScanner_Cancel (relaxed atomics); a plain read/write
+  // would race the writer and could be hoisted out of a wait loop.
   bool cancelled;
   bool isDebug;
   bool scanFailedOnOOM;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
+  // The key the sync strategy stopped at on OOM, reported as FT.INFO's last indexing error key.
+  // Always NULL for the async strategy: it keeps indexing the key that observed the pressure, so
+  // that key is not the one left out — the omitted documents are the ones its abort never reached.
+  RedisModuleString *OOMkey;
 } IndexesScanner;
+
+// Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.
+static inline bool IndexesScanner_IsCancelled(const IndexesScanner *scanner) {
+  return __atomic_load_n(&scanner->cancelled, __ATOMIC_RELAXED);
+}
 
 typedef struct DebugIndexesScanner {
   IndexesScanner base;
@@ -88,16 +100,22 @@ IndexesScanner *IndexesScanner_NewGlobal();
 IndexesScanner *IndexesScanner_New(StrongRef global_ref);
 DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
 void IndexesScanner_Free(IndexesScanner *scanner);
+// Latch the cancellation flag (relaxed-atomic store). The only supported way to set `cancelled`.
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
+// Fraction (0..1) of the keyspace indexed, for FT.INFO's percent_indexed. While a scan is
+// active it is scannedKeys/DbSize (clamped to 1.0). With no active scanner it is 1.0 —
+// except when the last background build aborted on OOM (sp->scan_failed_OOM), where the
+// key count that build reached (sp->scan_failed_OOM_scanned_keys) is divided by the current
+// DbSize so an incomplete index is not reported as complete.
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 // Record a background-indexing failure on the scanner's spec so it is visible to
 // clients: records `error` as the spec's last indexing error (surfaced in FT.INFO
 // "Index Errors"), so a partially-built index is not silently treated as complete.
 // `error` must carry no user data. The offending key is taken from scanner->OOMkey, which
-// may be NULL when no single key is to blame (the async engine-OOM case, or an I/O
+// may be NULL when no single key is to blame (any async-scan failure, or an I/O
 // error). When `oom` is true it additionally sets the spec's scan_failed_OOM flag
 // (consulted at query time to warn results may be incomplete, aggregated in FT.INFO) and
 // raises the OOM background-index status flag; pass false for non-OOM failures (e.g. a
@@ -119,11 +137,21 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
 // false if within bounds or the limit is 0. Shared by both reindex strategies.
 bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
 
-// Like isBgIndexingMemoryOverLimit, but for the async background scan (disk indexes on
-// Flex). Compares the higher of the RAM-only and total (RAM + flash) usage ratios against
-// indexingMemoryLimit %, so indexing backs off when either budget is under pressure.
-// Returns false when the limit is 0.
-bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
+// Which Flex budget the async background scan is over, and therefore whether pausing can help.
+typedef enum {
+  // Memory is OK, no limit reached
+  BG_INDEXING_MEM_OK = 0,
+  // RAM memory usage is above the limits, throttling may give the chance for regular swap-out to release memory and allow to continue
+  BG_INDEXING_MEM_THROTTLE,
+  // Total memory is exhausted, we cannot continue
+  BG_INDEXING_MEM_EXHAUSTED,
+} BgIndexingMemVerdict;
+
+// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit. Reads one INFO sample and
+// classifies it; see BgIndexingMemVerdict for what each outcome means. Unlike the sync check this
+// does not consult indexingMemoryLimit: each budget is tested against itself.
+// GIL must be held before calling this function.
+BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

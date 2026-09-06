@@ -89,7 +89,7 @@ mod tests {
     extern "C" fn vec_writer(ctx: *mut c_void, buf: *const c_void, len: size_t) {
         unsafe {
             let v = &mut *(ctx as *mut Vec<u8>);
-            let src = core::slice::from_raw_parts(buf as *const u8, len as usize);
+            let src = core::slice::from_raw_parts(buf as *const u8, len);
             v.extend_from_slice(src);
         }
     }
@@ -97,7 +97,7 @@ mod tests {
     extern "C" fn vec_reader(ctx: *mut c_void, buf: *mut c_void, len: size_t) -> c_int {
         unsafe {
             let v = &mut *(ctx as *mut Vec<u8>);
-            let want = len as usize;
+            let want = len;
             if v.len() < want {
                 return 1;
             }

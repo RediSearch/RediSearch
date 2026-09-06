@@ -43,11 +43,6 @@ typedef struct {
   /* if not NULL, this value indicate to which shard the command should be sent.*/
   char *targetShard;
 
-  /* Index of the target shard in the cluster's shards array when command is created. Useful to keep track of responses.
-  Can't be used to know where to send the command, since the cluster's shards array can change. In case of new shards added, ASM should control not to trim
-  the slots from the old shard until all cursors are terminated (expected time limit for this). */
-  uint16_t targetShardIdx;
-
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;
 
@@ -73,10 +68,10 @@ typedef struct {
  * allocated on the stack */
 void MRCommand_Free(MRCommand *cmd);
 
-/* Create a new command from an argv list of strings */
-MRCommand MR_NewCommandArgv(int argc, const char **argv);
-/* Variadic creation of a command from a list of strings */
-MRCommand MR_NewCommand(int argc, ...);
+/* Create a new command from an argv list with explicit per-argument lengths;
+ * binary-safe. Arguments whose bytes can come from a client (query text,
+ * user-defined names) must carry their true length — never strlen. */
+MRCommand MR_NewCommandArgvLen(int argc, const char **argv, const size_t *lens);
 /* Create a command from a list of redis strings */
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
@@ -139,6 +134,9 @@ static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t
 
 /** Copy from an argument of an existing command */
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
+/* Append a string literal; length computed at compile time. The "" concatenation
+ * rejects anything that is not a string literal. */
+#define MRCommand_AppendLiteral(cmd, lit) MRCommand_Append((cmd), (lit), sizeof("" lit "") - 1)
 void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr);
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n);
 

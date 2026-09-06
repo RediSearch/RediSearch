@@ -7,20 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <vector>
+#include <string>
+#include <algorithm>
+
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
-#include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "aggregate/reducers/collect_parse.h"
-#include "util/arr.h"
 #include "util/stringify.h"
 #include "dist_plan.h"
 #include "config.h"
-
-#include <vector>
-#include <string>
-#include <sstream>
-#include <algorithm>
+#include "aggregate/expr/expression.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "spec.h"
+#include "util/dllist.h"
+#include "util/references.h"
 
 // Minimum block size for the reducer-rewriter scratch allocator
 // (`ReducerDistCtx::alloc`).
@@ -127,7 +142,8 @@ struct ReducerDistCtx {
   }
 
   const char *srcarg(size_t n) const {
-    auto *s = (const char *)srcReducer->args.objs[n];
+    // Type-aware: hybrid tail plans carry RString-backed arg cursors.
+    const char *s = AC_StringArg(&srcReducer->args, n, NULL);
     return stripAtPrefix(s);
   }
 };
@@ -365,7 +381,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
  *
  * Both halves of the split GROUPBY forward the original COLLECT argv pointers
  * verbatim; only what actually differs between the two sides is synthesized.
- * FIELDS / SORTBY tokens are reused directly from `src->args.objs` — no
+ * FIELDS / SORTBY tokens reuse the source tokens' own string buffers — no
  * per-token duplication.
  *
  * Limited path: whenever the user supplied `LIMIT offset count`, the remote
@@ -393,13 +409,14 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
-  auto srcObjs = (const char **)src->args.objs;
+  // Source tokens are read type-aware (the plan cursor may be RString-backed);
+  // each returned buffer is owned by the request for its whole lifetime.
 
   // Locate the LIMIT offset slot in the original argv.
-  size_t limitValIdx = SIZE_MAX;  // index into srcObjs of the LIMIT offset token
+  size_t limitValIdx = SIZE_MAX;  // index of the LIMIT offset token
   if (args.has_limit) {
     for (size_t i = 0; i + 2 < srcArgc; i++) {
-      if (!strcasecmp(srcObjs[i], "LIMIT")) {
+      if (!strcasecmp(AC_StringArg(&src->args, i, NULL), "LIMIT")) {
         limitValIdx = i + 1;
         break;
       }
@@ -413,9 +430,16 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * remoteTotal,
       std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
-  // Shallow copy: only pointers are copied; the strings stay owned by src->args.
-  // Overwriting a slot below replaces the pointer, it does not free the string.
-  memcpy(remoteObjs + 1, srcObjs, srcArgc * sizeof(char *));
+  // Shallow copy: only pointers are copied; the strings stay owned by src->args
+  // (or are static). Option keywords are normalized so that case-variant
+  // duplicate reducers dedup. User data is never normalized: in the (already
+  // validated) COLLECT grammar it only appears `@`-prefixed, as a number, or as
+  // `*`, so a bare alphabetic token can only be an option keyword.
+  for (size_t i = 0; i < srcArgc; i++) {
+    const char *tok = AC_StringArg(&src->args, i, NULL);
+    const char *normalized = CollectArgs_NormalizedKeyword(tok);
+    remoteObjs[1 + i] = normalized ? normalized : tok;
+  }
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
     remoteObjs[1 + limitValIdx + 1] =
@@ -439,7 +463,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * localTotal,
       std::max(sizeof(char *) * localTotal, DIST_REDUCER_BLOCK_SIZE));
   localObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // unchanged count
-  memcpy(localObjs + 1, srcObjs, srcArgc * sizeof(char *));
+  for (size_t i = 0; i < srcArgc; i++) {
+    localObjs[1 + i] = AC_StringArg(&src->args, i, NULL);
+  }
   localObjs[srcArgc + 1] = "AS";          // static literal, outside <nargs>
   localObjs[srcArgc + 2] = src->alias;    // owned by src; outlives this call
   ArgsCursor localArgs;

@@ -48,3 +48,6 @@ endforeach()
 # Standalone micro-benchmarks (no iterator/index_utils dependency).
 add_executable(benchmark_unicode_tolower benchmark_unicode_tolower.cpp)
 target_link_libraries(benchmark_unicode_tolower redisearch redismock benchmark::benchmark)
+
+add_executable(benchmark_trie benchmark_trie.cpp)
+target_link_libraries(benchmark_trie redisearch redismock benchmark::benchmark)

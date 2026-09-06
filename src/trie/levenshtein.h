@@ -53,6 +53,9 @@ typedef struct {
     int max;
 } SparseAutomaton;
 
+/* The largest edit distance an automaton may be built for. */
+#define MAX_LEV_DISTANCE 4
+
 struct dfaEdge;
 
 /* dfaNode is DFA graph node constructed using the Levenshtein automaton */

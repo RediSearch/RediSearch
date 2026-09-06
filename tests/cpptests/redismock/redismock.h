@@ -34,11 +34,13 @@ std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage();
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name);
+bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId);
 int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
                         uint64_t *meta, int encver);
 void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
                          uint64_t *meta);
 void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta);
+bool RMCK_KeyMetaHasRename(RedisModuleKeyMetaClassId classId);
 std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
 
 // Configure the mock cluster topology used by RedisModule_GetClusterNodesList /

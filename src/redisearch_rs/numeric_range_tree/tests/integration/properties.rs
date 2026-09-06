@@ -30,7 +30,7 @@ mod proptests {
                 // Ensure strictly increasing doc IDs.
                 let doc_id = last_id + (*raw_id).max(1);
                 last_id = doc_id;
-                tree.add(doc_id, *value, false, 0);
+                tree.add(doc_id, *value, false, false, 0);
                 unique_ids.insert(doc_id);
             }
 
@@ -46,7 +46,7 @@ mod proptests {
         ) {
             let mut tree = NumericRangeTree::new(false);
             for (i, value) in values.iter().enumerate() {
-                tree.add((i + 1) as u64, *value, false, 0);
+                tree.add((i + 1) as u64, *value, false, false, 0);
             }
 
             let filter_max = filter_min + filter_width;
@@ -77,7 +77,7 @@ mod proptests {
             // runs after every `add` under the `unittest` feature) validates
             // balance at every node automatically.
             for (i, value) in values.iter().enumerate() {
-                tree.add((i + 1) as u64, *value, false, 0);
+                tree.add((i + 1) as u64, *value, false, false, 0);
             }
         }
 
@@ -89,7 +89,7 @@ mod proptests {
         ) {
             let mut tree = NumericRangeTree::new(false);
             for (i, value) in values.iter().enumerate() {
-                tree.add((i + 1) as u64, *value, false, 0);
+                tree.add((i + 1) as u64, *value, false, false, 0);
             }
 
             let filter_max = filter_min + filter_width;
@@ -137,7 +137,7 @@ mod proptests {
             let mut last_mem = tree.mem_usage();
 
             for (i, value) in values.iter().enumerate() {
-                tree.add((i + 1) as u64, *value, false, 0);
+                tree.add((i + 1) as u64, *value, false, false, 0);
                 let current_mem = tree.mem_usage();
                 assert!(
                     current_mem >= last_mem,
@@ -156,7 +156,7 @@ mod proptests {
             let mut tree = NumericRangeTree::new(false);
             for i in 1..=num_entries {
                 // Use varied values to trigger splits.
-                tree.add(i, (i % 50) as f64, false, max_depth_range);
+                tree.add(i, (i % 50) as f64, false, false, max_depth_range);
             }
 
             let delete_threshold = (num_entries as f64 * delete_ratio) as u64;

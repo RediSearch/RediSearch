@@ -14,8 +14,6 @@
 //! You can create a [`WildcardPattern`] from a pattern using [`WildcardPattern::parse`] and
 //! then rely on [`WildcardPattern::matches`] to determine if a string matches the pattern.
 
-use std::borrow::Cow;
-
 use memchr::arch::all::is_prefix;
 
 mod fmt;
@@ -361,33 +359,81 @@ impl<'pattern> WildcardPattern<'pattern> {
     }
 }
 
-/// Remove backslash escape sequences from a wildcard pattern.
+/// The index [`remove_escape_in_place`] starts rewriting at, or [`None`] when the
+/// pattern needs no rewriting at all.
 ///
-/// Returns [`Cow::Borrowed`] when no escapes are present (zero-copy fast
-/// path), or [`Cow::Owned`] with escapes removed.
-pub fn remove_escape(s: &str) -> Cow<'_, str> {
-    let bytes = s.as_bytes();
-    let Some(first_escape) = bytes.iter().position(|&b| b == b'\\') else {
-        return Cow::Borrowed(s);
+/// Nothing before the first escape moves, so that is where a rewrite begins — and
+/// a NUL ends the pattern, so that is where one begins too. The asymmetry is that
+/// a NUL only counts from index 1 onwards: this scan tests it as a
+/// continue-condition *after* advancing, so a pattern that starts with one is
+/// carried past it and keeps it. That is inherited from the C original, whose
+/// `do { … } while (++i < len && str[i] != '\0')` has the same shape, and it is
+/// only reachable through a query parameter.
+///
+/// Empty patterns are the caller's business; this indexes byte 0 unconditionally.
+fn rewrite_start(pattern: &[u8]) -> Option<usize> {
+    let mut i = 0;
+    loop {
+        if pattern[i] == b'\\' {
+            return Some(i);
+        }
+        i += 1;
+        if i == pattern.len() {
+            return None;
+        }
+        if pattern[i] == 0 {
+            return Some(i);
+        }
+    }
+}
+
+/// Collapse backslash escape sequences in a wildcard pattern, in place,
+/// returning the unescaped length.
+///
+/// Removal is **single-level and destructive**: `a\\b` becomes `a\b`, and
+/// applying this again would yield `ab`. Apply it at most once per pattern.
+///
+/// A NUL byte ends the pattern, escaped or not, so `a\0b` unescapes to `a` — with
+/// the one exception [`rewrite_start`] describes. That the pattern ends there at
+/// all is a consequence of working on what is ultimately a C string: a query token
+/// carries an explicit length, but everything downstream of the unescaping reads
+/// it up to its terminator.
+///
+/// A shortened pattern is re-terminated at its new end, so the result reads as a
+/// C string without the caller writing anything. A pattern that did not shorten is
+/// returned untouched: its end is where it always was, and the byte after it lies
+/// outside `pattern` — so a caller wanting a C string in that case needs its buffer
+/// to have been terminated already. Bytes beyond the terminator are unspecified
+/// scratch.
+pub fn remove_escape_in_place(pattern: &mut [u8]) -> usize {
+    if pattern.is_empty() {
+        return 0;
+    }
+    let Some(mut read) = rewrite_start(pattern) else {
+        return pattern.len();
     };
 
-    let mut result = Vec::with_capacity(bytes.len() - 1);
-    result.extend_from_slice(&bytes[..first_escape]);
-
-    let mut read = first_escape;
-    while read < bytes.len() {
-        if bytes[read] == b'\\' {
+    let mut write = read;
+    while read < pattern.len() {
+        if pattern[read] == b'\\' {
             read += 1;
-            if read >= bytes.len() {
+            // A trailing backslash escapes nothing: the pattern ends before it.
+            if read == pattern.len() {
                 break;
             }
         }
-        result.push(bytes[read]);
+        if pattern[read] == 0 {
+            break;
+        }
+        pattern[write] = pattern[read];
         read += 1;
+        write += 1;
     }
 
-    // SAFETY: removing `\` (0x5C, a single-byte ASCII character) before
-    // another byte cannot break a multi-byte UTF-8 sequence, so the
-    // output is valid UTF-8 whenever the input is.
-    Cow::Owned(String::from_utf8(result).expect("invalid UTF-8 in wildcard pattern"))
+    // In bounds because reaching here means the pattern shortened: every way out
+    // of the loop above consumes at least one byte more than it emits, and the
+    // unshortened case returned before it.
+    pattern[write] = 0;
+
+    write
 }

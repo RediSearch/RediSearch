@@ -11,12 +11,23 @@
 // Currently used during OOM conditions to return empty results with proper formatting.
 // Handles different query types (SEARCH, AGGREGATE, HYBRID) and contexts (single-shard, coordinator).
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "../module.h"
 #include "../aggregate/aggregate.h"
 #include "../hybrid/hybrid_exec.h"
 #include "rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
+#include "profile/options.h"
+#include "profile/profile.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "reply.h"
+#include "result_processor.h"
+#include "rmutil/args.h"
+#include "rs_wall_clock.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -46,7 +57,7 @@ static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
 
-    AREQ_DecrRef(req);
+    AREQ_Free(req);
     return REDISMODULE_OK;
 }
 
@@ -80,15 +91,18 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 // Uses the common helper which compiles the query to get formatting requirements.
 int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode) {
 
-    AREQ *req = AREQ_New();
+    AREQ *req = AREQ_New(argv, argc);
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
 
     int profileArgs = parseProfileArgs(argv, argc, req);
-    if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    if (profileArgs == -1) {
+        AREQ_Free(req);
+        return QueryError_ReplyAndClear(ctx, &status);
+    }
 
     if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
-        AREQ_DecrRef(req);
+        AREQ_Free(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 
@@ -119,13 +133,12 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     if (internal) {
         RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
 
+        // No profile wrapping here, even under FT.PROFILE: this reply stands in
+        // for replyWithCursors' bare cursor mapping, and the coordinator's
+        // mapping parser consumes exactly that shape. Mapping-stage profile
+        // data has no consumer — the coordinator collects shard profiles from
+        // the cursor-read replies, which a bailing shard never serves.
         RedisModule_Reply_Map(coordInfoReply); // outer/root {}
-
-        if (isProfile) {
-            // Profile wrapping: open an outer map, then nest "Results" and "Profile"
-            // inside it, consistent with search/aggregate profile reply structure.
-            Profile_PrepareMapForReply(coordInfoReply); // opens "Results" map
-        }
 
         RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
@@ -138,11 +151,6 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
             RedisModule_Reply_SimpleString(coordInfoReply, QueryWarning_Strwarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
-
-        if (isProfile) {
-            RedisModule_Reply_MapEnd(coordInfoReply); // close "Results" map
-            Profile_PrintInFormat(coordInfoReply, NULL, NULL, NULL, NULL);
-        }
 
         RedisModule_Reply_MapEnd(coordInfoReply); // close outer / root map
         RedisModule_EndReply(coordInfoReply);
@@ -188,7 +196,9 @@ int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 // Uses the common helper which compiles the query and works for both command types.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode) {
 
-    AREQ *req = AREQ_New();
+    // Transient AREQ with no blocked-client cycle: only flows through the reply-only chunk sender
+    // and AREQ_Free, neither of which needs blocked-client cycle state.
+    AREQ *req = AREQ_New(argv, argc);
     // Clock init required for profiling
     rs_wall_clock_init(&req->profileClocks.initClock);
     rs_wall_clock_init(&AREQ_QueryProcessingCtx(req)->initTime);
@@ -204,7 +214,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     ApplyProfileOptions(AREQ_QueryProcessingCtx(req), &req->reqflags, execOptions);
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
-        AREQ_DecrRef(req);
+        AREQ_Free(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 
@@ -222,7 +232,8 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 }
 
 int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal) {
-    AREQ *req = AREQ_New();
+    // Transient AREQ with no blocked-client cycle (see single_shard_common_query_reply_empty).
+    AREQ *req = AREQ_New(NULL, 0);
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
 
@@ -232,7 +243,7 @@ int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool int
     if (internal) {
         AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
     }
-    req->cursor_id = (uint64_t)cid;
+    req->base.cursorInfo.id = (uint64_t)cid;
 
     int ret = empty_sendChunk_common(ctx, req);
     QueryError_ClearError(&status);

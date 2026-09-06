@@ -13,20 +13,18 @@
 //! with support for obfuscating sensitive data via C-side obfuscation functions.
 
 use crate::Value;
-use ffi::{Obfuscate_Number, Obfuscate_Text};
 use std::{
-    ffi::CStr,
     fmt::{self, Debug},
     str,
 };
+use string_utils::obfuscation::{obfuscate_number, obfuscate_text};
 
 /// A wrapper around a [`Value`] reference that implements [`Debug`] with
 /// optional obfuscation of string and numeric values.
 ///
 /// When `obfuscate` is `true`, string and numeric values are replaced with
-/// obfuscated representations using the C-side `Obfuscate_Text` and
-/// `Obfuscate_Number` functions. Composite types (arrays, maps) recursively
-/// obfuscate their elements.
+/// obfuscated representations using [`obfuscate_text`] and [`obfuscate_number`].
+/// Composite types (arrays, maps) recursively obfuscate their elements.
 pub struct DebugFormatter<'a> {
     pub(crate) value: &'a Value,
     pub(crate) obfuscate: bool,
@@ -78,23 +76,4 @@ impl<'a> Debug for DebugFormatter<'a> {
             Value::Trio(trio) => trio.left().debug_formatter(self.obfuscate).fmt(f),
         }
     }
-}
-
-/// Returns a static string representation of the obfuscated number.
-fn obfuscate_number(number: f64) -> &'static str {
-    // SAFETY: `Obfuscate_Number` is a C function that returns a pointer to a
-    // static null-terminated string.
-    let obfuscated = unsafe { Obfuscate_Number(number) };
-    // SAFETY: The returned pointer is a valid, null-terminated, static C string.
-    unsafe { CStr::from_ptr(obfuscated) }.to_str().unwrap()
-}
-
-/// Returns a static string representation of the obfuscated text.
-fn obfuscate_text(text: &[u8]) -> &'static str {
-    // SAFETY: `Obfuscate_Text` expects a `*const c_char` pointer. `text` is a
-    // valid byte slice, and the function returns a pointer to a static
-    // null-terminated string.
-    let obfuscated = unsafe { Obfuscate_Text(text.as_ptr().cast()) };
-    // SAFETY: The returned pointer is a valid, null-terminated, static C string.
-    unsafe { CStr::from_ptr(obfuscated) }.to_str().unwrap()
 }

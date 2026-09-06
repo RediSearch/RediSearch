@@ -17,7 +17,7 @@ use rqe_iterators::{
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
     wildcard::Wildcard,
 };
-use rqe_iterators_test_utils::MockContext;
+use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
 use crate::utils::{MOCK_DISK_WILDCARD_TOP_ID, Mock, init_enterprise_iterators};
 
@@ -40,9 +40,10 @@ mod optional_reducer_tests {
         // - `ctx` outlives the `new_optional_iterator` call.
         let result = unsafe { new_optional_iterator(Empty, 1.0, ctx.qctx(), MAX_DOC_ID) };
 
-        let NewOptionalIterator::WildcardFallback(mut wc) = result else {
+        let NewOptionalIterator::WildcardFallback(wc) = result else {
             panic!("expected WildcardFallback, got a different variant");
         };
+        let mut wc = ContractChecker::new(wc);
 
         // The fallback wildcard covers all documents up to maxDocId.
         assert_eq!(wc.num_estimated(), MAX_DOC_ID as usize);
@@ -80,9 +81,10 @@ mod optional_reducer_tests {
         let result =
             unsafe { new_optional_iterator(child, NEW_WEIGHT, NonNull::dangling(), MAX_DOC_ID) };
 
-        let NewOptionalIterator::WildcardPassthrough(mut child) = result else {
+        let NewOptionalIterator::WildcardPassthrough(child) = result else {
             panic!("expected WildcardPassthrough, got a different variant");
         };
+        let mut child = ContractChecker::new(child);
 
         // The factory must apply the new weight to the current result.
         let current = child.current().expect("wildcard current must be Some");
@@ -132,9 +134,10 @@ mod optional_reducer_tests {
         let result =
             unsafe { new_optional_iterator(child, NEW_WEIGHT, NonNull::dangling(), MAX_DOC_ID) };
 
-        let NewOptionalIterator::WildcardPassthrough(mut child) = result else {
+        let NewOptionalIterator::WildcardPassthrough(child) = result else {
             panic!("expected WildcardPassthrough, got a different variant");
         };
+        let mut child = ContractChecker::new(child);
 
         // The factory must return the same iterator type (C++ asserts pointer identity).
         assert_eq!(child.type_(), IteratorType::InvIdxWildcard);

@@ -170,6 +170,19 @@ Violations:
 Exceptions: symbols that are not Rust items (e.g. C function names, Redis command names,
 field names used in prose) do not need intra-doc links.
 
+Intra-doc links are the one docs rule with an objective pass/fail, which is why it is
+spelled out here. [`/rust-docs-guidelines`](../rust-docs-guidelines/SKILL.md) is the full
+standard — load it and hold the diff's documentation against all of it, not just the
+linking rule. Surface improvement opportunities as well as outright errors: documentation
+that explains how instead of why, re-explains a concept that already has a canonical home,
+hard-codes a constant's value, or leaves a new public item undocumented is worth raising
+even when nothing in it is false.
+
+Documentation findings are suggestions rather than blockers unless the documentation is
+actively wrong or misleading, in which case treat it as a correctness issue. When
+reviewing a crate's documentation is the goal in itself, rather than a change under
+review, [`/review-rust-docs`](../review-rust-docs/SKILL.md) is the more thorough pass.
+
 #### 3e. Security and robustness
 
 Treat security-sensitive Rust issues as in scope for automated review. Prioritize findings
@@ -202,6 +215,63 @@ Check especially for:
 For any security-sensitive finding, state the concrete impact and the input or code path
 that can trigger it.
 
+#### 3f. Don't reach Rust-native items through the `ffi` crate
+
+The `ffi::` path is reserved for **actual C items** — types and functions defined
+in C and bound via bindgen (e.g. `ffi::RSToken`, `ffi::Redis_OpenReaderIndex`,
+`ffi::IndexSpec`). Rust code should never reach a Rust-native item through `ffi`
+when it can call the real Rust API directly. Two forms of this violation:
+
+**Re-exported types.** `ffi` `pub use`s some types that have a real Rust
+implementation in another crate (e.g. `ffi/src/lib.rs` doing
+`pub use query_term::{RSQueryTerm, RSTokenFlags};`). Reference these through their
+**owning crate** (`query_term::RSQueryTerm`), not the re-export (`ffi::RSQueryTerm`).
+To classify an `ffi::Foo`, grep the `ffi` crate for its definition:
+`grep -n "Foo" src/redisearch_rs/ffi/src/*.rs`. A `pub use <crate>::Foo;` line
+means it is Rust-native and should be referenced as `<crate>::Foo`.
+
+**C-ABI entrypoint functions.** Functions in `c_entrypoint/*_ffi/` crates are
+Rust functions exported to C (`#[no_mangle] pub extern "C" fn`), usually thin
+shims over a pure-Rust API. Rust calling one of these through its `ffi` symbol is
+a pointless Rust → C-ABI → Rust round-trip that also re-crosses the FFI boundary
+(losing type safety, taking raw pointers, degrading errors to sentinels like
+`NAN`/null). Call the underlying Rust API instead. For example, prefer
+`geo::hash::haversine_distance(..)` over `ffi::geohashGetDistance(..)`, whose body
+is just a wrapper around it. To spot these, grep `c_entrypoint/` for the symbol:
+`grep -rn "fn geohashGetDistance" src/redisearch_rs/c_entrypoint`; a
+`pub extern "C" fn` hit means the function is Rust-native, and the pure-Rust API
+it wraps should be called directly.
+
+In both cases the `ffi::` path obscures that the item is Rust-native (implying a
+C/FFI boundary that isn't there) and is inconsistent with the crate that defines
+it and with tests that already name it directly.
+
+Violations (report as suggestions):
+- `ffi::Foo` used for a type that `ffi` re-exports from another Rust crate.
+- A call to `ffi::some_fn` whose definition is a `pub extern "C" fn` in a
+  `c_entrypoint/*_ffi/` crate, instead of calling the pure-Rust API it wraps.
+
+In either case add the owning crate as a dependency if it isn't one already.
+
+#### 3g. Test coverage
+
+New or changed behavior must be covered by tests, and those tests must follow
+[`/rust-tests-guidelines`](../rust-tests-guidelines/SKILL.md) — load it and judge the
+diff's tests against it.
+
+[`/check-rust-coverage`](../check-rust-coverage/SKILL.md) measures this precisely, but it
+runs `cargo llvm-cov`. Use it only when you own the build; if you were told to stay
+read-only, or another agent may be building concurrently, do not run it — reason from the
+diff and report unmeasured coverage as unmeasured rather than guessing either way.
+
+Violations:
+- New or changed behavior with no test exercising it.
+- Rust code paths that are uncovered by any test.
+- A test whose placement is inconsistent with the layout its own crate already uses.
+  Both layouts in the guidelines' *Code organization* section are valid; do not report a
+  crate for using the one it has always used.
+- A test that deviates from the guidelines in any other way.
+
 ### 4. Porting-mode checks (only when porting mode = true)
 
 #### 4a. Semantic equivalence
@@ -215,24 +285,15 @@ Compare the new Rust implementation against the original C code and verify:
 
 Violations: any semantic divergence that could change observable behavior.
 
-#### 4b. Test coverage
+#### 4b. Test parity with the C implementation
 
-Identify all C/C++ tests that exercise the ported module (look under `tests/` for files
-that reference the module's functions or types).
-
-For each C/C++ test, verify that an equivalent Rust test exists that covers the same
-scenario. Use [`/check-rust-coverage`](../check-rust-coverage/SKILL.md) to confirm
-line-level coverage of the new Rust code.
-
-**Test placement rules:**
-- Public (`pub`) functions must be tested in `tests/integration/` (integration tests).
-- `pub(crate)` and private functions should be tested in `#[cfg(test)] mod test`
-  (unit tests inside the source file), since integration tests cannot access them.
+This is in addition to 3g, which applies to every Rust change. Here the bar is parity:
+identify all C/C++ tests that exercise the ported module (look under `tests/` for files
+that reference the module's functions or types), and verify that an equivalent Rust test
+exists covering the same scenario.
 
 Violations:
 - A C/C++ test scenario that has no corresponding Rust test.
-- Rust code paths that are uncovered by any test.
-- Public functions tested only in `mod test` instead of `tests/integration/`.
 
 ### 5. Emit the report
 
@@ -256,6 +317,9 @@ At the end, provide a short summary:
 
 Blocking violations: any issue in 3a, 3b, 4a, or 4b, plus any 3e issue that
 can cause memory unsoundness, crashes, data exposure, unauthorized access, or
-denial of service.
+denial of service, plus the first two 3g violations (behavior with no test, and
+uncovered code paths).
 Suggestions: issues in 3c (debug-assert pre-conditions), 3d (intra-doc links),
-and low-risk robustness improvements in 3e.
+3f (reaching Rust-native types/functions through `ffi` instead of their owning
+crate), low-risk robustness improvements in 3e, and tests that exist but are
+misplaced or otherwise deviate from the guidelines (3g).

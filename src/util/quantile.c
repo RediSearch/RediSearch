@@ -6,13 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <float.h>
 #include <stdio.h>
-#include "util/block_alloc.h"
+
 #include "quantile.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"

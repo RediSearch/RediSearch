@@ -48,6 +48,20 @@ void printMRCommand(const MRCommand* cmd) {
     printf("\n");
 }
 
+// Build a command from strings, standing in for the deleted variadic
+// MR_NewCommand; production code must pass explicit lengths instead.
+MRCommand newCommand(std::initializer_list<std::string> args) {
+    std::vector<const char*> argv;
+    std::vector<size_t> lens;
+    argv.reserve(args.size());
+    lens.reserve(args.size());
+    for (const std::string& s : args) {
+        argv.push_back(s.data());
+        lens.push_back(s.size());
+    }
+    return MR_NewCommandArgvLen((int)argv.size(), argv.data(), lens.data());
+}
+
 bool verifyCommandArgs(const MRCommand* cmd, const std::vector<std::string>& expected) {
     if (cmd->num != (int)expected.size()) {
         return false;
@@ -170,14 +184,13 @@ protected:
 // Command Building Tests
 // ============================================================================
 
-// Test basic command creation with MR_NewCommand
+// Test basic command creation
 TEST_F(MRCommandTest, testBasicCommandCreation) {
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+    MRCommand cmd = newCommand({"FT.SEARCH", "test_index", "hello"});
 
     EXPECT_EQ(cmd.num, 3);
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.SEARCH", "test_index", "hello"}));
     EXPECT_EQ(cmd.targetShard, nullptr);
-    EXPECT_EQ(cmd.targetShardIdx, 0);
     EXPECT_FALSE(cmd.forCursor);
     EXPECT_FALSE(cmd.forProfiling);
     EXPECT_FALSE(cmd.depleted);
@@ -185,22 +198,22 @@ TEST_F(MRCommandTest, testBasicCommandCreation) {
     MRCommand_Free(&cmd);
 }
 
-// Test command creation from argv
+// Test command creation from argv with explicit lengths; the query argument
+// carries an embedded NUL that a strlen-based construction would truncate.
 TEST_F(MRCommandTest, testCommandCreationFromArgv) {
-    const char* argv[] = {"FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category"};
-    MRCommand cmd = MR_NewCommandArgv(6, argv);
+    const std::string query("he\0llo", 6);
+    MRCommand cmd = newCommand({"FT.AGGREGATE", "myindex", query, "GROUPBY", "1", "@category"});
 
     EXPECT_EQ(cmd.num, 6);
-    EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category"}));
+    EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.AGGREGATE", "myindex", query, "GROUPBY", "1", "@category"}));
 
     MRCommand_Free(&cmd);
 }
 
 // Test command copying
 TEST_F(MRCommandTest, testCommandCopy) {
-    MRCommand original = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+    MRCommand original = newCommand({"FT.SEARCH", "test_index", "hello"});
     original.targetShard = rm_strdup("shard_1");
-    original.targetShardIdx = 1;
     original.forCursor = true;
     original.protocol = 3;
 
@@ -209,7 +222,6 @@ TEST_F(MRCommandTest, testCommandCopy) {
     EXPECT_EQ(copy.num, original.num);
     EXPECT_TRUE(verifyCommandArgs(&copy, {"FT.SEARCH", "test_index", "hello"}));
     EXPECT_STREQ(copy.targetShard, original.targetShard);
-    EXPECT_EQ(copy.targetShardIdx, original.targetShardIdx);
     EXPECT_EQ(copy.forCursor, original.forCursor);
     EXPECT_EQ(copy.protocol, original.protocol);
 
@@ -219,7 +231,7 @@ TEST_F(MRCommandTest, testCommandCopy) {
 
 // Test appending arguments to a command
 TEST_F(MRCommandTest, testCommandAppend) {
-    MRCommand cmd = MR_NewCommand(2, "FT.SEARCH", "myindex");
+    MRCommand cmd = newCommand({"FT.SEARCH", "myindex"});
 
     MRCommand_Append(&cmd, "hello", 5);
     MRCommand_Append(&cmd, "LIMIT", 5);
@@ -234,7 +246,7 @@ TEST_F(MRCommandTest, testCommandAppend) {
 
 // Test inserting arguments at specific positions
 TEST_F(MRCommandTest, testCommandInsert) {
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", "hello");
+    MRCommand cmd = newCommand({"FT.SEARCH", "myindex", "hello"});
 
     // Insert LIMIT arguments at position 3
     MRCommand_Insert(&cmd, 3, "LIMIT", 5);
@@ -248,7 +260,7 @@ TEST_F(MRCommandTest, testCommandInsert) {
 
 // Test replacing arguments in a command
 TEST_F(MRCommandTest, testCommandReplaceArg) {
-    MRCommand cmd = MR_NewCommand(4, "FT.SEARCH", "myindex", "hello", "world");
+    MRCommand cmd = newCommand({"FT.SEARCH", "myindex", "hello", "world"});
     // Replace the query
     MRCommand_ReplaceArg(&cmd, 2, "goodbye", 7);
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.SEARCH", "myindex", "goodbye", "world"}));
@@ -257,7 +269,7 @@ TEST_F(MRCommandTest, testCommandReplaceArg) {
 
 // Test setting command prefix
 TEST_F(MRCommandTest, testCommandSetPrefix) {
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", "hello");
+    MRCommand cmd = newCommand({"FT.SEARCH", "myindex", "hello"});
     MRCommand_SetPrefix(&cmd, "_FT");
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"_FT.SEARCH", "myindex", "hello"}));
     MRCommand_Free(&cmd);
@@ -265,7 +277,7 @@ TEST_F(MRCommandTest, testCommandSetPrefix) {
 
 // Test replacing command prefix when one already exists
 TEST_F(MRCommandTest, testCommandReplacePrefixExisting) {
-    MRCommand cmd = MR_NewCommand(3, "_FT.SEARCH", "myindex", "hello");
+    MRCommand cmd = newCommand({"_FT.SEARCH", "myindex", "hello"});
     MRCommand_SetPrefix(&cmd, "NEW");
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"NEW.SEARCH", "myindex", "hello"}));
     MRCommand_Free(&cmd);
@@ -278,7 +290,7 @@ TEST_F(MRCommandTest, testCommandReplacePrefixExisting) {
 // Test that slot range info is added to different types of commands
 TEST_F(MRCommandTest, testAddSlotRangeInfoToHybridCommand) {
     // Create a hybrid command
-    MRCommand cmd = MR_NewCommand(7, "_FT.HYBRID", "test_index", "SEARCH", "hello", "VSIM", "@vector", "data");
+    MRCommand cmd = newCommand({"_FT.HYBRID", "test_index", "SEARCH", "hello", "VSIM", "@vector", "data"});
     MRCommand_PrepareForSlotInfo(&cmd, 7); // Prepare for slot info insertion at the end
     MRCommand_SetSlotInfo(&cmd, testSlotArray);
     ASSERT_EQ(SlotRangeInfoIndex(&cmd), 7) << "Hybrid command should contain slot range information";
@@ -289,7 +301,7 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToHybridCommand) {
 TEST_F(MRCommandTest, testAddSlotRangeInfoToSearchCommand) {
     uint32_t insertPos = 3; // After index name and query
     // Create a FT.SEARCH command
-    MRCommand cmd = MR_NewCommand(5, "FT.SEARCH", "myindex", "hello", "LIMIT", "10");
+    MRCommand cmd = newCommand({"FT.SEARCH", "myindex", "hello", "LIMIT", "10"});
     MRCommand_PrepareForSlotInfo(&cmd, insertPos);
     MRCommand_SetSlotInfo(&cmd, testSlotArray);
     ASSERT_EQ(SlotRangeInfoIndex(&cmd), insertPos) << "FT.SEARCH command should contain slot range information";
@@ -308,7 +320,7 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToSearchCommand) {
 // Test that slot range info is added to FT.AGGREGATE commands
 TEST_F(MRCommandTest, testAddSlotRangeInfoToAggregateCommand) {
     // Create a FT.AGGREGATE command
-    MRCommand cmd = MR_NewCommand(6, "FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category");
+    MRCommand cmd = newCommand({"FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category"});
     MRCommand_PrepareForSlotInfo(&cmd, 4); // Insert before GROUPBY
     MRCommand_SetSlotInfo(&cmd, testSlotArray);
     ASSERT_EQ(SlotRangeInfoIndex(&cmd), 4) << "FT.AGGREGATE command should contain slot range information";
@@ -381,7 +393,7 @@ INSTANTIATE_TEST_SUITE_P(
 // Parameterized test for adding slot range info
 TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfo) {
     // Create a command
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+    MRCommand cmd = newCommand({"FT.SEARCH", "test_index", "hello"});
     MRCommand_PrepareForSlotInfo(&cmd, 3); // Prepare for slot info insertion at position 3
     MRCommand_SetSlotInfo(&cmd, testSlotArray);
 
@@ -399,7 +411,7 @@ TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfo) {
 // Parameterized test for round-trip slot range serialization
 TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTrip) {
     // Create a command with slot range info
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+    MRCommand cmd = newCommand({"FT.SEARCH", "test_index", "hello"});
     MRCommand_PrepareForSlotInfo(&cmd, 3); // Prepare for slot info insertion at position 3
     MRCommand_SetSlotInfo(&cmd, testSlotArray);
 

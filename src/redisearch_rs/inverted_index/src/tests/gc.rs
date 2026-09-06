@@ -33,6 +33,7 @@ fn index_block_repair_delete() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
+        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -44,7 +45,7 @@ fn index_block_repair_delete() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -64,6 +65,7 @@ fn index_block_repair_unchanged() {
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
+        expiration_bits: Default::default(),
     };
 
     fn cb(_doc_id: DocId) -> bool {
@@ -75,7 +77,7 @@ fn index_block_repair_unchanged() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -90,6 +92,7 @@ fn index_block_repair_some_deletions() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
+        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -101,7 +104,7 @@ fn index_block_repair_some_deletions() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -113,6 +116,7 @@ fn index_block_repair_some_deletions() {
                 last_doc_id: 11,
                 num_entries: 1,
                 buffer: encode_ids!(Dummy, 11),
+                expiration_bits: Default::default(),
             }],
             n_unique_docs_removed: 2
         })
@@ -200,6 +204,7 @@ fn index_block_repair_delta_too_big() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
+        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -211,7 +216,7 @@ fn index_block_repair_delta_too_big() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<SmallDeltaDummy>::default(),
+            PhantomData::<SmallDeltaDummy>,
         )
         .unwrap();
 
@@ -234,6 +239,7 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 10,
                     last_doc_id: 10,
+                    expiration_bits: Default::default(),
                 },
                 IndexBlock {
                     buffer: {
@@ -250,6 +256,7 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 42,
                     last_doc_id: 42,
+                    expiration_bits: Default::default(),
                 }
             ],
             n_unique_docs_removed: 1
@@ -270,24 +277,28 @@ fn ii_scan_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
+            expiration_bits: Default::default(),
         },
     ];
 
@@ -322,6 +333,7 @@ fn ii_scan_gc() {
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
+                            expiration_bits: Default::default(),
                         }],
                         n_unique_docs_removed: 1
                     },
@@ -340,12 +352,14 @@ fn ii_scan_gc_no_change() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -375,24 +389,28 @@ fn ii_apply_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
+            expiration_bits: Default::default(),
         },
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -423,6 +441,7 @@ fn ii_apply_gc() {
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
+                    expiration_bits: Default::default(),
                 }],
                 n_unique_docs_removed: 2,
             },
@@ -436,12 +455,14 @@ fn ii_apply_gc() {
                         num_entries: 1,
                         first_doc_id: 40,
                         last_doc_id: 40,
+                        expiration_bits: Default::default(),
                     },
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 72),
                         num_entries: 1,
                         first_doc_id: 72,
                         last_doc_id: 72,
+                        expiration_bits: Default::default(),
                     },
                 ],
                 n_unique_docs_removed: 1,
@@ -481,34 +502,38 @@ fn ii_apply_gc() {
                 num_entries: 1,
                 first_doc_id: 21,
                 last_doc_id: 21,
+                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 30),
                 num_entries: 1,
                 first_doc_id: 30,
                 last_doc_id: 30,
+                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 40),
                 num_entries: 1,
                 first_doc_id: 40,
                 last_doc_id: 40,
+                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 72),
                 num_entries: 1,
                 first_doc_id: 72,
                 last_doc_id: 72,
+                expiration_bits: Default::default(),
             },
         ]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // The first, second and fourth block was removed totaling 184 bytes
-            bytes_freed: 184,
-            // The third and fifth block was split making 168 new bytes
-            bytes_allocated: 168,
+            // The first, second and fourth block were removed.
+            bytes_freed: 208,
+            // The third and fifth block were split into new blocks.
+            bytes_allocated: 192,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
             block_count_delta: 0,
@@ -526,12 +551,14 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            expiration_bits: Default::default(),
         },
     ];
 
@@ -561,6 +588,7 @@ fn ii_apply_gc_last_block_updated() {
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
+                    expiration_bits: Default::default(),
                 }],
                 n_unique_docs_removed: 2,
             },
@@ -585,7 +613,7 @@ fn ii_apply_gc_last_block_updated() {
         ii.memory_usage(),
         24 // Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
+        + IndexBlock::STACK_SIZE // Size of the index blocks
         + 16 // Size of the buffer of the first index block
     );
 
@@ -597,13 +625,14 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            expiration_bits: Default::default(),
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
             // Freed only the first block
-            bytes_freed: 56,
+            bytes_freed: 64,
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -628,12 +657,14 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            expiration_bits: Default::default(),
         },
     ];
 
@@ -659,7 +690,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 56,
+            bytes_freed: 64,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -677,6 +708,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            expiration_bits: Default::default(),
         }]
     );
 }
@@ -753,6 +785,7 @@ fn ii_apply_gc_entries_tracking_index() {
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
+                    expiration_bits: Default::default(),
                 }],
                 n_unique_docs_removed: 1,
             },
@@ -786,71 +819,64 @@ fn ii_apply_gc_entries_tracking_index() {
             num_entries: 2,
             first_doc_id: 15,
             last_doc_id: 15,
+            expiration_bits: Default::default(),
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 65,
-            bytes_allocated: 56,
+            bytes_freed: 73,
+            bytes_allocated: 64,
             entries_removed: 2,
             block_count_delta: 0,
             ignored_last_block: false,
         }
     );
 }
-#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+
+/// A write that moves a block's buffer must be reported by
+/// [`needs_revalidation`](crate::IndexReader::needs_revalidation), even though no GC ran.
+///
+/// The repair itself is the reader's re-seek on `revalidate`; this test only checks that a
+/// caller is told to revalidate in the first place. A reader that is not told holds a pointer
+/// into freed memory.
 #[test]
-fn test_refresh_buffer_pointers_after_reallocation() {
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+fn test_needs_revalidation_after_block_buffer_moved() {
     use crate::IndexReader as _;
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-
-    // Add initial records
     ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
     ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap();
 
-    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
-    // scenario where buffer reallocation happens while a reader is active.
-    // This is safe because:
-    // 1. We're not accessing the reader during the mutation
-    // 2. The InvertedIndex structure remains valid
-    // 3. We call refresh_buffer_pointers before using the reader again
+    // SAFETY: mirrors what a suspended cursor does — the reader is parked, untouched, while the
+    // index is written to. The reader is not used until after the writes, and the writes only ever
+    // reallocate block buffers, leaving the `InvertedIndex` itself in place.
     let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
 
     let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
     let mut result = RSIndexResult::build_virt().build();
-
-    // Read first record
     assert!(reader.next_record(&mut result).unwrap());
     assert_eq!(result.doc_id, 10);
+    assert!(
+        !reader.needs_revalidation(),
+        "an untouched index must not ask for revalidation"
+    );
 
-    // Force buffer reallocation by adding many records to the same block
-    // This should cause the buffer to grow and potentially move
+    // SAFETY: see the `ii_ptr` construction above.
     unsafe {
-        for i in 12..1000 {
-            (*ii_ptr)
-                .add_record(&RSIndexResult::build_virt().doc_id(i).build())
-                .unwrap();
-        }
+        crate::test_utils::relocate_block_buffer(&mut *ii_ptr, 0);
     }
 
-    // Buffer was reallocated - test refresh_buffer_pointers
-    reader.refresh_buffer_pointers();
-
-    // Verify we can still read correctly from the new buffer
-    let mut doc_count = 1; // Already read doc_id 10
-    let mut expected_doc_id = 11;
-
-    while reader.next_record(&mut result).unwrap() {
-        assert_eq!(result.doc_id, expected_doc_id);
-        doc_count += 1;
-        expected_doc_id += 1;
-    }
-
-    // Should have read all 990 documents (10, 11, 12..999)
-    assert_eq!(doc_count, 990);
-    assert_eq!(expected_doc_id, 1000);
+    assert_eq!(
+        ii.gc_marker(),
+        0,
+        "no GC ran, so the marker cannot be what flags this"
+    );
+    assert!(
+        reader.needs_revalidation(),
+        "a moved block buffer must be reported: the reader's cached pointer is now dangling"
+    );
 }

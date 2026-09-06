@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from math import nan
 import json
@@ -164,6 +171,56 @@ def test_search_knn_limit_offset_resp2():
 def test_search_knn_limit_offset_resp3():
     _search_knn_limit_offset(protocol=3)
 
+def _search_knn_sortby_limit_total(protocol):
+    # MOD-16818: with KNN + SORTBY <distance field>, the coordinator sized its
+    # merge heap by min(K, offset+count) and reported the heap count as
+    # `total_results`, so the reported number of matching documents was the size
+    # of the response window (0 for `LIMIT 0 0`) instead of min(K, matches).
+    # The same assertions run in standalone, where they always held - this pins
+    # the cluster reply to the single-shard behavior.
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 't', 'tiny' if i < 8 else 'rest',
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    def run(query, offset, count):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '2', 'B', blob,
+                      'SORTBY', 'dist', 'LIMIT', str(offset), str(count),
+                      'NOCONTENT', 'DIALECT', '2')
+        if protocol == 3:
+            return res['total_results'], [row['id'] for row in res['results']]
+        return res[0], res[1:]
+
+    # 30 documents match, K=20: the query matches 20 documents on every page,
+    # including the count-only `LIMIT 0 0`. Rows follow the window.
+    for offset, count in [(0, 0), (0, 5), (5, 5), (15, 5), (0, 20)]:
+        total, ids = run('*=>[KNN 20 @v $B AS dist]', offset, count)
+        env.assertEqual(total, 20, message=f'LIMIT {offset} {count}')
+        env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, offset + count)],
+                        message=f'LIMIT {offset} {count}')
+
+    # filter (8 matches) smaller than K=20: total must be 8 on every page
+    for offset, count in [(0, 0), (0, 5), (5, 5)]:
+        total, ids = run('@t:{tiny}=>[KNN 20 @v $B AS dist]', offset, count)
+        env.assertEqual(total, 8, message=f'tiny LIMIT {offset} {count}')
+        env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, min(offset + count, 8))],
+                        message=f'tiny LIMIT {offset} {count}')
+
+@skip(redis_less_than="7.0.0")
+def test_search_knn_sortby_limit_total_resp2():
+    _search_knn_sortby_limit_total(protocol=2)
+
+@skip(redis_less_than="7.0.0")
+def test_search_knn_sortby_limit_total_resp3():
+    _search_knn_sortby_limit_total(protocol=3)
+
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
@@ -248,7 +305,8 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF')
+    env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
@@ -490,7 +548,8 @@ def test_info():
                       ],
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
-      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
+      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0,
+                       'index_total_internal': 0},
       'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0},
       'doc_table_size_mb': ANY,
       'gc_stats': ANY,
@@ -515,6 +574,7 @@ def test_info():
       'num_records': 3,
       'num_terms': ANY,
       'number_of_uses': ANY,
+      'number_of_admin_ops': ANY,
       'offset_bits_per_record_avg': ANY,
       'offset_vectors_sz_mb': ANY,
       'offsets_per_term_avg': ANY,
@@ -726,7 +786,7 @@ def test_profile_crash_mod5323():
        },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 def test_profile_child_itrerators_array():
     env = Env(protocol=3)
@@ -775,7 +835,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
     # test INTERSECT
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
@@ -813,7 +873,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(no_json=True)
 def testExpandErrorsResp3():
@@ -1325,10 +1385,12 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 8) = 8072 bytes
-      initial_doc_table_size_mb = 8072 / (1024 * 1024)
-      # Size of an empty TrieMap
-      key_table_sz_mb = 24 / (1024 * 1024)
+      #              = 64 + (1000 * 8) = 8064 bytes
+      # (DocTable lost its 8-byte DocIdMap trie pointer when the key trie was removed.)
+      initial_doc_table_size_mb = 8064 / (1024 * 1024)
+      # The key->docId mapping now lives in Redis key-metadata (not module-tracked
+      # memory), so key_table_size_mb is always 0.
+      key_table_sz_mb = 0
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
@@ -1368,7 +1430,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_internal': 0
         },
         'dialect_stats': {
           'dialect_1': 0,
@@ -1405,7 +1468,8 @@ def test_ft_info():
         'num_docs': 0.0,
         'num_records': 0.0,
         'num_terms': 0.0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,
@@ -1450,7 +1514,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_internal': 0
         },
         'dialect_stats': {'dialect_1': 0,
                           'dialect_2': 0,
@@ -1488,7 +1553,8 @@ def test_ft_info():
         'num_docs': 0,
         'num_records': 0,
         'num_terms': 0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,

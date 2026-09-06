@@ -8,27 +8,49 @@
 */
 #include <math.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <string.h>
+#include <strings.h>
 
 #include "triemap_ffi.h"
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
-#include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
-#include "resp3.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
-#include "util/units.h"
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "geometry/geometry_types.h"
+#include "info/index_error.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "query_error.h"
+#include "redis_index.h"
+#include "reply.h"
+#include "result_processor.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -281,10 +303,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
-  size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size, tags_overhead,
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead,
     text_overhead, vector_indexes_size);
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
@@ -300,7 +321,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
-  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
+  REPLY_KVNUM("key_table_size_mb", 0);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
@@ -329,7 +350,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   double percent_indexed = IndexesScanner_IndexedPercent(sctx->redisCtx, scanner, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
-  REPLY_KVINT("number_of_uses", sp->counter);
+  REPLY_KVINT("number_of_uses", IndexSpec_GetQueryCounter(sp));
+  REPLY_KVINT("number_of_admin_ops", IndexSpec_GetAdminCounter(sp));
 
   REPLY_KVINT("cleaning", CleanInProgressOrPending());
 

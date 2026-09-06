@@ -2,7 +2,19 @@
 
 ## General Guidelines
 
-- `Option<NonNull<T>>` over `*mut T` especially in FFI signatures
+- Pointers are shaped by which side of the boundary the crate is on:
+  - `extern "C"` signatures in `c_entrypoint/*_ffi` take raw `*const T` / `*mut T`.
+    Convert on entry (`NonNull::new`, `as_ref`) and state the null contract in the
+    `# Safety` doc, so the generated C prototype keeps its `const` qualifiers and
+    matches the Rust signature one-to-one.
+  - Pure Rust crates use references, `NonNull<T>`, or `Option<NonNull<T>>` in their
+    public APIs, never raw pointers — except for `as_ptr` / `into_raw` / `from_raw`
+    style conversions, which follow the `std` convention; `extern "C"` callbacks,
+    which are FFI signatures wherever they live; and the fields of `#[repr(C)]` types
+    that mirror a C layout or are exported by cheadergen, which keep raw pointers so
+    the generated header keeps the pointee qualifiers.
+  - `c_wrappers/*` are exempt: they mirror C structs, so raw pointer accessors and
+    setters are the interface.
 - Safety Comments: Number invariants in the safety doc comment and refer to these invariants in your safety in-line comments throughout that function.
 - debug_assert invariants in FFI functions
 - RediSearch deals with potentially invalid UTF-8 strings so **never assume** `str` /`String` are fine for user input. Prefer `[u8]`, `Vec<u8>`, `CStr`, or `CString`.
@@ -113,7 +125,7 @@ That's not an issue when it comes to _compilation_, but it becomes a challenge i
 
 ### Our solution
 
-The CMake build creates `libredisearch_all.a`, a unified static library that bundles all C/C++ dependencies (including VectorSimilarity, SVS, spdlog, etc.). Rust crates that need to link against C code use the `build_utils::bind_foreign_c_symbols()` function in their `build.rs` to link this library.
+The CMake build creates `libredisearch_c_bundle.a`, a unified static library that bundles all C/C++ dependencies (including VectorSimilarity, SVS, spdlog, etc.). Rust crates that need to link against C code use the `build_utils::bind_foreign_c_symbols()` function in their `build.rs` to link this library.
 
 They must also depend on `redisearch_rs` and invoke `redis_mock::mock_or_stub_missing_redis_c_symbols!()` to ensure that C symbols defined in Rust are available.
 

@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import math
 import unittest
@@ -470,6 +475,106 @@ def testProfileVector(env):
   env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
+def testProfileVectorZeroK(env):
+  """`KNN 0` is not short-circuited: it builds a vector iterator, attaches any
+  filter child without ever reading it, and issues an index query that returns
+  no neighbours but still sets the index's last search mode.
+  """
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+  conn.execute_command('hset', '1', 'v', 'bababaca', 't', 'hello')
+  conn.execute_command('hset', '2', 'v', 'babababa', 't', 'hello')
+
+  def prime_search_mode():
+    # Leave the index in a mode no zero-K query can produce, so the search-mode
+    # assertion tells a fresh query apart from a mode left by an earlier one.
+    conn.execute_command('ft.profile', 'idx', 'search', 'query',
+                         '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                         'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
+                    'RANGE_QUERY')
+
+  knn_profile = ['Type', 'VECTOR', 'Number of reading operations', 0,
+                 'Vector search mode', 'STANDARD_KNN']
+  # A filter child is built and attached to the iterator, then never read.
+  filtered_profile = knn_profile + [
+      'Child iterator',
+      ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0,
+       'Estimated number of matches', 2]]
+
+  # Bare, filtered, and distance-yielding zero-K queries.
+  for query, expected_profile in [('*=>[KNN 0 @v $vec]', knn_profile),
+                                  ('(@t:hello)=>[KNN 0 @v $vec]', filtered_profile),
+                                  ('*=>[KNN 0 @v $vec AS dist]', knn_profile)]:
+    prime_search_mode()
+    actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', query,
+                                      'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+    env.assertEqual(actual_res[0], [0], message=query)
+    actual_profile = to_dict(actual_res[1][1][0])
+    env.assertEqual(actual_profile['Iterators profile'], expected_profile, message=query)
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
+                    'STANDARD_KNN', message=query)
+
+@skip(cluster=True)
+def testProfileVectorBatchSizeAfterSparseBatch(env):
+  """Batch sizing after a batch denser than the running child estimate.
+
+  Refinement is capped at the previous estimate, so the estimate only ever
+  decreases: sparse batches halve it and a later hit cannot raise it back up.
+  The batch trajectory asserted here is what that cap produces."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  n = 1500
+  # Position of the only doc passing the filter in the distance-ordered scan.
+  # It has to land in a batch that neither fills K nor ends the scan; any rank
+  # in 374..744 does.
+  match_rank = 600
+  # Per-tag doc count. The intersection estimates the smaller of the two tags
+  # while yielding a single doc, and that overestimate is what lets the running
+  # estimate fall far below the initial one.
+  tag_docs = 300
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+             'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+  # The two tags overlap only at `match_rank`, so the intersection yields one doc.
+  tag1_docs = {match_rank} | set(range(1000, 1000 + tag_docs - 1))
+  tag2_docs = {match_rank} | set(range(700, 700 + tag_docs - 1))
+  with conn.pipeline(transaction=False) as p:
+    for i in range(n):
+      # Doc i sits at distance i^2 from the query vector, so its scan rank is i.
+      p.execute_command('HSET', i, 'v', np.array([i, 0], dtype=np.float32).tobytes(),
+                        'tag1', 'a' if i in tag1_docs else 'z',
+                        'tag2', 'b' if i in tag2_docs else 'z')
+    p.execute()
+
+  query_vec = np.array([0, 0], dtype=np.float32).tobytes()
+  # BATCHES is pinned without a batch size so the sizes stay dynamic and the
+  # policy is never re-evaluated into ad-hoc mid-scan.
+  actual_res = conn.execute_command(
+      'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+      '(@tag1:{a} @tag2:{b})=>[KNN 10 @v $vec HYBRID_POLICY BATCHES]',
+      'SORTBY', '__v_score', 'PARAMS', '2', 'vec', query_vec, 'NOCONTENT', 'DIALECT', '2')
+  env.assertEqual(actual_res[0], [1, str(match_rank)])
+
+  iterators_profile = to_dict(to_dict(actual_res[1][1][0])['Iterators profile'])
+  env.assertEqual(iterators_profile['Type'], 'VECTOR')
+  env.assertEqual(iterators_profile['Vector search mode'], 'HYBRID_BATCHES')
+  # Each sparse batch halves the estimate, and the hit at `match_rank` leaves it
+  # unchanged rather than raising it, so the sizes keep doubling to the end of
+  # the scan. Were refinement capped at the initial estimate instead, the hit
+  # would raise it and the scan would take 7 batches peaking at 587.
+  env.assertEqual(iterators_profile['Batches number'], 6, message=iterators_profile)
+  env.assertEqual(iterators_profile['Largest batch size'], 751, message=iterators_profile)
+  env.assertEqual(iterators_profile['Largest batch iteration (zero based)'], 5,
+                  message=iterators_profile)
+
+@skip(cluster=True)
 def testProfileHybridRangeMetricSortedByScore(env):
   """Hybrid RANGE query with YIELD_SCORE_AS creates a METRIC SORTED BY SCORE iterator."""
   conn = getConnectionByEnv(env)
@@ -644,6 +749,78 @@ def testProfileTimeoutDuringQueryBuild():
   ).noError(
     message="FT.PROFILE hard-failed on a pre-execution timeout instead of embedding a Warning"
   ).apply(str).contains('Timeout limit was reached')
+
+def BatchesNumberOnTimeout(env):
+  """
+  A batched hybrid vector query that times out mid-collection must still report
+  the batches it consumed. The batch counter is bumped on entry to every batch
+  iteration, so any run that reached collection reports at least one batch,
+  whatever the timeout policy.
+  """
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+             't', 'TEXT').ok()
+
+  # Only a handful of documents carry the filter term, so a `KNN 10` cannot be
+  # satisfied by the batch that the timeout lands in.
+  num_docs = 1000
+  num_matching = 5
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 'v', 'bababada',
+                         't', 'hello' if i < num_matching else 'other')
+
+  with vecsimMockTimeoutContext(env):
+    res = conn.execute_command(
+      'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+      '(@t:hello)=>[KNN 10 @v $vec HYBRID_POLICY BATCHES]',
+      'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', '2')
+
+  shard_profile = to_dict(res[1][1][0])
+  env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
+
+  iterators_profile = to_dict(shard_profile['Iterators profile'])
+  env.assertEqual(iterators_profile['Type'], 'VECTOR')
+  env.assertEqual(iterators_profile['Vector search mode'], 'HYBRID_BATCHES')
+  env.assertGreater(iterators_profile['Batches number'], 0,
+                    message='batch counter was cleared by the timeout abort path')
+  # Batch size is sized per iteration, so a zero here means the batch that ran
+  # was never sized.
+  env.assertGreater(iterators_profile['Largest batch size'], 0)
+
+@skip(cluster=True)
+def testBatchesNumberOnTimeout_nonStrict():
+  BatchesNumberOnTimeout(Env(moduleArgs="ON_TIMEOUT RETURN", enableDebugCommand=True))
+
+@skip(cluster=True)
+def testBatchesNumberOnTimeout_strict():
+  BatchesNumberOnTimeout(Env(moduleArgs="ON_TIMEOUT FAIL", enableDebugCommand=True))
+
+@skip(cluster=True)
+def testProfileNumericOptimizerKeySet(env):
+  """
+  Pins the exact `FT.PROFILE` key set of the numeric optimizer iterator: `Type`,
+  the read counter, `Optimizer mode` and the child — no batch counters. The
+  key set is the contract any replacement implementation has to reconcile with,
+  so a change here must be a deliberate one.
+  """
+  conn = getConnectionByEnv(env)
+  # Drops the `Time` entries, so the profile carries only the key set under test.
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+  for i in range(100):
+    conn.execute_command('HSET', i, 't', 'foo' if i % 2 == 0 else 'bar', 'n', i)
+
+  # `SORTBY` a numeric field plus `WITHOUTCOUNT` is what elects the optimizer.
+  res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]',
+                'SORTBY', 'n', 'NOCONTENT', 'WITHOUTCOUNT')
+  iterators_profile = to_dict(to_dict(res[1][1][0])['Iterators profile'])
+
+  env.assertEqual(list(iterators_profile.keys()),
+                  ['Type', 'Number of reading operations', 'Optimizer mode', 'Child iterator'])
+  env.assertEqual(iterators_profile['Type'], 'OPTIMIZER')
 
 def TimedoutTest_resp3(env):
   """Tests that the `Timedout` value of the profile response is correct"""
@@ -947,6 +1124,29 @@ def sum_rp_times(env, shard):
       # In RESP2, Time is returned as a string
       total += float(rp_dict.get('Time', 0))
   return total
+
+@skip(cluster=True)
+def testProfileLoaderFieldTimes():
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+
+  for i in range(3):
+    conn.execute_command('HSET', f'doc{i}', 't', 'hello', 'n', i)
+
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'LOAD', '2', '@t', '@n')
+  _, shards = extract_profile_coordinator_and_shards(env, res)
+  loader = next(rp for rp in shards[0]['Result processors profile'] if rp['Type'] == 'Loader')
+
+  env.assertContains('Field loads profile', loader)
+  fields = {field['Field']: field for field in loader['Field loads profile']}
+  env.assertEqual(set(fields.keys()), {'t', 'n'})
+  for field in fields.values():
+    env.assertEqual(field['Results processed'], 3)
+    env.assertGreaterEqual(float(field['Time']), 0)
 
 def ProfileTotalTimeConsistency(env, num_docs):
   """Tests that Total profile time >= sum of Result Processor times.

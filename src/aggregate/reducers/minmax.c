@@ -7,8 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include <math.h>
+#include <stddef.h>
+#include <sys/param.h>
+
 #include "value_ffi.h"
-#include <float.h>
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "util/block_alloc.h"
 
 typedef struct {
   double val;

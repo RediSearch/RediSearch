@@ -21,6 +21,7 @@
 #include "profile/options.h"
 
 #include "util/stringify.h"
+#include "util/rs_atomic.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -102,6 +103,7 @@ struct searchReducerCtx;
 
 typedef struct {
   char *queryString;
+  size_t queryStringLen;
   long long offset;
   long long limit;
   long long requestedResultsCount;
@@ -125,14 +127,15 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  // QueryTimeoutStage marker for the FT.SEARCH MR coordinator path.
+  RS_Atomic(int) execPhase;
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
-                             QueryError *status);
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
@@ -143,8 +146,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug, bool isProfile);
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
-
-void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
 bool should_return_error(QueryErrorCode errCode);
 

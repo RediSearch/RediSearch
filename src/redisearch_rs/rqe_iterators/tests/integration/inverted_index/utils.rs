@@ -16,7 +16,7 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
 use rqe_core::{DocId, FieldMask};
-use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::MockContext;
 use std::collections::HashSet;
 
@@ -150,10 +150,19 @@ impl<E: Encoder> BaseTest<E> {
             i += 1;
         }
 
-        // Test reading after skipping to the last id
+        // The last result is still current here; EOF arrives with the read that
+        // runs past it.
+        let last_id = *self.doc_ids.last().unwrap();
+        assert_eq!(it.current().unwrap().doc_id, last_id);
+        assert!(!it.at_eof());
+
         assert!(matches!(it.read(), Ok(None)));
+        assert!(it.current().is_none());
+        assert!(it.at_eof());
+
         let last_doc_id = it.last_doc_id();
         assert!(matches!(it.skip_to(last_doc_id + 1), Ok(None)));
+        assert!(it.current().is_none());
         assert!(it.at_eof());
 
         it.rewind();
@@ -179,44 +188,16 @@ impl<E: Encoder> BaseTest<E> {
         assert!(!it.at_eof());
         let res = it.skip_to(self.doc_ids.last().unwrap() + 1);
         assert!(matches!(res, Ok(None)));
-        // we just rewound
+        // The skip found no record, so the iterator is left unpositioned and
+        // `last_doc_id` keeps the value `rewind` gave it.
         assert_eq!(it.last_doc_id(), 0);
-        assert_eq!(it.current().unwrap().doc_id, 0);
+        assert!(it.current().is_none());
         assert!(it.at_eof());
     }
 }
 
 /// ---------- Expiration Tests ----------
-
-/// A mock expiration checker for testing.
-///
-/// This allows testing expiration logic without requiring TTL tables.
-/// The `ExpirationTest` will mark documents as expired in this mock checker
-/// instead of in the TTL tables.
-#[derive(Debug, Clone)]
-pub struct MockExpirationChecker {
-    expired_docs: HashSet<DocId>,
-}
-
-impl MockExpirationChecker {
-    pub fn new(expired_docs: HashSet<DocId>) -> Self {
-        Self { expired_docs }
-    }
-
-    pub fn mark_expired(&mut self, doc_id: DocId) {
-        self.expired_docs.insert(doc_id);
-    }
-}
-
-impl ExpirationChecker for MockExpirationChecker {
-    fn has_expiration(&self) -> bool {
-        !self.expired_docs.is_empty()
-    }
-
-    fn is_expired(&self, result: &RSIndexResult) -> bool {
-        self.expired_docs.contains(&result.doc_id)
-    }
-}
+pub use rqe_iterators_test_utils::MockExpirationChecker;
 
 /// The type of index used in the expiration test.
 enum ExpirationIndexType {
@@ -519,6 +500,180 @@ impl RevalidateTest {
         assert_eq!(status, RQEValidateStatus::Ok);
     }
 
+    /// test that exhaustion survives a revalidation which has to re-seek.
+    ///
+    /// [`revalidate_at_eof`](Self::revalidate_at_eof) leaves the index untouched, so
+    /// `needs_revalidation()` is false and `revalidate` returns before it restores the
+    /// position at all. Removing a document first bumps the GC marker and forces the
+    /// rewind-and-re-seek path — the one that has to keep the past-the-end state rather
+    /// than handing a parent back a child it had already written off.
+    pub fn revalidate_at_eof_after_gc<'index, I, E: Encoder + DecodedBy>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+    {
+        // Read all documents to reach EOF
+        while let Some(_record) = it.read().expect("failed to read") {}
+        assert!(it.at_eof());
+        let last_doc_id = it.last_doc_id();
+
+        // Remove a document the iterator has already passed, so the re-seek to
+        // `last_doc_id` still finds its target. That is what makes a resurrection
+        // observable: removing the *last* document instead would leave the re-seek
+        // empty-handed and land on the past-the-end state by accident.
+        self.remove_document(ii, self.doc_ids[0]);
+
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
+        assert!(
+            it.at_eof(),
+            "exhaustion must survive a revalidation that re-seeks"
+        );
+        assert_eq!(it.last_doc_id(), last_doc_id);
+        // The flags say exhausted; the reader was rewound to the head of the index. Only
+        // a read proves the two agree.
+        assert!(
+            it.read().expect("failed to read").is_none(),
+            "an exhausted iterator must stay exhausted until it is rewound"
+        );
+    }
+
+    /// [`revalidate_at_eof_after_gc`](Self::revalidate_at_eof_after_gc) for a numeric index.
+    pub fn revalidate_numeric_at_eof_after_gc<'index, I>(&self, it: &mut I, ii: &mut NumericIndex)
+    where
+        I: for<'iterator> RQEIterator<'index>,
+    {
+        match ii {
+            NumericIndex::Uncompressed(ii) => self.revalidate_at_eof_after_gc(it, ii.inner_mut()),
+            NumericIndex::Compressed(ii) => self.revalidate_at_eof_after_gc(it, ii.inner_mut()),
+        }
+    }
+
+    /// A write that moves a block's buffer must cost the iterator nothing.
+    ///
+    /// A suspended iterator whose block buffer moved holds a pointer into freed memory, while the
+    /// GC marker still says the index is untouched. Reading on decodes recycled bytes — a short
+    /// read that silently drops documents, or a decode error — so the complete document set is
+    /// asserted rather than merely the absence of a crash.
+    pub fn revalidate_after_block_buffer_moved<'index, I, E, F>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+        make_record: F,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+        E: Encoder + DecodedBy,
+        F: Fn(DocId) -> RSIndexResult<'static>,
+    {
+        self.block_buffer_moved(it, ii, make_record, false);
+    }
+
+    /// [`revalidate_after_block_buffer_moved`](Self::revalidate_after_block_buffer_moved) with a GC
+    /// cycle interleaved: both invalidate the iterator, and a repair that handles only one of them
+    /// fails here.
+    pub fn revalidate_after_block_buffer_moved_and_gc<'index, I, E, F>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+        make_record: F,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+        E: Encoder + DecodedBy,
+        F: Fn(DocId) -> RSIndexResult<'static>,
+    {
+        self.block_buffer_moved(it, ii, make_record, true);
+    }
+
+    fn block_buffer_moved<'index, I, E, F>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+        make_record: F,
+        interleave_gc: bool,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+        E: Encoder + DecodedBy,
+        F: Fn(DocId) -> RSIndexResult<'static>,
+    {
+        // Appends land in the last block, so the iterator has to be parked in that same block for
+        // this to exercise anything; the assertion catches a codec whose block size changes.
+        assert_eq!(
+            ii.number_of_blocks(),
+            1,
+            "the fixture must fit in a single block"
+        );
+
+        // Park the iterator mid-block.
+        for expected in &self.doc_ids[..2] {
+            let doc = it
+                .read()
+                .expect("failed to read")
+                .expect("should not be at EOF");
+            assert_eq!(doc.doc_id, *expected);
+        }
+
+        // The address the iterator cached. Callers reserve headroom before creating it, so nothing
+        // moves the buffer until the relocation below does.
+        let base_before = ii.block_ref(0).unwrap().data().as_ptr();
+        let appended: Vec<DocId> = (1..=3)
+            .map(|i| self.doc_ids.last().unwrap() + 2 * i)
+            .collect();
+        for doc_id in &appended {
+            ii.add_record(&make_record(*doc_id)).expect("append failed");
+        }
+        assert_eq!(
+            ii.number_of_blocks(),
+            1,
+            "the appends must stay in the block the iterator is parked in"
+        );
+
+        assert_eq!(
+            ii.block_ref(0).unwrap().data().as_ptr(),
+            base_before,
+            "the appends moved the buffer; reserve headroom before creating the iterator"
+        );
+
+        let base_after = inverted_index::test_utils::relocate_block_buffer(ii, 0);
+        assert_ne!(base_before, base_after, "the buffer did not move");
+        let gc_marker_before = ii.gc_marker();
+
+        // Removing a document the iterator already passed leaves the expected set below
+        // untouched, and bumps the GC marker on top of the moved buffer.
+        if interleave_gc {
+            self.remove_document(ii, self.doc_ids[0]);
+            assert_ne!(ii.gc_marker(), gc_marker_before, "GC did not run");
+        } else {
+            assert_eq!(
+                ii.gc_marker(),
+                gc_marker_before,
+                "a plain append must not touch the GC marker — that is what makes it undetected"
+            );
+        }
+
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(
+            status,
+            RQEValidateStatus::Ok,
+            "the iterator's position still exists, so revalidation must preserve it"
+        );
+
+        // Everything the iterator had not yielded yet, still in order and without repeats.
+        let mut expected = self.doc_ids[2..].to_vec();
+        expected.extend_from_slice(&appended);
+
+        let mut read = Vec::new();
+        while let Some(doc) = it.read().expect("failed to read") {
+            read.push(doc.doc_id);
+        }
+        assert_eq!(read, expected);
+    }
+
     /// Remove the document with the given id from the inverted index.
     pub fn remove_document<E: Encoder + DecodedBy>(
         &self,
@@ -665,6 +820,9 @@ impl RevalidateTest {
             .expect("revalidate failed");
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
+        // Running past the end does not erase where the last yield left the position, even
+        // when the document it named is the one that was just removed.
+        assert_eq!(it.last_doc_id(), last_doc_id);
     }
 }
 
@@ -715,6 +873,60 @@ pub mod via_resume {
             .expect("resume should not fail in this test")
             .expect_ok();
         assert!(it.at_eof());
+    }
+
+    /// test that exhaustion survives a resume which has to re-seek.
+    ///
+    /// The resume-path twin of
+    /// [`RevalidateTest::revalidate_at_eof_after_gc`], and the same reasoning applies:
+    /// without the GC step `refresh_pointers` reports
+    /// [`RefreshOutcome::Ok`](inverted_index::RefreshOutcome::Ok) and `resume_in_place`
+    /// never reaches the rewind-and-re-seek path this covers.
+    pub fn revalidate_at_eof_after_gc<'a, I, E: Encoder + DecodedBy>(
+        test: &'a RevalidateTest,
+        mut it: Box<I>,
+        ii: &mut InvertedIndex<E>,
+    ) where
+        I: RQEIteratorBoxed<'a> + 'a,
+    {
+        // Read all documents to reach EOF
+        while let Some(_record) = it.read().expect("failed to read") {}
+        assert!(it.at_eof());
+        let last_doc_id = it.last_doc_id();
+
+        // See `RevalidateTest::revalidate_at_eof_after_gc` for why this is the first
+        // document rather than the last one.
+        test.remove_document(ii, test.doc_ids[0]);
+
+        let guard = test.context.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+        assert!(
+            it.at_eof(),
+            "exhaustion must survive a resume that re-seeks"
+        );
+        assert_eq!(it.last_doc_id(), last_doc_id);
+        // See the `revalidate` twin: only a read proves the restored flags and the
+        // rewound reader agree.
+        assert!(
+            it.read().expect("failed to read").is_none(),
+            "an exhausted iterator must stay exhausted until it is rewound"
+        );
+    }
+
+    /// [`revalidate_at_eof_after_gc`] for a numeric index.
+    pub fn revalidate_numeric_at_eof_after_gc<'a, I>(
+        test: &'a RevalidateTest,
+        it: Box<I>,
+        ii: &mut NumericIndex,
+    ) where
+        I: RQEIteratorBoxed<'a> + 'a,
+    {
+        match ii {
+            NumericIndex::Uncompressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
+            NumericIndex::Compressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
+        }
     }
 
     /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
@@ -826,12 +1038,12 @@ pub mod via_resume {
         assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
         test.remove_document(ii, last_doc_id);
-        // The move ran off the end: the iterator is at EOF. In the resume model
-        // EOF is observed via `at_eof()` / `read()`, not `current()` (which,
-        // like the real iterators, keeps returning the last record).
+        // The move runs off the end, which `current()` reports on its own — no
+        // `at_eof()` pre-check needed to interpret it.
         let mut it = revalidate_via_resume(it, &guard)
             .expect("resume should not fail in this test")
             .expect_moved();
+        assert!(it.current().is_none());
         assert!(it.at_eof());
         assert!(it.read().expect("read should not fail").is_none());
     }

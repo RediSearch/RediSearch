@@ -8,12 +8,15 @@
 */
 
 #include "cluster_topology.h"
+
+#include <netinet/in.h>
+#include <stdbool.h>
+
 #include "endpoint.h"
 #include "rmalloc.h"
 #include "slot_ranges.h"
 #include "rmutil/rm_assert.h"
-
-#include <arpa/inet.h>
+#include "rmr/node.h"
 
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){
@@ -113,14 +116,14 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     }
 
     MRClusterNode node = {
-        .id = rm_strndup(node_id, REDISMODULE_NODE_ID_LEN),
-        .endpoint =
-            (MREndpoint){
-                .host = rm_strdup(ip),
-                .port = port,
-                .unixSock = NULL,
-                .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
-            },
+      .id = rm_strndup(node_id, REDISMODULE_NODE_ID_LEN),
+      .endpoint = (MREndpoint){
+        .host = rm_strdup(ip),
+        .port = port,
+        .isTls = (flags & REDISMODULE_NODE_PORT_TLS) != 0,
+        .unixSock = NULL,
+        .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
+      },
     };
 
     // The topology owns its slot range arrays and frees them with rm_free,
