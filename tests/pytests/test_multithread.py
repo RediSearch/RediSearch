@@ -318,8 +318,7 @@ def test_async_updates_sanity():
         env.assertGreater(float(res[2][1]), float(0))
 
         # Wait for this cycle so a slow fork cannot accumulate redundant GC requests.
-        forceBGInvokeGC(env)
-        env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+        forceInvokeGC(env, timeout=0)
 
         # Number of zombies should decrease from one iteration to another.
         env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)
