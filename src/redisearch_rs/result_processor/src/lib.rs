@@ -215,8 +215,17 @@ impl DrainContext<'_> {
         }
     }
 
-    /// The previous result processor in the pipeline, if present.
-    pub fn upstream(&self) -> Option<Upstream<'_>> {
+    /// Access the upstream drain path without admitting another [`ResultProcessor::next`] call.
+    ///
+    /// ```compile_fail,E0599
+    /// use result_processor::DrainContext;
+    /// use search_result::SearchResult;
+    ///
+    /// fn cannot_restart_next(cx: DrainContext<'_>, res: &mut SearchResult<'_>) {
+    ///     cx.upstream().unwrap().next(res);
+    /// }
+    /// ```
+    pub fn upstream(&self) -> Option<DrainUpstream<'_>> {
         // SAFETY: `upstream` is initialized before execution and remains stable
         // until concurrent Next and Drain entry has completed. Reading only this
         // field avoids borrowing the C header while Next mutates other fields.
@@ -224,7 +233,7 @@ impl DrainContext<'_> {
         // SAFETY: The field pointer is valid under the same lifetime guarantee.
         let upstream = unsafe { upstream.read() };
         let upstream = NonNull::new(upstream)?;
-        Some(Upstream {
+        Some(DrainUpstream {
             ptr: upstream,
             _borrow: PhantomData,
         })
@@ -276,7 +285,19 @@ impl Upstream<'_> {
             }
         }
     }
+}
 
+/// Upstream access restricted to [`ResultProcessor::drain`].
+///
+/// Obtained through [`DrainContext::upstream`]. It cannot expose the ordinary
+/// execution path, which may already be active on the query thread.
+#[derive(Debug)]
+pub struct DrainUpstream<'a> {
+    ptr: NonNull<Header>,
+    _borrow: PhantomData<&'a Header>,
+}
+
+impl DrainUpstream<'_> {
     /// Pull the next result available from the upstream drain path.
     ///
     /// Every processor added to an executable C or Rust chain has a drain
@@ -611,13 +632,37 @@ pub(crate) mod test {
     use std::{
         sync::{
             Arc, Barrier, Mutex,
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
         },
         thread,
     };
 
     struct DrainRP {
         result: Mutex<Option<Result<Option<()>, DrainError>>>,
+    }
+
+    struct ForwardRP;
+
+    impl ResultProcessor for ForwardRP {
+        const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+        fn next(&self, mut cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
+            match cx.upstream() {
+                Some(mut upstream) => upstream.next(res),
+                None => Ok(None),
+            }
+        }
+
+        fn drain(
+            &self,
+            cx: DrainContext,
+            res: &mut SearchResult,
+        ) -> Result<Option<()>, DrainError> {
+            match cx.upstream() {
+                Some(upstream) => upstream.drain(res),
+                None => Ok(None),
+            }
+        }
     }
 
     impl DrainRP {
@@ -676,7 +721,7 @@ pub(crate) mod test {
         let ptr = unsafe { NonNull::from(Pin::as_mut(&mut header).get_unchecked_mut()) };
         // SAFETY: The exclusive borrow used to obtain `ptr` has ended.
         unsafe { ptr::addr_of_mut!((*ptr.as_ptr()).drain).write(Some(drain)) };
-        let upstream = Upstream {
+        let upstream = DrainUpstream {
             ptr,
             _borrow: PhantomData,
         };
@@ -846,6 +891,79 @@ pub(crate) mod test {
     #[test]
     #[cfg_attr(
         miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn drain_forwards_payload_and_terminal_status() {
+        struct Source {
+            yielded: AtomicBool,
+            terminal: Result<Option<()>, DrainError>,
+            next_calls: Arc<AtomicUsize>,
+        }
+
+        impl ResultProcessor for Source {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+            fn next(&self, _cx: Context, _res: &mut SearchResult) -> Result<Option<()>, Error> {
+                self.next_calls.fetch_add(1, Ordering::Relaxed);
+                Err(Error::Error)
+            }
+
+            fn drain(
+                &self,
+                _cx: DrainContext,
+                res: &mut SearchResult,
+            ) -> Result<Option<()>, DrainError> {
+                if self.yielded.swap(true, Ordering::Relaxed) {
+                    self.terminal
+                } else {
+                    res.set_doc_id(7);
+                    res.set_score(42.0);
+                    Ok(Some(()))
+                }
+            }
+        }
+
+        for (terminal, expected) in [
+            (Ok(None), ffi::RPDrainStatus_RP_DRAIN_EOF),
+            (Err(DrainError), ffi::RPDrainStatus_RP_DRAIN_ERROR),
+        ] {
+            let next_calls = Arc::new(AtomicUsize::new(0));
+            let mut chain = Chain::new();
+            chain.append(Source {
+                yielded: AtomicBool::new(false),
+                terminal,
+                next_calls: Arc::clone(&next_calls),
+            });
+            chain.append(ForwardRP);
+            // SAFETY: The chain owns and pins the initialized wrapper for every call below.
+            let rp = unsafe { chain.last_raw() };
+            // SAFETY: This is the wrapper just appended to the chain.
+            let drain = unsafe { rp.as_ref().drain.unwrap() };
+            let mut res = SearchResult::new();
+            // SAFETY: The wrapper is live and `res` is initialized and exclusive.
+            let status = unsafe { drain(rp.as_ptr(), &mut res) };
+            assert_eq!(status, ffi::RPDrainStatus_RP_DRAIN_OK);
+            assert_eq!(res.doc_id(), 7);
+            assert_eq!(res.score(), 42.0);
+            res.clear();
+            for _ in 0..2 {
+                // SAFETY: The same wrapper and exclusive result storage remain live.
+                assert_eq!(unsafe { drain(rp.as_ptr(), &mut res) }, expected);
+            }
+            assert_eq!(next_calls.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
+    fn drain_context_without_upstream_returns_none() {
+        let header = Box::pin(test_header(ptr::null()));
+        let cx = DrainContext::new(header.as_ref());
+        assert!(cx.upstream().is_none());
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
         ignore = "concurrent FFI entry and exposed pointer provenance are outside this Miri test"
     )]
     fn next_and_drain_can_enter_the_rust_wrapper_concurrently() {
@@ -882,6 +1000,7 @@ pub(crate) mod test {
             next_entered: Arc::clone(&next_entered),
             release_next,
         });
+        chain.append(ForwardRP);
 
         // SAFETY: `chain` owns and pins the processor until the scoped thread joins.
         let rp = unsafe { chain.last_raw() };
