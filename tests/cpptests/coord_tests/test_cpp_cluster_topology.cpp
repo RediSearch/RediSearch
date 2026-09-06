@@ -212,6 +212,22 @@ TEST_F(ClusterTopologyFromAPITest, LocalIsSlotlessMaster_NotAnError) {
   MRClusterTopology_Free(topo);
 }
 
+TEST_F(ClusterTopologyFromAPITest, MissingClusterSlotRangeAPI_ReturnsNull) {
+  addNode(NODE_A, "127.0.0.1", 6379, REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
+          {{0, 16383}});
+
+  auto *savedGetClusterNodeSlotRanges = RedisModule_GetClusterNodeSlotRanges;
+  RedisModule_GetClusterNodeSlotRanges = nullptr;
+
+  uint32_t my_shard_idx = 12345;
+  MRClusterTopology *topo = MRClusterTopology_FromAPI(ctx, nullptr, 0, &my_shard_idx);
+
+  RedisModule_GetClusterNodeSlotRanges = savedGetClusterNodeSlotRanges;
+
+  EXPECT_EQ(topo, nullptr);
+  EXPECT_EQ(my_shard_idx, UINT32_MAX);
+}
+
 // ============================================================================
 // Empty cluster (no nodes returned) → NULL.
 // ============================================================================

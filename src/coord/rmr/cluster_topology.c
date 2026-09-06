@@ -23,7 +23,6 @@ MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray
   return ret;
 }
 
-
 MRClusterTopology *MR_NewTopology(uint32_t numShards) {
   MRClusterTopology *topo = rm_new(MRClusterTopology);
   topo->numShards = 0;
@@ -33,7 +32,8 @@ MRClusterTopology *MR_NewTopology(uint32_t numShards) {
 }
 
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
-  RS_LOG_ASSERT(topo->numShards < topo->capShards, "Expected to have enough capacity for all shards");
+  RS_LOG_ASSERT(topo->numShards < topo->capShards,
+                "Expected to have enough capacity for all shards");
   topo->shards[topo->numShards++] = *sh;
 }
 
@@ -57,8 +57,15 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   return topo;
 }
 
-MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *auth, size_t auth_len, uint32_t *my_shard_idx) {
+MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *auth, size_t auth_len,
+                                             uint32_t *my_shard_idx) {
   *my_shard_idx = UINT32_MAX;
+
+  if (!RedisModule_GetClusterNodeSlotRanges || !RedisModule_ClusterFreeSlotRanges) {
+    RedisModule_Log(ctx, "warning",
+                    "OSS cluster topology refresh requires Redis cluster slot range APIs");
+    return NULL;
+  }
 
   size_t numNodes = 0;
   char **node_ids = RedisModule_GetClusterNodesList(ctx, &numNodes);
@@ -83,7 +90,8 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     int rc = RedisModule_GetClusterNodeInfo(ctx, node_id, ip, NULL, &port, &flags);
     // Skip unreachable nodes and nodes with no valid endpoint
     if (rc != REDISMODULE_OK || port <= 0 || ip[0] == '\0') {
-      RedisModule_Log(ctx, "notice", "Failed to get info for cluster node `%.*s`", REDISMODULE_NODE_ID_LEN, node_id);
+      RedisModule_Log(ctx, "notice", "Failed to get info for cluster node `%.*s`",
+                      REDISMODULE_NODE_ID_LEN, node_id);
       continue;
     }
 
@@ -105,13 +113,14 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
     }
 
     MRClusterNode node = {
-      .id = rm_strndup(node_id, REDISMODULE_NODE_ID_LEN),
-      .endpoint = (MREndpoint){
-        .host = rm_strdup(ip),
-        .port = port,
-        .unixSock = NULL,
-        .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
-      },
+        .id = rm_strndup(node_id, REDISMODULE_NODE_ID_LEN),
+        .endpoint =
+            (MREndpoint){
+                .host = rm_strdup(ip),
+                .port = port,
+                .unixSock = NULL,
+                .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
+            },
     };
 
     // The topology owns its slot range arrays and frees them with rm_free,
