@@ -36,6 +36,8 @@ typedef struct RedisModule_Reply {
   bool resp3;
   int count;
   arrayof(struct RedisModule_Reply_StackEntry) stack;
+  char *scratch;  // see RedisModule_Reply_PrefixedStringBuffer
+  size_t scratch_cap;
 #ifdef REDISMODULE_REPLY_DEBUG
   arrayof(char) json;
 #endif
@@ -65,6 +67,12 @@ int RedisModule_Reply_Double(RedisModule_Reply *reply, double val);
 int RedisModule_Reply_SimpleString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, size_t len);
+
+/* Emit `prefix` followed by the `n` bytes of `s` as one bulk string (e.g. tag-prefixed
+ * sort keys), without a per-value allocation for typical sizes: small values are assembled
+ * in a bounded reply-owned scratch buffer reused across rows and freed by
+ * RedisModule_EndReply; larger values use an exact-sized temporary freed before returning. */
+int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s, size_t n);
 int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val);
