@@ -781,18 +781,11 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
-// True iff the spec has any field with INDEXMISSING. Linear scan over the
-// schema's fields[] array; called from the HEXPIRE fast path on the main
-// thread without the spec lock, which is safe because the schema descriptors
-// read here are only mutated by FT.CREATE / FT.ALTER / RDB load on the same
-// thread.
+// Called from the HEXPIRE fast path on the main thread without the spec lock,
+// which is safe because the flags read here are only mutated by FT.CREATE /
+// FT.ALTER / RDB load on the same thread.
 static bool specHasIndexMissing(const IndexSpec *spec) {
-  for (size_t i = 0; i < spec->numFields; ++i) {
-    if (FieldSpec_IndexesMissing(&spec->fields[i])) {
-      return true;
-    }
-  }
-  return false;
+  return spec->flags & Index_HasIndexMissing;
 }
 
 // Returns true if `after` contains a field index that is not present in

@@ -383,22 +383,18 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                                   struct FieldExpirationSlice sortedFieldWithExpiration) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
-  // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
-  dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
-
-  // collect missing fields in schema
-  for (t_fieldIndex i = 0; i < spec->numFields; i++) {
-    FieldSpec *fs = spec->fields + i;
-    if (FieldSpec_IndexesMissing(fs)) {
-      dictAdd(df_fields_dict, (void*)fs->fieldName, fs);
-    }
-  }
-
-  // if there are no missing fields then there is nothing to index
-  if (dictSize(df_fields_dict) == 0) {
-    dictRelease(df_fields_dict);
+  if (!(spec->flags & Index_HasIndexMissing)) {
     return;
   }
+
+  // Set of INDEXMISSING fields, seeded from the spec and narrowed below to the
+  // ones this document lacks. Keyed by field name so document fields can be
+  // removed without knowing their index in the schema.
+  dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  array_foreach(spec->indexMissingFields, fieldIndex, {
+    FieldSpec *fs = spec->fields + fieldIndex;
+    dictAdd(df_fields_dict, (void*)fs->fieldName, fs);
+  });
 
   // remove fields that are in the document
   for (uint32_t j = 0; j < doc->numFields; j++) {

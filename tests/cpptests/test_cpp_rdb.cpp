@@ -271,6 +271,94 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
     EXPECT_FALSE(loadedSpec->flags & Index_StoreFieldFlags);
 }
 
+TEST_F(RdbMockTest, testIndexSpecRdbLoadDerivesIndexMissing) {
+
+    const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG", "INDEXMISSING", "price", "NUMERIC", "INDEXMISSING"};
+    QueryError err = QueryError_Default();
+
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_indexmissing_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
+    ASSERT_TRUE(spec != nullptr);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+
+    ASSERT_TRUE(spec->flags & Index_HasIndexMissing);
+    ASSERT_EQ(2u, array_len(spec->indexMissingFields));
+    EXPECT_EQ(1, spec->indexMissingFields[0]);
+    EXPECT_EQ(2, spec->indexMissingFields[1]);
+
+    // Simulate an RDB written before Index_HasIndexMissing existed: the fields
+    // carry INDEXMISSING but the spec flags do not.
+    spec->flags = (IndexFlags)(spec->flags & ~Index_HasIndexMissing);
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    IndexSpec_RdbSave(io, spec, 0);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    ASSERT_NE(nullptr, loadedSpec);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+    EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+
+    EXPECT_TRUE(loadedSpec->flags & Index_HasIndexMissing);
+    ASSERT_EQ(2u, array_len(loadedSpec->indexMissingFields));
+    EXPECT_EQ(1, loadedSpec->indexMissingFields[0]);
+    EXPECT_EQ(2, loadedSpec->indexMissingFields[1]);
+}
+
+TEST_F(RdbMockTest, testIndexSpecRdbLoadWithoutIndexMissing) {
+
+    const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG"};
+    QueryError err = QueryError_Default();
+
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_no_indexmissing_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
+    ASSERT_TRUE(spec != nullptr);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+
+    EXPECT_FALSE(spec->flags & Index_HasIndexMissing);
+    EXPECT_EQ(0u, array_len(spec->indexMissingFields));
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    IndexSpec_RdbSave(io, spec, 0);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    ASSERT_NE(nullptr, loadedSpec);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+    EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+
+    EXPECT_FALSE(loadedSpec->flags & Index_HasIndexMissing);
+    EXPECT_EQ(0u, array_len(loadedSpec->indexMissingFields));
+}
+
 TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
 
     // Create an IndexSpec

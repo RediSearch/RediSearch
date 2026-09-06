@@ -194,6 +194,11 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
+  // At least one field has INDEXMISSING; the fields themselves are listed in
+  // IndexSpec.indexMissingFields. Saved to RDB with the other flags but always
+  // re-derived from the loaded fields, since RDBs predating this bit lack it.
+  Index_HasIndexMissing = 0x100000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -389,6 +394,10 @@ typedef struct IndexSpec {
 
   // Contains inverted indexes of missing fields
   dict *missingFieldDict;
+  // Indices into `fields` of the INDEXMISSING fields, so indexing a document
+  // need not scan the whole schema. Indices rather than FieldSpec pointers,
+  // because FT.ALTER reallocates `fields`. Non-empty iff Index_HasIndexMissing.
+  arrayof(t_fieldIndex) indexMissingFields;
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
