@@ -759,12 +759,12 @@ impl TestContext {
             }
         }
 
-        // Add the inverted index to the spec's missingFieldDict,
+        // Add the inverted index to the spec's missing.indexes,
         // keyed by the field's fieldName (a HiddenString pointer used as dict key).
         unsafe {
             let field_name_key = (*field_spec.as_ptr()).fieldName;
             let rc = ffi::RS_dictAdd(
-                (&*spec).missingFieldDict,
+                (&*spec).missing.indexes,
                 field_name_key as *mut _,
                 ii_ptr as *mut _,
             );

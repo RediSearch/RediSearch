@@ -1424,15 +1424,21 @@ static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
   }
 }
 
-// Records `fs` in the spec-level INDEXMISSING cache (Index_HasIndexMissing and
-// indexMissingFields). Call once per field, after its options are final and the
-// field is guaranteed to stay in the schema.
+// Records `fs` in IndexSpec.missing.fields. Call once per field, after its
+// options are final and the field is guaranteed to stay in the schema.
 static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs) {
-  if (!FieldSpec_IndexesMissing(fs)) {
-    return;
+  if (FieldSpec_IndexesMissing(fs)) {
+    array_append(sp->missing.fields, fs->index);
   }
-  sp->flags |= Index_HasIndexMissing;
-  array_append(sp->indexMissingFields, fs->index);
+}
+
+// Sets Index_HasIndexMissing from IndexSpec.missing.fields, for the paths where
+// the flag is not already authoritative: adding fields, and loading RDBs written
+// before the flag was persisted.
+static void IndexSpec_DeriveIndexMissingFlag(IndexSpec *sp) {
+  if (array_len(sp->missing.fields)) {
+    sp->flags |= Index_HasIndexMissing;
+  }
 }
 
 /**
@@ -1603,6 +1609,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     FieldsGlobalStats_UpdateStats(sp->fields + ii, 1);
     IndexSpec_TrackIndexMissingField(sp, sp->fields + ii);
   }
+  IndexSpec_DeriveIndexMissingFlag(sp);
 
   return 1;
 
@@ -2013,9 +2020,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
-  // Free missingFieldDict
-  if (spec->missingFieldDict) {
-    dictRelease(spec->missingFieldDict);
+  if (spec->missing.indexes) {
+    dictRelease(spec->missing.indexes);
   }
   // Free existing docs inverted index
   if (spec->existingDocs) {
@@ -2036,8 +2042,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
-  array_free(spec->indexMissingFields);
-  spec->indexMissingFields = NULL;
+  array_free(spec->missing.fields);
+  spec->missing.fields = NULL;
 
   // Free suffix trie
   if (spec->suffix) {
@@ -2398,7 +2404,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->stats.indexError = IndexError_Init();
 
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-  sp->indexMissingFields = array_new(t_fieldIndex, 0);
+  sp->missing.fields = array_new(t_fieldIndex, 0);
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
 
   IndexSpec_InitLock(sp);
@@ -2500,7 +2506,7 @@ dictType missingFieldDictType = {
 // Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invIdxDictType, NULL);
-  sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
+  sp->missing.indexes = dictCreate(&missingFieldDictType, NULL);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
@@ -3246,7 +3252,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
-  flags &= ~Index_HasIndexMissing;  // re-derived per field below
   numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
@@ -3275,6 +3280,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
     IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
+  }
+  if (encver < INDEX_INDEXMISSING_FLAG_VERSION) {
+    IndexSpec_DeriveIndexMissingFlag(sp);
+  } else {
+    RS_ASSERT(!!(sp->flags & Index_HasIndexMissing) == (array_len(sp->missing.fields) > 0));
   }
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
@@ -3403,7 +3413,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
-  sp->indexMissingFields = array_new(t_fieldIndex, 0);
+  sp->missing.fields = array_new(t_fieldIndex, 0);
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
@@ -3416,7 +3426,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
-  sp->flags &= ~Index_HasIndexMissing;  // re-derived per field below
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 
@@ -3443,6 +3452,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     }
     IndexSpec_TrackIndexMissingField(sp, fs);
   }
+  IndexSpec_DeriveIndexMissingFlag(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 

@@ -377,7 +377,7 @@ static void reopenCb(void *arg) {}
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
 // Index missing field docs.
-// Add field names to missingFieldDict if it is missing in the document
+// Add field names to missing.indexes if it is missing in the document
 // and add the doc to its corresponding inverted index
 static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                                   struct FieldExpirationSlice sortedFieldWithExpiration) {
@@ -391,7 +391,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   // ones this document lacks. Keyed by field name so document fields can be
   // removed without knowing their index in the schema.
   dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
-  array_foreach(spec->indexMissingFields, fieldIndex, {
+  array_foreach(spec->missing.fields, fieldIndex, {
     FieldSpec *fs = spec->fields + fieldIndex;
     dictAdd(df_fields_dict, (void*)fs->fieldName, fs);
   });
@@ -415,12 +415,12 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   dictIterator* iter = dictGetIterator(df_fields_dict);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
     const FieldSpec *fs = dictGetVal(entry);
-    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->fieldName);
+    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missing.indexes, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
       iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
       aCtx->spec->stats.invertedSize += index_size;
-      dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
+      dictAdd(spec->missing.indexes, (void*)fs->fieldName, iiMissingDocs);
       // Complete any rehashing this insert started, else later reads on different
       // threads could end up mutating the dict simultaneously, corrupting it.
       //
@@ -428,7 +428,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
       //
       // dictRehash migrates a bounded number of buckets per call and returns
       // non-zero while more remain, so loop until it reports done.
-      while (dictRehash(spec->missingFieldDict, 100)) {
+      while (dictRehash(spec->missing.indexes, 100)) {
       }
     }
     // Add docId to inverted index

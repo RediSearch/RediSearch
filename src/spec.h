@@ -195,9 +195,9 @@ typedef enum {
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 
-  // At least one field has INDEXMISSING; the fields themselves are listed in
-  // IndexSpec.indexMissingFields. Saved to RDB with the other flags but always
-  // re-derived from the loaded fields, since RDBs predating this bit lack it.
+  // At least one field has INDEXMISSING; see IndexSpecMissing. Persisted with
+  // the other flags since INDEX_INDEXMISSING_FLAG_VERSION, derived from the
+  // fields when loading older RDBs.
   Index_HasIndexMissing = 0x100000,
 } IndexFlags;
 
@@ -228,7 +228,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 27
+#define INDEX_CURRENT_VERSION 28
+#define INDEX_INDEXMISSING_FLAG_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
@@ -318,6 +319,18 @@ typedef enum {
   IndexDrop_KeepDocs,
 } IndexDropMode;
 
+// State backing INDEXMISSING fields. Index_HasIndexMissing in IndexSpec.flags
+// is set iff `fields` is non-empty.
+typedef struct {
+  // Field name -> Index_DocIdsOnly inverted index of the documents lacking
+  // that field.
+  dict *indexes;
+  // Indices into IndexSpec.fields of the INDEXMISSING fields, so indexing a
+  // document need not scan the whole schema. Indices rather than FieldSpec
+  // pointers, because FT.ALTER reallocates IndexSpec.fields.
+  arrayof(t_fieldIndex) fields;
+} IndexSpecMissing;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -392,12 +405,7 @@ typedef struct IndexSpec {
   // Quick access to the spec's strong ref
   StrongRef own_ref;
 
-  // Contains inverted indexes of missing fields
-  dict *missingFieldDict;
-  // Indices into `fields` of the INDEXMISSING fields, so indexing a document
-  // need not scan the whole schema. Indices rather than FieldSpec pointers,
-  // because FT.ALTER reallocates `fields`. Non-empty iff Index_HasIndexMissing.
-  arrayof(t_fieldIndex) indexMissingFields;
+  IndexSpecMissing missing;
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
@@ -669,7 +677,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 /* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
 extern dictType invIdxDictType;
 
-/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+/* The dictType used for IndexSpec.missing.indexes: HiddenString keys, InvertedIndex* values. */
 extern dictType missingFieldDictType;
 
 /**
