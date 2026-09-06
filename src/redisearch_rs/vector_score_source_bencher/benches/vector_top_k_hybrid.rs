@@ -47,7 +47,8 @@ use ffi::{
     HNSWParams, QueryRequestTimeout, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
     VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES, VecSimAlgo_VecSimAlgo_HNSWLIB,
     VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New,
-    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
+    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
+    VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
 };
 use rqe_iterators::{IdList, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
@@ -102,6 +103,8 @@ unsafe fn make_index(n: usize) -> *mut VecSimIndex {
                 efConstruction: 200,
                 efRuntime: 10,
                 epsilon: 0.01,
+                quantType: VecSimQuantType_VecSimQuant_NONE,
+                quantParams: std::ptr::null(),
             },
         },
         logCtx: std::ptr::null_mut(),
