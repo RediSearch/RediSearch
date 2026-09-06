@@ -21,6 +21,7 @@ def test_vecsim_info():
     # (HNSW_DEFAULT_EF_RT). FLAT has no EF_RUNTIME.
     if alg == "HNSW":
       info_expected["ef_runtime"] = 10
+      info_expected["compression"] = "NO_COMPRESSION"
     # for each data type
     for type in ["FLOAT32", "FLOAT64"]:
       info_expected["data_type"] = type

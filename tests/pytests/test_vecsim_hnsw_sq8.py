@@ -106,7 +106,15 @@ def test_hnsw_sq8_create_validation_and_info(env):
         'SCHEMA', 'v', 'VECTOR', 'HNSW', len(excessive_threshold), *excessive_threshold,
     ).error().contains(f'TRAINING_THRESHOLD cannot exceed {MAX_TRAINING_THRESHOLD}')
 
-    for invalid_value in ('not-a-number', -1):
+    create_hnsw(
+        env, 'maximum_threshold',
+        hnsw_params('FLOAT32', 'COMPRESSION', 'SQ8',
+                    'TRAINING_THRESHOLD', MAX_TRAINING_THRESHOLD),
+    )
+    env.assertEqual(vector_field_info(env, 'maximum_threshold')['training_threshold'],
+                    MAX_TRAINING_THRESHOLD)
+
+    for invalid_value in ('not-a-number', -1, '1.5', 2**64):
         params = hnsw_params(
             'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', invalid_value,
         )
@@ -129,3 +137,101 @@ def test_hnsw_sq8_params_survive_rdb_reload(env):
         info = vector_field_info(env, 'idx')
         env.assertEqual(info['compression'], 'SQ8')
         env.assertEqual(info['training_threshold'], 2048)
+
+
+def sq8_vector(value, data_type='FLOAT32'):
+    return create_np_array_typed([value] + [1] * 63, data_type).tobytes()
+
+
+def assert_sq8_documents(env, ids, data_type='FLOAT32'):
+    result = env.cmd(
+        'FT.SEARCH', 'idx', '*=>[KNN 10 @v $q]', 'PARAMS', 2,
+        'q', sq8_vector(1, data_type), 'NOCONTENT', 'DIALECT', 2,
+    )
+    env.assertEqual([result[0], *sorted(result[1:])], [len(ids), *sorted(ids)])
+
+
+def assert_sq8_storage(env, frontend_size, backend_size=None):
+    info = get_vecsim_debug_dict(env, 'idx', 'v')
+    env.assertEqual(to_dict(info['FRONTEND_INDEX'])['INDEX_SIZE'], frontend_size,
+                    message=info)
+    if backend_size is None:
+        env.assertFalse('BACKEND_INDEX' in info, message=info)
+    else:
+        env.assertEqual(to_dict(info['BACKEND_INDEX'])['INDEX_SIZE'], backend_size,
+                        message=info)
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_reload_during_accumulation():
+    """Rebuild a partially trained index, then cross the threshold with new writes."""
+    # Workers are required to drain the migration jobs created at the SQ8 transition.
+    env = Env(moduleArgs='WORKERS 2')
+    create_hnsw(env, 'idx', hnsw_params(
+        'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
+    conn.execute_command('HSET', 'doc0', 'v', sq8_vector(5))
+    conn.execute_command('DEL', 'doc2')
+
+    for _ in env.reloadingIterator():
+        assert_sq8_storage(env, 2)
+        assert_sq8_documents(env, ['doc0', 'doc1'])
+        env.assertEqual(vector_field_info(env, 'idx')['training_threshold'], 4)
+
+    for i in (2, 3):
+        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    assert_sq8_storage(env, 0, 4)
+    assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'])
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_reload_after_training():
+    """Rebuild populated SQ8 indexes for every supported type/metric combination."""
+    env = Env(moduleArgs='WORKERS 2')
+    conn = getConnectionByEnv(env)
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        for metric in ('L2', 'IP', 'COSINE'):
+            # VecSim supports FLOAT16 L2 only without mean normalization.
+            threshold = 0 if (data_type, metric) == ('FLOAT16', 'L2') else 4
+            create_hnsw(env, 'idx', [
+                'TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', metric,
+                'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', threshold,
+            ])
+            for i in range(4):
+                conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1, data_type))
+
+            for _ in env.reloadingIterator():
+                env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+                assert_sq8_storage(env, 0, 4)
+                assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'], data_type)
+                info = vector_field_info(env, 'idx')
+                env.assertEqual(info['compression'], 'SQ8')
+                env.assertEqual(info['training_threshold'], threshold)
+            env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_reload_retrains_after_deletions():
+    """A trained index below the threshold returns to accumulation on rebuild."""
+    env = Env(moduleArgs='WORKERS 2')
+    create_hnsw(env, 'idx', hnsw_params(
+        'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))
+    conn = getConnectionByEnv(env)
+    for i in range(4):
+        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    assert_sq8_storage(env, 0, 4)
+    conn.execute_command('DEL', 'doc2', 'doc3')
+    assert_sq8_documents(env, ['doc0', 'doc1'])
+
+    env.dumpAndReload()
+    assert_sq8_storage(env, 2)
+    assert_sq8_documents(env, ['doc0', 'doc1'])
+    for i in (2, 3):
+        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    assert_sq8_storage(env, 0, 4)
+    assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'])

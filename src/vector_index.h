@@ -187,7 +187,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
 int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
                       const char *field_name); // includes SVS algorithm support
 int VecSim_RdbLoad_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
-                      const char *field_name); // includes HNSW SQ8 parameters
+                      const char *field_name);  // includes HNSW SQ8 parameters
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);

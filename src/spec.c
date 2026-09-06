@@ -766,23 +766,21 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, TieredIndexParams
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_COMPRESSION)) {
       if ((rc = parseVectorField_GetHnswQuantType(
                &subAc, &params->algoParams.hnswParams.quantType)) != AC_OK) {
-        QERR_MKBADARGS_AC(
-            status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_COMPRESSION), rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_COMPRESSION),
+                          rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_TRAINING_THRESHOLD)) {
-      size_t *threshold =
-          &tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
+      size_t *threshold = &tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
       if ((rc = AC_GetSize(&subAc, threshold, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(
-            status,
-            VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TRAINING_THRESHOLD), rc);
+            status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TRAINING_THRESHOLD), rc);
         return 0;
       }
       if (*threshold > HNSW_SQ8_MAX_TRAINING_THRESHOLD) {
-        QueryError_SetWithoutUserDataFmt(
-            status, QUERY_ERROR_CODE_INVAL,
-            "TRAINING_THRESHOLD cannot exceed %d", HNSW_SQ8_MAX_TRAINING_THRESHOLD);
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                         "TRAINING_THRESHOLD cannot exceed %d",
+                                         HNSW_SQ8_MAX_TRAINING_THRESHOLD);
         return 0;
       }
       trainingThresholdSet = true;
@@ -851,10 +849,9 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, TieredIndexParams
       tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
   if (hnswParams->quantType == VecSimQuant_SQ8 && hnswParams->type == VecSimType_FLOAT16 &&
       hnswParams->metric == VecSimMetric_L2 && trainingThreshold > 0) {
-    QueryError_SetError(
-        status, QUERY_ERROR_CODE_INVAL,
-        "Mean normalization is not supported for FLOAT16 L2 compression; set "
-        "TRAINING_THRESHOLD to 0");
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "Mean normalization is not supported for FLOAT16 L2 compression; set "
+                        "TRAINING_THRESHOLD to 0");
     return 0;
   }
 
@@ -1266,8 +1263,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     bool rerank = false;
-    result = parseVectorField_hnsw(
-        sp, fs, &fs->vectorOpts.vecSimParams.algoParams.tieredParams, ac, status, &rerank);
+    result = parseVectorField_hnsw(sp, fs, &fs->vectorOpts.vecSimParams.algoParams.tieredParams, ac,
+                                   status, &rerank);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
