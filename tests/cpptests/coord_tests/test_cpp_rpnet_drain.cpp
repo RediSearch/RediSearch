@@ -10,6 +10,7 @@
 #include "gtest/gtest.h"
 #include "coord/rpnet.h"
 #include "search_result.h"
+#include "search_result_ffi.h"
 
 TEST(RPNetDrainTest, constructorProvidesDrainWithoutChainInsertion) {
   MRCommand command = {};
