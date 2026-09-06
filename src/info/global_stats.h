@@ -51,10 +51,6 @@ typedef struct {
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
-  // Updates served by moving an existing entry onto the document's new doc-id instead of
-  // re-adding its value. Disjoint from the count above, not a subset of it: moving an entry is
-  // not an indexing operation, so exactly one of the two is counted per field per update. Only
-  // vector fields can move an entry today, so there is one counter rather than one per type.
   size_t vectorTotalDocsRelabeled;
 } FieldsGlobalStats;
 

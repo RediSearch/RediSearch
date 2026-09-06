@@ -132,12 +132,12 @@ typedef struct Document {
 typedef enum {
   // Changed. Must stay zero: the per-field array is `rm_calloc`'d, so this is also what a field
   // nothing was recorded for reads as.
-  ChangedField_VerifiedYes = 0,
+  ChangedFieldInd_VerifiedYes = 0,
   // Not known either way.
-  ChangedField_Unverified,
+  ChangedFieldInd_Unverified,
   // Unchanged.
-  ChangedField_VerifiedNo,
-} ChangedField;
+  ChangedFieldInd_VerifiedNo,
+} ChangedFieldInd;
 
 struct RSAddDocumentCtx;
 
@@ -331,21 +331,16 @@ typedef struct RSAddDocumentCtx {
   // Scratch space used by per-type field preprocessors (see the source)
   struct FieldIndexerData *fdatas;
 
-  /** Whether each VECTOR field's value was changed by this update, indexed by
-   *  *schema* field (`FieldSpec.index`) and sized `spec->numFields`.
-   *
+  /** Whether each VECTOR field's value was changed by this update.
    *  Schema-indexed rather than living in `fdatas` because
    *  `Indexer_HandleReplacedDocVectorAndGeometry` walks the schema, not the document: a
    *  vector field absent from this version of the document still has an old entry to
    *  drop, and would not be reachable through a document-field-indexed array.
-   *
-   *  NULL unless something was actually marked, so a document with no movable vector -- every
-   *  document, with the feature gated off -- allocates nothing. */
-  ChangedField *fieldChanges;
+   */
+  ChangedFieldInd *fieldChanges;
 
   /** The doc-id this key mapped to before this update, or 0 if it was not
-   *  indexed. Both modes need it at the vector-insert sites, to move an unchanged
-   *  entry off it instead of re-adding the blob. */
+   *  indexed. */
   t_docId oldDocId;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
@@ -370,22 +365,16 @@ typedef struct RSAddDocumentCtx {
 } RSAddDocumentCtx;
 
 // Whether schema field `f_idx`'s value was changed by this update. A NULL aCtx or an unmarked
-// update reads as `ChangedField_VerifiedYes`: no mark means no basis for a move. That default is
-// why every consumer can call this unconditionally.
-static inline ChangedField AddDocumentCtx_FieldChange(const RSAddDocumentCtx *aCtx,
+// update reads as `ChangedFieldInd_VerifiedYes`: no mark means no basis for a move.
+static inline ChangedFieldInd AddDocumentCtx_FieldChange(const RSAddDocumentCtx *aCtx,
                                                       t_fieldIndex f_idx) {
-  if (!aCtx || !aCtx->fieldChanges) return ChangedField_VerifiedYes;
+  if (!aCtx || !aCtx->fieldChanges) return ChangedFieldInd_VerifiedYes;
   return aCtx->fieldChanges[f_idx];
 }
 
 /**
  * Whether field `f_idx`'s existing vector entry is to be moved onto this update's new doc-id,
  * rather than re-added.
- *
- * True only once both halves hold: the field is marked — `VectorIndex_CheckRemoveId` left its
- * entry in place on that basis — and there is an old doc-id to move it off. A field can be
- * marked on a key that was not indexed before this update, where nothing says the vector was
- * written but there is no entry to move either.
  */
 bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx);
 
@@ -396,7 +385,7 @@ bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldInde
  * - client is a blocked client which will be used as the context for this
  *   operation.
  * - sp is the index that this document will be added to
- * - base is the document to be index. The context will take ownership of the
+ * - base is the document to be indexed. The context will take ownership of the
  *   document's contents (but not the structure itself). Thus, you should not
  *   call Document_Free on the document after a successful return of this
  *   function.

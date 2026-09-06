@@ -296,8 +296,6 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) 
 }
 
 void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd) {
-  // Same threading argument as `FieldsGlobalStats_UpdateFieldDocsIndexed`: indexing runs on the
-  // main thread or with the GIL held, so no atomics are needed.
   if (field_types == INDEXFLD_T_VECTOR) {
     RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled += toAdd;
   }

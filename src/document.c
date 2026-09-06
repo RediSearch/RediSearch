@@ -192,8 +192,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
 // Contract documented on the declaration in document.h.
 bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx) {
-  // The mark is checked first so a NULL aCtx never reaches the dereference.
-  return AddDocumentCtx_FieldChange(aCtx, f_idx) == ChangedField_VerifiedNo && aCtx->oldDocId != 0;
+  return AddDocumentCtx_FieldChange(aCtx, f_idx) == ChangedFieldInd_VerifiedNo && aCtx->oldDocId != 0;
 }
 
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
@@ -709,15 +708,10 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     fdata->numVec = field->blobArrLen;
   } else if (field->unionType == FLD_VAR_T_NULL) {
     fdata->isNull = 1;
-    // No value means no insert site for this field, so a relabel mark placed before
-    // preprocessing would never be consumed -- and
-    // `Indexer_HandleReplacedDocVectorAndGeometry`, which honours the mark, would leave the
-    // old entry stranded under a doc-id no document owns.
-    // Clearing it here hands the field back to the ordinary delete path. Reachable
-    // for JSON, whose vector path is marked without knowing whether the new document
-    // still has the field.
+    // This is for JSON docs where fields are unverified_change since SKN is not supported for it
+    // here we know that it did change so we mark it
     if (aCtx->fieldChanges) {
-      aCtx->fieldChanges[fs->index] = ChangedField_VerifiedYes;
+      aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
     }
     return 0; // Skipping indexing missing vector
   }

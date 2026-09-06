@@ -186,15 +186,7 @@ static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, s
 }
 
 /**
- * True iff `changedFields` names the document field `fs` is fed from.
- *
- * For the single-field question, where there is nothing to hoist. To ask it of many fields,
- * loop the change set on the outside and use `FieldSpec_PathEquals` -- the change set is
- * normally one or two names, so it is the shorter loop of the two.
- *
- * An absent change set names nothing, and answers false for every field. That is not the same
- * as "this field did not change" -- a caller that reads "not named" as a positive statement
- * about the field has to establish that a change set exists first.
+ * True iff `changedFields` names the document field `fs` is fed from
  */
 bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
                              size_t numChangedFields);

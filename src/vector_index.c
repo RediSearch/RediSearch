@@ -83,8 +83,6 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
     return true;
   }
 
-  // Fall back to delete + re-add. `VectorIndex_CheckRemoveId` skipped this field's delete on
-  // the strength of the mark, so it has to happen here before the caller inserts.
   VecSimIndex_DeleteVector(vecsim, oldDocId);
   if (rc == VecSimRelabel_NewLabelTaken) {
     RedisModule_Log(RSDummyContext, "warning",
