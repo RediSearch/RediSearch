@@ -14,6 +14,9 @@
   above the maximum is rejected.
 - FLOAT16 L2 requires an explicit zero threshold until VecSim supports mean
   normalization for that combination.
+- The resize limit bounds the shared block size using both full-precision
+  frontend and compressed backend element estimates, including when the training
+  threshold is zero. Reject creation if one element cannot fit.
 
 ## Save and reload
 
@@ -29,3 +32,5 @@
 - A zero threshold stays zero on reload and bypasses accumulation.
 - Legacy RDB versions load with no compression. Invalid compression settings and
   missing new-format parameter fields are rejected.
+- Reload recomputes the block size using the current memory limits for both
+  tiers. Reject loading if a full-precision frontend element cannot fit.

@@ -7,6 +7,7 @@
 
 from includes import *
 from common import *
+from redis.exceptions import ResponseError
 
 
 DEFAULT_TRAINING_THRESHOLD = 10 * 1024
@@ -137,6 +138,84 @@ def test_hnsw_sq8_params_survive_rdb_reload(env):
         info = vector_field_info(env, 'idx')
         env.assertEqual(info['compression'], 'SQ8')
         env.assertEqual(info['training_threshold'], 2048)
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_resize_limit_rejects_full_precision_vectors():
+    """Reject a block that fits compressed vectors but cannot fit the frontend."""
+    env = Env(moduleArgs='VSS_MAX_RESIZE 2000')
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        for metric in ('L2', 'IP', 'COSINE'):
+            for threshold in (0, 4):
+                if (data_type, metric, threshold) == ('FLOAT16', 'L2', 4):
+                    continue
+                params = [
+                    'TYPE', data_type, 'DIM', 1024, 'DISTANCE_METRIC', metric,
+                    'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', threshold,
+                ]
+                name = f'idx_{data_type}_{metric}_{threshold}'
+                env.expect(
+                    'FT.CREATE', name, 'SCHEMA', 'v', 'VECTOR', 'HNSW',
+                    len(params), *params,
+                ).error().contains('Vector index element size')
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_resize_limit_bounds_both_tiers_after_reload():
+    """Recompute the shared block size for both tiers when the reload limit shrinks."""
+    env = Env(moduleArgs='WORKERS 2')
+    conn = getConnectionByEnv(env)
+    dim = 1024
+    for data_type, type_size in (('FLOAT32', 4), ('FLOAT16', 2)):
+        for threshold in (0, 4):
+            env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 12000).ok()
+            create_hnsw(env, 'idx', [
+                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+                'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', threshold,
+            ])
+            for i in range(4):
+                vector = create_np_array_typed([i + 1] + [1] * (dim - 1), data_type)
+                conn.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
+
+            for limit in (12000, 5000):
+                if limit == 5000:
+                    env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', limit).ok()
+                    env.dumpAndReload()
+                env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+                info = get_vecsim_debug_dict(env, 'idx', 'v')
+                frontend = to_dict(info['FRONTEND_INDEX'])
+                backend = to_dict(info['BACKEND_INDEX'])
+                env.assertGreater(frontend['BLOCK_SIZE'], 0, message=info)
+                env.assertLessEqual(frontend['BLOCK_SIZE'] * dim * type_size,
+                                    limit, message=info)
+                env.assertEqual(backend['BLOCK_SIZE'], frontend['BLOCK_SIZE'], message=info)
+                env.assertEqual([frontend['INDEX_SIZE'], backend['INDEX_SIZE']], [0, 4])
+                result = env.cmd(
+                    'FT.SEARCH', 'idx', '*=>[KNN 4 @v $q]', 'PARAMS', 2,
+                    'q', vector.tobytes(), 'NOCONTENT', 'DIALECT', 2,
+                )
+                env.assertEqual([result[0], *sorted(result[1:])],
+                                [4, 'doc0', 'doc1', 'doc2', 'doc3'])
+            env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
+    env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 0).ok()
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_reload_rejects_full_precision_resize_limit():
+    """RDB validation rejects SQ8 when the new limit cannot fit a frontend vector."""
+    env = Env(moduleArgs='VSS_MAX_RESIZE 12000')
+    create_hnsw(env, 'idx', [
+        'TYPE', 'FLOAT32', 'DIM', 1024, 'DISTANCE_METRIC', 'L2',
+        'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4,
+    ])
+    env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 2000).ok()
+    try:
+        env.dumpAndReload()
+        env.assertTrue(False, message='Expected SQ8 RDB loading to reject the resize limit')
+    except ResponseError as error:
+        env.assertContains('Error trying to load the RDB dump', str(error))
+    finally:
+        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 0).ok()
 
 
 def sq8_vector(value, data_type='FLOAT32'):

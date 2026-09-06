@@ -9,6 +9,15 @@ current VecSim factory does not support.
 `FT.INFO` reads the stored field configuration. It does not describe whether
 training has completed; a small compressed index may still use flat storage.
 
+## Resize limits
+
+Tiered SQ8 uses one block size for the full-precision frontend and compressed
+HNSW backend. Choose that size using the larger of the two element estimates.
+The backend estimate receives the tiered parameters so it includes mean
+normalization when enabled. Apply this validation both to creation and RDB load;
+loading under a smaller memory limit recomputes the block size or rejects an
+element that cannot fit. Uncompressed HNSW retains its existing estimate.
+
 ## Persistence
 
 Index encoding version 28 adds two unsigned values after HNSW epsilon:
