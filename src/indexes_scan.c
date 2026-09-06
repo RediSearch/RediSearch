@@ -156,6 +156,35 @@ static bool DebugIndexScanner_ShouldStopBeforePendingScanKey(RedisModuleCtx *ctx
   return IndexesScanner_IsCancelled(scanner);
 }
 
+// Per-key body of a per-index scan. Takes ownership of `key`, which was opened read-only with
+// DOCUMENT_OPEN_KEY_INDEXING_FLAGS for type detection, and closes it before any reindex.
+static void IndexScanner_ScanKeyForSpec(RedisModuleCtx *ctx, const IndexesScanner *scanner,
+                                        IndexSpec *sp, RedisModuleString *keyname,
+                                        RedisModuleKey *key, DocumentType type) {
+  // This check is performed without locking the spec, but it's ok since we locked the GIL
+  // So the main thread is not running and the GC is not touching the relevant data
+  // Deliberately not handed `key`: a FILTER clause evaluates through
+  // RLookup_LoadRuleFields, which opens the document with DOCUMENT_OPEN_KEY_QUERY_FLAGS.
+  // This scan's handle carries the narrower DOCUMENT_OPEN_KEY_INDEXING_FLAGS, so reusing it
+  // would evaluate FILTER against a key opened without NOEXPIRE/ACCESS_EXPIRED/
+  // ACCESS_TRIMMED and could change which documents a filtered index accepts.
+  bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, NULL);
+  // scanner->addedFields is non-empty only for a selective ALTER scan (see
+  // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
+  // confirmed absent, so this backfill does not force a full replacement of documents
+  // the ALTER cannot affect. A probe failure falls through to the full-reindex path.
+  bool skipUnchanged =
+      shouldIndex && scanner->addedFields.start != scanner->addedFields.end &&
+      Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
+                                  scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
+  // IndexSpec_UpdateDoc can update key metadata and must retain its own key-opening behavior,
+  // so the read-only handle is closed rather than passed through.
+  RedisModule_CloseKey(key);
+  if (shouldIndex && !skipUnchanged) {
+    IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
+  }
+}
+
 static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *scanCtx) {
   IndexesScanner *scanner = scanCtx->scanner;
 
@@ -182,28 +211,7 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
       StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
       if (sp) {
-        // This check is performed without locking the spec, but it's ok since we locked the GIL
-        // So the main thread is not running and the GC is not touching the relevant data
-        // Deliberately not handed `key`: a FILTER clause evaluates through
-        // RLookup_LoadRuleFields, which opens the document with DOCUMENT_OPEN_KEY_QUERY_FLAGS.
-        // This scan's handle carries the narrower DOCUMENT_OPEN_KEY_INDEXING_FLAGS, so reusing it
-        // would evaluate FILTER against a key opened without NOEXPIRE/ACCESS_EXPIRED/
-        // ACCESS_TRIMMED and could change which documents a filtered index accepts.
-        bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, NULL);
-        // scanner->addedFields is non-empty only for a selective ALTER scan (see
-        // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
-        // confirmed absent, so this backfill does not force a full replacement of documents
-        // the ALTER cannot affect. A probe failure falls through to the full-reindex path.
-        bool skipUnchanged =
-            shouldIndex && scanner->addedFields.start != scanner->addedFields.end &&
-            Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
-                                        scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
-        // The scan opened `key` read-only; IndexSpec_UpdateDoc can update key metadata and
-        // must retain its own key-opening behavior, so the handle is not passed through.
-        RedisModule_CloseKey(key);
-        if (shouldIndex && !skipUnchanged) {
-          IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
-        }
+        IndexScanner_ScanKeyForSpec(ctx, scanner, sp, keyname, key, type);
         IndexSpecRef_Release(curr_run_ref);
       } else {
         RedisModule_CloseKey(key);
