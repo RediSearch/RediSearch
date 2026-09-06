@@ -7,19 +7,13 @@
 
 from contextlib import contextmanager
 
-from common import getConnectionByEnv, skip, to_dict, waitForIndex
-
-
-def require_himport(env):
-    # Unreleased Redis builds report 255.255.255 even before HIMPORT exists.
-    if not env.cmd('COMMAND LIST', 'FILTERBY', 'PATTERN', 'himport|set'):
-        env.skip()
+from common import skip, to_dict, waitForIndex
 
 
 @contextmanager
 def himport_connection(env):
     # Fieldsets belong to a physical connection, not a connection pool.
-    with getConnectionByEnv(env).client() as conn:
+    with env.getClusterConnectionIfNeeded().client() as conn:
         try:
             yield conn
         finally:
@@ -52,10 +46,9 @@ def assert_document(env, index, key, title, category, price, extra):
         [1, ['title', title, 'extra', extra]])
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_himport_indexing_and_loading(env):
     """HIMPORT notifications and module hash reads support both template encodings."""
-    require_himport(env)
     create_index(env)
     with himport_connection(env) as conn:
         env.assertEqual(conn.execute_command('HIMPORT', 'PREPARE', 'fields',
@@ -69,10 +62,9 @@ def test_himport_indexing_and_loading(env):
             assert_document(env, 'idx', key, title, 'books', 12, extra)
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_himport_replacement(env):
     """Replacing a hash removes old postings, including fields absent from the new fieldset."""
-    require_himport(env)
     create_index(env)
     with himport_connection(env) as conn:
         conn.execute_command('HIMPORT', 'PREPARE', 'fields', 'title', 'category', 'price', 'extra')
@@ -94,10 +86,9 @@ def test_himport_replacement(env):
             conn.execute_command('DEL', key)
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_himport_hash_mutations(env):
     """Ordinary hash writes and deletions reindex template-backed documents."""
-    require_himport(env)
     create_index(env)
     with himport_connection(env) as conn:
         conn.execute_command('HIMPORT', 'PREPARE', 'fields', 'title', 'price', 'extra')
@@ -117,10 +108,9 @@ def test_himport_hash_mutations(env):
             env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_himport_backfill_and_reload(env):
     """Background indexing and RDB loading can read persisted template hashes."""
-    require_himport(env)
     cases = template_cases(env)
     with himport_connection(env) as conn:
         conn.execute_command('HIMPORT', 'PREPARE', 'fields', 'title', 'category', 'price', 'extra')
@@ -140,13 +130,12 @@ def test_himport_backfill_and_reload(env):
                             'books', 12, extra)
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_hash_auto_template_conversion(env):
     """HSET's opt-in conversion preserves indexing and field loading without HIMPORT."""
-    require_himport(env)
     create_index(env)
     config = env.cmd('CONFIG GET', 'hash-min-template-entries', 'hash-max-template-entries')
-    conn = getConnectionByEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
     try:
         env.cmd('CONFIG SET', 'hash-min-template-entries', 0, 'hash-max-template-entries', 0)
         cases = template_cases(env)
@@ -167,10 +156,9 @@ def test_hash_auto_template_conversion(env):
         env.cmd('CONFIG SET', *[arg for item in config.items() for arg in item])
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_himport_restore(env):
     """RESTORE, also used by HIMPORT replication, indexes template hashes and replacements."""
-    require_himport(env)
     create_index(env)
     with himport_connection(env) as conn:
         conn.execute_command('HIMPORT', 'PREPARE', 'fields', 'title', 'category', 'price', 'extra')
@@ -185,15 +173,14 @@ def test_himport_restore(env):
             conn.execute_command('DEL', 'doc:restored')
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_hash_template_conversion_on_rdb_load(env):
     """Converting plain hashes while loading an RDB preserves Search results."""
-    require_himport(env)
     create_index(env)
     config = env.cmd('CONFIG GET', 'hash-min-template-entries',
                      'hash-rdb-load-min-template-entries', 'hash-rdb-load-max-template-entries',
                      'hash-rdb-load-template-disassembly-threshold')
-    conn = getConnectionByEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
     try:
         env.cmd('CONFIG SET', 'hash-min-template-entries', 0,
                 'hash-rdb-load-min-template-entries', 4, 'hash-rdb-load-max-template-entries', 0,
