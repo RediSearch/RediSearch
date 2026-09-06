@@ -2675,7 +2675,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-internal-row-block-format", 0,
+      // BENCHMARK ONLY - default flipped to 1 so the macro harness can measure the
+      // format. It cannot be enabled from a benchmark config: redisbench-admin sends
+      // dbconfig init_commands to a single node (only FT.CREATE gets target_nodes="all"),
+      // and the remote path hardcodes modules_configuration_parameters_map=None, so a
+      // `CONFIG SET` would reach one shard out of four. DROP THIS COMMIT BEFORE MERGE:
+      // shipping default-on would let a new coordinator ask an older shard for a format
+      // it cannot produce.
+      ctx, "search-internal-row-block-format", 1,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.internalRowBlockFormat)
