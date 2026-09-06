@@ -119,4 +119,40 @@ pub(crate) mod test {
         assert!(rp.next(cx, &mut SearchResult::default()).unwrap().is_none());
         assert_eq!(rp.count.load(Ordering::Relaxed), 3);
     }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn retains_count_when_upstream_errors() {
+        struct FailingSource(AtomicUsize);
+
+        impl ResultProcessor for FailingSource {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+            fn next(
+                &self,
+                _cx: crate::Context,
+                _res: &mut SearchResult<'_>,
+            ) -> Result<Option<()>, crate::Error> {
+                if self.0.fetch_add(1, Ordering::Relaxed) < 3 {
+                    Ok(Some(()))
+                } else {
+                    Err(crate::Error::TimedOut)
+                }
+            }
+        }
+
+        let mut chain = Chain::new();
+        chain.append(FailingSource(AtomicUsize::new(0)));
+        chain.append(Counter::new());
+        let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
+
+        assert_eq!(
+            rp.next(cx, &mut SearchResult::default()),
+            Err(crate::Error::TimedOut)
+        );
+        assert_eq!(rp.count.load(Ordering::Relaxed), 3);
+    }
 }

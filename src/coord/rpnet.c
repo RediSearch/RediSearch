@@ -361,6 +361,7 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
+  nc->base.Drain = RPDrain_EOF;
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;

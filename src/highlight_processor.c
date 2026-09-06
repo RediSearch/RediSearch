@@ -425,6 +425,7 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
   }
   hlp->base.Next = hlpNext;
   hlp->base.Free = hlpFree;
+  hlp->base.Drain = RPDrain_EOF;
   hlp->fields = fields;
   hlp->lookup = lookup;
   hlp->isJson = isJson;

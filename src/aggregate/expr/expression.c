@@ -542,6 +542,7 @@ static ResultProcessor *RPEvaluator_NewCommon(RSExpr *ast, const RLookup *lookup
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
+  rp->base.Drain = RPDrain_EOF;
   rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
   rp->eval.mode = EVAL_MODE_QUERY;
   rp->eval.lookup = lookup;

@@ -482,6 +482,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
   ret->base.Free = rpQueryItFree;
+  ret->base.Drain = RPDrain_EOF;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
@@ -633,6 +634,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
   ret->scoreKey = rlk;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_SCORER;
   return &ret->base;
 }
@@ -674,6 +676,7 @@ ResultProcessor *RPMetricsLoader_New() {
   RPMetrics *ret = rm_calloc(1, sizeof(*ret));
   ret->base.Next = rpMetricsNext;
   ret->base.Free = rpMetricsFree;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_METRICS;
   return &ret->base;
 }
@@ -897,6 +900,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_SORTER;
   return &ret->base;
 }
@@ -980,6 +984,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext_Skip;
   ret->base.Free = rppagerFree;
+  ret->base.Drain = RPDrain_EOF;
 
   return &ret->base;
 }
@@ -1155,6 +1160,7 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
+  self->base.Drain = RPDrain_EOF;
   self->base.type = RP_LOADER;
   return &self->base;
 }
@@ -1467,6 +1473,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
+  sl->base_loader.base.Drain = RPDrain_EOF;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
 }
@@ -1499,6 +1506,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
   ResultProcessor *base = &rp->base;
   base->Free = RPKeyNameLoader_Free;
+  base->Drain = RPDrain_EOF;
   base->Next = RPKeyNameLoader_Next;
   base->type = RP_KEY_NAME_LOADER;
   return base;
@@ -1708,6 +1716,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   rpp->base.parent = qctx;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
+  rpp->base.Drain = RPDrain_EOF;
   rpp->base.type = RP_PROFILE;
 
   return &rpp->base;
@@ -1846,6 +1855,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = RPMaxScoreNormalizer_Accum;
   ret->base.Free = RPMaxScoreNormalizer_Free;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_MAX_SCORE_NORMALIZER;
   ret->scoreKey = rlk;
   return &ret->base;
@@ -1904,6 +1914,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
   ret->normFunc = normFunc;
   ret->base.Next = RPVectorNormalizer_Next;
   ret->base.Free = RPVectorNormalizer_Free;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_VECTOR_NORMALIZER;
   ret->scoreKey = scoreKey;
 
@@ -2266,6 +2277,7 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
   ret->base.Free = RPSafeDepleter_Free;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_SAFE_DEPLETER;
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
@@ -2772,6 +2784,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->base.type = RP_HYBRID_MERGER;
    ret->base.Next = RPHybridMerger_Accum;
    ret->base.Free = RPHybridMerger_Free;
+   ret->base.Drain = RPDrain_EOF;
 
    return &ret->base;
  }
@@ -2940,6 +2953,7 @@ ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx) {
   ret->base.type = RP_TIMEOUT;
   ret->base.Next = RPTimeoutAfterCount_Next;
   ret->base.Free = RPTimeoutAfterCount_Free;
+  ret->base.Drain = RPDrain_EOF;
 
   return &ret->base;
 }
@@ -2966,6 +2980,7 @@ static int RPCrash_NextInRust(ResultProcessor *base, SearchResult *r) {
 
 ResultProcessor *RPCrash_New(enum CrashLocation location) {
   RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
+  ret->base.Drain = RPDrain_EOF;
   switch (location) {
     case CRASH_IN_C:
       ret->base.type = RP_CRASH;
@@ -3064,6 +3079,7 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
   ret->base.type = RP_PAUSE;
   ret->base.Next = RPPauseAfterCount_Next;
   ret->base.Free = RPPauseAfterCount_Free;
+  ret->base.Drain = RPDrain_EOF;
 
   QueryDebugCtx_SetDebugRP(&ret->base);
 
@@ -3182,6 +3198,7 @@ ResultProcessor *RPDepleter_New() {
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Accumulate;
   ret->base.Free = RPDepleter_Free;
+  ret->base.Drain = RPDrain_EOF;
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;

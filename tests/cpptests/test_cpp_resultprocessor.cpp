@@ -127,6 +127,19 @@ TEST_F(ResultProcessorTest, pushInstallsEofDrainWhileProcessorIsNotMigrated) {
   SearchResult_Destroy(&result);
 }
 
+TEST_F(ResultProcessorTest, profileConstructorProvidesDrainWithoutChainInsertion) {
+  QueryProcessingCtx qitr = {0};
+  processor1Ctx source;
+  source.Drain = p1_Drain;
+  ResultProcessor *profile = RPProfile_New(&source, &qitr);
+  SearchResult result = SearchResult_New();
+  ASSERT_NE(nullptr, profile->Drain);
+  EXPECT_EQ(RP_DRAIN_EOF, profile->Drain(profile, &result));
+  EXPECT_EQ(0, RPProfile_GetCount(profile));
+  profile->Free(profile);
+  SearchResult_Destroy(&result);
+}
+
 TEST_F(ResultProcessorTest, drainPropagatesErrors) {
   processor1Ctx processor;
   processor.Drain = drainError;

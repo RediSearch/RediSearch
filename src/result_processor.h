@@ -184,9 +184,9 @@ typedef struct ResultProcessor {
    * must not wait for the Next call, background work, I/O, condition variables,
    * or global runtime locks.
    *
-   * This callback is non-null after the processor is added to a chain.
-   * QITR_PushRP installs RPDrain_EOF until the processor provides an explicit
-   * implementation.
+   * Constructors must initialize this callback. Processors without a custom
+   * implementation use RPDrain_EOF. Chain insertion also supplies that default
+   * for externally provided processors during migration.
    */
   RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
@@ -195,8 +195,7 @@ typedef struct ResultProcessor {
  * Terminal Drain implementation for processors that cannot safely produce a
  * result while Next is active.
  *
- * QITR_PushRP installs this implementation while processors are migrated to an
- * explicit Drain implementation.
+ * Used until a processor provides a custom Drain implementation.
  */
 RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res);
 
