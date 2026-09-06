@@ -15,6 +15,7 @@
 #include "resp3.h"
 #include "query_error_ffi.h"
 #include "value_ffi.h"
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
@@ -580,6 +581,34 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
     default:
       RedisModule_Reply_Null(reply);
   }
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, const RLookupRow *row,
+                                 uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags,
+                                 unsigned int apiVersion) {
+  RLOOKUP_FOREACH(kk, lk, {
+    const uint32_t kflags = RLookupKey_GetFlags(kk);
+    if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) ||
+        (kflags & requiredFlags) != requiredFlags) {
+      continue;
+    }
+    const RSValue *v = RLookupRow_Get(kk, row);
+    if (!v) {
+      continue;
+    }
+    RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+    if (RSValue_IsTrio(v)) {
+      if (flags & SENDREPLY_FLAG_EXPAND) {
+        v = RSValue_Trio_GetRight(v);
+      } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+        v = RSValue_Trio_GetMiddle(v); // multi-value form
+      } else {
+        v = RSValue_Trio_GetLeft(v); // single-value form
+      }
+    }
+    RedisModule_Reply_RSValue(reply, v, flags);
+  });
   return REDISMODULE_OK;
 }
 
