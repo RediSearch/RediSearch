@@ -195,9 +195,9 @@ typedef enum {
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 
-  // At least one field has INDEXMISSING; see IndexSpecMissing. Persisted with
-  // the other flags since INDEX_INDEXMISSING_FLAG_VERSION, derived from the
-  // fields when loading older RDBs.
+  // At least one field has INDEXMISSING; see IndexSpecMissing. Written to RDB
+  // with the other flags, but ignored on load and re-derived from the fields,
+  // so RDBs from before this bit existed need no special handling.
   Index_HasIndexMissing = 0x100000,
 } IndexFlags;
 
@@ -228,8 +228,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 28
-#define INDEX_INDEXMISSING_FLAG_VERSION 28
+#define INDEX_CURRENT_VERSION 27
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25

@@ -326,12 +326,11 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadIndexMissing) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG", "INDEXMISSING", "price", "NUMERIC", "INDEXMISSING"};
     const size_t nargs = sizeof(args) / sizeof(const char *);
 
-    // Current format: the persisted flag is trusted as-is.
     checkIndexMissingRoundTrip("test_rdb_indexmissing_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2}, false);
 
-    // An RDB written before the flag was persisted: the fields carry INDEXMISSING
-    // but the spec flags do not, so the flag must be derived on load.
-    checkIndexMissingRoundTrip("test_rdb_indexmissing_old_idx", args, nargs, INDEX_INDEXMISSING_FLAG_VERSION - 1, {1, 2}, true);
+    // An RDB written before the flag existed: the fields carry INDEXMISSING but
+    // the spec flags do not, so the flag must be derived on load.
+    checkIndexMissingRoundTrip("test_rdb_indexmissing_old_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2}, true);
 }
 
 TEST_F(RdbMockTest, testIndexSpecRdbLoadWithoutIndexMissing) {

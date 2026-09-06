@@ -1432,9 +1432,7 @@ static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs)
   }
 }
 
-// Sets Index_HasIndexMissing from IndexSpec.missing.fields, for the paths where
-// the flag is not already authoritative: adding fields, and loading RDBs written
-// before the flag was persisted.
+// Sets Index_HasIndexMissing from IndexSpec.missing.fields.
 static void IndexSpec_DeriveIndexMissingFlag(IndexSpec *sp) {
   if (array_len(sp->missing.fields)) {
     sp->flags |= Index_HasIndexMissing;
@@ -3252,6 +3250,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
+  flags &= ~Index_HasIndexMissing;  // re-derived from the fields below
   numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
@@ -3281,11 +3280,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
-  if (encver < INDEX_INDEXMISSING_FLAG_VERSION) {
-    IndexSpec_DeriveIndexMissingFlag(sp);
-  } else {
-    RS_ASSERT(!!(sp->flags & Index_HasIndexMissing) == (array_len(sp->missing.fields) > 0));
-  }
+  IndexSpec_DeriveIndexMissingFlag(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
@@ -3426,6 +3421,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
+  sp->flags &= ~Index_HasIndexMissing;  // re-derived from the fields below
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 
