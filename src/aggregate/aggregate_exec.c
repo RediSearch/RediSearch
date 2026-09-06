@@ -65,6 +65,7 @@
 #include "rs_wall_clock.h"
 #include "rules.h"
 #include "search_disk_api.h"
+#include "row_block.h"
 #include "search_options.h"
 #include "search_result.h"
 #include "search_result_rs.h"
@@ -713,6 +714,68 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * Serializes results and handles the main reply logic for RESP2.
  * Returns the final rc value and updates state accordingly.
  */
+
+// ---- compact row-block encoding for the internal coordinator<->shard path ----------------
+//
+// When enabled, a chunk's rows travel as ONE binary bulk string instead of one RESP map per
+// row (see row_block.h). Restricted to internal (coordinator-dispatched) aggregate requests
+// on RESP2: that is the only path the coordinator's RPNet decodes, and keeping client-facing
+// replies on RESP is what makes this safe to enable without a protocol version bump.
+//
+// The reply shape is unchanged apart from the rows themselves: [total, <block>] instead of
+// [total, row, row, ...]. The coordinator distinguishes them by the element's reply type, so
+// the read side needs no negotiation.
+//
+// A block carries a row's fields and nothing else, so any request asking for the per-row
+// extras `serializeResult` can prepend - id, score, payload, sortkey, required fields - stays
+// on the RESP path: encoding it would drop them silently. The aggregate fan-out asks for none
+// of them, so this only bars a hand-rolled internal request.
+#define ROW_BLOCK_UNSUPPORTED_FLAGS                                        \
+  (QEXEC_F_IS_SEARCH | QEXEC_F_SEND_NOFIELDS | QEXEC_F_SEND_SCORES |       \
+   QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS |    \
+   QEXEC_F_REQUIRED_FIELDS)
+
+static bool useRowBlock(const AREQ *req) {
+  // Driven by the coordinator's request, not by this shard's config: see
+  // RequestConfig::internalRowBlock for why the sender owns the decision.
+  if (!req->reqConfig.internalRowBlock) return false;
+  if (!IsInternal(req)) return false;
+  if (AREQ_RequestFlags(req) & ROW_BLOCK_UNSUPPORTED_FLAGS) return false;
+  return true;
+}
+
+// One writer per worker thread, reused across chunks so buffer growth is paid once.
+static __thread RowBlockWriter rowBlockWriter;
+static __thread bool rowBlockWriterInit = false;
+
+static RowBlockWriter *rowBlockWriter_Get(void) {
+  if (!rowBlockWriterInit) {
+    RowBlockWriter_Init(&rowBlockWriter);
+    rowBlockWriterInit = true;
+  }
+  RowBlockWriter_Reset(&rowBlockWriter);
+  return &rowBlockWriter;
+}
+
+// The same key subset the RESP row serializer emits.
+static inline void rowBlockFlags(const AREQ *req, uint32_t *requiredFlags,
+                                 uint32_t *excludeFlags) {
+  *excludeFlags = RLOOKUP_F_HIDDEN;
+  *requiredFlags = req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0;
+}
+
+// Give up on the block for this chunk, after the writer refused a row it cannot encode.
+// The rows already in the block are re-emitted as RESP rows and the caller carries on down
+// the RESP path, refused row included, so the chunk degrades to the encoding a shard with
+// the format off would have used instead of losing values or the rows around them.
+static void rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter *w,
+                             ChunkSerializeState *state) {
+  RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "notice",
+                  "Row block encoding hit an unsupported value type; "
+                  "replying this chunk in RESP instead");
+  state->nelem += RowBlockWriter_ReplayAsResp(w, reply, AREQ_RequestFlags(req));
+}
+
 static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
   QueryProcessingCtx *qctx, int rc, size_t limit, cachedVars *cv, ChunkSerializeState *state) {
 
@@ -721,6 +784,17 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       state->cursor_done = true;
       return rc;
     }
+
+    // Declared before the first `goto done_2` below: jumping over an initialisation is a
+    // hard error under -Werror=jump-misses-init.
+    const bool rowBlock = useRowBlock(req);
+    RowBlockWriter *w = NULL;
+    // Tracks what the reply carries rather than what the request asked for: it is cleared
+    // by the first row the block format cannot represent, after which this chunk is a plain
+    // RESP reply. Declared here for the same reason as `rowBlock`.
+    bool inBlock = false;
+    uint32_t rbRequired = 0, rbExclude = 0;
+    if (rowBlock) rowBlockFlags(req, &rbRequired, &rbExclude);
 
     state->resultsLen = prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
     state->nelem++;
@@ -742,16 +816,46 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       goto done_2;
     }
 
+    if (rowBlock) {
+      w = rowBlockWriter_Get();
+      // No columns to emit (an aggregate with no LOAD, say) means rows of zero bytes, which
+      // a block cannot count: reply in RESP, where an empty row is still a row.
+      inBlock = RowBlockWriter_WriteSchema(w, cv->lastLookup, rbRequired, rbExclude) > 0;
+    }
+
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      state->nelem += serializeResult(req, reply, state->r, cv);
+      if (inBlock &&
+          !RowBlockWriter_WriteRow(w, cv->lastLookup, state->r, rbRequired, rbExclude,
+                                   AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
+        rowBlockFallback(req, reply, w, state);
+        inBlock = false;
+      }
+      if (!inBlock) {
+        state->nelem += serializeResult(req, reply, state->r, cv);
+      }
       SearchResult_Clear(state->r);
     } else {
+      if (inBlock) goto emit_block_2;
       goto done_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      state->nelem += serializeResult(req, reply, state->r, cv);
+      if (inBlock &&
+          !RowBlockWriter_WriteRow(w, cv->lastLookup, state->r, rbRequired, rbExclude,
+                                   AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
+        rowBlockFallback(req, reply, w, state);
+        inBlock = false;
+      }
+      if (!inBlock) {
+        state->nelem += serializeResult(req, reply, state->r, cv);
+      }
       SearchResult_Clear(state->r);
+    }
+
+emit_block_2:
+    if (inBlock) {
+      RedisModule_Reply_StringBuffer(reply, w->buf, w->len);
+      state->nelem++;
     }
 
 done_2:
