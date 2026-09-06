@@ -36,11 +36,22 @@ impl ResultProcessor for Counter {
             .upstream()
             .expect("There is no processor upstream of this counter.");
 
-        while upstream.next(res)?.is_some() {
-            self.count.fetch_add(1, Ordering::Relaxed);
-
-            res.clear();
-        }
+        let mut count = 0;
+        let status = loop {
+            match upstream.next(res) {
+                Ok(Some(())) => {
+                    count += 1;
+                    res.clear();
+                }
+                Ok(None) => break Ok(()),
+                Err(error) => break Err(error),
+            }
+        };
+        // `next` is the only writer today. Keeping the total atomic makes shared
+        // processor entry sound while paying one atomic operation per invocation,
+        // rather than one per consumed result.
+        self.count.fetch_add(count, Ordering::Relaxed);
+        status?;
 
         // In profiling mode, RPProfile is interleaved into the result processor chain: A chain of
         // processors A -> B -> C becomes A -> RPProfile -> B -> RPProfile -> C -> RPProfile, to

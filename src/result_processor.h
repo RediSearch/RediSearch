@@ -183,17 +183,22 @@ typedef struct ResultProcessor {
    * storage distinct from the concurrent Next call's result. Implementations
    * must not wait for the Next call, background work, I/O, condition variables,
    * or global runtime locks.
+   *
+   * This callback is non-null after the processor is added to a chain.
+   * QITR_PushRP installs RPDrain_EOF until the processor provides an explicit
+   * implementation.
    */
   RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
 
 /**
- * Drains one result from `rp`.
+ * Terminal Drain implementation for processors that cannot safely produce a
+ * result while Next is active.
  *
- * Processors without a Drain implementation are transparent: the call is
- * forwarded upstream, or returns RP_DRAIN_EOF at the source of the chain.
+ * QITR_PushRP installs this implementation while processors are migrated to an
+ * explicit Drain implementation.
  */
-RPDrainStatus ResultProcessor_Drain(ResultProcessor *rp, SearchResult *res);
+RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res);
 
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 

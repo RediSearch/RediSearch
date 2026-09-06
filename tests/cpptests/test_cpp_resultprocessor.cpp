@@ -104,30 +104,26 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   RLookup_Cleanup(&lk);
 }
 
-TEST_F(ResultProcessorTest, drainSkipsProcessorsWithoutAnImplementation) {
-  processor1Ctx source;
-  source.Drain = p1_Drain;
-
-  processor1Ctx transparent;
-  transparent.upstream = &source;
-
+TEST_F(ResultProcessorTest, drainCallsProcessorImplementationDirectly) {
+  processor1Ctx processor;
+  processor.Drain = p1_Drain;
   SearchResult result = SearchResult_New();
   for (t_docId expected = 1; expected <= NUM_RESULTS; ++expected) {
-    ASSERT_EQ(RP_DRAIN_OK, ResultProcessor_Drain(&transparent, &result));
+    ASSERT_EQ(RP_DRAIN_OK, processor.Drain(&processor, &result));
     ASSERT_EQ(expected, SearchResult_GetDocId(&result));
     SearchResult_Clear(&result);
   }
-  ASSERT_EQ(RP_DRAIN_EOF, ResultProcessor_Drain(&transparent, &result));
+  ASSERT_EQ(RP_DRAIN_EOF, processor.Drain(&processor, &result));
   SearchResult_Destroy(&result);
 }
 
-TEST_F(ResultProcessorTest, drainReturnsEofWhenNoProcessorImplementsIt) {
-  processor1Ctx source;
-  processor1Ctx transparent;
-  transparent.upstream = &source;
-
+TEST_F(ResultProcessorTest, pushInstallsEofDrainWhileProcessorIsNotMigrated) {
+  QueryProcessingCtx qitr = {0};
+  processor1Ctx processor;
+  QITR_PushRP(&qitr, &processor);
   SearchResult result = SearchResult_New();
-  ASSERT_EQ(RP_DRAIN_EOF, ResultProcessor_Drain(&transparent, &result));
+  ASSERT_NE(nullptr, processor.Drain);
+  ASSERT_EQ(RP_DRAIN_EOF, processor.Drain(&processor, &result));
   SearchResult_Destroy(&result);
 }
 
@@ -136,7 +132,7 @@ TEST_F(ResultProcessorTest, drainPropagatesErrors) {
   processor.Drain = drainError;
 
   SearchResult result = SearchResult_New();
-  ASSERT_EQ(RP_DRAIN_ERROR, ResultProcessor_Drain(&processor, &result));
+  ASSERT_EQ(RP_DRAIN_ERROR, processor.Drain(&processor, &result));
   SearchResult_Destroy(&result);
 }
 

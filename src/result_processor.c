@@ -531,6 +531,9 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
 }
 
 void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
+  if (!rp->Drain) {
+    rp->Drain = RPDrain_EOF;
+  }
   rp->parent = it;
   if (!it->rootProc) {
     it->endProc = it->rootProc = rp;
@@ -541,11 +544,10 @@ void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
   it->endProc = rp;
 }
 
-RPDrainStatus ResultProcessor_Drain(ResultProcessor *rp, SearchResult *res) {
-  while (rp && !rp->Drain) {
-    rp = rp->upstream;
-  }
-  return rp ? rp->Drain(rp, res) : RP_DRAIN_EOF;
+RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res) {
+  (void)rp;
+  (void)res;
+  return RP_DRAIN_EOF;
 }
 
 void QITR_FreeChain(QueryProcessingCtx *qitr) {

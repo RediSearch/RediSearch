@@ -110,12 +110,11 @@ pub trait ResultProcessor: Sync {
     /// Yield the next result available after the query enters its drain phase.
     ///
     /// This method may run concurrently with one call anywhere in the [`Self::next`]
-    /// chain. It must not wait for that call or for background progress.
-    fn drain(&self, cx: DrainContext, res: &mut SearchResult) -> Result<Option<()>, DrainError> {
-        let Some(upstream) = cx.upstream() else {
-            return Ok(None);
-        };
-        upstream.drain(res)
+    /// chain. It must not wait for that call or for background progress. The
+    /// default returns EOF; processors may reuse their [`Self::next`] behavior
+    /// only when concurrent entry is safe and cannot wait for upstream progress.
+    fn drain(&self, _cx: DrainContext, _res: &mut SearchResult) -> Result<Option<()>, DrainError> {
+        Ok(None)
     }
 }
 
@@ -280,32 +279,22 @@ impl Upstream<'_> {
 
     /// Pull the next result available from the upstream drain path.
     ///
+    /// Every processor added to an executable C or Rust chain has a drain
+    /// callback, including processors that can only report end of input.
+    ///
     /// # Errors
     ///
     /// Returns [`DrainError`] when upstream result production fails.
     pub fn drain(&self, res: &mut SearchResult<'_>) -> Result<Option<()>, DrainError> {
-        let mut current = Some(self.ptr);
-        let ret_code = loop {
-            let Some(ptr) = current else {
-                return Ok(None);
-            };
-            // SAFETY: `drain` is fixed before execution. Reading only this field
-            // avoids borrowing the C header while Next mutates other fields.
-            let drain = unsafe { ptr::addr_of!((*ptr.as_ptr()).drain) };
-            // SAFETY: The field pointer is valid under the same lifetime guarantee.
-            let drain = unsafe { drain.read() };
-            if let Some(drain) = drain {
-                // SAFETY: The VTable entry belongs to `ptr`, and the caller
-                // provides exclusive result storage for this call.
-                break unsafe { drain(ptr.as_ptr(), res) };
-            }
-            // SAFETY: `upstream` is initialized before execution and remains
-            // stable until both concurrent entries complete.
-            let upstream = unsafe { ptr::addr_of!((*ptr.as_ptr()).upstream) };
-            // SAFETY: The field pointer is valid under the same lifetime guarantee.
-            let upstream = unsafe { upstream.read() };
-            current = NonNull::new(upstream);
-        };
+        // SAFETY: `drain` is fixed before execution. Reading only this field
+        // avoids borrowing the C header while Next mutates other fields.
+        let drain = unsafe { ptr::addr_of!((*self.ptr.as_ptr()).drain) };
+        // SAFETY: The field pointer is valid under the same lifetime guarantee.
+        let drain =
+            unsafe { drain.read() }.expect("result processor `Drain` vtable function was null");
+        // SAFETY: The VTable entry belongs to `self.ptr`, and the caller
+        // provides exclusive result storage for this call.
+        let ret_code = unsafe { drain(self.ptr.as_ptr(), res) };
 
         match ret_code as ffi::RPDrainStatus {
             ffi::RPDrainStatus_RP_DRAIN_OK => Ok(Some(())),
@@ -831,7 +820,7 @@ pub(crate) mod test {
         miri,
         ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
     )]
-    fn default_drain_propagates_to_upstream() {
+    fn default_drain_returns_eof_without_calling_upstream() {
         struct Transparent;
         impl ResultProcessor for Transparent {
             const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
@@ -851,7 +840,7 @@ pub(crate) mod test {
         let drain = unsafe { rp.as_ref().drain.unwrap() };
         // SAFETY: `rp` remains pinned and the result storage is valid for the call.
         let found = unsafe { drain(rp.as_ptr(), &mut SearchResult::new()) };
-        assert_eq!(found, ffi::RPDrainStatus_RP_DRAIN_OK);
+        assert_eq!(found, ffi::RPDrainStatus_RP_DRAIN_EOF);
     }
 
     #[test]
