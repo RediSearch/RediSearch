@@ -160,6 +160,9 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
 
     if (isOutOfMemory(ctx)) {
       RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+      if (forced) {
+        forced->outcome = GC_FORCED_RUN_NO_FORK;
+      }
       return -1;
     }
 

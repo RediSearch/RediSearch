@@ -587,7 +587,9 @@ def test_gc_oom(env:Env):
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
 
-    forceInvokeGC(env)
+    # A forced cycle that skips its fork for memory pressure reports failure, not DONE.
+    waitForRdbSaveToFinish(env)
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').error().contains('GC DID NOT RUN')
 
     # Verify no bytes collected by GC
     info = index_info(env)
@@ -1132,3 +1134,21 @@ def testForcedGCReportsWhenItCannotFork():
 
     env.assertContains('GC DID NOT RUN', forced.get('error', ''),
                        message=f'expected an error, got {forced}')
+
+
+@skip(cluster=True)
+def testForcedGCReportsWhenOutOfMemory():
+    """A forced GC that skips its fork because of memory pressure has to say so, not reply
+    DONE for a cycle that collected nothing -- the counterpart to
+    testForcedGCReportsWhenItCannotFork's EEXIST branch, for forkGCChild's isOutOfMemory
+    branch. Unlike that test, no sync points are needed: the memory check is synchronous, so
+    a tight maxmemory is already in place before GC_FORCEINVOKE is sent."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    set_tight_maxmemory_for_oom(env)
+    try:
+        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 2000).error() \
+            .contains('GC DID NOT RUN')
+    finally:
+        set_unlimited_maxmemory_for_oom(env)
