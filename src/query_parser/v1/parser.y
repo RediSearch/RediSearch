@@ -492,6 +492,8 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
             if (!A->tag.fs) {
                 QueryNode_Free(A);
                 A = NULL;
+            } else {
+                A->tag.fieldIndex = A->tag.fs->index;
             }
         }
     }
