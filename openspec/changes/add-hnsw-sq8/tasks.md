@@ -10,6 +10,7 @@
       `dorer-intel`; results are in [verification.md](verification.md).
 - [ ] Resolve or account for the four remaining full-suite failures.
 - [x] Obtain an independent review.
-- [ ] Resolve the workerless migration and frontend resize-limit findings.
+- [x] Enforce the frontend resize limit during creation and RDB loading.
+- [ ] Resolve workerless SQ8 migration in VecSim and verify it in RediSearch.
 - [ ] Replace the provisional dependency pin with the merged VecSim commit.
 - [ ] Obtain maintainer review and green CI before merge.
