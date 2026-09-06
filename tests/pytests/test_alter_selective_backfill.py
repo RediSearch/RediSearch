@@ -204,10 +204,10 @@ def testAlterSkipUnchangedDocsFallbackPriorSkipInitialScanAlter(env):
 
 @skip(cluster=True)
 def testAlterSkipUnchangedDocsHistorySurvivesRdbReload(env):
-    """Index_HasSkippedAlterScan is persisted through the existing IndexFlags RDB value: after
-    a reload, a later ALTER must still fall back to a full scan instead of resuming the
-    shortcut. Without this, a restart could silently leave documents missing a field an
-    earlier 'SKIPINITIALSCAN' ALTER added but never backfilled."""
+    """Index_HasSkippedAlterScan rides along in the persisted IndexFlags value, so after a
+    reload a later ALTER still falls back to a full scan. The reload itself reindexes every
+    document from the keyspace, so this pins the conservative (stale-but-safe) direction of
+    the persisted bit rather than a correctness requirement."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
@@ -423,34 +423,3 @@ def testAlterSkipUnchangedDocsFallbackSortable(env):
     env.assertEqual(env.cmd('PING'), True)
     env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT')),
                     toSortedFlatList([1, 'doc:1']))
-
-
-@skip(cluster=True)
-def testAlterSkipUnchangedDocsMarkerSurvivesRdbReload(env):
-    """Index_AlterHistoryTracked is what tells a selective scan that this spec's skipped-ALTER
-    history is recorded, so it has to survive an RDB round-trip: a spec reloaded from an RDB
-    this version wrote must still take the shortcut.
-
-    The reverse case -- a spec loaded from an RDB written before the flag existed, which must
-    fall back to the full scan -- cannot be produced here, since the suite cannot write an RDB
-    with an older module. That direction rests on the marker being absent by construction in
-    any such file."""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
-    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'tags', 'premium')
-
-    env.dumpAndReload()
-
-    id1_before = get_internal_id(env, 'doc:1')
-    id2_before = get_internal_id(env, 'doc:2')
-
-    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'tags', 'TAG').ok()
-    waitForIndexFinishScan(env, 'idx')
-
-    # Still selective after the reload: doc:1 keeps its id, so the marker made it through the
-    # RDB round-trip. Were it dropped on save or load, this ALTER would fall back to the full
-    # scan and doc:1's id would move.
-    env.assertEqual(get_internal_id(env, 'doc:1'), id1_before)
-    env.assertGreater(get_internal_id(env, 'doc:2'), id2_before)
-    env.expect('FT.SEARCH', 'idx', '@tags:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
