@@ -47,7 +47,6 @@
 #include "synonym_map.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
-#include "util/arr/arr.h"
 #include "util/block_alloc.h"
 #include "util/dict/dict.h"
 #include "util/khtable.h"
@@ -75,21 +74,6 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
   if (spec->flags & Index_StoreTermOffsets) {
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
-  }
-}
-
-static void recordTextIndexingTime(IndexSpec *spec, t_fieldMask fieldMask,
-                                   rs_wall_clock_ns_t duration) {
-  while (fieldMask) {
-    t_fieldId fieldId = (t_fieldId)__builtin_ctzll(fieldMask);
-    fieldMask &= fieldMask - 1;
-    if (fieldId >= array_len(spec->fieldIdToIndex)) {
-      continue;
-    }
-    t_fieldIndex fieldIndex = spec->fieldIdToIndex[fieldId];
-    if (fieldIndex < spec->numFields) {
-      FieldSpec_AddIndexingTime(&spec->fields[fieldIndex], FIELD_INDEXING_INDEX, duration);
-    }
   }
 }
 
@@ -188,7 +172,8 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (entryWantsSuffixTrie(spec, entry)) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
-    recordTextIndexingTime(spec, entry->fieldMask, rs_wall_clock_now_ns() - start);
+    Indexer_RecordTextFieldTiming(spec, entry->fieldMask, FIELD_INDEXING_INDEX,
+                                  rs_wall_clock_now_ns() - start);
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }

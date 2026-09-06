@@ -22,6 +22,7 @@
 #include "phonetic_manager.h"
 #include "stemmer.h"
 #include "synonym_map.h"
+#include "util/arr/arr.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -68,6 +69,34 @@ static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardInde
       && entry->term[0] != PHONETIC_PREFIX
       && entry->term[0] != SYNONYM_PREFIX_CHAR
       && strlen(entry->term) != 0;
+}
+
+/**
+ * Attribute `duration` to every TEXT field set in `fieldMask` for the given
+ * indexing phase. `fieldMask` is in `ftId` bit space (see `FIELD_BIT`), which
+ * spans the full width of `t_fieldMask` — 128 bits on 64-bit builds — so this
+ * tests one bit at a time rather than a `ctz`-family builtin, which only
+ * examines the low 64 bits.
+ *
+ * Memory mode calls this once per forward-index entry from `indexText`
+ * (`FIELD_INDEXING_INDEX`); disk mode calls it from the matching points in
+ * `stageText` (`FIELD_INDEXING_INDEX`) and `applyTextIndex` (`FIELD_INDEXING_APPLY`).
+ */
+static inline void Indexer_RecordTextFieldTiming(IndexSpec *spec, t_fieldMask fieldMask,
+                                                  FieldIndexingPhase phase,
+                                                  rs_wall_clock_ns_t duration) {
+  for (t_fieldId fieldId = 0; fieldMask; ++fieldId, fieldMask >>= 1) {
+    if (!(fieldMask & 1)) {
+      continue;
+    }
+    if (fieldId >= array_len(spec->fieldIdToIndex)) {
+      continue;
+    }
+    t_fieldIndex fieldIndex = spec->fieldIdToIndex[fieldId];
+    if (fieldIndex < spec->numFields) {
+      FieldSpec_AddIndexingTime(&spec->fields[fieldIndex], phase, duration);
+    }
+  }
 }
 
 #ifdef __cplusplus

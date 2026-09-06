@@ -112,6 +112,7 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
+    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     const uint8_t *offsets = NULL;
     size_t offsetsLen = 0;
     if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
@@ -122,6 +123,8 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
                                          entry->term, entry->len, aCtx->doc->docId,
                                          entry->fieldMask, entry->freq,
                                          offsets, offsetsLen);
+    Indexer_RecordTextFieldTiming(spec, entry->fieldMask, FIELD_INDEXING_INDEX,
+                                  rs_wall_clock_now_ns() - start);
   }
 }
 
@@ -254,12 +257,15 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
+    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     if (entry->staged) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (entryWantsSuffixTrie(spec, entry)) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
+    Indexer_RecordTextFieldTiming(spec, entry->fieldMask, FIELD_INDEXING_APPLY,
+                                  rs_wall_clock_now_ns() - start);
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
@@ -305,11 +311,14 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     // the next RDB save would persist that divergence. Match the post-commit
     // policy used by `applyDocTable` for `DocIdMeta_Set` failure.
     RS_LOG_ASSERT_ALWAYS(vecsim, "openVectorIndex returned NULL after a successful disk commit");
+    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     const char *curr_vec = (const char *)fdata->vector;
     for (size_t i = 0; i < fdata->numVec; i++) {
       VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
       curr_vec += fdata->vecLen;
     }
+    FieldSpec_AddIndexingTime(&spec->fields[fs->index], FIELD_INDEXING_APPLY,
+                              rs_wall_clock_now_ns() - start);
   }
 }
 
