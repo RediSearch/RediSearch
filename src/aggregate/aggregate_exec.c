@@ -231,7 +231,13 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
     }
     for(; currentField < requiredFieldsCount; currentField++) {
-      const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLookup, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
+      RequiredField *field = &req->requiredFields[currentField];
+      if (!field->key) {
+        // A name can be unresolvable for early rows and resolve later (loading
+        // documents may create keys), so NULL entries are retried per row.
+        field->key = RLookup_GetKey_Read(cv->lastLookup, field->name, RLOOKUP_F_NOFLAGS);
+      }
+      const RLookupKey *rlk = field->key;
       const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
       if (RSValue_IsTrio(v)) {
         // For duo value, we use the left value here (not the right value)
@@ -248,7 +254,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = rsv;
       }
       if (need_map) {
-        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
+        RedisModule_Reply_CString(reply, field->name); // key name
       }
       reeval_key(reply, v);
     }
