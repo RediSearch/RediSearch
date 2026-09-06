@@ -14,6 +14,7 @@
 #include "synonym_map.h"
 #include "trie/trie.h"
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
+#include <iterator>  // For std::size
 #include <vector>
 
 extern "C" {
@@ -279,12 +280,12 @@ static void checkIndexMissingRoundTrip(const char *name, const char **args, size
                                        const std::vector<t_fieldIndex> &expectedMissingFields,
                                        bool stripFlagBeforeSave) {
     QueryError err = QueryError_Default();
-    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, name, args, nargs, &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC(nullptr, name, args, nargs, &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-    IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
+    auto *spec = static_cast<IndexSpec *>(StrongRef_Get(original_spec_ref));
     ASSERT_TRUE(spec != nullptr);
-    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](const IndexSpec *spec) {
         StrongRef_Release(spec->own_ref);
     });
 
@@ -315,7 +316,7 @@ static void checkIndexMissingRoundTrip(const char *name, const char **args, size
     QueryError status = QueryError_Default();
     IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, encver, false, &status);
     ASSERT_NE(nullptr, loadedSpec);
-    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](const IndexSpec *spec) {
         StrongRef_Release(spec->own_ref);
     });
     EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
@@ -324,7 +325,7 @@ static void checkIndexMissingRoundTrip(const char *name, const char **args, size
 
 TEST_F(RdbMockTest, testIndexSpecRdbLoadIndexMissing) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG", "INDEXMISSING", "price", "NUMERIC", "INDEXMISSING"};
-    const size_t nargs = sizeof(args) / sizeof(const char *);
+    const size_t nargs = std::size(args);
 
     checkIndexMissingRoundTrip("test_rdb_indexmissing_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2}, false);
 
@@ -335,7 +336,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadIndexMissing) {
 
 TEST_F(RdbMockTest, testIndexSpecRdbLoadWithoutIndexMissing) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG"};
-    checkIndexMissingRoundTrip("test_rdb_no_indexmissing_idx", args, sizeof(args) / sizeof(const char *), INDEX_CURRENT_VERSION, {}, false);
+    checkIndexMissingRoundTrip("test_rdb_no_indexmissing_idx", args, std::size(args), INDEX_CURRENT_VERSION, {}, false);
 }
 
 TEST_F(RdbMockTest, testIndexSpecStringSerialize) {

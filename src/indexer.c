@@ -376,9 +376,8 @@ static void reopenCb(void *arg) {}
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
-// Index missing field docs.
-// Add field names to missing.indexes if it is missing in the document
-// and add the doc to its corresponding inverted index
+// Adds the document to the missing-docs inverted index of every INDEXMISSING
+// field it lacks (or has only with a field-level expiration).
 static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                                   struct FieldExpirationSlice sortedFieldWithExpiration) {
   Document *doc = aCtx->doc;
