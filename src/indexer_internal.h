@@ -32,13 +32,8 @@ extern "C" {
 
 /**
  * Dispose of the replaced document's VecSim and Geometry entries: drop each one, except a
- * vector field whose entry is to be moved onto the new doc-id, which is left for the
+ * vector field whose entry is to be moved onto the new doc-id (relabel), which is left for the
  * vector-insert site.
- *
- * This is where a relabel mark is settled. A change set makes the decision for free; without
- * one, the field's new value is compared against what the index holds. Either way the answer
- * is reached before anything is deleted, so a field that turns out to have changed loses its
- * old entry here and the insert site is left with a straight yes or no.
  *
  * These two index types live in memory in both memory mode and disk mode (the
  * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
@@ -52,7 +47,7 @@ extern "C" {
  * data, and safe to call defensively on stale key-meta in disk mode.
  */
 void Indexer_HandleReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId,
-                                                RSAddDocumentCtx *aCtx);
+                                                const RSAddDocumentCtx *aCtx);
 
 /**
  * Remove the old document's contributions from the spec's scoring stats on

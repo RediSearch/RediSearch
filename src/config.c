@@ -39,7 +39,7 @@
 #include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
-#define DEFAULT_OPTIMIZE_UPDATE_VEC true
+#define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
@@ -117,7 +117,7 @@ configPair_t __configPairs[] = {
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
-  {"OPTIMIZE_UPDATE_VEC",             "search-optimize-update-vec"},
+  {"OPTIMIZE_PARTIAL_UPDATE",         "search-optimize-partial-update"},
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
@@ -1401,9 +1401,9 @@ CONFIG_GETTER(getIndexCursorLimit) {
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 
-// OPTIMIZE_UPDATE_VEC
-CONFIG_BOOLEAN_SETTER(set_OptimizeUpdateVec, optimizeUpdateVec)
-CONFIG_BOOLEAN_GETTER(get_OptimizeUpdateVec, optimizeUpdateVec, 0)
+// OPTIMIZE_PARTIAL_UPDATE
+CONFIG_BOOLEAN_SETTER(set_OptimizePartialUpdate, optimizePartialUpdate)
+CONFIG_BOOLEAN_GETTER(get_OptimizePartialUpdate, optimizePartialUpdate, 0)
 
 // INDEXER_YIELD_EVERY_OPS
 CONFIG_SETTER(setIndexerYieldEveryOps) {
@@ -1892,12 +1892,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable unstable features.",
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
-        {.name = "OPTIMIZE_UPDATE_VEC",
+        {.name = "OPTIMIZE_PARTIAL_UPDATE",
          .helpText = "When enabled (default), an update that leaves a VECTOR field's value"
                      " unchanged moves the field's existing index entry onto the document's new"
                      " doc-id instead of deleting and re-adding it.",
-         .setValue = set_OptimizeUpdateVec,
-         .getValue = get_OptimizeUpdateVec},
+         .setValue = set_OptimizePartialUpdate,
+         .getValue = get_OptimizePartialUpdate},
         {.name = "_BG_INDEX_MEM_PCT_THR",
          .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. The default is 100 percent.",
          .setValue = setIndexingMemoryLimit,
@@ -2687,10 +2687,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-optimize-update-vec", DEFAULT_OPTIMIZE_UPDATE_VEC,
+      ctx, "search-optimize-partial-update", DEFAULT_OPTIMIZE_PARTIAL_UPDATE,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
-      (void *)&(RSGlobalConfig.optimizeUpdateVec)
+      (void *)&(RSGlobalConfig.optimizePartialUpdate)
     )
   )
 

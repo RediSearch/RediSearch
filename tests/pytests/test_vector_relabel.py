@@ -8,7 +8,7 @@
 from common import *
 
 # Relabeling an unchanged vector onto a document's new doc-id, instead of deleting
-# the entry and re-adding the blob (MOD-17688). Gated behind OPTIMIZE_UPDATE_VEC,
+# the entry and re-adding the blob (MOD-17688). Gated behind OPTIMIZE_PARTIAL_UPDATE,
 # which defaults to on.
 #
 # These tests cover what the C++ suite (`VectorRelabelTest`) cannot: the whole
@@ -78,8 +78,8 @@ def _vector_ops(env):
     is counted per vector field per update. Asserting both is what pins that -- either alone
     would still pass if a move were counted twice.
     """
-    # The relabel counter is gated on OPTIMIZE_UPDATE_VEC and absent from INFO when the
-    # config is off, so a gate-off caller (e.g. test_relabel_requires_optimize_update_vec)
+    # The relabel counter is gated on OPTIMIZE_PARTIAL_UPDATE and absent from INFO when the
+    # config is off, so a gate-off caller (e.g. test_relabel_requires_optimize_partial_update)
     # needs the absent key to read as zero rather than raising.
     infos = run_command_on_all_shards(env, 'INFO', 'MODULES')
     return (sum(int(i['search_total_indexing_ops_vector_fields']) for i in infos),
@@ -153,7 +153,7 @@ def test_vector_change_reindexes():
     env.assertEqual(_vector_ops(env), (2, 0))
     _assert_doc_is_queryable(env, 'goodbye', VEC_B)
 
-def test_relabel_requires_optimize_update_vec():
+def test_relabel_requires_optimize_partial_update():
     """The gate: with the config off, the same update takes the delete + re-add path.
 
     Deliberately the same input and the same query assertions as
@@ -163,7 +163,7 @@ def test_relabel_requires_optimize_update_vec():
     change set is not consulted at all.
     """
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-update-vec', 'no')
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-partial-update', 'no')
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -277,10 +277,10 @@ def test_json_doc_relabel_dispatches_on_vector_type():
         conn.execute_command('DEL', 'doc:1')
 
 @skip(no_json=True)
-def test_json_doc_relabel_requires_optimize_update_vec():
+def test_json_doc_relabel_requires_optimize_partial_update():
     """The gate, on the JSON path: config off, so no comparison and no move."""
     env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-update-vec', 'no')
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-partial-update', 'no')
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)

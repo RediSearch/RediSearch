@@ -94,7 +94,9 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-// Contract documented on the declaration in field_spec.h.
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ * */
 bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
                              size_t numChangedFields) {
   if (!changedFields) {
