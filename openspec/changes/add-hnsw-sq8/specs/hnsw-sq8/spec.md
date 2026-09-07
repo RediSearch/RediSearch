@@ -41,7 +41,8 @@
 - If a trained index has fallen below the threshold after deletions, reload
   returns it to accumulation. Compression configuration remains unchanged.
 - A zero threshold stays zero on reload and bypasses accumulation.
-- Legacy RDB versions load with no compression. Invalid compression settings and
-  missing new-format parameter fields are rejected.
+- Legacy RDB versions load with no compression and remain loadable after saving
+  in the current format. Invalid compression settings and missing new-format
+  parameter fields are rejected.
 - Reload recomputes the block size using the current memory limits for both
   tiers. Reject loading if a full-precision frontend element cannot fit.

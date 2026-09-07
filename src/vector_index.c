@@ -852,6 +852,8 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 }
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
+  // Legacy RDB conversion reuses the non-tiered HNSW union storage.
+  *params = (TieredIndexParams){0};
   params->primaryIndexParams = rm_calloc(1, sizeof(VecSimParams));
   // We expect the thread pool to be initialized from the module init function, and to stay constant
   // throughout the lifetime of the module. It can be initialized to NULL.

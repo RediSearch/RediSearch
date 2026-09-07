@@ -57,3 +57,6 @@ explicitly covered for maintainer review.
 Older RDBs continue to load, with `compression: NO_COMPRESSION`. Older binaries
 cannot read encoding version 28. FLAT and SVS parameter layouts are unchanged.
 There is no runtime change to an existing field's compression configuration.
+Converting a pre-tiered HNSW field clears the reused parameter storage before
+initializing the tiered wrapper, so saving it in the current format preserves
+the zero training threshold. Legacy fixtures are loaded, saved, and loaded again.

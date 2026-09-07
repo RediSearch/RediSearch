@@ -152,5 +152,15 @@ def testRDBCompatibility_vecsim():
         ]]
         assertInfoField(env, 'idx', 'attributes', expected_attr_info)
 
+        # A legacy HNSW field must remain loadable after saving in the current format.
+        os.unlink(rdbFilePath)
+        env.dumpAndReload()
+        waitForIndex(env, 'idx')
+        for vec_field in vec_fields:
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]',
+                       'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
+        assertInfoField(env, 'idx', 'attributes', expected_attr_info)
+        env.expect('DBSIZE').equal(100)
+
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
