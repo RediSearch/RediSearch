@@ -108,8 +108,15 @@ pub enum QueryNode<'a> {
     Wildcard,
     /// A tag-field exact-match node.
     Tag {
-        /// The [`ffi::FieldSpec`] of the tag field being queried.
-        fs: &'a ffi::FieldSpec,
+        /// Stable index of the tag field being queried, into `IndexSpec.fields`.
+        ///
+        /// Not the [`ffi::FieldSpec`] pointer itself: `tag.fs` is only safe to
+        /// dereference at parse time — under `WORKERS>0`, a nested `TAG` child can
+        /// still be reached from this conversion well after that, by which point a
+        /// concurrent `FT.ALTER` may have reallocated the spec's field array and left
+        /// it dangling. A consumer that needs the field re-derives it via this index
+        /// against the spec actually held at evaluation time (see MOD-18356).
+        field_index: rqe_core::FieldIndex,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -329,12 +336,12 @@ impl QueryNodeRef {
             QueryNodeType::Wildcard => QueryNode::Wildcard,
             QueryNodeType::Tag => {
                 // SAFETY: `type_` is `Tag`, so the union holds a `QueryTagNode`.
-                // Invariant (1) of `new` guarantees `tag.fs` is a valid,
-                // non-null pointer.
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
+                // No unsafe dereference of `tag.fs` here: see `QueryNode::Tag`'s own
+                // doc for why only `fieldIndex` (a plain integer, always safe to
+                // read) survives this conversion.
                 QueryNode::Tag {
-                    // SAFETY: Invariant (1) of `new` guarantees `tag.fs` is valid and non-null.
-                    fs: unsafe { &*tag.fs },
+                    field_index: tag.fieldIndex,
                 }
             }
             QueryNodeType::Fuzzy => {

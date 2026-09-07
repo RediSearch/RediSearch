@@ -1531,6 +1531,8 @@ static YYACTIONTYPE yy_reduce(
             if (!yylhsminor.yy75->tag.fs) {
                 QueryNode_Free(yylhsminor.yy75);
                 yylhsminor.yy75 = NULL;
+            } else {
+                yylhsminor.yy75->tag.fieldIndex = yylhsminor.yy75->tag.fs->index;
             }
         }
     }
