@@ -567,7 +567,7 @@ fn numeric_variant_geo() {
     let nw_score = nw_hash.bits as f64;
 
     let geo_filter = ffi::GeoFilter {
-        fieldSpec: std::ptr::null(),
+        fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,

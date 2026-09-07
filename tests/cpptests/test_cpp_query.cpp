@@ -880,7 +880,7 @@ TEST_F(QueryTest, testGeoQuery_v1) {
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(HiddenString_GetUnsafe(gn->gn.gf->fieldSpec->fieldName, NULL), "loc");
+  ASSERT_STREQ(HiddenString_GetUnsafe((ctx.spec->fields + gn->gn.gf->fieldIndex)->fieldName, NULL), "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
@@ -906,7 +906,7 @@ TEST_F(QueryTest, testGeoQuery_v2) {
 
   QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(HiddenString_GetUnsafe(gn->gn.gf->fieldSpec->fieldName, NULL), "loc");
+  ASSERT_STREQ(HiddenString_GetUnsafe((ctx.spec->fields + gn->gn.gf->fieldIndex)->fieldName, NULL), "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);

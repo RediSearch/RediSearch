@@ -14,7 +14,7 @@ use index_result::RSIndexResult;
 use inverted_index::{
     FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
-use rqe_core::DocId;
+use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
     inverted_index::Numeric,
@@ -463,11 +463,11 @@ fn numeric_no_range_tree_resume() {
 }
 
 /// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
-/// `fieldSpec` and `numericFilters` are null — tests using this stub must not
-/// reach code paths that dereference those pointers.
+/// `numericFilters` is null — tests using this stub must not reach code paths
+/// that dereference it.
 pub fn geo_filter_stub() -> GeoFilter {
     GeoFilter {
-        fieldSpec: ptr::null(),
+        fieldIndex: RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,
@@ -887,7 +887,7 @@ mod variant_resume {
     use index_result::RSIndexResult;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, NumericFilter, RepairContext};
     use numeric_range_tree::{NumericIndex, NumericRangeTree};
-    use rqe_core::DocId;
+    use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
     use rqe_iterators::{
         NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
     };
@@ -944,7 +944,7 @@ mod variant_resume {
     /// just to select the `Geo` arm.
     fn wide_geo_filter() -> GeoFilter {
         GeoFilter {
-            fieldSpec: ptr::null(),
+            fieldIndex: RS_INVALID_FIELD_INDEX,
             lat: 0.0,
             lon: 0.0,
             radius: 1_000_000.0,

@@ -930,7 +930,9 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gf->fieldSpec = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    GeoFilter_SetField(C->gf, ctx->sctx->spec ? B.fs : NULL);
     A = NewGeofilterNode(C);
   }
 }
