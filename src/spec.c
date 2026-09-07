@@ -1424,17 +1424,13 @@ static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
   }
 }
 
-// Records `fs` in IndexSpec.missing.fields. Call once per field, after its
-// options are final and the field is guaranteed to stay in the schema.
+// Records `fs` in IndexSpec.missing.fields and sets Index_HasIndexMissing. Call
+// once per field, after its options are final and the field is guaranteed to
+// stay in the schema. The flag is set here, not derived separately from the
+// list afterwards, so the two can never fall out of sync.
 static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs) {
   if (FieldSpec_IndexesMissing(fs)) {
     array_append(sp->missing.fields, fs->index);
-  }
-}
-
-// Sets Index_HasIndexMissing from IndexSpec.missing.fields.
-static void IndexSpec_DeriveIndexMissingFlag(IndexSpec *sp) {
-  if (array_len(sp->missing.fields)) {
     sp->flags |= Index_HasIndexMissing;
   }
 }
@@ -1607,7 +1603,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     FieldsGlobalStats_UpdateStats(sp->fields + ii, 1);
     IndexSpec_TrackIndexMissingField(sp, sp->fields + ii);
   }
-  IndexSpec_DeriveIndexMissingFlag(sp);
 
   return 1;
 
@@ -3281,7 +3276,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
-  IndexSpec_DeriveIndexMissingFlag(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
@@ -3449,7 +3443,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     }
     IndexSpec_TrackIndexMissingField(sp, fs);
   }
-  IndexSpec_DeriveIndexMissingFlag(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
