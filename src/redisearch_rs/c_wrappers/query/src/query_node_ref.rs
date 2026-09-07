@@ -137,8 +137,12 @@ pub enum QueryNode<'a> {
     /// An `ismissing(@field)` predicate — matches documents where the field
     /// has no value.
     Missing {
-        /// The [`ffi::FieldSpec`] of the field being tested.
-        field: &'a ffi::FieldSpec,
+        /// Stable index of the field being tested, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this against the spec held at
+        /// evaluation time, rather than caching a pointer from parse time,
+        /// which a concurrent `FT.ALTER` could leave dangling under
+        /// `WORKERS>0` (see MOD-18367).
+        field_index: rqe_core::FieldIndex,
     },
 }
 
@@ -370,13 +374,10 @@ impl QueryNodeRef {
             }
             QueryNodeType::Null => QueryNode::Null,
             QueryNodeType::Missing => {
-                // SAFETY: `type_` is `Missing`, so the union holds a
-                // `QueryMissingNode`.  Invariant (1) of `new` guarantees
-                // `miss.field` is a valid, non-null pointer.
+                // SAFETY: `type_` is `Missing`, so the union holds a `QueryMissingNode`.
                 let miss = unsafe { &*union_ptr.cast::<ffi::QueryMissingNode>() };
                 QueryNode::Missing {
-                    // SAFETY: Invariant (1) of `new` guarantees `miss.field` is valid and non-null.
-                    field: unsafe { &*miss.field },
+                    field_index: miss.fieldIndex,
                 }
             }
             QueryNodeType::Max => {

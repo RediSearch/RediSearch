@@ -39,7 +39,7 @@ fn eval_missing_returns_iterator_over_missing_docs() {
     let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
-    mock_node.set_missing_field(context.field_spec());
+    unsafe { mock_node.set_missing_field(context.field_spec()) };
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
@@ -67,7 +67,7 @@ fn eval_missing_no_values_returns_none() {
     let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
-    mock_node.set_missing_field(context.field_spec());
+    unsafe { mock_node.set_missing_field(context.field_spec()) };
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     assert!(
@@ -87,7 +87,7 @@ fn qast_iterate_substitutes_empty_for_none() {
     let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
-    mock_node.set_missing_field(context.field_spec());
+    unsafe { mock_node.set_missing_field(context.field_spec()) };
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(qast_iterate(&mut ctx, node, Config::default()).into_boxed());
