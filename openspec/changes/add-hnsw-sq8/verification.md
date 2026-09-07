@@ -1,13 +1,54 @@
-# Verification and review — 2026-09-06
+# Verification and review, 2026-09-07
 
-Implementation checkpoint: `d1ad310ebf87dcb017c9597f744dfadede13de0e`.
+Workerless integration: `4325b9333b0abfd2c88121d9a1dbeaf81a6f7cab`.
+Resize implementation: `d1ad310ebf87dcb017c9597f744dfadede13de0e`.
 Backend-normalization coverage: `81c4443c9fe8721d113bc7c4a5fea09aa9a265f9`.
-VectorSimilarity pin: `23993ad9ce3e00491b82aa647f931118c2cc1676` (PR #1029,
+VectorSimilarity pin: `4f97b1c4aa8439bb645e1b2aa35c52c0c4ff31c9` (PR #1029,
 still open when checked).
 
 All completed builds and tests ran on `dorer-intel`, using the existing checkout
 at `/mnt/nvme/rs-mod14958`. A local build was started before the remote-only
 instruction and stopped; no local build result is counted here.
+
+## Workerless migration fix
+
+The VecSim threshold transition now uses the current write mode. With workers
+available it queues migration jobs; in write-in-place mode it executes those
+jobs synchronously before the threshold-crossing insertion returns. Accumulation
+still buffers vectors in both modes. This also handles disabling workers during
+accumulation and RDB rebuilds without temporary workers.
+
+- All eight VecSim regression cases failed before the fix and passed afterward,
+  across FP32/FP16 and single/multi-value indexes.
+- Full VecSim suites: 522 HNSW tests passed with one expected serialization skip,
+  100 SQ8 tests passed, and 11 allocator tests passed.
+- The two new RediSearch insertion regressions failed against the previous module:
+  four vectors stayed in FLAT, HNSW was empty, and four jobs waited with no workers.
+- RediSearch assertion-enabled debug build: passed. Cargo emitted a jobserver
+  file-descriptor warning; it did not prevent compilation or linking.
+- Full RediSearch unit suite: 1033 passed.
+- Focused SQ8 and existing resize-limit behavioral tests: 14 passed. Coverage
+  includes zero-worker insertion, disabling workers during accumulation, and
+  RDB reloads before and after training with both `WORKERS 0` and
+  `MIN_OPERATION_WORKERS 0` for FLOAT32 and FLOAT16.
+- Remote dependency and Python source hashes match the committed files.
+- Full standalone behavioral suite with the normal 300-second timeout: 2341 run,
+  2337 passed, 4 failed. The failures match the preceding integration run:
+  `test_expire:testSortableFieldWithExpirationAndRegularField`,
+  `test_vecsim_svs:test_gc`, `test_vecsim_svs:test_gc_no_workers`, and
+  `test:test_with_tls`. Their assertions and environment limitations are recorded
+  below. All SQ8 tests passed; the full suite remains non-green.
+- Independent review of `4325b9333` and the complete VecSim dependency delta
+  found zero blocking findings and zero suggestions. It was a code review only;
+  the runtime evidence above comes from the remote runs.
+- VecSim PR #1029 has the pinned head; its basic, sanitizer, and coverage CI jobs
+  were still running at handoff. No RediSearch PR or CI run was opened.
+
+The [HLD section 3.2](https://redislabs.atlassian.net/wiki/spaces/DX/pages/6153601069)
+describes unconditional job submission at the transition and omits zero workers.
+The synchronous fallback follows SVS behavior; the local design and spec document
+it and the latency of migrating the training set on the triggering write. The
+Confluence HLD was not edited.
 
 ## RediSearch resize fix
 
@@ -65,20 +106,20 @@ The four remaining behavioral failures are:
 The full behavioral suite is not green. No clustered behavioral run or new CI run
 was performed, and no RediSearch PR was opened.
 
-## Independent review: remaining migration blocker
+## Initial independent review
 
 The initial independent review reported two blocking issues. Both were
 reproduced on the remote machine. The resize issue is now fixed in RediSearch;
-the workerless migration issue remains in VecSim.
+the workerless migration issue is now fixed by the VecSim update above.
 
-1. **P1: migration with no workers.** With `WORKERS 0`, four inserts into an SQ8
+1. **P1, resolved: migration with no workers.** With `WORKERS 0`, four inserts into an SQ8
    index with threshold four leave four vectors in the frontend, zero in HNSW,
    and four pending jobs with no live threads. Reload drains them with the default
    temporary workers. With `MIN_OPERATION_WORKERS 0` too, `DEBUG RELOAD` exceeded
    the reproduction's socket timeout. The code path indicates a wait for jobs
    that cannot execute. Attaching GDB was denied by the remote ptrace policy, so
    no runtime stack was obtained. The temporary reproduction server was killed.
-   Fix migration without background workers and cover both insertion and reload.
+   The new transition fallback and insertion/reload tests address this finding.
 
 2. **P2, resolved: full-precision resize limit.** With `VSS_MAX_RESIZE=2000`, FLOAT32,
    dimension 1024, SQ8, and threshold four, index creation succeeds while ordinary
@@ -89,10 +130,10 @@ the workerless migration issue remains in VecSim.
    SQ8, creation rejection, reload rejection, and successful reload under a
    smaller limit.
 
-VecSim is unchanged by this follow-up. RediSearch's shared submission callback
+The resize fix changed only RediSearch. Its shared submission callback
 also handles graph-repair jobs submitted while VecSim locks are held, so simply
 running all jobs inline when there are no workers risks lock reentrancy. The
-SQ8 transition should honor VecSim's in-place write mode within its own lifecycle.
+SQ8 transition now honors VecSim's in-place write mode within its own lifecycle.
 
 The reviewer could not establish compatibility with the external disk provider,
 which is absent from this checkout, or mixed-version schema propagation beyond
@@ -101,6 +142,17 @@ the documented encoding-version boundary.
 ## Remote artifacts
 
 All paths below are on `dorer-intel`:
+
+- `/tmp/pr1029-workers-before.log`
+- `/tmp/pr1029-workers-build.log`
+- `/tmp/pr1029-workers-hnsw.log`
+- `/tmp/pr1029-workers-sq8.log`
+- `/tmp/pr1029-workers-allocator.log`
+- `/mnt/nvme/mod14958-workers-before-20260907.log`
+- `/mnt/nvme/mod14958-workers-build-20260907.log`
+- `/mnt/nvme/mod14958-workers-unit-20260907.log`
+- `/mnt/nvme/mod14958-workers-focused-20260907.log`
+- `/mnt/nvme/mod14958-workers-full-20260907.log`
 
 - `/mnt/nvme/mod14958-resize-before-20260906.log`
 - `/mnt/nvme/mod14958-resize-build-20260906.log`

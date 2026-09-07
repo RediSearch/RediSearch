@@ -11,6 +11,6 @@
 - [ ] Resolve or account for the four remaining full-suite failures.
 - [x] Obtain an independent review.
 - [x] Enforce the frontend resize limit during creation and RDB loading.
-- [ ] Resolve workerless SQ8 migration in VecSim and verify it in RediSearch.
+- [x] Resolve workerless SQ8 migration in VecSim and verify it in RediSearch.
 - [ ] Replace the provisional dependency pin with the merged VecSim commit.
 - [ ] Obtain maintainer review and green CI before merge.
