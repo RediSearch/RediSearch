@@ -145,9 +145,19 @@ typedef union IndexDecoderCtx {
  */
 typedef struct NumericFilter {
   /**
-   * The field specification which this filter is acting on
+   * The field specification which this filter is acting on, as it existed when the
+   * filter was built. Only safe to dereference then: under `WORKERS>0`, evaluation can
+   * run on a worker thread well after that, and a concurrent `FT.ALTER` may have since
+   * reallocated the spec's field array, leaving this pointer dangling. At evaluation
+   * time, re-derive the field via `field_index` instead (see `field_index`'s own doc).
    */
   const FieldSpec *fieldSpec;
+  /**
+   * Stable index of `field_spec` into `IndexSpec.fields`, captured at the same time as
+   * `field_spec` itself. Use this for a fresh lookup into the spec actually held at
+   * evaluation time, rather than dereferencing `field_spec` directly - see MOD-18361.
+   */
+  t_fieldIndex fieldIndex;
   /**
    * Beginning of the range
    */
