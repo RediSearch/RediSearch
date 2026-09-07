@@ -3246,7 +3246,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
-  flags &= ~Index_HasIndexMissing;  // re-derived from the fields below
   numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
@@ -3416,7 +3415,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
-  sp->flags &= ~Index_HasIndexMissing;  // re-derived from the fields below
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 

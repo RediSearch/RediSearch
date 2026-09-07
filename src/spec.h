@@ -196,8 +196,9 @@ typedef enum {
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 
   // At least one field has INDEXMISSING; see IndexSpecMissing. Written to RDB
-  // with the other flags, but ignored on load and re-derived from the fields,
-  // so RDBs from before this bit existed need no special handling.
+  // with the other flags. IndexSpec_TrackIndexMissingField sets it again as
+  // each field is loaded, so RDBs from before this bit existed (where it is
+  // simply absent) need no special handling.
   Index_HasIndexMissing = 0x100000,
 } IndexFlags;
 
