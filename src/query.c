@@ -1403,11 +1403,15 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     }
-    case QN_GEO:
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(qs->gn.gf->fieldSpec->fieldName, NULL), qs->gn.gf->lon,
-                       qs->gn.gf->lat, qs->gn.gf->radius,
-                       GeoDistance_ToString(qs->gn.gf->unitType));
-      break;
+    case QN_GEO: {
+      const GeoFilter *gf = qs->gn.gf;
+      // Re-derived via fieldIndex when possible, not `gf->fieldSpec` directly - see
+      // GeoFilter_SetField (MOD-18366).
+      RS_ASSERT(!spec || gf->fieldIndex < spec->numFields);
+      const FieldSpec *geoFs = spec ? spec->fields + gf->fieldIndex : gf->fieldSpec;
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(geoFs->fieldName, NULL), gf->lon,
+                       gf->lat, gf->radius, GeoDistance_ToString(gf->unitType));
+    } break;
     case QN_IDS:
       s = sdscat(s, "IDS {");
       if (spec) {
