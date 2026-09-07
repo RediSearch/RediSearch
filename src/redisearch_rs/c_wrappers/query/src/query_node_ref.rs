@@ -140,8 +140,15 @@ pub enum QueryNode<'a> {
     /// An `ismissing(@field)` predicate — matches documents where the field
     /// has no value.
     Missing {
-        /// The [`ffi::FieldSpec`] of the field being tested.
-        field: &'a ffi::FieldSpec,
+        /// Stable index of the field being tested, into `IndexSpec.fields`.
+        ///
+        /// Not the [`ffi::FieldSpec`] pointer itself: `miss.field` is only safe to
+        /// dereference at parse time — under `WORKERS>0`, evaluation can run on a
+        /// worker thread well after that, by which point a concurrent `FT.ALTER`
+        /// may have reallocated the spec's field array and left it dangling. A
+        /// consumer that needs the field re-derives it via this index against the
+        /// spec actually held at evaluation time (see MOD-18367).
+        field_index: rqe_core::FieldIndex,
     },
 }
 
@@ -376,13 +383,13 @@ impl QueryNodeRef {
             }
             QueryNodeType::Null => QueryNode::Null,
             QueryNodeType::Missing => {
-                // SAFETY: `type_` is `Missing`, so the union holds a
-                // `QueryMissingNode`.  Invariant (1) of `new` guarantees
-                // `miss.field` is a valid, non-null pointer.
+                // SAFETY: `type_` is `Missing`, so the union holds a `QueryMissingNode`.
                 let miss = unsafe { &*union_ptr.cast::<ffi::QueryMissingNode>() };
+                // No unsafe dereference of `miss.field` here: see `QueryNode::Missing`'s
+                // own doc for why only `fieldIndex` (a plain integer, always safe to
+                // read) survives this conversion.
                 QueryNode::Missing {
-                    // SAFETY: Invariant (1) of `new` guarantees `miss.field` is valid and non-null.
-                    field: unsafe { &*miss.field },
+                    field_index: miss.fieldIndex,
                 }
             }
             QueryNodeType::Max => {

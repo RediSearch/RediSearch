@@ -426,15 +426,30 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the `field` pointer of the missing-node union variant.
+    /// Set the `field`/`fieldIndex` fields of the missing-node union variant,
+    /// replacing the zeroed placeholder [`new`](MockQueryNode::new) leaves there.
     ///
-    /// `field` must outlive this `MockQueryNode`.
-    pub fn set_missing_field(&mut self, field: *const ffi::FieldSpec) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Missing so the `miss` variant is active.
+    /// `field` must outlive this `MockQueryNode`. Sets both fields together,
+    /// mirroring `NewMissingNode` (`query.c`) — evaluation re-derives the field via
+    /// `fieldIndex` rather than dereferencing `field` directly, so a mock that only
+    /// set `field` would leave `fieldIndex` zeroed and silently select field 0 of
+    /// the mock spec instead (see MOD-18367).
+    ///
+    /// # Safety
+    ///
+    /// `field` must be non-null and point to a valid `FieldSpec` whose `index` is
+    /// safe to read.
+    pub unsafe fn set_missing_field(&mut self, field: *const ffi::FieldSpec) {
+        self.debug_assert_type(QueryNodeType::Missing);
+        // SAFETY: forwarded from this method's own safety contract.
+        let field_index = unsafe { (*field).index };
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Missing, per the assertion above, so the `miss` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            (*union_ptr.cast::<ffi::QueryMissingNode>()).field = field.cast_mut();
+            let miss = union_ptr.cast::<ffi::QueryMissingNode>();
+            (*miss).field = field.cast_mut();
+            (*miss).fieldIndex = field_index;
         }
     }
 
