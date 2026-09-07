@@ -18,6 +18,17 @@
   frontend and compressed backend element estimates, including when the training
   threshold is zero. Reject creation if one element cannot fit.
 
+## Worker settings
+
+- `WORKERS 0` remains supported. Vectors accumulate in the frontend until the
+  training threshold is reached, then migrate synchronously before the write
+  returns. No insertion jobs are left waiting for unavailable workers.
+- With workers enabled, migration uses background jobs.
+- The worker setting at the transition applies, including when workers were
+  disabled during accumulation.
+- RDB rebuilds support disabling both regular and temporary loading workers
+  with `WORKERS 0 MIN_OPERATION_WORKERS 0`, before and after training.
+
 ## Save and reload
 
 - RDB stores compression configuration and original source vectors. Rebuilding

@@ -279,10 +279,97 @@ def assert_sq8_storage(env, frontend_size, backend_size=None):
                         message=info)
 
 
+def assert_sq8_no_worker_jobs(env):
+    stats = getWorkersThpoolStats(env)
+    for field in ('totalPendingJobs', 'numJobsInProgress', 'numThreadsAlive'):
+        env.assertEqual(stats[field], 0, message=stats)
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_training_without_workers():
+    """Cross the threshold synchronously, including pending overwrites and deletions."""
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    conn = getConnectionByEnv(env)
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        create_hnsw(env, 'idx', [
+            'TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'COSINE',
+            'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4,
+        ])
+        for i in range(3):
+            conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1, data_type))
+        conn.execute_command('HSET', 'doc0', 'v', sq8_vector(5, data_type))
+        conn.execute_command('DEL', 'doc2')
+        assert_sq8_storage(env, 2)
+        assert_sq8_no_worker_jobs(env)
+
+        conn.execute_command('HSET', 'doc2', 'v', sq8_vector(3, data_type))
+        assert_sq8_storage(env, 3)
+        conn.execute_command('HSET', 'doc3', 'v', sq8_vector(4, data_type))
+        assert_sq8_storage(env, 0, 4)
+        assert_sq8_no_worker_jobs(env)
+        assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'], data_type)
+
+        conn.execute_command('HSET', 'doc0', 'v', sq8_vector(6, data_type))
+        conn.execute_command('DEL', 'doc1')
+        conn.execute_command('HSET', 'doc4', 'v', sq8_vector(7, data_type))
+        assert_sq8_storage(env, 0, 4)
+        assert_sq8_no_worker_jobs(env)
+        assert_sq8_documents(env, ['doc0', 'doc2', 'doc3', 'doc4'], data_type)
+        env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_disable_workers_during_accumulation():
+    """Use the current worker setting when the accumulated vectors reach the threshold."""
+    env = Env(moduleArgs='WORKERS 2 MIN_OPERATION_WORKERS 0')
+    conn = getConnectionByEnv(env)
+    create_hnsw(env, 'idx', hnsw_params(
+        'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
+    assert_sq8_storage(env, 3)
+    env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
+    try:
+        conn.execute_command('HSET', 'doc3', 'v', sq8_vector(4))
+        assert_sq8_storage(env, 0, 4)
+        assert_sq8_no_worker_jobs(env)
+        assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'])
+    finally:
+        env.expect(config_cmd(), 'SET', 'WORKERS', 2).ok()
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_reload_without_workers():
+    """Reload both training states without regular or temporary loading workers."""
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    conn = getConnectionByEnv(env)
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        create_hnsw(env, 'idx', [
+            'TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'COSINE',
+            'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4,
+        ])
+        for i in range(3):
+            conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1, data_type))
+        env.dumpAndReload()
+        assert_sq8_storage(env, 3)
+        assert_sq8_no_worker_jobs(env)
+        assert_sq8_documents(env, ['doc0', 'doc1', 'doc2'], data_type)
+
+        conn.execute_command('HSET', 'doc3', 'v', sq8_vector(4, data_type))
+        assert_sq8_storage(env, 0, 4)
+        assert_sq8_no_worker_jobs(env)
+        env.dumpAndReload()
+        assert_sq8_storage(env, 0, 4)
+        assert_sq8_no_worker_jobs(env)
+        assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'], data_type)
+        env.assertEqual(vector_field_info(env, 'idx')['training_threshold'], 4)
+        env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
+
+
 @skip(cluster=True)
 def test_hnsw_sq8_reload_during_accumulation():
     """Rebuild a partially trained index, then cross the threshold with new writes."""
-    # Workers are required to drain the migration jobs created at the SQ8 transition.
+    # Exercise background migration; the workerless case is covered separately.
     env = Env(moduleArgs='WORKERS 2')
     create_hnsw(env, 'idx', hnsw_params(
         'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))

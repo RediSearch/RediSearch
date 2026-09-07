@@ -9,6 +9,19 @@ current VecSim factory does not support.
 `FT.INFO` reads the stored field configuration. It does not describe whether
 training has completed; a small compressed index may still use flat storage.
 
+## Migration without workers
+
+Accumulation uses the frontend regardless of the worker setting. At the training
+threshold, VecSim checks the current write mode: asynchronous mode submits the
+pending insertion jobs, while write-in-place mode executes them synchronously.
+This follows SVS behavior and supports disabling workers during accumulation.
+The threshold-crossing write can take longer because it migrates the entire
+training set before returning.
+
+The HLD's section 3.2 describes queue submission at the transition but omits the
+zero-worker case. This fallback completes that behavior and also permits RDB
+rebuilds with both `WORKERS 0` and `MIN_OPERATION_WORKERS 0`.
+
 ## Resize limits
 
 Tiered SQ8 uses one block size for the full-precision frontend and compressed
