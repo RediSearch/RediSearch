@@ -44,7 +44,7 @@ jobs:
           PR_NUMBER_FROM_PR: ${{ github.event.pull_request.number }}
           PR_NUMBER_FROM_ISSUE: '11323'
           LABEL_NAME: ${{ github.event.label.name }}
-          COMMENT_BODY: '/backport 99.1322-clean 99.1322-partial'
+          COMMENT_BODY: '/backport 99.1322-clean 99.1322-mixed 99.1322-conflict'
         run: python3 scripts/auto_backport/resolve_create.py
 
       - name: Generate classic action token
