@@ -23,10 +23,10 @@ pub(crate) fn eval<'index>(
     let spec = ctx.spec();
 
     // SAFETY: `spec` is valid (`QueryEvalContext::new` invariant 2), and any
-    // queryable spec has its `missingFieldDict` initialised by
+    // queryable spec has its `missing.indexes` initialised by
     // `IndexSpec_MakeKeyless`, so the pointer is a valid dict; `fs.fieldName`
     // is a valid `HiddenString` key, matching the C `Query_EvalMissingNode`.
-    let ii_ptr = unsafe { ffi::RS_dictFetchValue(spec.missingFieldDict, fs.fieldName as *mut _) };
+    let ii_ptr = unsafe { ffi::RS_dictFetchValue(spec.missing.indexes, fs.fieldName as *mut _) };
 
     if ii_ptr.is_null() {
         // There are no missing values for this field.
@@ -47,10 +47,10 @@ pub(crate) fn eval<'index>(
     // 2. `fs.index` is a valid index into `spec.fields`: the query AST node
     //    references a field of this very spec, so its `FieldSpec::index` is in
     //    bounds (mirrors the C `Query_EvalMissingNode` using `fs->index`).
-    // 3. `spec.missingFieldDict` is a non-null, valid dict — initialised by
+    // 3. `spec.missing.indexes` is a non-null, valid dict — initialised by
     //    `IndexSpec_MakeKeyless` for every queryable spec; it is also the dict
     //    we just fetched `ii_ptr` from above.
     // 4. `ii_ref` uses `DocIdsOnly`/`RawDocIdsOnly` encoding: the indexer only
-    //    ever stores doc-ids-only inverted indexes in `missingFieldDict`.
+    //    ever stores doc-ids-only inverted indexes in `missing.indexes`.
     Some(unsafe { new_missing_iterator(ii_ref, sctx_nn, fs.index) })
 }

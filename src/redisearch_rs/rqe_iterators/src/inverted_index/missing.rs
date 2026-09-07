@@ -39,7 +39,7 @@ use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus};
 ///
 /// Used for `ismissing(@field)` queries, where the goal is to match every
 /// document that does not have the specified field indexed. The set of such
-/// documents is maintained per-field in the index spec's `missingFieldDict`.
+/// documents is maintained per-field in the index spec's `missing.indexes`.
 ///
 /// This iterator supports per-field expiration checks via
 /// [`FieldExpirationChecker`] using the
@@ -103,8 +103,8 @@ where
     /// # Safety
     ///
     /// 1. `self.field_index` must be a valid index into `spec.fields`.
-    /// 2. `spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 3. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    /// 2. `spec.missing.indexes` must be a non-null, valid dict pointer.
+    /// 3. The entry in `missing.indexes` for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -152,8 +152,8 @@ where
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
     /// 3. `field_index` must be a valid index into `context.spec.fields`.
-    /// 4. `context.spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 5. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    /// 4. `context.spec.missing.indexes` must be a non-null, valid dict pointer.
+    /// 5. The entry in `missing.indexes` for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -260,7 +260,7 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Conditions (field_index validity, missingFieldDict, encoding
+        // Conditions (field_index validity, missing.indexes, encoding
         // match) are structural invariants guaranteed by the constructor's
         // pre-conditions.
         if self.should_abort(spec) {
@@ -305,7 +305,7 @@ where
 /// 1. `sctx` must point to a valid [`RedisSearchCtx`] whose `spec` is
 ///    non-null and valid.
 /// 2. `field_index` must be a valid index into `sctx.spec.fields`.
-/// 3. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+/// 3. `sctx.spec.missing.indexes` must be a non-null, valid dict pointer.
 /// 4. The opaque inverted index must use either
 ///    [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) or
 ///    [`RawDocIdsOnly`](inverted_index::raw_doc_ids_only::RawDocIdsOnly)
@@ -326,7 +326,7 @@ pub unsafe fn new_missing_iterator<'index>(
             // SAFETY: caller guarantees sctx and spec validity (1-3).
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
-            // missingFieldDict validity (1-3).
+            // missing.indexes validity (1-3).
             Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
         }
         inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
@@ -334,7 +334,7 @@ pub unsafe fn new_missing_iterator<'index>(
             // SAFETY: caller guarantees sctx and spec validity (1-3).
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
-            // missingFieldDict validity (1-3).
+            // missing.indexes validity (1-3).
             Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
         }
         _ => panic!(

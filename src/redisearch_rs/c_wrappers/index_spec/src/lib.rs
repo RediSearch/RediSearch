@@ -248,17 +248,17 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         unsafe { Dict::from_raw_mut(self.0.keysDict) }
     }
 
-    /// Return the spec's `missingFieldDict` as a typed [`Dict`].
+    /// Return the spec's `missing.indexes` as a typed [`Dict`].
     pub fn missing_field_dict_mut(&mut self) -> &mut Dict<MissingFieldDictType> {
         debug_assert!(
-            !self.0.missingFieldDict.is_null(),
-            "missingFieldDict must not be null"
+            !self.0.missing.indexes.is_null(),
+            "missing.indexes must not be null"
         );
-        // SAFETY: `missingFieldDict` is a valid non-null dict* created with
+        // SAFETY: `missing.indexes` is a valid non-null dict* created with
         // `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`), and lives
         // as long as the spec (1.). We hold the write lock, so there are no other
         // live references and no concurrent C access (2.).
-        unsafe { Dict::from_raw_mut(self.0.missingFieldDict) }
+        unsafe { Dict::from_raw_mut(self.0.missing.indexes) }
     }
 
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
@@ -377,17 +377,17 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         })
     }
 
-    /// Return the spec's `missingFieldDict` as a typed [`Dict`].
+    /// Return the spec's `missing.indexes` as a typed [`Dict`].
     pub fn missing_field_dict(&self) -> &Dict<MissingFieldDictType> {
         debug_assert!(
-            !self.0.missingFieldDict.is_null(),
-            "missingFieldDict must not be null"
+            !self.0.missing.indexes.is_null(),
+            "missing.indexes must not be null"
         );
-        // SAFETY: `missingFieldDict` is a valid non-null dict* created with
+        // SAFETY: `missing.indexes` is a valid non-null dict* created with
         // `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`), and
-        // lives as long as the spec (1.). `missingFieldDict` is always in a
+        // lives as long as the spec (1.). `missing.indexes` is always in a
         // fully hashed state (2.).
-        unsafe { Dict::from_raw(self.0.missingFieldDict) }
+        unsafe { Dict::from_raw(self.0.missing.indexes) }
     }
 
     /// Returns the terms trie.
@@ -421,7 +421,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     ///
     /// This dictionary maps field names to their missing-value inverted indexes.
     pub const fn missing_field_dict_ptr(&self) -> *mut ffi::dict {
-        self.0.missingFieldDict
+        self.0.missing.indexes
     }
 
     /// Returns a pointer to the fields array.
