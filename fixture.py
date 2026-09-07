@@ -1,2 +1,2 @@
 def increment(value):
-    return int(value) + 1
+    return int(value) + 2
