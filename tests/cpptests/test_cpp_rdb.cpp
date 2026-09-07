@@ -1144,6 +1144,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     uint64_t threshold;
     VecSimType type;
     size_t truncatedBytes;
+    size_t dim = 64;
   };
   const InvalidParams cases[] = {
       {2, 0, VecSimType_FLOAT32, 0},
@@ -1155,17 +1156,21 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
       {VecSimQuant_SQ8, 1, VecSimType_FLOAT16, 0},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, sizeof(uint64_t)},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 2 * sizeof(uint64_t)},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, size_t{UINT32_MAX} / UINT8_MAX + 1},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT16, 0, size_t{UINT32_MAX} / UINT8_MAX + 1},
   };
   for (const auto &test : cases) {
     SCOPED_TRACE(::testing::Message()
                  << "compression=" << test.compression << " threshold=" << test.threshold
-                 << " type=" << test.type << " truncated=" << test.truncatedBytes);
+                 << " type=" << test.type << " truncated=" << test.truncatedBytes
+                 << " dim=" << test.dim);
     RedisModuleIO *io = RMCK_CreateRdbIO();
     ASSERT_NE(io, nullptr);
     std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
         io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
     VecSimParams *params = &spec->fields[0].vectorOpts.vecSimParams;
     params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type = test.type;
+    params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim = test.dim;
     VecSim_RdbSave(io, params);
     // Replace the two new fields with wire values, including values wider than the enum.
     io->buffer.resize(io->buffer.size() - 2 * sizeof(uint64_t));

@@ -6,6 +6,11 @@ learns the mean from the indexed vectors. Validation runs before index creation,
 including rejection of FLOAT16 L2 with a nonzero training threshold, which the
 current VecSim factory does not support.
 
+SQ8 dimensions are capped at `UINT32_MAX / UINT8_MAX` because VecSim stores the
+sum of quantized bytes in a 32-bit accumulator. Enforce the bound before size
+estimation on both creation and RDB load. Uncompressed HNSW keeps its existing
+dimension validation.
+
 `FT.INFO` reads the stored field configuration. It does not describe whether
 training has completed; a small compressed index may still use flat storage.
 

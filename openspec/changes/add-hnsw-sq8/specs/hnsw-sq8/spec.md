@@ -14,6 +14,8 @@
   above the maximum is rejected.
 - FLOAT16 L2 requires an explicit zero threshold until VecSim supports mean
   normalization for that combination.
+- SQ8 accepts dimensions up to 16,843,009, inclusive. Larger dimensions are
+  rejected during creation and RDB loading.
 - The resize limit bounds the shared block size using both full-precision
   frontend and compressed backend element estimates, including when the training
   threshold is zero. Reject creation if one element cannot fit.

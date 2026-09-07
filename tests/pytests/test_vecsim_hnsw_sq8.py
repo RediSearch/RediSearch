@@ -12,6 +12,7 @@ from redis.exceptions import ResponseError
 
 DEFAULT_TRAINING_THRESHOLD = 10 * 1024
 MAX_TRAINING_THRESHOLD = 100 * 1024
+MAX_SQ8_DIM = (2**32 - 1) // 255
 
 
 def hnsw_params(data_type='FLOAT32', *extra):
@@ -32,6 +33,33 @@ def create_hnsw(env, index_name, params):
 
 def vector_field_info(env, index_name):
     return to_dict(index_info(env, index_name)['attributes'][0])
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_dimension_limit(env):
+    """Bound SQ8 metadata accumulation without restricting ordinary HNSW dimensions."""
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        for metric in ('L2', 'IP', 'COSINE'):
+            for threshold in (0, 4):
+                if (data_type, metric, threshold) == ('FLOAT16', 'L2', 4):
+                    continue
+                params = [
+                    'TYPE', data_type, 'DIM', MAX_SQ8_DIM + 1,
+                    'DISTANCE_METRIC', metric, 'COMPRESSION', 'SQ8',
+                    'TRAINING_THRESHOLD', threshold,
+                ]
+                env.expect('FT.CREATE', 'oversized', 'SCHEMA', 'v', 'VECTOR',
+                           'HNSW', len(params), *params).error().contains(
+                               f'SQ8 DIM cannot exceed {MAX_SQ8_DIM}')
+                params[3] = MAX_SQ8_DIM
+                create_hnsw(env, 'boundary', params)
+                env.dumpAndReload()
+                env.assertEqual(vector_field_info(env, 'boundary')['dim'], MAX_SQ8_DIM)
+                env.expect('FT.DROPINDEX', 'boundary').ok()
+
+    create_hnsw(env, 'plain', [
+        'TYPE', 'FLOAT32', 'DIM', MAX_SQ8_DIM + 1, 'DISTANCE_METRIC', 'L2',
+    ])
 
 
 @skip(cluster=True)

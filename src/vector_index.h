@@ -71,6 +71,8 @@
 
 #define HNSW_SQ8_DEFAULT_TRAINING_THRESHOLD (10 * DEFAULT_BLOCK_SIZE)
 #define HNSW_SQ8_MAX_TRAINING_THRESHOLD (100 * DEFAULT_BLOCK_SIZE)
+// VecSim's SQ8 metadata uses a 32-bit sum of quantized bytes.
+#define HNSW_SQ8_MAX_DIM (UINT32_MAX / UINT8_MAX)
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
