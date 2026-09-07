@@ -69,7 +69,6 @@ When done with all targets, write the manifest to `$BACKPORT_MANIFEST_FILE`:
 ```json
 {
   "targets": [
-    { "target": "8.8", "branch": "backport-agent/pr-8774-to-8.8", "status": "clean" },
     { "target": "8.6", "branch": "backport-agent/pr-8774-to-8.6", "status": "conflicts",
       "conflict_log": [
         { "path": "src/rdb.c",
@@ -87,7 +86,7 @@ Rules for the manifest:
 - One entry per target you processed, in processing order.
 - `branch` must be exactly `backport-agent/pr-<pr>-to-<target>`; the apply step
   rejects anything else.
-- Only `clean` / `conflicts` entries get pushed; `skipped` entries are reported
+- Only `conflicts` entries with a conflict log get pushed; `skipped` entries are reported
   to the reviewer and nothing is pushed for them.
 - The conflict log is honest, reviewer-facing prose. If a resolution is
   uncertain, say so ("best-effort, please verify") rather than claiming

@@ -166,9 +166,9 @@ jobs:
           permission-pull-requests: write
           permission-workflows: write
 
-      - name: Publish validated agent results
+      - name: Publish prepared backports
         if: >-
-          always() && steps.collect.outputs.run_agent == 'true' && steps.publish-token.outcome == 'success'
+          always() && steps.collect.outputs.apply_needed == 'true' && steps.publish-token.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.publish-token.outputs.token }}
           BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}

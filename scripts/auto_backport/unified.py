@@ -128,11 +128,12 @@ def selected_commits(ctx: dict, work: str) -> list[str]:
     return [c for c in selected if len(git(work, "show", "-s", "--format=%P", c).stdout.split()) <= 1]
 
 
-def replay(work: str, target: str, commits: list[str]) -> dict:
+def replay(work: str, target: str, commits: list[str], branch: str | None = None) -> dict:
     """Reproduce a failure without model calls; preserve enough evidence to resolve it."""
     base = git(work, "rev-parse", f"refs/remotes/origin/{target}").stdout.strip()
     git(work, "checkout", "--detach", base)
     failure = None
+    skipped = []
     try:
         for sha in commits:
             result = git(work, "cherry-pick", "-x", sha, check=False)
@@ -141,6 +142,7 @@ def replay(work: str, target: str, commits: list[str]) -> dict:
                 if not paths and git(work, "diff", "--quiet", "HEAD", check=False).returncode == 0:
                     # Empty picks are already applied; keep checking the rest of the range.
                     git(work, "cherry-pick", "--skip")
+                    skipped.append(sha)
                     continue
                 failure = {"kind": "conflict" if paths else "error", "paths": paths,
                            "stderr": result.stderr[-6000:], "commit": sha, "base_sha": base}
@@ -148,7 +150,12 @@ def replay(work: str, target: str, commits: list[str]) -> dict:
         if failure:
             return failure
         unchanged = git(work, "diff", "--quiet", base, "HEAD", check=False).returncode == 0
-        return {"kind": "already applied" if unchanged else "clean", "base_sha": base}
+        result = {"kind": "already applied" if unchanged else "clean", "base_sha": base,
+                  "skipped_commits": skipped}
+        if skipped and not unchanged and branch:
+            git(work, "branch", branch, "HEAD")
+            result["head_sha"] = git(work, "rev-parse", branch).stdout.strip()
+        return result
     finally:
         git(work, "cherry-pick", "--abort", check=False)
         git(work, "reset", "--hard", base)
@@ -189,6 +196,7 @@ def collect(ctx: dict) -> None:
         if not commits:
             raise ValueError("No non-merge commits selected by the action's merge policy")
         failures = {}
+        clean_recoveries = {}
         for target in pending:
             try:
                 fetched = git(work, "fetch", "--no-tags", "origin",
@@ -196,12 +204,17 @@ def collect(ctx: dict) -> None:
                 if fetched.returncode:
                     state["rows"][target]["detail"] = "target fetch failed; check branch existence and repository access"
                 else:
-                    result = replay(work, target, commits)
+                    branch = apply_create.branch_for(ctx["pr"], target)
+                    result = replay(work, target, commits, branch)
                     if result["kind"] == "conflict" and ctx["agent_allowed"]:
                         failures[target] = result
                         state["rows"][target]["detail"] = "agent did not complete conflict resolution"
                     elif result["kind"] == "already applied":
                         state["rows"][target] = {"target": target, "status": "already applied", "detail": "no changes needed"}
+                    elif result["kind"] == "clean" and result.get("head_sha"):
+                        clean_recoveries[target] = {**result, "target": target, "branch": branch,
+                                                    "status": "clean"}
+                        state["rows"][target]["detail"] = "clean remainder awaiting publication"
                     elif result["kind"] == "conflict":
                         state["rows"][target]["detail"] = "fork-sourced PR conflict requires manual backport"
                     else:
@@ -212,8 +225,10 @@ def collect(ctx: dict) -> None:
         agent_ctx = {**ctx, "targets": sorted(failures, key=lambda t: tuple(map(int, t.split('-')[0].split('.'))), reverse=True),
                      "commits": commits, "failures": failures}
         write("agent-context", agent_ctx)
+        state["clean_recoveries"] = clean_recoveries
         state["agent_targets"] = agent_ctx["targets"]
         write("results", state)
+        common.set_output("apply_needed", "true" if failures or clean_recoveries else "false")
         common.set_output("run_agent", "true" if failures else "false")
         common.set_output("agent_context", str(saved("agent-context")))
     finally:
@@ -223,6 +238,27 @@ def collect(ctx: dict) -> None:
 
 def apply(ctx: dict) -> None:
     state = read(saved("results"))
+    clean_recoveries = state.get("clean_recoveries", {})
+    if clean_recoveries:
+        privileged = common.PrivilegedGit(os.environ["BACKPORT_WORK"], os.environ["GITHUB_REPOSITORY"],
+                                         os.environ["GH_TOKEN"])
+        for target, entry in clean_recoveries.items():
+            try:
+                row = existing_row(ctx, target)
+                if row is None:
+                    branch = apply_create.branch_for(ctx["pr"], target)
+                    if privileged("rev-parse", branch).stdout.strip() != entry["head_sha"]:
+                        raise ValueError("prepared clean remainder was modified after triage")
+                    remote = privileged("ls-remote", "--exit-code", "origin", f"refs/heads/{target}").stdout.split()
+                    if not remote or remote[0] != entry["base_sha"]:
+                        raise ValueError("target advanced after triage; retry")
+                    row = apply_create.apply_target(ctx, privileged, entry)
+                    if row["status"] == "skipped":
+                        row["status"] = "error"
+                state["rows"][target] = row
+            except (OSError, ValueError, subprocess.CalledProcessError) as error:
+                state["rows"][target]["detail"] = f"clean remainder publication failed: {error}"
+            write("results", state)
     if not state["agent_targets"]:
         return
     agent_ctx = read(saved("agent-context"))

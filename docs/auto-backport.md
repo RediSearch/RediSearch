@@ -51,7 +51,10 @@ Before fallback, the deterministic collector reconciles action results with
 GitHub and reproduces failures against fetched target revisions. It uses the
 same ordered commit selection as the pinned action: squash commits, rebased
 commit ranges, or original PR commits, skipping merge commits. Empty picks are
-already applied; remaining commits must still be checked.
+already applied; remaining commits must still be checked. When skipping those
+empty commits leaves a clean remainder, the collector preserves it and publishes
+it without a model call. Its commit ID is recorded before the agent runs and
+verified at publication.
 
 Confirmed conflicting targets are processed together, newest first, in one
 agent invocation. Missing branches, fetch failures, and failures that reproduce

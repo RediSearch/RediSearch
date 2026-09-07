@@ -333,6 +333,49 @@ class GitReplayTests(unittest.TestCase):
         self.git("update-ref", "refs/remotes/origin/8.8", self.source)
         self.assertEqual(unified.replay(self.work, "8.8", [self.source, later])["kind"], "clean")
 
+    def test_partial_backport_handoff_publishes_remainder_without_agent(self):
+        self.git("checkout", "--detach", self.source)
+        later = self.commit("later")
+        self.git("branch", "8.6", self.source)
+        with tempfile.TemporaryDirectory() as run_temp:
+            work = str(Path(run_temp, "clone"))
+            ctx = {"pr": 1, "sha": later, "targets": ["8.6"], "agent_allowed": True}
+            outputs = {}
+            actual_git = unified.git
+            def git(work, *args, **kwargs):
+                if args[0] == "fetch":
+                    return actual_git(work, "update-ref", "refs/remotes/origin/8.6", self.source)
+                return actual_git(work, *args, **kwargs)
+            env = {"RUNNER_TEMP": run_temp, "BACKPORT_WORK": work, "GITHUB_WORKSPACE": self.work,
+                   "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "test", "SUCCESS_BY_TARGET": "8.6=false",
+                   "CREATED_PULL_NUMBERS": ""}
+            with patch.dict(os.environ, env), patch.object(unified, "existing_row", return_value=None), patch.object(
+                    unified, "selected_commits", return_value=[self.source, later]), patch.object(
+                    unified, "git", side_effect=git), patch.object(common, "set_output", side_effect=lambda k,v: outputs.update({k:v})):
+                unified.write("results", {"rows": {"8.6": {"target": "8.6", "status": "error", "detail": ""}},
+                                          "action_targets": ["8.6"], "agent_targets": []})
+                unified.collect(ctx)
+                self.assertEqual(outputs["run_agent"], "false")
+                self.assertEqual(outputs["apply_needed"], "true")
+                entry = unified.read(unified.saved("results"))["clean_recoveries"]["8.6"]
+                self.assertEqual(entry["skipped_commits"], [self.source])
+                self.assertEqual(actual_git(work, "show", entry["branch"] + ":file").stdout, "later\n")
+                def publish_git(*args, **kwargs):
+                    if args[0] == "ls-remote":
+                        return Mock(stdout=self.source + " refs/heads/8.6", returncode=0)
+                    return actual_git(work, *args, **kwargs)
+                with patch.object(common, "PrivilegedGit", return_value=publish_git), patch.object(
+                        unified.apply_create, "apply_target", return_value={"target": "8.6", "status": "clean", "detail": "https://github.com/o/r/pull/3"}) as publish:
+                    unified.apply(ctx)
+                    publish.assert_called_once()
+                    self.assertEqual(unified.read(unified.saved("results"))["rows"]["8.6"]["status"], "clean")
+                    # A model cannot replace the prepared ref before privileged publication.
+                    actual_git(work, "update-ref", "refs/heads/" + entry["branch"], self.source)
+                    publish.reset_mock()
+                    unified.apply(ctx)
+                    publish.assert_not_called()
+                    self.assertIn("modified after triage", unified.read(unified.saved("results"))["rows"]["8.6"]["detail"])
+
     def test_publish_validation_rejects_wrong_base_and_extra_commits(self):
         ctx = {"pr": 1, "commits": [self.source], "failures": {"8.6": {"base_sha": self.target}}}
         entry = {"target": "8.6", "branch": "backport-agent/pr-1-to-8.6", "status": "conflicts", "conflict_log": [{}]}
