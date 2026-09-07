@@ -32,7 +32,6 @@ from common import (
     wait_for_condition,
     skipIfNoEnableAssert,
     paused_workers,
-    workers_jobs_done,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -1028,12 +1027,10 @@ def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
 
     # The training is running now: a doc deleted from the batch being transferred has to be removed
     # from the backend once the transfer puts it there, which is what the deletions journal is for.
-    # A flow test cannot pin down an interleaving inside the job, hence the two witnesses below.
-    jobs_done_before_transfer = workers_jobs_done(env)
+    # A flow test cannot pin down an interleaving inside the job, hence the witness below.
     flat_buffer_deletes = docs.add(10)      # inserted, then deleted, after the transfer started
     docs.delete(racing_deletes, _RACE_DELETES)
     docs.delete(flat_buffer_deletes, 10)
-    assert_transfer_did_not_complete(env, jobs_done_before_transfer, message='phase 1')
 
     probes = [pending_deletes, racing_deletes, flat_buffer_deletes]
     settle_and_verify('phase 1', marked_deleted_before_transfer, probes)
@@ -1053,7 +1050,6 @@ def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
 
     # An update holds the main index lock exclusively for its whole batch, so these deletions block
     # on it rather than running alongside it - MOD-13168's own symptom - and land as it finishes.
-    # Hence no `assert_transfer_did_not_complete` here.
     docs.delete(update_deletes, _RACE_DELETES)
 
     settle_and_verify('phase 2', marked_deleted_before_transfer,

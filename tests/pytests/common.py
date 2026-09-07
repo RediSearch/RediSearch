@@ -359,9 +359,6 @@ def set_workers(env, workers):
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
     env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
-def workers_jobs_done(env):
-    return getWorkersThpoolStats(env)['totalJobsDone']
-
 @contextmanager
 def paused_workers(env):
     """Pause the worker thread pool for the duration of the block, so that jobs it schedules are

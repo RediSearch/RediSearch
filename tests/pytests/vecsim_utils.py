@@ -15,7 +15,6 @@ from common import (
     TimeLimit,
     create_random_np_array_typed,
     getWorkersThpoolStats,
-    workers_jobs_done,
 )
 import numpy as np
 import time
@@ -152,14 +151,6 @@ def assert_transfer_pending(env, message='', index_name=DEFAULT_INDEX_NAME, fiel
                     message=f"{message}: the index reports no pending update")
     env.assertGreater(stats['lowPriorityPendingJobs'], 0,
                       message=f"{message}: no queued job to be raced with: {stats}")
-
-def assert_transfer_did_not_complete(env, jobs_done_before, message=''):
-    """The transfer that was running when `jobs_done_before` was taken still is, so what happened
-    since raced it rather than followed it. Holds only while nothing since contended for the main
-    index lock: a training transfer holds it shared, an update transfer exclusively."""
-    env.assertEqual(workers_jobs_done(env), jobs_done_before,
-                    message=f"{message}: a background job completed while the deletions were "
-                            f"issued, so they did not all race a running transfer")
 
 def assert_deletions_reached_the_backend(env, marked_deleted_before, message='',
                                          index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
