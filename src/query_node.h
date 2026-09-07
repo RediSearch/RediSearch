@@ -97,7 +97,13 @@ typedef struct {
 } QueryVerbatimNode;
 
 typedef struct {
-  const struct FieldSpec *field;
+  const struct FieldSpec *field;  // the field being tested, as it existed when the query was
+                                   // parsed. Only safe to dereference at parse time - see fieldIndex.
+  t_fieldIndex fieldIndex;        // stable index of `field` into IndexSpec.fields; use this for a
+                                   // fresh lookup at evaluation time instead of dereferencing
+                                   // `field` directly (a concurrent FT.ALTER may have since
+                                   // reallocated the spec's field array under WORKERS>0 - see
+                                   // MOD-18367)
 } QueryMissingNode;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
