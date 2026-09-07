@@ -2303,7 +2303,7 @@ static YYACTIONTYPE yy_reduce(
     QueryNode_Free(yymsp[0].minor.yy3);
   } else if (yymsp[0].minor.yy3) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy3->gmn.geomq->fs = yymsp[-2].minor.yy150.fs;
+    GeometryQuery_SetField(yymsp[0].minor.yy3->gmn.geomq, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = yymsp[0].minor.yy3;
   }
 }
