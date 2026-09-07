@@ -194,12 +194,6 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-
-  // At least one field has INDEXMISSING; see IndexSpecMissing. Written to RDB
-  // with the other flags. IndexSpec_TrackIndexMissingField sets it again as
-  // each field is loaded, so RDBs from before this bit existed (where it is
-  // simply absent) need no special handling.
-  Index_HasIndexMissing = 0x100000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -319,8 +313,7 @@ typedef enum {
   IndexDrop_KeepDocs,
 } IndexDropMode;
 
-// State backing INDEXMISSING fields. Index_HasIndexMissing in IndexSpec.flags
-// is set iff `fields` is non-empty.
+// State backing INDEXMISSING fields.
 typedef struct {
   // Field name -> Index_DocIdsOnly inverted index of the documents lacking
   // that field.
@@ -465,6 +458,11 @@ static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
 }
 static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
+
+// Whether any field in the schema was declared INDEXMISSING.
+static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
+  return array_len(sp->missing.fields) != 0;
 }
 
 /**

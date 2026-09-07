@@ -274,11 +274,9 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
 }
 
 // Parses `args` into a spec, saves it and loads it back with `encver`, then
-// checks that Index_HasIndexMissing and missing.fields on both specs match
-// `expectedMissingFields`.
+// checks that missing.fields on both specs matches `expectedMissingFields`.
 static void checkIndexMissingRoundTrip(const char *name, const char **args, size_t nargs, int encver,
-                                       const std::vector<t_fieldIndex> &expectedMissingFields,
-                                       bool stripFlagBeforeSave) {
+                                       const std::vector<t_fieldIndex> &expectedMissingFields) {
     QueryError err = QueryError_Default();
     StrongRef original_spec_ref = IndexSpec_ParseC(nullptr, name, args, nargs, &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -290,17 +288,13 @@ static void checkIndexMissingRoundTrip(const char *name, const char **args, size
     });
 
     auto checkMissing = [&](const IndexSpec *sp) {
-        EXPECT_EQ(!expectedMissingFields.empty(), !!(sp->flags & Index_HasIndexMissing));
+        EXPECT_EQ(!expectedMissingFields.empty(), IndexSpec_HasIndexMissing(sp));
         ASSERT_EQ(expectedMissingFields.size(), array_len(sp->missing.fields));
         for (size_t i = 0; i < expectedMissingFields.size(); ++i) {
             EXPECT_EQ(expectedMissingFields[i], sp->missing.fields[i]);
         }
     };
     checkMissing(spec);
-
-    if (stripFlagBeforeSave) {
-        spec->flags = (IndexFlags)(spec->flags & ~Index_HasIndexMissing);
-    }
 
     RedisModuleIO *io = RMCK_CreateRdbIO();
     std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
@@ -327,16 +321,12 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadIndexMissing) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG", "INDEXMISSING", "price", "NUMERIC", "INDEXMISSING"};
     const size_t nargs = std::size(args);
 
-    checkIndexMissingRoundTrip("test_rdb_indexmissing_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2}, false);
-
-    // An RDB written before the flag existed: the fields carry INDEXMISSING but
-    // the spec flags do not, so the flag must be derived on load.
-    checkIndexMissingRoundTrip("test_rdb_indexmissing_old_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2}, true);
+    checkIndexMissingRoundTrip("test_rdb_indexmissing_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2});
 }
 
 TEST_F(RdbMockTest, testIndexSpecRdbLoadWithoutIndexMissing) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG"};
-    checkIndexMissingRoundTrip("test_rdb_no_indexmissing_idx", args, std::size(args), INDEX_CURRENT_VERSION, {}, false);
+    checkIndexMissingRoundTrip("test_rdb_no_indexmissing_idx", args, std::size(args), INDEX_CURRENT_VERSION, {});
 }
 
 TEST_F(RdbMockTest, testIndexSpecStringSerialize) {

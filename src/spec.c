@@ -1424,14 +1424,11 @@ static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
   }
 }
 
-// Records `fs` in IndexSpec.missing.fields and sets Index_HasIndexMissing. Call
-// once per field, after its options are final and the field is guaranteed to
-// stay in the schema. The flag is set here, not derived separately from the
-// list afterwards, so the two can never fall out of sync.
+// Records `fs` in IndexSpec.missing.fields. Call once per field, after its
+// options are final and the field is guaranteed to stay in the schema.
 static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs) {
   if (FieldSpec_IndexesMissing(fs)) {
     array_append(sp->missing.fields, fs->index);
-    sp->flags |= Index_HasIndexMissing;
   }
 }
 
@@ -2833,8 +2830,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddSection(ctx, indexName);
 
   // Index flags
-  // Index_HasIndexMissing is an internal cache bit, not an index option.
-  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets | Index_HasIndexMissing) || sp->flags & Index_WideSchema) {
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
     RedisModule_InfoBeginDictField(ctx, "index_options");
     if (!(sp->flags & (Index_StoreFreqs)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");

@@ -782,10 +782,10 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 }
 
 // Called from the HEXPIRE fast path on the main thread without the spec lock,
-// which is safe because the flags read here are only mutated by FT.CREATE /
+// which is safe because missing.fields is only mutated by FT.CREATE /
 // FT.ALTER / RDB load on the same thread.
 static bool specHasIndexMissing(const IndexSpec *spec) {
-  return spec->flags & Index_HasIndexMissing;
+  return IndexSpec_HasIndexMissing(spec);
 }
 
 // Returns true if `after` contains a field index that is not present in

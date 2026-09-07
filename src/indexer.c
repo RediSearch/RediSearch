@@ -382,7 +382,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                                   struct FieldExpirationSlice sortedFieldWithExpiration) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
-  if (!(spec->flags & Index_HasIndexMissing)) {
+  if (!IndexSpec_HasIndexMissing(spec)) {
     return;
   }
 
