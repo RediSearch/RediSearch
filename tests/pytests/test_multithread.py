@@ -243,6 +243,19 @@ def test_geo_query_survives_field_alter_race():
     assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
 
 
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_missing_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'INDEXMISSING', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    query_args = ('FT.SEARCH', 'idx', 'ismissing(@txt)', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
 def do_burst_threads_sanity(algo, data_type, test_name):
     env = initEnv(moduleArgs='MIN_OPERATION_WORKERS 2 DEFAULT_DIALECT 2')
     # Sanity check that the test parameters match the test name
