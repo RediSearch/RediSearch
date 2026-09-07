@@ -348,6 +348,7 @@ class GitReplayTests(unittest.TestCase):
                 return actual_git(work, *args, **kwargs)
             env = {"RUNNER_TEMP": run_temp, "BACKPORT_WORK": work, "GITHUB_WORKSPACE": self.work,
                    "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "test", "SUCCESS_BY_TARGET": "8.6=false",
+                   "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com",
                    "CREATED_PULL_NUMBERS": ""}
             with patch.dict(os.environ, env), patch.object(unified, "existing_row", return_value=None), patch.object(
                     unified, "selected_commits", return_value=[self.source, later]), patch.object(
