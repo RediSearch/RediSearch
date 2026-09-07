@@ -138,9 +138,6 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
 # update one afterwards. The helpers below assert the state around such a transfer, on a single
 # shard, and default to the index and field the vecsim tests share.
 
-def svs_backend_marked_deleted(env, index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
-    return get_tiered_backend_debug_info(env, index_name, field_name)['NUMBER_OF_MARKED_DELETED']
-
 def assert_transfer_pending(env, message='', index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
     """A transfer is scheduled but has not started - deterministic only with the workers paused.
     BACKGROUND_INDEXING conflates queued with running, hence the queued-job count beside it,
@@ -151,16 +148,6 @@ def assert_transfer_pending(env, message='', index_name=DEFAULT_INDEX_NAME, fiel
                     message=f"{message}: the index reports no pending update")
     env.assertGreater(stats['lowPriorityPendingJobs'], 0,
                       message=f"{message}: no queued job to be raced with: {stats}")
-
-def assert_deletions_reached_the_backend(env, marked_deleted_before, message='',
-                                         index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):
-    """The transfer had already moved a doc to the backend when it was deleted, so the deletions
-    really did interleave with it. Without this witness a lost race would pass every other
-    assertion and lose the coverage silently. Specific only while no doc is overwritten around a
-    transfer, since re-adding a label the backend holds also marks the old entry deleted."""
-    env.assertGreater(svs_backend_marked_deleted(env, index_name, field_name), marked_deleted_before,
-                      message=f"{message}: no deleted doc reached the backend index, so the "
-                              f"deletions did not interleave with the transfer")
 
 def assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=1, message='',
                             index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME):

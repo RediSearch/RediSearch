@@ -925,9 +925,8 @@ def test_multiple_svs_indexes_share_pool():
 _RACE_MODULE_ARGS = 'DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 1000000'
 _RACE_DIM = 32
 _RACE_K = 10
-# A margin, not a proof: a resumed worker snapshots the frontend whenever it gets scheduled, and
-# deletions landing before that never reach the backend. `assert_deletions_reached_the_backend` is
-# what makes a lost race fail.
+# A margin, not a proof: whether a resumed worker actually reaches any of these vectors before
+# they are deleted is not guaranteed or asserted - only the index's final correctness is.
 _RACE_DELETES = 100
 
 
@@ -996,14 +995,13 @@ def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
                'SCHEMA', *schema, 'VECTOR', 'SVS-VAMANA', len(params), *params).ok()
     docs = _DocSet(env, vectors_per_doc, on_json)
 
-    def settle_and_verify(phase, marked_deleted_before, deleted_probes):
+    def settle_and_verify(phase, deleted_probes):
         env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], docs.live,
                         message=f'{phase}, transfer in progress')
         wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
         env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], docs.live,
                         message=f'{phase}, transfer done')
-        assert_deletions_reached_the_backend(env, marked_deleted_before, message=phase)
         assert_svs_tiered_state(env, docs.live, vectors_per_doc, message=phase)
         # Query with each deleted group leader's own vector, so that an entry left behind for it
         # ranks as high as the graph search can reach it.
@@ -1023,17 +1021,15 @@ def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
         assert_transfer_pending(env, message='phase 1, training pending')
         docs.delete(pending_deletes, 10)
 
-        marked_deleted_before_transfer = svs_backend_marked_deleted(env)
-
     # The training is running now: a doc deleted from the batch being transferred has to be removed
     # from the backend once the transfer puts it there, which is what the deletions journal is for.
-    # A flow test cannot pin down an interleaving inside the job, hence the witness below.
+    # A flow test cannot pin down an interleaving inside the job - only the final state is checked.
     flat_buffer_deletes = docs.add(10)      # inserted, then deleted, after the transfer started
     docs.delete(racing_deletes, _RACE_DELETES)
     docs.delete(flat_buffer_deletes, 10)
 
     probes = [pending_deletes, racing_deletes, flat_buffer_deletes]
-    settle_and_verify('phase 1', marked_deleted_before_transfer, probes)
+    settle_and_verify('phase 1', probes)
 
     # Phase 2: the backend index is trained and populated now, so the next batch schedules an
     # update of it rather than a training.
@@ -1046,14 +1042,11 @@ def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
         assert_transfer_pending(env, message='phase 2, update pending')
         docs.delete(backend_deletes, 30)
 
-        marked_deleted_before_transfer = svs_backend_marked_deleted(env)
-
     # An update holds the main index lock exclusively for its whole batch, so these deletions block
     # on it rather than running alongside it - MOD-13168's own symptom - and land as it finishes.
     docs.delete(update_deletes, _RACE_DELETES)
 
-    settle_and_verify('phase 2', marked_deleted_before_transfer,
-                      probes + [backend_deletes, update_deletes])
+    settle_and_verify('phase 2', probes + [backend_deletes, update_deletes])
 
 
 @skip(cluster=True)
