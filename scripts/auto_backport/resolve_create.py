@@ -8,7 +8,7 @@
 
 """Resolve authorized requests for task-backport_pr.yml.
 
-Both label namespaces and both create commands share this resolver. Explicit
+Backport labels and both create commands share this resolver. Explicit
 comment targets override labels; version floors expand through the release
 registry. The context is stored in RUNNER_TEMP, outside the agent's writable
 checkout, and remains the publication allow-list throughout the run.
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
 
-LABEL_RE = re.compile(r"^(?:backport ([^ ]+)|backport-(.+)-agent)$")
+LABEL_RE = re.compile(r"^backport ([^ ]+)$")
 # Bound version digits to avoid pathological int conversions from comment text.
 TARGET_RE = re.compile(r"^[0-9]{1,4}\.[0-9]{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
 COMMENT_COMMAND_RE = re.compile(r"^/backport(?:-agent)?(\s|$)")
@@ -166,13 +166,13 @@ def resolve_targets(event_name: str, event_action: str,
         if event_name == "pull_request_target" and event_action == "labeled":
             m = LABEL_RE.fullmatch(label_name or "")
             if m:
-                targets.append(m.group(1) or m.group(2))
+                targets.append(m.group(1))
 
         # Scan the complete label set so adding several labels is idempotent.
         for label in pr_data.get("labels", []) or []:
             m = LABEL_RE.fullmatch(label.get("name", ""))
             if m:
-                targets.append(m.group(1) or m.group(2))
+                targets.append(m.group(1))
 
     # Dedup (preserve order) and drop anything that isn't a well-formed release
     # branch name — see TARGET_RE. Malformed targets are logged and skipped

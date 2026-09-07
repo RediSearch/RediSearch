@@ -31,8 +31,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
         (github.event.action == 'closed' ||
-         startsWith(github.event.label.name, 'backport ') ||
-         (startsWith(github.event.label.name, 'backport-') && endsWith(github.event.label.name, '-agent')))) ||
+         startsWith(github.event.label.name, 'backport '))) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
        startsWith(github.event.comment.body, '/backport') &&
@@ -104,7 +103,7 @@ jobs:
           add_author_as_reviewer: true
           auto_merge_enabled: true
           add_labels: auto-backport
-          copy_labels_pattern: '^(?!backport |backport-.*-agent$).*'
+          copy_labels_pattern: '^(?!backport ).*'
 
       - name: Revoke classic token and remove its checkout
         id: revoke

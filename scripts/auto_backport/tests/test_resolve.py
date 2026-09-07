@@ -45,7 +45,7 @@ class ResolveTargetsTests(unittest.TestCase):
     def test_comment_args_override_labels(self):
         targets = resolve_create.resolve_targets(
             "issue_comment", "created", "", "/backport-agent 8.6 8.2",
-            _labels("backport-8.4-agent"),
+            _labels("backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.2"])
 
@@ -53,9 +53,9 @@ class ResolveTargetsTests(unittest.TestCase):
         # The just-fired label is 8.6, but the PR also carries 8.4 and 8.2 —
         # all three must be backported, not just the fired one.
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "labeled", "backport-8.6-agent", "",
-            _labels("backport-8.6-agent", "backport-8.4-agent",
-                    "backport-8.2-agent", "unrelated"),
+            "pull_request_target", "labeled", "backport 8.6", "",
+            _labels("backport 8.6", "backport 8.4",
+                    "backport 8.2", "unrelated"),
         )
         self.assertEqual(targets, ["8.6", "8.4", "8.2"])
 
@@ -63,23 +63,23 @@ class ResolveTargetsTests(unittest.TestCase):
         # Guards the eventual-consistency race: the fired label isn't yet in the
         # `gh pr view` snapshot, but must still be resolved.
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "labeled", "backport-8.6-agent", "",
-            _labels("backport-8.4-agent"),
+            "pull_request_target", "labeled", "backport 8.6", "",
+            _labels("backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.4"])
 
     def test_closed_event_resolves_all_labels(self):
         targets = resolve_create.resolve_targets(
             "pull_request_target", "closed", "", "",
-            _labels("backport-8.8-agent", "backport-8.6-agent"),
+            _labels("backport 8.8", "backport 8.6"),
         )
         self.assertEqual(targets, ["8.8", "8.6"])
 
     def test_dedup_preserves_order(self):
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "labeled", "backport-8.6-agent", "",
-            _labels("backport-8.6-agent", "backport-8.6-agent",
-                    "backport-8.4-agent"),
+            "pull_request_target", "labeled", "backport 8.6", "",
+            _labels("backport 8.6", "backport 8.6",
+                    "backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.4"])
 
@@ -95,7 +95,7 @@ class ResolveTargetsTests(unittest.TestCase):
         # on the PR — not silently resolve nothing.
         targets = resolve_create.resolve_targets(
             "issue_comment", "created", "", "/backport-agent",
-            _labels("backport-8.6-agent", "backport-8.4-agent"),
+            _labels("backport 8.6", "backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.4"])
 
@@ -109,8 +109,8 @@ class ResolveTargetsTests(unittest.TestCase):
     def test_variant_and_multidigit_targets_are_valid(self):
         targets = resolve_create.resolve_targets(
             "pull_request_target", "closed", "", "",
-            _labels("backport-8.6-rse-agent", "backport-8.10-agent",
-                    "backport-experimental-agent"),  # dropped: not MAJOR.MINOR
+            _labels("backport 8.6-rse", "backport 8.10",
+                    "backport experimental"),  # dropped: not MAJOR.MINOR
         )
         self.assertEqual(targets, ["8.6-rse", "8.10"])
 
@@ -165,13 +165,13 @@ class VersionFloorTests(unittest.TestCase):
     def test_floor_above_every_line_resolves_nothing_and_ignores_labels(self):
         # An explicit floor that matches nothing must NOT quietly fall back to
         # the PR's labels — main() then skips the run.
-        self.assertEqual(self._targets("/backport-agent >= 99.0", "backport-8.6-agent"), [])
+        self.assertEqual(self._targets("/backport-agent >= 99.0", "backport 8.6"), [])
 
     def test_malformed_floor_is_dropped_without_label_fallback(self):
         for comment in ("/backport-agent >=", "/backport-agent >= foo",
                         "/backport-agent >= 8", "/backport-agent >=8.6x"):
             with self.subTest(comment=comment):
-                self.assertEqual(self._targets(comment, "backport-8.4-agent"), [])
+                self.assertEqual(self._targets(comment, "backport 8.4"), [])
 
     def test_malformed_floor_does_not_drop_valid_siblings(self):
         self.assertEqual(self._targets("/backport-agent >= foo 8.4"), ["8.4"])
@@ -193,10 +193,10 @@ class VersionFloorTests(unittest.TestCase):
         self.assertEqual(self._targets("/backport-agent >= 8.6"), ["8.6", "8.10"])
 
     def test_floor_only_applies_to_comment_args(self):
-        # A label can never carry a floor (`backport->=2.10-agent` is not a valid
+        # A label can never carry a floor (`backport >=2.10` is not a valid
         # label shape), so label-derived targets are untouched by expansion.
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "closed", "", "", _labels("backport-8.6-agent"),
+            "pull_request_target", "closed", "", "", _labels("backport 8.6"),
         )
         self.assertEqual(targets, ["8.6"])
 

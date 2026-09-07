@@ -15,7 +15,6 @@ on the source PR, including when the action or agent fails.
 | `/backport 8.6 8.2` | Process exactly these targets, overriding labels for this run. |
 | `/backport >= 8.6` | Process every registered active release line at or above 8.6. |
 | `/backport >= 8.6 2.10` | Union the version expansion and explicit targets. |
-| `backport-8.6-agent` | Compatibility alias for `backport 8.6`. |
 | `/backport-agent …` | Compatibility alias for `/backport …`, including action-first execution. |
 
 Lists accept spaces or commas. Only the first comment line contains targets.
@@ -93,7 +92,9 @@ beyond GitHub's queue limit are cancelled and need to be retriggered.
 ## Maintenance and validation
 
 `task-backport_pr.yml` is the only creation event entry point. The separate
-agent-create workflow has been removed; old labels and commands remain aliases.
+agent-create workflow has been removed. Only `backport <branch>` labels select
+targets; legacy `backport-<branch>-agent` labels are ignored and can be deleted.
+The `/backport-agent` command remains an alias for `/backport`.
 The source of truth for active release lines is `.github/release-branches.json`.
 
 `resolve_create.py` authorizes requests. `unified.py` owns deduplication,

@@ -44,8 +44,8 @@ class UnifiedTests(unittest.TestCase):
                       "bot": "app[bot]", "comment_ids": [10]}
         unified.write("results", self.state)
 
-    def test_both_commands_and_both_labels_share_one_resolver(self):
-        labels = {"labels": [{"name": n} for n in ["backport 8.8", "backport-8.8-agent", "backport 8.6"]]}
+    def test_both_commands_use_only_canonical_labels(self):
+        labels = {"labels": [{"name": n} for n in ["backport 8.8", "backport-8.2-agent", "backport 8.6"]]}
         for command in ("/backport", "/backport-agent"):
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels),
                              ["8.8", "8.6"])
@@ -53,6 +53,16 @@ class UnifiedTests(unittest.TestCase):
                              ["8.2"])
         for command in ("/backport-agent-fix", "/backport-agent-context x", "/backporting"):
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels), [])
+
+    def test_legacy_labels_do_not_select_targets(self):
+        labels = {"labels": [{"name": "backport-8.6-agent"}]}
+        for event, action, label, comment in (
+            ("pull_request_target", "closed", "", ""),
+            ("pull_request_target", "labeled", "backport-8.6-agent", ""),
+            ("issue_comment", "created", "", "/backport"),
+        ):
+            with self.subTest(event=event, action=action):
+                self.assertEqual(resolve_create.resolve_targets(event, action, label, comment, labels), [])
 
     def test_invalid_explicit_target_is_reported_without_label_fallback(self):
         diagnostics = []
@@ -65,7 +75,7 @@ class UnifiedTests(unittest.TestCase):
                           COMMENT_BODY="/backport 8.6", PR_NUMBER_FROM_ISSUE="1")
         pr = {"state": "MERGED", "isCrossRepository": True, "mergeCommit": {"oid": "a" * 40},
               "author": {"login": "author"}, "labels": [{"name": n} for n in (
-                  "bug", "backport 8.8", "backport-8.6-agent")]}
+                  "bug", "backport 8.8", "backport 8.6")]}
         with patch.object(common, "has_write_permission", return_value=True), patch.object(
                 common, "fetch_pr", return_value=pr):
             self.assertEqual(resolve_create.main(), 0)
