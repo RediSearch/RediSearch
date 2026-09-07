@@ -1,0 +1,31 @@
+[package]
+name = "row_block"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+cheadergen.workspace = true
+rlookup.workspace = true
+thiserror.workspace = true
+value.workspace = true
+workspace_hack.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest = { workspace = true, features = ["std"] }
+row_block = { path = ".", features = ["unittest"] }
+
+# Required to resolve the C symbols the `rlookup` dependency links against.
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+
+[features]
+unittest = []
+
+[lints]
+workspace = true

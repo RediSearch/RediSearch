@@ -17,7 +17,7 @@
 #include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
-#include "aggregate/row_block.h"
+#include "row_block_ffi.h"
 #include "rmr/rmr.h"
 #include "coord/dist_utils.h"
 #include "score_explain_mr.h"
@@ -108,7 +108,8 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 //
 // A shard running with `search-internal-row-block-format` sends a chunk's rows as one binary
 // bulk string instead of one RESP map per row, which collapses ~15 reply objects per row to
-// one per chunk and drops the repeated field names from the wire. Format: row_block.h.
+// one per chunk and drops the repeated field names from the wire. Format: the `row_block`
+// Rust crate.
 //
 // Detection is by reply type, not by negotiation: the rows element is a string for a block
 // and an array for the legacy per-row encoding, so a coordinator decodes whatever it is sent.

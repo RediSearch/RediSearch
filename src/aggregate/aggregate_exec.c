@@ -65,7 +65,7 @@
 #include "rs_wall_clock.h"
 #include "rules.h"
 #include "search_disk_api.h"
-#include "row_block.h"
+#include "row_block_ffi.h"
 #include "search_options.h"
 #include "search_result.h"
 #include "search_result_rs.h"
@@ -718,9 +718,10 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
 // ---- compact row-block encoding for the internal coordinator<->shard path ----------------
 //
 // When enabled, a chunk's rows travel as ONE binary bulk string instead of one RESP map per
-// row (see row_block.h). Restricted to internal (coordinator-dispatched) aggregate requests
-// on RESP2: that is the only path the coordinator's RPNet decodes, and keeping client-facing
-// replies on RESP is what makes this safe to enable without a protocol version bump.
+// row (see the `row_block` Rust crate). Restricted to internal (coordinator-dispatched)
+// aggregate requests on RESP2: that is the only path the coordinator's RPNet decodes, and
+// keeping client-facing replies on RESP is what makes this safe to enable without a protocol
+// version bump.
 //
 // The reply shape is unchanged apart from the rows themselves: [total, <block>] instead of
 // [total, row, row, ...]. The coordinator distinguishes them by the element's reply type, so
@@ -744,17 +745,17 @@ static bool useRowBlock(const AREQ *req) {
   return true;
 }
 
-// One writer per worker thread, reused across chunks so buffer growth is paid once.
-static __thread RowBlockWriter rowBlockWriter;
-static __thread bool rowBlockWriterInit = false;
+// One writer per worker thread, reused across chunks so buffer growth is paid once. Never
+// freed: a worker thread that encoded one chunk will encode more, and the buffer is what
+// makes the second chunk cheap.
+static __thread RowBlockWriter *rowBlockWriter = NULL;
 
 static RowBlockWriter *rowBlockWriter_Get(void) {
-  if (!rowBlockWriterInit) {
-    RowBlockWriter_Init(&rowBlockWriter);
-    rowBlockWriterInit = true;
+  if (!rowBlockWriter) {
+    rowBlockWriter = RowBlockWriter_New();
   }
-  RowBlockWriter_Reset(&rowBlockWriter);
-  return &rowBlockWriter;
+  RowBlockWriter_Reset(rowBlockWriter);
+  return rowBlockWriter;
 }
 
 // The same key subset the RESP row serializer emits.
@@ -771,8 +772,7 @@ static inline void rowBlockFlags(const AREQ *req, uint32_t *requiredFlags,
 static void rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter *w,
                              ChunkSerializeState *state) {
   RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "notice",
-                  "Row block encoding hit an unsupported value type; "
-                  "replying this chunk in RESP instead");
+                  "Row block encoding refused a row; replying this chunk in RESP instead");
   state->nelem += RowBlockWriter_ReplayAsResp(w, reply, AREQ_RequestFlags(req));
 }
 
@@ -825,7 +825,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
       if (inBlock &&
-          !RowBlockWriter_WriteRow(w, cv->lastLookup, state->r, rbRequired, rbExclude,
+          !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
                                    AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
         rowBlockFallback(req, reply, w, state);
         inBlock = false;
@@ -841,7 +841,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
       if (inBlock &&
-          !RowBlockWriter_WriteRow(w, cv->lastLookup, state->r, rbRequired, rbExclude,
+          !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
                                    AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
         rowBlockFallback(req, reply, w, state);
         inBlock = false;
@@ -854,7 +854,9 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
 emit_block_2:
     if (inBlock) {
-      RedisModule_Reply_StringBuffer(reply, w->buf, w->len);
+      size_t blockLen;
+      const char *block = RowBlockWriter_Bytes(w, &blockLen);
+      RedisModule_Reply_StringBuffer(reply, block, blockLen);
       state->nelem++;
     }
 

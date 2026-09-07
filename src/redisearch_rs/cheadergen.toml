@@ -312,6 +312,11 @@ after_includes = """
 #define MAX_ITERATOR                      IteratorType_Max
 """
 
+[header.row_block_ffi]
+# `RedisModule_Reply` (the replay path's output) and `RLookup` / `RLookupRow` (the encoder's
+# input) are all taken by pointer only, but the C compiler still needs their typedefs.
+includes = ["reply.h", "rlookup.h"]
+
 [header.result_processor_ffi]
 includes = ["rs_wall_clock.h", "config.h", "query_error_ffi.h"]
 after_includes = """
