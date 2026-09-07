@@ -87,6 +87,30 @@ def test_himport_replacement(env):
 
 
 @skip(cluster=True, redis_less_than='8.10.0')
+def test_himport_replacement_clears_ttl(env):
+    """Replacing an expiring hash clears its key TTL and replaces its search postings."""
+    create_index(env)
+    with himport_connection(env) as conn:
+        conn.execute_command('HIMPORT', 'PREPARE', 'fields', 'title', 'category', 'price', 'extra')
+        expiration = int(conn.time()[0]) + 86400
+        for encoding, extra in template_cases(env):
+            key = f'doc:{encoding}'
+            conn.execute_command('HSET', key, 'title', 'original', 'category', 'old', 'price', 1)
+            env.assertEqual(conn.execute_command('EXPIREAT', key, expiration), 1)
+            env.assertEqual(conn.execute_command('EXPIRETIME', key), expiration)
+            env.expect('FT.SEARCH', 'idx', '@title:original', 'NOCONTENT').equal([1, key])
+
+            env.assertEqual(conn.execute_command('HIMPORT', 'SET', key, 'fields',
+                                                'replacement', 'new', 2, extra), 'OK')
+            env.assertEqual(conn.execute_command('PTTL', key), -1)
+            env.assertEqual(conn.execute_command('OBJECT', 'ENCODING', key), encoding)
+            assert_document(env, 'idx', key, 'replacement', 'new', 2, extra)
+            for query in ['@title:original', '@category:{old}', '@price:[1 1]']:
+                env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal([0])
+            conn.execute_command('DEL', key)
+
+
+@skip(cluster=True, redis_less_than='8.10.0')
 def test_himport_hash_mutations(env):
     """Ordinary hash writes and deletions reindex template-backed documents."""
     create_index(env)
