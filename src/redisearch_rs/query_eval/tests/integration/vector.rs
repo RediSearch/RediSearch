@@ -333,18 +333,9 @@ struct VectorFixture {
     /// The blob [`vq`](Self::vq) searches for, when it searches at all. Kept
     /// alive because the query addresses it rather than owning it.
     _query_vector: Box<[f32]>,
-    /// The vector field's spec, named by [`field_name`](Self::field_name).
-    /// Boxed for a stable address, since [`vq`](Self::vq) points at it.
-    _field_spec: Box<ffi::FieldSpec>,
-    /// The field's vector index, or null when the field carries none. Owned by
-    /// the fixture and freed on drop.
-    index: *mut ffi::VecSimIndex,
     /// What the query asks that index for. Kept because [`eval`](Self::eval)
     /// needs the yield order to check the iterator against the right contract.
     search: Search,
-    /// The field's name, in the obfuscation-aware form a spec stores. Owned by
-    /// the fixture and freed on drop.
-    field_name: *mut ffi::HiddenString,
 }
 
 impl VectorFixture {
@@ -369,6 +360,26 @@ impl VectorFixture {
         // upholding the `QueryEvalContext::new` invariants.
         let ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
+        let name = opts.field_name.unwrap_or(VECTOR_FIELD);
+        // Genuinely added to `context`'s spec, not a standalone allocation: evaluation
+        // re-derives the field via `vq.fieldIndex` into `ctx.spec().fields` rather than
+        // trusting `vq.field` directly (MOD-18356), so the field has to actually live
+        // there for that re-derivation to find it. Done *before* building a numeric
+        // child below: growing the spec's field array can relocate it, and unlike
+        // `context.field_spec()` (refreshed by `add_field` itself), a raw pointer the
+        // child capture takes from it afterward would not be.
+        let field_spec = context.add_field(name);
+        // SAFETY: `field_spec` was just added above and is exclusively ours to set up
+        // before anything else can observe it.
+        let field_spec_mut = unsafe { field_spec.as_ptr().as_mut() }.expect("non-null");
+        // Opening the index asserts the field is a vector field before reading
+        // the index off it, so the type has to be set even when there is none.
+        field_spec_mut.set_types(ffi::FieldType_INDEXFLD_T_VECTOR);
+        let index = opts
+            .indexed_vectors
+            .map_or(std::ptr::null_mut(), flat_index);
+        field_spec_mut.__bindgen_anon_1.vectorOpts.vecSimIndex = index;
+
         let (mut child, filter) = match opts.child {
             Some(Child::Numeric(min, max)) => {
                 let mut filter = Box::new(NumericFilter {
@@ -390,31 +401,12 @@ impl VectorFixture {
             Some(Child::Vector { .. }) | None => (None, None),
         };
 
-        let name = opts.field_name.unwrap_or(VECTOR_FIELD);
-        // SAFETY: `name` is a static byte string, valid for `name.len()` bytes
-        // for the duration of the call. `takeOwnership = true` makes the
-        // `HiddenString` copy those bytes rather than borrow them; the copy is
-        // released by the matching `HiddenString_Free(_, true)` on drop. The
-        // length is passed explicitly, so a name holding a NUL keeps it.
-        let field_name = unsafe { ffi::NewHiddenString(name.as_ptr().cast(), name.len(), true) };
-        assert!(!field_name.is_null());
-
-        // SAFETY: `ffi::FieldSpec` is a `#[repr(C)]` POD struct whose all-zero
-        // bit pattern is a valid (empty) instance.
-        let mut field_spec: Box<ffi::FieldSpec> = Box::new(unsafe { std::mem::zeroed() });
-        field_spec.fieldName = field_name;
-        // Opening the index asserts the field is a vector field before reading
-        // the index off it, so the type has to be set even when there is none.
-        field_spec.set_types(ffi::FieldType_INDEXFLD_T_VECTOR);
-        let index = opts
-            .indexed_vectors
-            .map_or(std::ptr::null_mut(), flat_index);
-        field_spec.__bindgen_anon_1.vectorOpts.vecSimIndex = index;
-
         // SAFETY: `ffi::VectorQuery` is a `#[repr(C)]` POD struct whose all-zero
         // bit pattern is a valid (empty) instance.
         let mut vq: Box<ffi::VectorQuery> = Box::new(unsafe { std::mem::zeroed() });
-        vq.field = &*field_spec as *const ffi::FieldSpec;
+        vq.field = field_spec.as_ptr();
+        // SAFETY: `field_spec` was just added to `context`'s spec, which set its `index`.
+        vq.fieldIndex = unsafe { (*field_spec.as_ptr()).index };
         vq.scoreField = opts.score_field.map_or(std::ptr::null_mut(), module_string);
 
         // The corner the index's contents are arranged around; see `flat_index`.
@@ -466,7 +458,9 @@ impl VectorFixture {
             // SAFETY: `ffi::VectorQuery` is a `#[repr(C)]` POD struct whose
             // all-zero bit pattern is a valid (empty) instance.
             let mut child_vq: Box<ffi::VectorQuery> = Box::new(unsafe { std::mem::zeroed() });
-            child_vq.field = &*field_spec as *const ffi::FieldSpec;
+            child_vq.field = field_spec.as_ptr();
+            // SAFETY: `field_spec` was added to `context`'s spec above, which set its `index`.
+            child_vq.fieldIndex = unsafe { (*field_spec.as_ptr()).index };
             child_vq.scoreField = module_string(score_field);
             child_vq.type_ = ffi::VectorQueryType_VECSIM_QT_RANGE;
             let vec_len = std::mem::size_of_val(&*query_vector);
@@ -508,10 +502,7 @@ impl VectorFixture {
             vq,
             child_vq,
             _query_vector: query_vector,
-            _field_spec: field_spec,
-            index,
             search: opts.search,
-            field_name,
         }
     }
 
@@ -590,12 +581,10 @@ impl Drop for VectorFixture {
             if let Some(child_vq) = &self.child_vq {
                 free_module_string(child_vq.scoreField);
             }
-            ffi::HiddenString_Free(self.field_name, true);
-            if !self.index.is_null() {
-                // Every iterator the search built over this index was released
-                // as `eval` returned, so nothing is still reading it.
-                ffi::VecSimIndex_Free(self.index);
-            }
+            // `self.index` is not freed here: it now hangs off the vector field this
+            // fixture added to `_context`'s spec (see `TestContext::add_field`), so
+            // `_context`'s own teardown (`FieldSpec_Cleanup`, via its `Drop`, which runs
+            // after this method returns) frees it exactly once.
         }
     }
 }
