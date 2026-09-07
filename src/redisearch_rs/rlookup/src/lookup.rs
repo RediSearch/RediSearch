@@ -1094,6 +1094,85 @@ mod tests {
         assert!(dst_baz.flags == make_bitflags!(RLookupKeyFlag::{ExplicitReturn | QuerySrc}));
     }
 
+    /// Keys named after the schema rule's special fields (score, lang, payload)
+    /// are marked [`RLookupKeyFlag::Hidden`] — retroactively when the spec cache
+    /// is attached, and at creation for keys made afterwards — so the reply path
+    /// can filter them by flag alone, without reaching for the schema rule.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn rule_special_fields_hidden_at_creation_and_retroactively() {
+        let mut rlookup = RLookup::new();
+        rlookup
+            .get_key_write(c"a", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup
+            .get_key_write(c"score", RLookupKeyFlags::empty())
+            .unwrap();
+
+        // Without a spec cache recording special fields, nothing is hidden.
+        for name in [c"a", c"score"] {
+            let key = rlookup
+                .keys
+                .find_by_name(name)
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert!(!key.flags.contains(RLookupKeyFlag::Hidden));
+        }
+
+        // Attached after the keys exist: retro-marks `score` as hidden.
+        let spcache = crate::IndexSpecCache::from_fields_and_rule(
+            [],
+            Some(c"lang"),
+            Some(c"score"),
+            Some(c"payload"),
+        );
+        rlookup.set_cache(Some(spcache));
+
+        let score = rlookup
+            .keys
+            .find_by_name(c"score")
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert!(score.flags.contains(RLookupKeyFlag::Hidden));
+        let a = rlookup
+            .keys
+            .find_by_name(c"a")
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert!(!a.flags.contains(RLookupKeyFlag::Hidden));
+
+        // Keys created while the cache is attached are hidden at creation.
+        rlookup
+            .get_key_write(c"lang", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup
+            .get_key_write(c"b", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup
+            .get_key_write(c"payload", RLookupKeyFlags::empty())
+            .unwrap();
+
+        for (name, hidden) in [(c"lang", true), (c"b", false), (c"payload", true)] {
+            let key = rlookup
+                .keys
+                .find_by_name(name)
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert_eq!(
+                key.flags.contains(RLookupKeyFlag::Hidden),
+                hidden,
+                "key {name:?}"
+            );
+        }
+    }
+
     /// Test that the Hidden flag is properly handled when adding keys from one lookup to another.
     /// Verifies that:
     /// 1. The Hidden flag is preserved when copying keys

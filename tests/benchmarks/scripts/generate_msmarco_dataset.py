@@ -424,41 +424,50 @@ BENCHMARK_QUERIES = {
     ],
 }
 
-# NUMERIC benchmark queries, grouped so each group runs as its own benchmark:
-# fewer queries per benchmark means more samples per query and a dedicated
-# regression series per axis. Selectivities on the synthetic fields are exact
-# by construction (n_uniform is uniform over the 2e8+1 values in [-1e8, 1e8],
-# n_uniform_small over [0, 100000), n_cat over [0, 10)); doc_len
-# selectivities are approximate (natural distribution). Numeric ranges are
-# valid under the default dialect — no DIALECT argument needed.
+# NUMERIC benchmark queries. Each group runs as its own benchmark, and every
+# group's queries return result sets of roughly the SAME size (within ~2x):
+# the exported metrics are per-group aggregates, so a group mixing (say) 1%
+# and 50% selectivities would have its ops/sec and latency quantiles
+# dominated by the large query, hiding regressions in the small one. Shape
+# variants (duplication, OR, AND) are therefore compared inside a group
+# against a plain range of the same result size.
+#
+# Field value distributions (assigned in generate_numeric_fields_for_doc):
+#   n_uniform        uniform over the 2e8+1 ints in [-1e8, 1e8]. Values are
+#                    effectively unique at ~6M docs, so a range of width W
+#                    matches a W/2e8 fraction of the docs: selectivities
+#                    below are exact by construction (in expectation).
+#   n_uniform_small  uniform over [0, 1e5): same selectivity math, but ~60
+#                    docs share each value at 6M docs (duplicated postings).
+#   n_cat            uniform over [0, 10): 10 huge postings, ~10% of docs
+#                    per value.
+#   doc_len          raw body length: natural skewed distribution, so its
+#                    selectivities are measured, not constructed (see the
+#                    generated dataset's query_match_counts ground truth).
+#
+# Numeric ranges are valid under the default dialect — no DIALECT argument.
 NUMERIC_QUERY_GROUPS = {
-    # Result-set size scaling: same operator shape, growing range
-    # (n_uniform is ~unique-valued; n_uniform_small ~60 docs/value at 6M).
-    "numeric-selectivity": [
-        "@n_uniform:[0 1999]",                       # needle range, 0.001%
-        "@n_uniform:[0 199999]",                     # 0.1%
-        "@n_uniform:[0 1999999]",                    # 1%
-        "@n_uniform:[0 19999999]",                   # 10%
-        "@n_uniform:[0 99999999]",                   # 50%
-        "@n_uniform_small:[500 500]",                # point w/ duplicates, 0.001%
+    # ~0.001% (tens of docs at a 2M load)
+    "numeric-point": [
+        "@n_uniform:[0 1999]",           # needle range over unique values
+        "@n_uniform_small:[500 500]",    # exact point, one duplicated value
     ],
-    # Operator/iterator shape at fixed selectivity.
-    "numeric-operators": [
-        "@n_uniform:[-999999 999999]",               # crosses zero, ~1%
-        "@n_uniform:[-inf -80000001]",               # open lower, 10%
-        "@n_uniform:[80000001 +inf]",                # open upper, 10%
-        "@n_uniform:[(0 (2000000]",                  # exclusive bounds, ~1%
-        "-@n_uniform:[-100000000 79999999]",         # NOT, 10%
+    # ~1-2%: operator/shape variants vs a plain range of the same size
+    "numeric-narrow": [
+        "@n_uniform:[0 1999999]",        # plain 1% range (in-group reference)
+        "@n_uniform_small:[0 999]",      # 1% over duplicated values
         "(@n_uniform:[0 1999999] | @n_uniform:[50000000 51999999])",  # OR, 2%
+        "(@n_uniform:[0 19999999] @n_uniform_small:[0 9999])",  # AND: 10% ^ 10% = 1%
     ],
-    # Value-distribution effects at matched selectivities + cross-field.
-    "numeric-distributions": [
-        "@n_uniform_small:[0 999]",                  # 1%, vs the ladder's 1%
-        "@n_cat:[3 3]",                              # single value, 10%
-        "@n_cat:[3 7]",                              # 5 of 10 values, 50%
-        "@doc_len:[0 1000]",                         # short docs (approx. selectivity)
-        "@doc_len:[50000 +inf]",                     # long-tail docs (approx. selectivity)
-        "(@n_uniform:[0 19999999] @n_cat:[3 3])",    # AND, 1%
+    # ~3-5%: the natural (skewed) distribution
+    "numeric-doclen": [
+        "@doc_len:[0 1000]",             # short docs
+        "@doc_len:[50000 +inf]",         # long-tail docs
+    ],
+    # ~10%: same result size, opposite index shape
+    "numeric-wide": [
+        "@n_uniform:[0 19999999]",       # scan 10% of a unique-valued range tree
+        "@n_cat:[3 3]",                  # read one huge posting (1 of 10 values)
     ],
 }
 BENCHMARK_QUERIES.update(NUMERIC_QUERY_GROUPS)
@@ -682,8 +691,7 @@ def main():
         # Both HASH and JSON index tags (tags TAG SEPARATOR ","), so every query
         # category — including tag predicates — is valid for both formats.
         query_categories = ["baseline", "phrase", "and", "or", "not", "tag",
-                            "numeric", "numeric-selectivity", "numeric-operators",
-                            "numeric-distributions", "all"]
+                            "numeric", *NUMERIC_QUERY_GROUPS, "all"]
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
             generate_query_commands(query_file, category, args.index_name, args.num_queries)
