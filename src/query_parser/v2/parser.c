@@ -2091,7 +2091,7 @@ static YYACTIONTYPE yy_reduce(
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_TAG_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
-    yylhsminor.yy3 = NewTagNode(yymsp[-4].minor.yy150.fs);
+    yylhsminor.yy3 = NewTagNode(ctx->sctx->spec ? yymsp[-4].minor.yy150.fs : NULL);
     QueryNode_AddChildren(yylhsminor.yy3, yymsp[-1].minor.yy3->children, QueryNode_NumChildren(yymsp[-1].minor.yy3));
 
     // Set the children count on yymsp[-1].minor.yy3 to 0 so they won't get recursively free'd
