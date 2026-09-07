@@ -774,9 +774,11 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
 ///
 /// 1. `sctx.spec` must be a valid non-null [`IndexSpec`](ffi::IndexSpec); `sctx`
 ///    and its spec must remain valid for the lifetime of the returned iterator.
-/// 2. `flt.field_spec` must be a valid non-null pointer to a [`FieldSpec`](ffi::FieldSpec)
-///    for a numeric or geo field, remaining valid for the lifetime of the
-///    returned iterator.
+/// 2. `flt.field_index` must be within `sctx.spec`'s current field count. The field
+///    is re-derived through this index rather than through `flt.field_spec`, which
+///    is only safe to dereference at the time the filter was built - a concurrent
+///    `FT.ALTER` may have since reallocated the spec's field array, leaving it a
+///    dangling pointer under `WORKERS>0` (see MOD-18361).
 /// 3. `field_ctx.field` must be a field index (not a field mask).
 pub unsafe fn build_numeric_filter_iterator(
     sctx: &RedisSearchCtx,
@@ -793,8 +795,18 @@ pub unsafe fn build_numeric_filter_iterator(
 
     // SAFETY: precondition (1) — `sctx.spec` is valid and non-null.
     let spec = unsafe { &mut *sctx.spec };
-    // SAFETY: precondition (2) — `flt.field_spec` is valid and non-null.
-    let fs = unsafe { &mut *(flt.field_spec as *mut ffi::FieldSpec) };
+    debug_assert!(
+        flt.field_index < spec.numFields,
+        "field_index must be within the spec's current field count"
+    );
+    // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
+    // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+    let fs_ptr = unsafe { spec.fields.add(flt.field_index as usize) };
+    // SAFETY: precondition (2) — `field_index` was captured from the field's own
+    // stable index when the filter was built; `IndexSpec.fields` only grows between
+    // then and now (existing indices stay valid), and `spec` is the current field
+    // array, read under the lock evaluation holds.
+    let fs = unsafe { &mut *fs_ptr };
     // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
     // is the right type. We never create the tree here (`create_if_missing` is
     // false), so the `fs.tree` ownership precondition is trivially upheld.
