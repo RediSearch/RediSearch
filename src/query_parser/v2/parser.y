@@ -1090,7 +1090,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
-    A->vn.vq->field = C.fs;
+    VectorQuery_SetField(A->vn.vq, C.fs);
     VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
@@ -1131,7 +1131,7 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
   } else if (C) {
-    C->vn.vq->field = B.fs;
+    VectorQuery_SetField(C->vn.vq, B.fs);
     A = C;
   }
 }

@@ -359,6 +359,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "IndexSpec_AcquireWriteLock",
             "IndexSpec_AddTerm",
+            "IndexSpec_CreateField",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
