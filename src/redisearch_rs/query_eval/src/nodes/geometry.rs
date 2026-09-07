@@ -31,13 +31,22 @@ pub(crate) fn eval<'index>(
         !geomq.is_null(),
         "geometry node must carry a geometry query"
     );
-    // SAFETY: a well-formed geometry node carries a valid, non-null
-    // `GeometryQuery` whose `fs` is a valid, non-null `FieldSpec`.
+    // SAFETY: a well-formed geometry node carries a valid, non-null `GeometryQuery`.
     let gq = unsafe { &*geomq };
-    let fs = gq.fs;
-    debug_assert!(!fs.is_null(), "geometry query must have a field spec");
-    // SAFETY: `fs` is a valid, non-null `FieldSpec`.
-    let field_index = unsafe { (*fs).index };
+    let field_index = gq.fieldIndex;
+    let spec = ctx.spec();
+    debug_assert!(
+        field_index < spec.numFields,
+        "field_index must be within the spec's current field count"
+    );
+    // Re-derive the field's current pointer from the spec's field array via the
+    // stable index captured at parse time, rather than dereferencing `gq.fs`
+    // directly: under WORKERS>0, evaluation can run on a worker thread well after
+    // parsing, and a concurrent FT.ALTER may have since reallocated
+    // `IndexSpec.fields`, leaving `gq.fs` a dangling pointer (MOD-18368).
+    // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
+    // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+    let fs = unsafe { spec.fields.add(field_index as usize) };
 
     // TODO: pass `false` (don't create the index if missing) once the query
     // string is validated before reaching this evaluator. Today, if the index
@@ -45,11 +54,10 @@ pub(crate) fn eval<'index>(
     // return results as if the index were empty instead of raising an error, so
     // we create it eagerly to force the error path.
     //
-    // SAFETY: `fs` is a valid `FieldSpec`. `OpenGeometryIndex` does not keep the
-    // pointer; with create-if-missing it may mutate `fs` to lazily attach the
-    // index, which is sound here because no live Rust borrow aliases `fs` (`gq`
-    // borrows the `GeometryQuery`, a separate allocation).
-    let index = unsafe { ffi::OpenGeometryIndex(fs.cast_mut(), true) };
+    // SAFETY: `fs` is valid per the derivation above. `OpenGeometryIndex` does not
+    // keep the pointer; with create-if-missing it may mutate `fs` to lazily attach
+    // the index, which is sound here because no live Rust borrow aliases `fs`.
+    let index = unsafe { ffi::OpenGeometryIndex(fs, true) };
     debug_assert!(
         !index.is_null(),
         "OpenGeometryIndex with create-if-missing must return a valid index"

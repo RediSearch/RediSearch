@@ -941,7 +941,7 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
     QueryNode_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gmn.geomq->fs = B.fs;
+    GeometryQuery_SetField(C->gmn.geomq, B.fs);
     A = C;
   }
 }

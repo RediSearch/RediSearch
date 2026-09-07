@@ -14,6 +14,11 @@
 #include "redis_index.h"
 #include "rmutil/rm_assert.h"
 
+void GeometryQuery_SetField(GeometryQuery *geomq, const FieldSpec *fs) {
+  geomq->fs = fs;
+  geomq->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
+}
+
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {
     rm_free((void *)geomq->str);
