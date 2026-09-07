@@ -34,7 +34,16 @@ typedef enum {  // Placeholder for bad/invalid unit
 } GeoDistance;
 
 typedef struct GeoFilter {
+  // Only safe to dereference at construction time (set via `GeoFilter_SetField`, alongside
+  // `fieldIndex`). Under WORKERS>0, evaluation can run on a worker thread well after
+  // construction, and a concurrent FT.ALTER may have since reallocated the spec's field
+  // array, leaving this pointer dangling. At evaluation time, re-derive the field via
+  // `fieldIndex` instead.
   const FieldSpec *fieldSpec;
+  // Stable index of `fieldSpec` into `IndexSpec.fields`, captured at the same time as
+  // `fieldSpec` itself. Use this for a fresh lookup into the spec actually held at
+  // evaluation time, rather than dereferencing `fieldSpec` directly (MOD-18366).
+  t_fieldIndex fieldIndex;
   double lat;
   double lon;
   double radius;
@@ -56,6 +65,11 @@ typedef struct {
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
+
+// Sets `gf->fieldSpec` and `gf->fieldIndex` together, so a caller that resolves the field
+// after construction (the parser productions, and the legacy `GEOFILTER` path which builds
+// `LegacyGeoFilter.base` directly) cannot update one and forget the other.
+void GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
 
 /** @param s CString (null-terminated string) */
 GeoDistance GeoDistance_Parse(const char *s);

@@ -1446,7 +1446,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
 
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
-      gf->base.fieldSpec = fs;
+      GeoFilter_SetField(&gf->base, fs);
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";

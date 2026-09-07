@@ -234,7 +234,7 @@ QueryIterator *NewEmptyIterator(void);
  *    lifetime of all returned iterators.
  * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
  * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
- *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.fieldIndex` must be within `ctx.spec`'s current field count.
  *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
  *      freed by `GeoFilter_Free`.
  * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.

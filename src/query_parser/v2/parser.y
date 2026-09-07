@@ -914,7 +914,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gf->fieldSpec = B.fs;
+    GeoFilter_SetField(C->gf, B.fs);
     A = NewGeofilterNode(C);
   }
 }

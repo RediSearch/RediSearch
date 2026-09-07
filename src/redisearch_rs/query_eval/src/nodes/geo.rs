@@ -52,9 +52,12 @@ pub(crate) fn eval<'index>(
         // SAFETY: `gf` is valid and, during single-threaded evaluation,
         // exclusively owned for `'index`, so a `&'index mut` is sound.
         let gf_ref = unsafe { &mut *gf };
-        // SAFETY: a well-formed geo node has a valid, non-null `fieldSpec`, so
-        // reading its `index` is sound.
-        let field_index = unsafe { (*gf_ref.fieldSpec).index };
+        // Read directly from `fieldIndex` rather than via `fieldSpec`: under
+        // WORKERS>0, evaluation can run on a worker thread well after the geo
+        // node was parsed, and a concurrent FT.ALTER may have since reallocated
+        // the spec's field array, leaving `fieldSpec` a dangling pointer
+        // (MOD-18366).
+        let field_index = gf_ref.fieldIndex;
         // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
         // invariants 1/2) and single-threaded query evaluation gives us the only
         // live reference to it; the enterprise iterators are registered whenever
@@ -80,7 +83,7 @@ pub(crate) fn eval<'index>(
     // SAFETY: `build_geo_range_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
-    // 2. `gf.fieldSpec` is a valid, non-null `FieldSpec` for a geo field
+    // 2. `gf.fieldIndex` is within `sctx.spec`'s current field count
     //    (well-formed geo node).
     // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
     //    populated/owned by `gf`, freed by `GeoFilter_Free`.

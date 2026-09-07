@@ -45,7 +45,7 @@ static bool CoalesceEmptyFilterValue(ArgsCursor *ac, double *target, bool *hasEm
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
 int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
-  *gf = (LegacyGeoFilter){0};
+  *gf = (LegacyGeoFilter){.base = {.fieldIndex = RS_INVALID_FIELD_INDEX}};
 
   if (AC_NumRemaining(ac) < 5) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "GEOFILTER requires 5 arguments");
@@ -88,6 +88,11 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   // only allocate on the success path
   gf->field = NewHiddenString(fieldName, strlen(fieldName), false);
   return REDISMODULE_OK;
+}
+
+void GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs) {
+  gf->fieldSpec = fs;
+  gf->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
@@ -142,6 +147,7 @@ const char *GeoDistance_ToString(GeoDistance d) {
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len) {
   GeoFilter *gf = rm_malloc(sizeof(*gf));
   *gf = (GeoFilter){
+      .fieldIndex = RS_INVALID_FIELD_INDEX,
       .lon = lon,
       .lat = lat,
       .radius = radius,
