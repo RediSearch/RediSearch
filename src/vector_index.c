@@ -230,8 +230,10 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
-  // Cast is safe: openVectorIndex only mutates fieldSpec when create_if_missing is true.
-  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, (FieldSpec *)vq->field, DONT_CREATE_INDEX);
+  // FieldSpec* captured back then could no longer be trusted.
+  RS_ASSERT(vq->fieldIndex < ctx->spec->numFields);
+  FieldSpec *fieldSpec = ctx->spec->fields + vq->fieldIndex;
+  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, fieldSpec, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
@@ -242,7 +244,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -262,10 +264,10 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       }
       // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
       // it, fall back to the index's create-time RERANK default
-      if (vq->field->vectorOpts.diskCtx.indexName != NULL &&
+      if (fieldSpec->vectorOpts.diskCtx.indexName != NULL &&
           qParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_UNSET) {
         qParams.hnswDiskRuntimeParams.shouldRerank =
-            vq->field->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
+            fieldSpec->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
       }
       if (vq->knn.k > MAX_KNN_K) {
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
@@ -346,6 +348,13 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   params.params[index].value = rm_strndup(val, val_len);
   params.params[index].valLen = val_len;
   return 1;
+}
+
+void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field) {
+  // `field` can be NULL: the v2 grammar only validates/resolves the field when
+  // ctx->sctx->spec is set (e.g. a coordinator shard with no local spec), and still
+  // calls this setter on the unresolved result.
+  vq->fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
 }
 
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {

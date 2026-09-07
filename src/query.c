@@ -390,6 +390,7 @@ QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const cha
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec) {
   QueryNode *ret = NewQueryNode(QN_VECTOR);
   VectorQuery *vq = rm_calloc(1, sizeof(*vq));
+  vq->fieldIndex = RS_INVALID_FIELD_INDEX;
   ret->vn.vq = vq;
   vq->type = type;
   ret->opts.flags |= QueryNode_YieldsDistance;
@@ -1447,7 +1448,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           break;
         }
       } // switch (qs->vn.vq->type). Next is a common part for both types.
-      s = sdscatprintf(s, "in vector index associated with field @%s", HiddenString_GetUnsafe(qs->vn.vq->field->fieldName, NULL));
+      {
+        const FieldSpec *vecFs = spec->fields + qs->vn.vq->fieldIndex;
+        s = sdscatprintf(s, "in vector index associated with field @%s", HiddenString_GetUnsafe(vecFs->fieldName, NULL));
+      }
       for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
         s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
         s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
