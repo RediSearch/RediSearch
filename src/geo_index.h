@@ -34,7 +34,10 @@ typedef enum {  // Placeholder for bad/invalid unit
 } GeoDistance;
 
 typedef struct GeoFilter {
-  const FieldSpec *fieldSpec;
+  // Stable index of the field into IndexSpec.fields; re-derive the FieldSpec* from
+  // this at evaluation time - a raw pointer captured at construction time could
+  // dangle across a concurrent FT.ALTER under WORKERS>0 (MOD-18366)
+  t_fieldIndex fieldIndex;
   double lat;
   double lon;
   double radius;
@@ -45,8 +48,8 @@ typedef struct GeoFilter {
 // Legacy geo filter
 // This struct is used to parse the legacy query syntax and convert it to the new query syntax
 // When parsing the legacy filters we do not have the index spec and we only have the field name
-// For that reason during the parsing phase the base.fieldSpec will be NULL
-// We will fill the fieldSpec during the apply context phase where we will use the field name to find the field spec
+// For that reason during the parsing phase the base.fieldIndex will be RS_INVALID_FIELD_INDEX
+// We will fill it during the apply context phase where we will use the field name to find the field spec
 // This struct was added in order to fix previous behaviour where the string pointer was stored inside the field spec pointer
 typedef struct {
   GeoFilter base;
@@ -56,6 +59,9 @@ typedef struct {
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
+
+// Sets `gf->fieldIndex` from `fs` (or RS_INVALID_FIELD_INDEX if NULL).
+void GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
 
 /** @param s CString (null-terminated string) */
 GeoDistance GeoDistance_Parse(const char *s);
