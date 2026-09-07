@@ -48,7 +48,7 @@ fn invalid_radius_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.radius = 0.0;
     // SAFETY: radius <= 0.0 triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn invalid_lon_too_high_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lon = GEO_LONG_MAX + 0.01;
     // SAFETY: lon > GEO_LONG_MAX triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn invalid_lon_too_low_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lon = GEO_LONG_MIN - 0.01;
     // SAFETY: lon < GEO_LONG_MIN triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn invalid_lat_too_high_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lat = GEO_LAT_MAX + 0.01;
     // SAFETY: lat > GEO_LAT_MAX triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
 }
 
 #[test]
@@ -80,5 +80,5 @@ fn invalid_lat_too_low_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lat = GEO_LAT_MIN - 0.01;
     // SAFETY: lat < GEO_LAT_MIN triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
 }

@@ -62,6 +62,7 @@ impl GeoFixture {
 
         let mut gf = Box::new(ffi::GeoFilter {
             fieldSpec: context.field_spec() as *const _,
+            fieldIndex: context.field_spec().index,
             lat,
             lon,
             radius: radius_km,
