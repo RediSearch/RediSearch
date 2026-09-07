@@ -3,14 +3,73 @@
 Workerless integration: `4325b9333b0abfd2c88121d9a1dbeaf81a6f7cab`.
 Resize implementation: `d1ad310ebf87dcb017c9597f744dfadede13de0e`.
 Backend-normalization coverage: `81c4443c9fe8721d113bc7c4a5fea09aa9a265f9`.
-VectorSimilarity pin: `4f97b1c4aa8439bb645e1b2aa35c52c0c4ff31c9` (PR #1029,
-still open when checked).
+VectorSimilarity pin: `acaad32b57854dae11b109de08a97d1eb9d9fbf7` (PR #1029,
+the final PR in the stack, still open when checked).
 
-All completed builds and tests ran on `dorer-intel`, using the existing checkout
-at `/mnt/nvme/rs-mod14958`. A local build was started before the remote-only
-instruction and stopped; no local build result is counted here.
+The latest validation ran on `arm-r8g.xlarge`, in the isolated checkout
+`/home/ubuntu/rs-mod14958-arm`. Earlier validation used `dorer-intel` at
+`/mnt/nvme/rs-mod14958`. No local build or test result is counted here.
+
+## Stacked dependency and ARM validation
+
+GitHub's stack order is [#1034](https://github.com/RedisAI/VectorSimilarity/pull/1034)
+→ [#1035](https://github.com/RedisAI/VectorSimilarity/pull/1035)
+→ [#1029](https://github.com/RedisAI/VectorSimilarity/pull/1029).
+The pinned final head includes both ancestors and the synchronous workerless
+migration fix. Its Git tree, `db34008805239c24b76275da75e8ccb198031d0e`, is identical
+to the preceding `4f97b1c4` pin: splitting the PR changed history without changing
+the source. All 2755 checked RediSearch and VecSim source files initially matched
+between the local task checkout and ARM.
+
+The ARM host is a four-core Graviton4/Neoverse-V2 machine with NEON and SVE2.
+Validation used GCC 12.3, Rust 1.94.0, Python 3.12.14, Redis 8.10.1 built with TLS
+(`3399357e7c17b668289386b8a15a3037bc4527b1`), and native RedisJSON
+(`1c74f65addb4c2d89d97c8525ed993503a476060`). The assertion-enabled debug build
+used the repository's checked-in Rust headers (`REDISEARCH_GENERATE_HEADERS=OFF`)
+and two build jobs. SVS was enabled with its ARM compression fallback.
+
+- RediSearch debug build: passed.
+- Full RediSearch unit suite: 1033 passed (17 C, 861 C++, 5 coordinator C,
+  150 coordinator C++).
+- Focused SQ8 and existing resize-limit behavioral tests: 14 passed with the
+  quick 20-second timeout, including FLOAT32/FLOAT16 workerless migration and RDB
+  reloads with both worker settings zero.
+- Native VecSim suites, with the default `FP64_TESTS=OFF`: 337 HNSW, 100 SQ8,
+  68 FLAT, and 1550 distance-kernel cases passed. The initial direct invocation
+  omitted the required `ROOT` environment variable, causing five serialization
+  cases to throw before exercising serialization. All five passed when rerun
+  with `ROOT` set to the VecSim checkout; the other cases passed initially.
+- ARM SIMD linkage check against the library linked into RediSearch: passed
+  for all eight tier objects and 28 pairs, with no shared external symbols.
+- Full standalone behavioral suite with the normal 300-second timeout:
+  2333 run, 2330 passed, 3 failed, with 218 additional skipped cases. All SQ8
+  cases passed. The TLS test also passed with the native TLS-enabled Redis.
+- The three failures were the existing expiration assertion and both SVS GC
+  memory assertions documented below. There was no new SQ8 failure.
+- The SVS GC fixture now inserts three blocks and deletes two. This forces
+  reclamation beyond the spare block retained by the allocator introduced in
+  VecSim #980, while preserving the strict memory-decrease assertion. The
+  worker-enabled case passed the quick rerun. The zero-worker case exceeded
+  20 seconds during population and passed with the normal timeout in 28 seconds.
+  The full suite was not repeated after this fixture-only change.
+
+The only unresolved behavioral failure is
+`test_expire:testSortableFieldWithExpirationAndRegularField`: the expired `x`
+field remains visible on `doc1` at the assertion. Upstream RediSearch commit
+`000795272` already changes this timing-sensitive test. No expiration code or
+test was changed in this task. The full suite is not reported as green.
+
+Before the request to switch hosts, the same final pin also passed the Intel
+build, 1033 unit tests, and 14 focused tests. The in-progress Intel full suite was
+stopped when validation moved to ARM; it has no completion result for this run.
+The three PR heads remained unchanged and open at the final check. Their recorded
+sanitizer CI checks passed, but coverage jobs lost contact with their self-hosted
+runners; coverage validation remains incomplete. The dependency pin is provisional
+until the stack merges. No PR was opened or updated by this validation run.
 
 ## Workerless migration fix
+
+These earlier Intel results used the equivalent `4f97b1c4` dependency tree.
 
 The VecSim threshold transition now uses the current write mode. With workers
 available it queues migration jobs; in write-in-place mode it executes those
@@ -141,7 +200,24 @@ the documented encoding-version boundary.
 
 ## Remote artifacts
 
-All paths below are on `dorer-intel`:
+On `arm-r8g.xlarge`, under `/home/ubuntu/mod14958-logs/`:
+
+- `source.sha256` and `source-check.log`
+- `build-stack-committed-headers.log`
+- `unit-stack.log`
+- `build-redis-tls.log` and `build-redisjson.log`
+- `focused-stack.log`
+- `full-stack.log`
+- `svs-gc-fixture.log` (one pass and one quick-timeout failure)
+- `svs-gc-workerless-normal.log` (the timed-out case passes)
+- `vecsim-configure.log` and `vecsim-build.log`
+- `vecsim-test_hnsw.log` and `vecsim-test_hnsw_sq8.log`
+- `vecsim-hnsw-serialization-env.log` and `vecsim-sq8-serialization-env.log`
+- `vecsim-test_bruteforce.log` and `vecsim-test_spaces.log`
+- `arm-tier-linkage.log`
+- `source-final.sha256` and `source-check-final.log`
+
+The following paths are on `dorer-intel`:
 
 - `/tmp/pr1029-workers-before.log`
 - `/tmp/pr1029-workers-build.log`

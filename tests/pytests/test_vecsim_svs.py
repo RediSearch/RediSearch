@@ -662,7 +662,7 @@ def gc_test_common(env, num_workers):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    index_size = DEFAULT_BLOCK_SIZE
+    index_size = 3 * DEFAULT_BLOCK_SIZE
     compression_types = ['NO_COMPRESSION', 'LVQ8']
     if is_intel_opt_enabled():
         compression_types.append('LeanVec4x8')
@@ -684,7 +684,8 @@ def gc_test_common(env, num_workers):
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
         # Phase 1: Delete some vectors
-        vecs_to_delete = 1000
+        # SVS retains one spare block, so delete two blocks to require memory reclamation.
+        vecs_to_delete = 2 * DEFAULT_BLOCK_SIZE
         for i in range (vecs_to_delete):
             env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}')
 
