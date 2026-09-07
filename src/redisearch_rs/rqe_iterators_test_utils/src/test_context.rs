@@ -21,7 +21,10 @@ use std::{
     },
 };
 
+use dict::{Dict, MissingFieldDictType};
 use ffi::{IndexFlags, IndexFlags_Index_WideSchema};
+use hidden_string::HiddenString;
+use inverted_index::opaque::InvertedIndex;
 use rqe_core::{DocId, FieldMask};
 
 /// Global counter for generating unique index names across tests.
@@ -759,16 +762,25 @@ impl TestContext {
             }
         }
 
-        // Add the inverted index to the spec's missing.indexes,
-        // keyed by the field's fieldName (a HiddenString pointer used as dict key).
+        // Add the inverted index to the spec's missing.indexes, keyed by the
+        // field's fieldName, through the safe `Dict` wrapper rather than the raw
+        // C API.
         unsafe {
             let field_name_key = (*field_spec.as_ptr()).fieldName;
-            let rc = ffi::RS_dictAdd(
-                (&*spec).missing.indexes,
-                field_name_key as *mut _,
-                ii_ptr as *mut _,
-            );
-            assert_eq!(rc, 0, "dictAdd failed"); // DICT_OK == 0
+            // SAFETY: field_name_key is the field spec's own live HiddenString.
+            let key = HiddenString::from_raw(field_name_key);
+            // SAFETY: ii_ptr was returned by NewInvertedIndex_Ex; missingFieldDictType's
+            // valDestructor already reconstructs a removed entry's value the same way
+            // (see MissingFieldDictType's safety comment), so this just makes that
+            // ownership explicit for the insert below instead of leaving it implicit
+            // in the raw pointer handed to `RS_dictAdd`.
+            let value = Box::from_raw(ii_ptr.cast::<InvertedIndex>());
+            // SAFETY: `spec`'s missing.indexes was created with missingFieldDictType,
+            // matching MissingFieldDictType, and nothing else accesses it concurrently
+            // (CONTEXT_MUTEX is held for the whole constructor).
+            let dict = Dict::<MissingFieldDictType>::from_raw_mut((&*spec).missing.indexes);
+            dict.try_insert(key, value)
+                .unwrap_or_else(|_| panic!("dict key should not already exist"));
         }
 
         Self {
