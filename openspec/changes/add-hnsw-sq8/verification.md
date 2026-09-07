@@ -1,14 +1,82 @@
 # Verification and review, 2026-09-07
 
+## PR follow-ups
+
+Validated locally on x86-64 after merging `master` at `e3a834ef7` and updating
+VectorSimilarity to `0e71fad4`. The dependency includes the VecSim commit pinned
+by current `master`; its only change from the previous SQ8 pin is the span input
+update in the accumulation helpers. The SVS GC fixture now matches `master`.
+
+- Confirmed legacy RDB resave rejection with the bundled VecSim fixtures. Before
+  the fix, the first save/reload failed with `Invalid HNSW SQ8 parameters` and
+  `Failed to load index field 0`. After clearing the reused parameter storage,
+  all three fixtures (2.4.14, 2.6.9, and 8.0) load, save, and load again with both
+  HNSW and FLAT vectors still searchable.
+- Confirmed overflow directly in the pinned VecSim SQ8 preprocessor at dimension
+  16,843,011. For a vector containing one value of 1 and otherwise 2, the stored
+  sum is 16,843,012 and the stored sum of squares is 33,686,024, approximately half
+  the expected values. RediSearch now rejects dimensions above the safe bound
+  before creation or RDB size estimation; VecSim itself remains unchanged.
+- The new dimension regression and both oversized RDB parameter cases failed
+  before the bound and passed afterward. Coverage includes both supported types,
+  all supported metric/training combinations, reload at the accepted boundary,
+  and ordinary HNSW above the SQ8 bound.
+- Assertion-enabled debug build: passed with GCC 13.3 and Rust 1.94.0.
+- Full C/C++ unit suite: 1042 passed (17 C, 870 C++, 5 coordinator C,
+  150 coordinator C++).
+- Focused behavioral suite with the quick 20-second timeout: 16 passed,
+  including SQ8, legacy RDB resaves, and existing resize-limit tests.
+- Changed-line clang-format checks, Python syntax checks, and `git diff --check`:
+  passed.
+- Full standalone run with Redis 8.10.1, TLS, current RedisJSON (API V8), and the
+  normal 300-second timeout: RLTest reported 2361 run, 2359 passed, and 2 failed;
+  its passed counter includes skips. The per-case log contains 2154 PASS,
+  218 SKIP, and 2 ERROR statuses. All SQ8 cases, legacy RDB compatibility, the
+  upstream SVS GC fixtures, the earlier expiration failure, and TLS passed.
+- The quick full-suite attempt ended after four SVS population timeouts exhausted
+  the RLTest worker processes. It has no complete-suite result. The normal-timeout
+  run above completed in 601 seconds.
+
+The two full-suite errors were:
+
+- `test_info_modules:test_pending_jobs_metrics_aggregate`: the pending-job wait
+  timed out after 120 seconds, observing four high-priority jobs instead of three.
+- `test_multibyte_char_terms:testTagToLowerConversionSimilarMatch`: Redis exited
+  after a Rust misaligned-pointer panic in `triemap_ffi/src/iter_types.rs:57`
+  (32-byte alignment required). The iterator and both failing tests are unchanged
+  from `master`; no same-build comparison with `master` was performed.
+
+Serial reruns with the normal timeout: the pending-job test passed; the
+multibyte-term test reproduced the same alignment panic. The full suite is not green.
+
+The independent review confirmed the legacy and dimension fixes and found one
+remaining blocker: disk indexes accept SQ8 training settings that the available
+disk provider does not implement. It also recommended score/ranking and additional
+query-path coverage. The encoding-v28 schema propagation policy during mixed-version
+slot migration remains unverified. These follow-ups require resolution before merge.
+The VecSim stack remains unmerged; this run validates `0e71fad4`, not the later
+`9776964a` job-registration update.
+
+Local logs are `/tmp/mod14958-followups-{build-before,build-after,unit-before,unit-after,
+flow-before,flow-after}.log`. The legacy server failure is preserved in
+`/tmp/mod14958-followups-legacy-server-before.log`; the standalone preprocessor
+reproduction is `/tmp/mod14958-sq8-overflow.cpp`.
+Full-run logs are `/tmp/mod14958-followups-full-quick.log` and
+`/tmp/mod14958-followups-full.log`; serial reruns are in
+`/tmp/mod14958-followups-rerun.log`. The complete independent review is preserved
+locally in `/tmp/mod14958-independent-review.md`.
+
+## Earlier integration validation
+
 Workerless integration: `4325b9333b0abfd2c88121d9a1dbeaf81a6f7cab`.
 Resize implementation: `d1ad310ebf87dcb017c9597f744dfadede13de0e`.
 Backend-normalization coverage: `81c4443c9fe8721d113bc7c4a5fea09aa9a265f9`.
 VectorSimilarity pin: `acaad32b57854dae11b109de08a97d1eb9d9fbf7` (PR #1029,
 the final PR in the stack, still open when checked).
 
-The latest validation ran on `arm-r8g.xlarge`, in the isolated checkout
+The earlier ARM validation ran on `arm-r8g.xlarge`, in the isolated checkout
 `/home/ubuntu/rs-mod14958-arm`. Earlier validation used `dorer-intel` at
-`/mnt/nvme/rs-mod14958`. No local build or test result is counted here.
+`/mnt/nvme/rs-mod14958`. The results below predate the local PR follow-ups above.
 
 ## Stacked dependency and ARM validation
 

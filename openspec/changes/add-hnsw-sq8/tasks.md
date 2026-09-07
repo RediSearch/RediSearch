@@ -16,5 +16,9 @@
 - [x] Obtain an independent review.
 - [x] Enforce the frontend resize limit during creation and RDB loading.
 - [x] Resolve workerless SQ8 migration in VecSim and verify it in RediSearch.
+- [x] Merge current `master`, keep its SVS GC fixture, and refresh the provisional
+      VecSim pin to `0e71fad4`.
+- [x] Reproduce and fix legacy HNSW save/reload rejection after pre-tiered RDB conversion.
+- [x] Confirm SQ8 byte-sum overflow and reject unsupported dimensions on creation and reload.
 - [ ] Replace the provisional dependency pin with the merged VecSim commit.
 - [ ] Obtain maintainer review and green CI before merge.
