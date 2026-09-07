@@ -1,80 +1,194 @@
 name: Backport merged pull request
 
-# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
-
+# Interface and recovery policy: docs/auto-backport.md
 on:
   pull_request_target:
-    types: [closed]
+    types: [closed, labeled]
   issue_comment:
     types: [created]
+
 permissions:
-  contents: write # so it can comment
-  pull-requests: write # so it can create pull requests
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: backport-create-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+  # Preserve explicit comment requests instead of replacing the pending run.
+  queue: max
+
+env:
+  GH_REPO: ${{ github.repository }}
+  BACKPORT_WORK: /tmp/backport-agent-work
+  BACKPORT_ACTION_WORK: /tmp/backport-classic-work
+  BACKPORT_MANIFEST_FILE: /tmp/backport-agent-manifest.json
+
 jobs:
   backport:
-    name: Backport pull request
     runs-on: ubuntu-slim
-
-    # Only run when pull request is merged
-    # or when a comment starting with `/backport` is created by someone other than the
-    # https://github.com/backport-action bot user (user id: 97796249). Note that if you use your
-    # own PAT as `github_token`, that you should replace this id with yours.
-    if: >
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.merged
-      ) || (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        github.event.comment.author_association != 'NONE' &&
-        startsWith(github.event.comment.body, '/backport') &&
-        !startsWith(github.event.comment.body, '/backport-agent')
-      )
+    timeout-minutes: 75
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
+        (github.event.action == 'closed' ||
+         startsWith(github.event.label.name, 'backport ') ||
+         (startsWith(github.event.label.name, 'backport-') && endsWith(github.event.label.name, '-agent')))) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       github.event.comment.user.type != 'Bot' &&
+       startsWith(github.event.comment.body, '/backport') &&
+       !startsWith(github.event.comment.body, '/backport-agent-'))
     steps:
-      - name: 🔑 Generate GitHub App Token
-        id: generate-app-token
+      - name: Checkout trusted automation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve request and check write permission
+        id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER_FROM_PR: ${{ github.event.pull_request.number }}
+          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: python3 scripts/auto_backport/resolve_create.py
+
+      - name: Generate classic action token
+        id: action-token
+        if: steps.ctx.outputs.skip == 'false'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          # Resolve the App installation from the repository that triggered the
-          # run, never a hard-coded org. A literal `owner: RediSearch` breaks
-          # this flow in any fork or mirror (e.g. redislabsdev/RediSearch): the
-          # action looks up `users/RediSearch/installation`, which 404s for an
-          # App not installed on that org, so the token is never minted and the
-          # whole backport job fails. `github.repository_owner` always matches
-          # the current repo's owner, so the workflow runs unchanged wherever it
-          # lives. Mirrors the agent flows (task-backport_pr-agent*.yml).
           owner: ${{ github.repository_owner }}
-          # Without this the token reaches every repository the app is installed
-          # on across the org, not just this one.
           repositories: ${{ github.event.repository.name }}
-          # And without these it inherits the app installation's full permission
-          # set. korthout/backport-action needs: contents to push the cherry-picked
-          # branch, pull-requests to open the backport PR, request the author as
-          # reviewer, copy labels and enable auto-merge, and workflows because a
-          # backport whose commits touch .github/workflows/** is otherwise refused
-          # ("without `workflows` permission") — GitHub gates ref and contents
-          # writes that carry workflow files behind that permission separately.
           permission-contents: write
           permission-pull-requests: write
           permission-workflows: write
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          token: ${{ steps.generate-app-token.outputs.token }}
-      - name: Create backport pull requests
-        id: backport
+
+      - name: Deduplicate targets and prepare classic checkout
+        id: preflight
+        if: steps.ctx.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ steps.action-token.outputs.token }}
+          BACKPORT_BOT_LOGIN: ${{ steps.action-token.outputs.app-slug }}[bot]
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/unified.py preflight
+
+      - name: Backport without a model
+        id: classic
+        if: steps.preflight.outputs.targets != ''
+        continue-on-error: true
         uses: korthout/backport-action@2e830a1d0b8269505846ddd407a70876913ad1f8 # v4.6.0
         with:
-          github_token: ${{ steps.generate-app-token.outputs.token }}
+          github_token: ${{ steps.action-token.outputs.token }}
+          github_workspace: ${{ env.BACKPORT_ACTION_WORK }}
+          source_pr_number: ${{ steps.ctx.outputs.pr }}
+          target_branches: ${{ steps.preflight.outputs.targets }}
+          # Targets are resolved once; action label discovery would union them
+          # back in and violate explicit comment overrides.
+          label_pattern: ''
+          branch_name: 'backport-agent/pr-${pull_number}-to-${target_branch}'
           pull_title: '[${target_branch}] ${pull_title}'
           pull_description: |
-            # Description
             Backport of #${pull_number} to `${target_branch}`.
+            Merge commit: `${{ steps.ctx.outputs.sha }}`
 
             ${pull_description}
-          merge_commits: 'skip'
+          merge_commits: skip
+          comment_style: summary
           add_author_as_reviewer: true
           auto_merge_enabled: true
-          copy_labels_pattern: '.*' # copy all labels. Excluding the backport labels automatically
+          add_labels: auto-backport
+          copy_labels_pattern: '^(?!backport |backport-.*-agent$).*'
+
+      - name: Revoke classic token and remove its checkout
+        id: revoke
+        if: always() && steps.action-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.action-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh api --method DELETE /installation/token
+          rm -rf "$BACKPORT_ACTION_WORK"
+
+      - name: Collect results and reproduce failures without a model
+        id: collect
+        if: >-
+          !cancelled() && steps.preflight.outcome == 'success' && steps.revoke.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+          CREATED_PULL_NUMBERS: ${{ steps.classic.outputs.created_pull_numbers }}
+          SUCCESS_BY_TARGET: ${{ steps.classic.outputs.was_successful_by_target }}
+        run: |
+          git config --global user.name 'redis-pr-app[bot]'
+          git config --global user.email 'redis-pr-app[bot]@users.noreply.github.com'
+          python3 scripts/auto_backport/unified.py collect
+
+      - name: Resolve only conflicting targets with Codex
+        id: agent
+        if: steps.collect.outputs.run_agent == 'true' && steps.revoke.outcome == 'success'
+        timeout-minutes: 35
+        continue-on-error: true
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
+        env:
+          BACKPORT_CONTEXT_FILE: ${{ steps.collect.outputs.agent_context }}
+        with:
+          openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
+          prompt-file: .github/codex/prompts/pr-backport-auto.md
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          allow-bots: true
+          allow-bot-users: github-merge-queue[bot]
+
+      - name: Restore trusted publishing scripts
+        id: trusted
+        if: always() && steps.ctx.outputs.skip == 'false'
+        run: |
+          git checkout HEAD -- scripts/auto_backport
+          git clean -ffdx scripts/auto_backport
+
+      - name: Generate publication and summary token
+        id: publish-token
+        if: always() && steps.ctx.outputs.skip == 'false' && steps.trusted.outcome == 'success'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Publish validated agent results
+        if: >-
+          always() && steps.collect.outputs.run_agent == 'true' && steps.publish-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.publish-token.outputs.token }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/unified.py apply
+
+      - name: Finalize the single summary comment
+        if: always() && steps.ctx.outputs.skip == 'false' && steps.publish-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.publish-token.outputs.token }}
+          BACKPORT_BOT_LOGIN: ${{ steps.publish-token.outputs.app-slug }}[bot]
+          CREATED_PULL_NUMBERS: ${{ steps.classic.outputs.created_pull_numbers }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/unified.py report
+
+      - name: Preserve results even if publication fails
+        if: always() && steps.ctx.outputs.skip == 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backport-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/backport-results.json
+            ${{ runner.temp }}/backport-summary.md
+          if-no-files-found: warn

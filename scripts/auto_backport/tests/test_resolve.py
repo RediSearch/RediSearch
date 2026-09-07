@@ -86,7 +86,7 @@ class ResolveTargetsTests(unittest.TestCase):
     def test_non_matching_labels_yield_no_targets(self):
         targets = resolve_create.resolve_targets(
             "pull_request_target", "closed", "", "",
-            _labels("enhancement", "backport 8.6"),  # legacy label, not -agent
+            _labels("enhancement", "backports 8.6"),
         )
         self.assertEqual(targets, [])
 

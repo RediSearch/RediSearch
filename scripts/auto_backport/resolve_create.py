@@ -6,33 +6,12 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-"""Resolve PR context and target branches for the auto-backport create flow.
+"""Resolve authorized requests for task-backport_pr.yml.
 
-Invoked from .github/workflows/task-backport_pr-agent.yml after the master
-checkout. Reads the triggering event metadata from env vars, queries gh
-for PR data, derives the list of target release branches to back-port to,
-and writes a context JSON file in $RUNNER_TEMP that the Codex agent
-consumes via the `BACKPORT_CONTEXT_FILE` env var.
-
-Targets come from `backport-<branch>-agent` labels or from an explicit
-`/backport-agent <list>` comment. A `>= <version>` arg in that comment expands
-to every active release branch at or above that version, read from
-.github/release-branches.json (the repo's registry of live release lines).
-
-Exits 0 in one of two ways:
-- `skip=true` output -> the workflow's later steps short-circuit (the
-  `if:` on the Codex step gates on this).
-- `skip=false` + `context_file=<path>` -> the workflow continues.
-
-Non-zero exit is reserved for genuine programming errors (unrecognized
-event, missing env, gh blowing up).
-
-Env contract (set by the workflow):
-- GH_TOKEN, GH_REPO -- consumed by `gh`.
-- RUNNER_TEMP, GITHUB_OUTPUT -- GitHub Actions standard.
-- EVENT_NAME, EVENT_ACTION, LABEL_NAME, COMMENT_BODY -- event payload bits.
-- PR_NUMBER_FROM_PR -- pull_request event's PR number (may be empty).
-- PR_NUMBER_FROM_ISSUE -- issue_comment event's PR/issue number (may be empty).
+Both label namespaces and both create commands share this resolver. Explicit
+comment targets override labels; version floors expand through the release
+registry. The context is stored in RUNNER_TEMP, outside the agent's writable
+checkout, and remains the publication allow-list throughout the run.
 """
 
 from __future__ import annotations
@@ -47,39 +26,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
 
-# `backport-<branch>-agent` is the trigger-label shape. The middle group
-# is the release branch to backport to.
-LABEL_RE = re.compile(r"^backport-(.+)-agent$")
-
-# A valid target is a release-branch name: `MAJOR.MINOR` optionally followed by
-# a variant suffix (e.g. `8.6`, `8.10`, `8.6-rse`, `2.8`). This is the gate that
-# keeps malformed targets out of the run — whether they come from a user-typed
-# `/backport-agent <list>` comment (`8.6x`, `foo`, path/injection-ish tokens) or
-# a mis-provisioned label (`backport-experimental-agent`). A well-formed target
-# that simply doesn't exist as a branch is still caught later by the agent's
-# per-target `git ls-remote` pre-flight; this only rejects things that could
-# never be a branch, before they reach branch-name construction.
-# The `{1,4}` digit bounds cap each version component: no real release line has
-# a 5-digit major/minor, and leaving `\d+` unbounded lets a pathological floor
-# (e.g. `>=` followed by thousands of digits, which fits in a GitHub comment)
-# reach `version_key`'s `int()` and trip Python's integer-string-conversion
-# limit — a ValueError that would abort the whole resolve step and drop every
-# valid sibling target. Bounding here makes such input simply fail to match, so
-# it is dropped as malformed like any other bad token.
-TARGET_RE = re.compile(r"^\d{1,4}\.\d{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
-
-# The command token must be exactly `/backport-agent`, optionally followed by
-# whitespace and a target list. Anchored with a trailing boundary so mistyped
-# siblings like `/backport-agentcontext` don't get their suffix parsed as a
-# branch target. (The workflow `if:` gate already excludes the dash-prefixed
-# `/backport-agent-fix` / `/backport-agent-context` commands; this guards the
-# no-dash typos that still slip through `startsWith`.)
-COMMENT_COMMAND_RE = re.compile(r"^/backport-agent(\s|$)")
+LABEL_RE = re.compile(r"^(?:backport ([^ ]+)|backport-(.+)-agent)$")
+# Bound version digits to avoid pathological int conversions from comment text.
+TARGET_RE = re.compile(r"^[0-9]{1,4}\.[0-9]{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
+COMMENT_COMMAND_RE = re.compile(r"^/backport(?:-agent)?(\s|$)")
 
 # A `>=<version>` token in the comment args: backport to that release line and
 # every newer one. `>= 2.10` is normalized to `>=2.10` before splitting (see
 # parse_comment_args), so only the no-space form needs matching here.
-FLOOR_RE = re.compile(r"^>=(\d{1,4}\.\d{1,4}(?:-[A-Za-z0-9._-]{1,64})?)$")
+FLOOR_RE = re.compile(r"^>=([0-9]{1,4}\.[0-9]{1,4}(?:-[A-Za-z0-9._-]{1,64})?)$")
 
 # The registry of currently-active release branches that `>=` expands over.
 RELEASE_BRANCHES_FILE = (
@@ -113,7 +68,7 @@ def load_release_branches() -> list[str]:
     except (OSError, json.JSONDecodeError) as e:
         common.log(f"Could not read {RELEASE_BRANCHES_FILE}: {e}")
         return []
-    branches = data.get("release_branches")
+    branches = data.get("release_branches") if isinstance(data, dict) else None
     if not isinstance(branches, list) or not all(isinstance(b, str) for b in branches):
         common.log(f"{RELEASE_BRANCHES_FILE}: 'release_branches' must be a list of strings")
         return []
@@ -132,11 +87,11 @@ def expand_floor(floor: str) -> list[str]:
         common.log(f"Ignoring malformed version floor: {floor}")
         return []
     base = m.group(1)
-    if not TARGET_RE.match(base):
+    if not TARGET_RE.fullmatch(base):
         common.log(f"Ignoring malformed version floor: {floor}")
         return []
     branches = load_release_branches()
-    expanded = [b for b in branches if TARGET_RE.match(b) and version_key(b) >= version_key(base)]
+    expanded = [b for b in branches if TARGET_RE.fullmatch(b) and version_key(b) >= version_key(base)]
     if not expanded:
         common.log(
             f"Version floor {floor} matched no active release branch "
@@ -175,7 +130,7 @@ def parse_comment_args(comment_body: str) -> list[str]:
     first_line = comment_body.splitlines()[0]
     if not COMMENT_COMMAND_RE.match(first_line):
         return []
-    stripped = re.sub(r"^/backport-agent\s*", "", first_line)
+    stripped = re.sub(r"^/backport(?:-agent)?\s*", "", first_line)
     if not stripped.strip():
         return []
     stripped = re.sub(r">=\s+", ">=", stripped)
@@ -184,30 +139,22 @@ def parse_comment_args(comment_body: str) -> list[str]:
 
 def resolve_targets(event_name: str, event_action: str,
                     label_name: str, comment_body: str,
-                    pr_data: dict) -> list[str]:
+                    pr_data: dict, diagnostics: list[str] | None = None) -> list[str]:
     """Derive the deduplicated target-branch list from event + PR state."""
     targets: list[str] = []
+    diagnostics = diagnostics if diagnostics is not None else []
 
-    # 1) An explicit `/backport-agent <list>` comment overrides labels for the
-    #    run. A *plain* `/backport-agent` (no args) returns [] here and falls
-    #    through to the label scan below — the documented "backport to whatever
-    #    labels are on the PR" behavior.
-    #
-    #    `>=<version>` args are expanded here, in place, into the registered
-    #    release branches at or above that version — `>= 2.10` is the usual
-    #    "this line and everything newer" backport. Expansion happens before the
-    #    dedup/validate pass below, so mixing forms (`>= 8.8 2.10`) just unions.
-    #    A `>=` that expands to nothing does NOT fall back to labels: the
-    #    comment stated an explicit intent, and quietly backporting somewhere
-    #    else would be worse than doing nothing.
+    # Explicit intent must stay explicit, even if every argument is invalid.
     comment_args: list[str] = []
     if event_name == "issue_comment":
         comment_args = parse_comment_args(comment_body)
-        targets = [
-            expanded
-            for arg in comment_args
-            for expanded in (expand_floor(arg) if arg.startswith(">=") else [arg])
-        ]
+        if not COMMENT_COMMAND_RE.match(comment_body.splitlines()[0] if comment_body else ""):
+            return []
+        for arg in comment_args:
+            expanded = expand_floor(arg) if arg.startswith(">=") else [arg]
+            if not expanded:
+                diagnostics.append(f"Version expression {arg!r} matched no release branches")
+            targets.extend(expanded)
 
     # Note the guard is on `comment_args`, not `targets`: a comment that DID
     # carry args but whose `>=` floor expanded to nothing must stay empty rather
@@ -217,29 +164,15 @@ def resolve_targets(event_name: str, event_action: str,
         #    (`github.event.label.name`) first, as a guard against the
         #    `gh pr view` label snapshot lagging the webhook event.
         if event_name == "pull_request_target" and event_action == "labeled":
-            m = LABEL_RE.match(label_name or "")
+            m = LABEL_RE.fullmatch(label_name or "")
             if m:
-                targets.append(m.group(1))
+                targets.append(m.group(1) or m.group(2))
 
-        # 3) Fall back to EVERY matching label currently on the PR. This runs
-        #    for a plain `/backport-agent` comment, a `labeled` event, and a
-        #    `closed`-merged event alike — never just the one label that fired.
-        #
-        #    Resolving all labels (rather than only the fired one) is what makes
-        #    multi-label backports reliable: adding several
-        #    `backport-<branch>-agent` labels fires a separate `labeled` run per
-        #    label, and the per-PR concurrency group (cancel-in-progress: false)
-        #    keeps only the LATEST pending run, cancelling the intermediates. If
-        #    each run resolved only its own fired label, the cancelled runs'
-        #    targets would be silently dropped. Having whichever run survives
-        #    resolve the full current label set means no target is lost, and the
-        #    agent's per-target idempotency (it skips any target whose backport
-        #    PR already exists) makes re-processing an already-handled label a
-        #    no-op.
+        # Scan the complete label set so adding several labels is idempotent.
         for label in pr_data.get("labels", []) or []:
-            m = LABEL_RE.match(label.get("name", ""))
+            m = LABEL_RE.fullmatch(label.get("name", ""))
             if m:
-                targets.append(m.group(1))
+                targets.append(m.group(1) or m.group(2))
 
     # Dedup (preserve order) and drop anything that isn't a well-formed release
     # branch name — see TARGET_RE. Malformed targets are logged and skipped
@@ -252,12 +185,13 @@ def resolve_targets(event_name: str, event_action: str,
         if t in seen:
             continue
         seen.add(t)
-        if TARGET_RE.match(t):
+        if TARGET_RE.fullmatch(t):
             out.append(t)
         else:
             dropped.append(t)
     if dropped:
-        common.log(f"Ignoring malformed backport target(s): {', '.join(dropped)}")
+        diagnostics.append(f"Invalid target(s): {', '.join(dropped)}")
+        common.log(diagnostics[-1])
     return out
 
 
@@ -267,6 +201,12 @@ def main() -> int:
     label_name = os.environ.get("LABEL_NAME", "")
     comment_body = os.environ.get("COMMENT_BODY", "")
 
+    if event_name == "issue_comment" and not COMMENT_COMMAND_RE.match(comment_body):
+        common.skip("Not a backport creation command")
+    if event_name == "issue_comment" or event_action == "labeled":
+        if not common.has_write_permission(os.environ.get("GITHUB_ACTOR", "")):
+            common.skip("Backport commands and labels require repository write permission")
+
     pr = resolve_pr_number(event_name)
     if not pr:
         common.log(f"Unhandled or missing PR number for event {event_name!r}")
@@ -275,23 +215,11 @@ def main() -> int:
     # `gh pr view --json` exposes `state` (OPEN/CLOSED/MERGED); the
     # boolean `merged` field doesn't exist in current gh CLI.
     pr_data = common.fetch_pr(pr, [
-        "title", "body", "mergeCommit", "labels", "state", "url", "isCrossRepository",
+        "title", "body", "mergeCommit", "labels", "state", "url", "isCrossRepository", "author",
     ])
     state = pr_data.get("state")
     if state != "MERGED":
         common.skip(f"PR #{pr} is not merged (state={state}); skipping.")
-
-    # Refuse cross-repo (fork-sourced) PRs even after merge. The cherry-pick
-    # itself would be safe — the merge SHA lives on master in our own repo —
-    # but the agent reads the original PR title/body as evidence about the
-    # change, and that text is attacker-authored on fork PRs. Send those to
-    # the manual `/pr-backport` skill so a human reviews the input. Mirrors
-    # the same gate in resolve_fix.py.
-    if pr_data.get("isCrossRepository"):
-        common.skip(
-            f"PR #{pr} is cross-repository; the auto-backport flow does not "
-            "operate on fork-sourced PRs. Skipping."
-        )
 
     # Defensive: state=MERGED but mergeCommit can be null briefly
     # (API caching, certain fast-forward / merge-queue sequences). The
@@ -304,9 +232,10 @@ def main() -> int:
             "skipping. Re-trigger later."
         )
 
-    targets = resolve_targets(event_name, event_action, label_name, comment_body, pr_data)
-    if not targets:
-        common.skip(f"No backport-<branch>-agent targets resolved for PR #{pr}; nothing to do.")
+    diagnostics: list[str] = []
+    targets = resolve_targets(event_name, event_action, label_name, comment_body, pr_data, diagnostics)
+    if not targets and not diagnostics:
+        common.skip(f"No backport targets resolved for PR #{pr}; nothing to do.")
 
     # Context goes to $RUNNER_TEMP (not the workspace) so the agent's
     # `git add -A` during cherry-pick conflict resolution can't stage
@@ -323,8 +252,15 @@ def main() -> int:
         "body": pr_data.get("body", ""),
         "url": pr_data.get("url", ""),
         "targets": targets,
+        "diagnostics": diagnostics,
+        "agent_allowed": not pr_data.get("isCrossRepository"),
+        "author": (pr_data.get("author") or {}).get("login", ""),
+        "labels": [label["name"] for label in pr_data.get("labels", [])
+                   if not LABEL_RE.fullmatch(label["name"])],
     })
 
+    common.set_output("sha", sha)
+    common.set_output("pr", pr)
     common.set_output("skip", "false")
     common.set_output("context_file", context_file)
     return 0

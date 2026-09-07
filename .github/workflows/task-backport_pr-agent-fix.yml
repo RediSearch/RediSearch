@@ -1,6 +1,6 @@
 name: Fix CI failures on auto-backport PR (Codex agent)
 
-# Companion to task-backport_pr-agent.yml. When a backport PR's CI fails, a
+# Companion to task-backport_pr.yml. When a backport PR's CI fails, a
 # write-level human comments `/backport-agent-fix`; a Codex agent makes a minimal
 # fix and addresses in-scope reviewer feedback. Additional
 # `/backport-agent-context <text>` comments from write-level users are collected.
@@ -48,9 +48,7 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 45
 
-    # `author_association` is a coarse trigger pre-filter. NOTE: association is
-    # not repository write access — a real write-permission gate on the Apply
-    # step is tracked as a follow-up.
+    # The resolver verifies repository write permission before invoking Codex.
     if: >
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
