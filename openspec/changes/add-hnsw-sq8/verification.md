@@ -42,7 +42,8 @@ and two build jobs. SVS was enabled with its ARM compression fallback.
 - ARM SIMD linkage check against the library linked into RediSearch: passed
   for all eight tier objects and 28 pairs, with no shared external symbols.
 - Full standalone behavioral suite with the normal 300-second timeout:
-  2333 run, 2330 passed, 3 failed, with 218 additional skipped cases. All SQ8
+  RLTest reported 2333 run, 2330 passed, and 3 failed; its passed counter includes
+  skips. The per-case log records 2125 PASS, 3 FAIL, and 218 SKIP statuses. All SQ8
   cases passed. The TLS test also passed with the native TLS-enabled Redis.
 - The three failures were the existing expiration assertion and both SVS GC
   memory assertions documented below. There was no new SQ8 failure.
