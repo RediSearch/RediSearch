@@ -31,6 +31,7 @@ def _blob(fill):
 
 VEC_A = _blob(0.25)
 VEC_B = _blob(0.75)
+VEC_C = _blob(0.5)
 
 def _create_index(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
@@ -221,6 +222,52 @@ def test_json_doc_with_changed_vector_reindexes():
 
     env.assertEqual(_marked_deleted(env, 'jsonidx'), 1)
     _assert_doc_is_queryable(env, 'hello', VEC_B, 'jsonidx')
+
+@skip(no_json=True)
+def test_json_doc_relabels_multi_value_vectors():
+    """The multi-vector case the comparison loop in vector_compare.cpp exists for: a JSON
+    multi-value path like `$.vecs[*]` indexes several vectors under one field, and the
+    comparison has to match every one of them, not just their count.
+
+    The C++ suite only pins the count mismatch (`holdsVectorComparesTheStoredForm`'s
+    `numBlobs=2` case); this covers the successful multi-vector comparison it never
+    reaches, plus the safety side -- a change to any one of the vectors caught by the
+    comparison. A relabel is field-granular: `VecSimIndex_DeleteVector` drops every vector
+    under the label, so changing one vector out of the set tombstones both old entries, not
+    just the one that changed.
+    """
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.expect('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA',
+               '$.title', 'AS', 'title', 'TEXT',
+               '$.vecs[*]', 'AS', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', DIM,
+               'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$',
+                         '{"title":"hello","vecs":[[0.25,0.25,0.25,0.25],[0.75,0.75,0.75,0.75]]}')
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+    env.assertEqual(_marked_deleted(env, 'jsonidx'), 0)
+
+    # A non-vector update: both vectors are unchanged, so the whole field must relabel with
+    # no tombstone, and both remain queryable.
+    conn.execute_command('JSON.SET', 'doc:1', '$.title', '"goodbye"')
+    env.assertEqual(_marked_deleted(env, 'jsonidx'), 0,
+                    message='a tombstone here means an unchanged multi-value vector set was deleted and re-added')
+    _assert_doc_is_queryable(env, 'goodbye', VEC_A, 'jsonidx')
+    _assert_doc_is_queryable(env, 'goodbye', VEC_B, 'jsonidx')
+
+    # Changing one of the two vectors must be caught by the comparison and reindex the whole
+    # field: both old entries are tombstoned, and the changed vector's old value must no
+    # longer be indexed.
+    conn.execute_command('JSON.SET', 'doc:1', '$.vecs[0]', '[0.5,0.5,0.5,0.5]')
+    env.assertEqual(_marked_deleted(env, 'jsonidx'), 2,
+                    message='a one-vector change must tombstone the whole (old) multi-value set')
+    _assert_doc_is_queryable(env, 'goodbye', VEC_C, 'jsonidx')
+    _assert_doc_is_queryable(env, 'goodbye', VEC_B, 'jsonidx')
+    res = env.cmd('FT.SEARCH', 'jsonidx', '*=>[KNN 1 @vector $b AS score]', 'PARAMS', '2', 'b',
+                  VEC_A, 'RETURN', '1', 'score', 'DIALECT', '2')
+    env.assertNotEqual(res['results'][0]['extra_attributes']['score'], '0',
+                       message='the old vector value must no longer be indexed')
 
 def _vector_values_for_type(data_type):
     # INT8/UINT8 truncate 0.25/0.75 to 0, which is indistinguishable from "no value" for the

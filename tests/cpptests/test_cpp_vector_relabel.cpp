@@ -403,6 +403,63 @@ TEST_F(VectorRelabelTest, holdsVectorOnL2Index) {
   EXPECT_FALSE(VectorIndex_HoldsVectors(vecsim(), first, kVecB, 1));
 }
 
+// The multi-vector case the comparison in vector_compare.cpp has to get right: a JSON
+// multi-value path like `$.vecs[*]` indexes several vectors under one label, and
+// `VecSimTieredIndex::getDataByLabel` returns frontend vectors before backend ones, not
+// insertion order -- so the stored order does not have to match the caller's blob order.
+//
+// Built directly on a raw multi-value `VecSimIndex` rather than through `FT.CREATE`: a JSON
+// schema's multi-value detection asks RedisJSON's live API (`japi`) whether the path is
+// single-valued, and this harness never registers it.
+TEST_F(VectorRelabelTest, holdsVectorsIsOrderInsensitiveButPreservesMultiplicity) {
+  VecSimLogCtx logCtx = {.index_field_name = "vec"};
+  VecSimParams params{.algo = VecSimAlgo_BF,
+                      .algoParams = {.bfParams = BFParams{.type = VecSimType_FLOAT32,
+                                                          .dim = 4,
+                                                          .metric = VecSimMetric_L2,
+                                                          .multi = true}},
+                      .logCtx = &logCtx};
+  VecSimIndex *idx = VecSimIndex_New(&params);
+  ASSERT_TRUE(idx != nullptr);
+
+  // Insertion order is [B, A] -- the opposite of what the caller checks below -- per
+  // `BruteForceIndex_Multi::setVectorId` appending to a per-label id list.
+  const t_docId reordered = 1;
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecB, reordered), 1);
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecA, reordered), 1);
+
+  std::array<char, 32> aThenB;
+  memcpy(aThenB.data(), kVecA, 16);
+  memcpy(aThenB.data() + 16, kVecB, 16);
+  EXPECT_TRUE(VectorIndex_HoldsVectors(idx, reordered, aThenB.data(), 2))
+      << "the same two vectors in a different order must still read as unchanged";
+
+  // Same total count as `reordered` (2), but both entries are A: a real multiplicity
+  // change, not a reorder. A byte-deduplicated comparison would see {A} either way and
+  // miss this; consuming one match per caller blob does not.
+  const t_docId duplicated = 2;
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecA, duplicated), 1);
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecA, duplicated), 1);
+
+  EXPECT_FALSE(VectorIndex_HoldsVectors(idx, duplicated, aThenB.data(), 2))
+      << "two copies of A is not the same multiset as one A and one B";
+
+  // Reordering together with a repeated value: insertion order [B, A, A], caller offers
+  // [A, A, B] -- proving order-insensitivity is not simply "ignore duplicates".
+  const t_docId reorderedWithDuplicate = 3;
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecB, reorderedWithDuplicate), 1);
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecA, reorderedWithDuplicate), 1);
+  ASSERT_EQ(VecSimIndex_AddVector(idx, kVecA, reorderedWithDuplicate), 1);
+
+  std::array<char, 48> aThenAThenB;
+  memcpy(aThenAThenB.data(), kVecA, 16);
+  memcpy(aThenAThenB.data() + 16, kVecA, 16);
+  memcpy(aThenAThenB.data() + 32, kVecB, 16);
+  EXPECT_TRUE(VectorIndex_HoldsVectors(idx, reorderedWithDuplicate, aThenAThenB.data(), 3));
+
+  VecSimIndex_Free(idx);
+}
+
 // An SVS schema field is created as a *tiered* index (see `spec.c`), so with workers disabled
 // nothing is ever ingested and the comparison is answered from the flat buffer -- which is a
 // brute-force index like any other. SVS's own accessor reports nothing, by design: it keeps

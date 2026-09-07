@@ -19,7 +19,7 @@
 namespace {
 
 /**
- * Compare the vector(s) stored under `label` against `blobs`.
+ * Compare the vector(s) stored under `label` against `blobs`, order-insensitively.
  *
  * `getDataByLabel` is typed while the index handle is not, so the caller below dispatches on
  * the index's data type -- the same shape `VecSimDebug_GetElementNeighborsInHNSWGraph` uses
@@ -29,6 +29,18 @@ namespace {
  * without that, an unchanged vector would compare unequal every time. Only the elements take
  * part: `getDataByLabel` omits any trailing norm, and the norm is a function of the elements
  * anyway.
+ *
+ * Order-insensitive because a tiered index's `getDataByLabel` returns frontend vectors
+ * before backend ones, not insertion order, so a multi-value label split across tiers can
+ * list the same vectors in a different order than `blobs`. Each caller blob consumes one
+ * matching stored entry (`matched`) rather than testing membership in a deduplicated set, so
+ * a real change to how many times a value repeats is still caught: with the size check above
+ * already requiring equal counts, consuming one match per blob is what tells `[A, A]` apart
+ * from `[A, B]`, where a byte-deduplicated comparison would see `{A}` either way.
+ *
+ * A vector that has been written to the backend but not yet removed from the frontend during
+ * an in-flight ingest is a false negative -- it is counted twice in `stored`, against `blobs`'
+ * one, so this reports 'changed' rather than relabeling.
  */
 template <typename DataType, typename DistType>
 bool holdsVectors(VecSimIndex *index, const VecSimIndexBasicInfo &info, size_t label,
@@ -49,6 +61,7 @@ bool holdsVectors(VecSimIndex *index, const VecSimIndexBasicInfo &info, size_t l
   std::vector<char> scratch(
       normalize ? VecSimParams_GetQueryBlobSize(info.type, info.dim, info.metric) : 0);
 
+  std::vector<bool> matched(stored.size(), false);
   const char *blob = static_cast<const char *>(blobs);
   for (size_t i = 0; i < numBlobs; ++i, blob += elementsSize) {
     const void *comparand = blob;
@@ -57,7 +70,15 @@ bool holdsVectors(VecSimIndex *index, const VecSimIndexBasicInfo &info, size_t l
       VecSim_Normalize(scratch.data(), info.dim, info.type);
       comparand = scratch.data();
     }
-    if (memcmp(stored[i].data(), comparand, elementsSize) != 0) {
+    bool found = false;
+    for (size_t j = 0; j < stored.size(); ++j) {
+      if (!matched[j] && memcmp(stored[j].data(), comparand, elementsSize) == 0) {
+        matched[j] = true;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
       return false;
     }
   }
