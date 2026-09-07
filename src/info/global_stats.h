@@ -214,9 +214,7 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd);
 
 // Increase, by `toAdd`, the number of documents whose entry for the given field type was moved
-// onto a new doc-id rather than re-added. Counted instead of, not as well as,
-// `FieldsGlobalStats_UpdateFieldDocsIndexed`: a move is not an indexing operation. Field types
-// that cannot move an entry are accepted and ignored, so callers need no type check.
+// onto a new doc-id rather than re-added.
 void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd);
 
 #ifdef __cplusplus
