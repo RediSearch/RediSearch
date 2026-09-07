@@ -61,10 +61,12 @@ pub enum FGCError {
 ///
 /// # Safety
 ///
-/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+/// 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_write_fd` is an open,
 ///    writable file descriptor.
 /// 2. `buff` must point to a readable region of at least `len` bytes.
 /// 3. `len` must be greater than zero.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_void, len: usize) {
     debug_assert!(len > 0, "buffer length cannot be 0");
@@ -85,11 +87,13 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
 ///
 /// # Safety
 ///
-/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+/// 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_write_fd` is an open,
 ///    writable file descriptor.
 /// 2. If `len > 0`, `buff` must point to a readable region of at least
 ///    `len` bytes. When `len == 0`, `buff` is unused and may be anything
 ///    (including NULL).
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_void, len: usize) {
     // SAFETY: caller guarantees (1).
@@ -115,8 +119,10 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
 ///
 /// # Safety
 ///
-/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+/// 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_write_fd` is an open,
 ///    writable file descriptor.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
     // SAFETY: caller guarantees (1).
@@ -133,9 +139,11 @@ pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
 ///
 /// # Safety
 ///
-/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+/// 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_read_fd` is an open,
 ///    readable file descriptor.
 /// 2. `buf` must point to a writable region of at least `len` bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_recvFixed(
     fgc: *mut ffi::ForkGC,
@@ -171,10 +179,12 @@ pub unsafe extern "C" fn FGC_recvFixed(
 ///
 /// # Safety
 ///
-/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+/// 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_read_fd` is an
 ///    open, readable file descriptor.
 /// 2. `buf` and `len` must point to writable `void*` and `size_t`
 ///    locations respectively.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn FGC_recvBuffer(
@@ -212,11 +222,13 @@ pub unsafe extern "C" fn FGC_recvBuffer(
 ///
 /// # Safety
 ///
-/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+/// 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_read_fd` is an open,
 ///    readable file descriptor.
 /// 2. `field_name` and `field_name_len` must point to writable `char*` and
 ///    `size_t` locations respectively.
 /// 3. `id_ptr` must point to a writable `uint64_t` location.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn recvFieldHeader(

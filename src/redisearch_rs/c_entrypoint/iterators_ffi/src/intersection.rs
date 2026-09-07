@@ -46,10 +46,12 @@ unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
 ///
 /// # Safety
 ///
-/// 1. `its` must be a valid non-null pointer to an array of `num` `QueryIterator*` values,
+/// 1. `its` must be a [valid] non-null pointer to an array of `num` `QueryIterator*` values,
 ///    allocated with the Redis allocator (`rm_malloc`). Ownership is transferred to this function.
-/// 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
+/// 2. Every non-null pointer in `its` must be a [valid] `QueryIterator` whose callbacks are set.
 /// 3. Null entries in `its` are treated as empty iterators.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewIntersectionIterator(
     its: *mut *mut QueryIterator,
@@ -126,8 +128,10 @@ pub unsafe extern "C" fn NewIntersectionIterator(
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
-/// 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
+/// 1. `header` must be a [valid] non-null pointer created via [`NewIntersectionIterator()`].
+/// 2. `child` must be a [valid] non-null pointer to a `QueryIterator`, not aliased.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AddIntersectionIteratorChild(
     header: *mut QueryIterator,

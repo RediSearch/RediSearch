@@ -127,7 +127,9 @@ unsafe fn c_producer(
 /// 1. `produce` must run the query against `ctx` and return a valid [`VectorRangeResults`]
 ///    (arrays allocated with the Redis allocator, or `timed_out`); it must not free `ctx`.
 /// 2. `free_ctx` must free `ctx` and be safe to call exactly once.
-/// 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
+/// 3. `ctx` must remain [valid] until the iterator is freed; ownership transfers to the iterator.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewLazyVectorRangeIterator(
     produce: ProduceResultsFn,

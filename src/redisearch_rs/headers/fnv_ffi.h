@@ -17,10 +17,11 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `buf` must point to a valid region of memory of length `len`.
+ * 1. `buf` must point to a [valid] region of memory of length `len`.
  *
  * [FNV-1a hash]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-1a
  * [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint64_t fnv_64a_buf(const void *buf, size_t len, uint64_t hval);
 
@@ -29,10 +30,11 @@ uint64_t fnv_64a_buf(const void *buf, size_t len, uint64_t hval);
  *
  * # Safety
  *
- * 1. `buf` must point to a valid region of memory of length `len`.
+ * 1. `buf` must point to a [valid] region of memory of length `len`.
  *
  * [FNV-1a hash]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-1a
  * [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t rs_fnv_32a_buf(const void *buf, size_t len, uint32_t hval);
 

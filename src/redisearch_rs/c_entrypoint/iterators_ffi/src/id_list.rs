@@ -18,11 +18,13 @@ use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+/// 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
 ///    The array must be sorted in ascending order.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn NewSortedIdListIterator(
     ids: *mut DocId,
     num: u64,
@@ -37,10 +39,12 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+/// 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn NewUnsortedIdListIterator(
     ids: *mut DocId,
     num: u64,
@@ -52,10 +56,12 @@ pub unsafe extern "C" fn NewUnsortedIdListIterator(
 
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+/// 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn new_id_list_iterator<const SORTED: bool>(
     ids: *mut DocId,
     num: u64,

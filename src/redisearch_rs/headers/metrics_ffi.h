@@ -21,7 +21,9 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
+ * 1. `r` must point to a [valid] `RSIndexResult` and cannot be null.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void IndexResult_ResetAggregate(RSIndexResult *r);
 
@@ -31,9 +33,11 @@ void IndexResult_ResetAggregate(RSIndexResult *r);
  *
  * # Safety
  *
- * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
+ * 1. `metrics` must point to a [valid] `MetricsVec` (e.g. `&result.metrics`).
  * 2. The returned slice borrows from the `MetricsVec`; the caller must
  *    not mutate or free the `MetricsVec` while the slice is in use.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
 
@@ -55,8 +59,10 @@ MetricsVec MetricsVec_New(void);
  *
  * # Safety
  *
- * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
+ * 1. `metrics` must point to a [valid] `MetricsVec` (e.g. `&result.metrics`).
+ * 2. `key` must point to a [valid] `RLookupKey`. Compared by pointer identity.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
 
@@ -65,8 +71,10 @@ void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, double n
  *
  * # Safety
  *
- * 1. `parent` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. `child` must point to a valid `MetricsVec`, or be null (no-op).
+ * 1. `parent` must point to a [valid] `MetricsVec` (e.g. `&result.metrics`).
+ * 2. `child` must point to a [valid] `MetricsVec`, or be null (no-op).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RSYieldableMetric_Concat(MetricsVec *parent, MetricsVec *child);
 
@@ -75,9 +83,11 @@ void RSYieldableMetric_Concat(MetricsVec *parent, MetricsVec *child);
  *
  * # Safety
  *
- * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
- * 2. `key` must be a valid `*const RLookupKey` that outlives the result
+ * 1. `r` must point to a [valid] `RSIndexResult` and cannot be null.
+ * 2. `key` must be a [valid] `*const RLookupKey` that outlives the result
  *    (or null).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void ResultMetrics_Add(RSIndexResult *r, const RLookupKey *key, double val);
 
@@ -86,7 +96,9 @@ void ResultMetrics_Add(RSIndexResult *r, const RLookupKey *key, double val);
  *
  * # Safety
  *
- * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
+ * 1. `r` must point to a [valid] `RSIndexResult` and cannot be null.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void ResultMetrics_Reset(RSIndexResult *r);
 

@@ -27,9 +27,11 @@ use rqe_iterators::optional_reducer::{
 ///
 /// # Safety
 ///
-/// 1. `child`, when non-null, must be a valid owning pointer to a C query iterator that is not aliased.
-/// 2. `q` must be a valid non-null pointer to a [`QueryEvalCtx`] satisfying all preconditions of
+/// 1. `child`, when non-null, must be a [valid] owning pointer to a C query iterator that is not aliased.
+/// 2. `q` must be a [valid] non-null pointer to a [`QueryEvalCtx`] satisfying all preconditions of
 ///    [`new_optional_iterator`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn NewOptionalIterator(
     child: *mut QueryIterator,
     q: *mut QueryEvalCtx,

@@ -28,7 +28,9 @@ extern "C" {
  *
  * # Safety
  *
- * `ctx` must either be null or point to a valid `RedisModuleInfoCtx`.
+ * `ctx` must either be null or point to a [valid] `RedisModuleInfoCtx`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
@@ -51,8 +53,10 @@ void RustPanicHook_Init(void);
  *
  * # Safety
  *
- * `level` must point to a valid, null-terminated C string. `ctx` must either
- * be null or point to a valid `RedisModuleCtx`.
+ * `level` must point to a [valid], null-terminated C string. `ctx` must either
+ * be null or point to a [valid] `RedisModuleCtx`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TracingRedisModule_Init(struct RedisModuleCtx *ctx, const char *level);
 
@@ -62,7 +66,9 @@ void TracingRedisModule_Init(struct RedisModuleCtx *ctx, const char *level);
  *
  * # Safety
  *
- * `level` must point to a valid, null-terminated C string.
+ * `level` must point to a [valid], null-terminated C string.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TracingRedisModule_SetLogLevel(const char *level);
 

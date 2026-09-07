@@ -42,7 +42,9 @@ fn rm_alloc_cstring(s: &str) -> (*mut c_char, u32) {
 ///
 /// # Safety
 ///
-/// `ptr` must be a valid owned pointer obtained from an `RSValue_*` constructor.
+/// `ptr` must be a [valid] owned pointer obtained from an `RSValue_*` constructor.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn drop_value(ptr: *mut RSValue) {
     drop(unsafe { into_shared_value(ptr) });
 }

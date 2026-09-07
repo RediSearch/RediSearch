@@ -119,7 +119,9 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 ///
 /// # Safety
 ///
-/// - `message` must be a valid C string or a NULL pointer.
+/// - `message` must be a [valid] C string or a NULL pointer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
     if message.is_null() {
@@ -161,7 +163,9 @@ pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -
 /// # Safety
 ///
 /// - `query_error` must have been created by [`QueryError_Default`].
-/// - `message` must be a valid C string or a NULL pointer.
+/// - `message` must be a [valid] C string or a NULL pointer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetError(
     query_error: *mut OpaqueQueryError,
@@ -209,7 +213,9 @@ pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, 
 /// # Safety
 ///
 /// - `query_error` must have been created by [`QueryError_Default`].
-/// - `detail` must be a valid C string or a NULL pointer.
+/// - `detail` must be a [valid] C string or a NULL pointer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetDetail(
     query_error: *mut OpaqueQueryError,
@@ -449,7 +455,9 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 ///
 /// # Safety
 ///
-/// - `message` must be a valid C string or a NULL pointer.
+/// - `message` must be a [valid] C string or a NULL pointer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
     message: *const c_char,

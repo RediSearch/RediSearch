@@ -22,7 +22,9 @@ use tracing::level_filters::LevelFilter;
 ///
 /// # Safety
 ///
-/// `level` must point to a valid, null-terminated C string.
+/// `level` must point to a [valid], null-terminated C string.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn parse_level(level: *const c_char) -> LevelFilter {
     // Safety: the caller guarantees a valid, null-terminated C string.
     let level = unsafe { CStr::from_ptr(level) };
@@ -47,8 +49,10 @@ unsafe fn parse_level(level: *const c_char) -> LevelFilter {
 ///
 /// # Safety
 ///
-/// `level` must point to a valid, null-terminated C string. `ctx` must either
-/// be null or point to a valid `RedisModuleCtx`.
+/// `level` must point to a [valid], null-terminated C string. `ctx` must either
+/// be null or point to a [valid] `RedisModuleCtx`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TracingRedisModule_Init(
     ctx: *mut redis_module::RedisModuleCtx,
@@ -64,7 +68,9 @@ pub unsafe extern "C" fn TracingRedisModule_Init(
 ///
 /// # Safety
 ///
-/// `level` must point to a valid, null-terminated C string.
+/// `level` must point to a [valid], null-terminated C string.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TracingRedisModule_SetLogLevel(level: *const c_char) {
     // Safety: forwarded to the caller's contract on `level`.
@@ -176,7 +182,9 @@ fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
 ///
 /// # Safety
 ///
-/// `ctx` must either be null or point to a valid `RedisModuleInfoCtx`.
+/// `ctx` must either be null or point to a [valid] `RedisModuleInfoCtx`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AddToInfo_RustBacktrace(ctx: *mut redis_module::RedisModuleInfoCtx) {
     if ctx.is_null() {

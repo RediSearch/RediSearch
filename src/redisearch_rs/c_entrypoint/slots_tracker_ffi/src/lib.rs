@@ -132,8 +132,10 @@ where
 ///
 /// # Safety
 ///
-/// The caller must ensure the pointer is valid and points to a properly initialized
+/// The caller must ensure the pointer is [valid] and points to a properly initialized
 /// SlotRangeArray with at least `num_ranges` elements in the flexible array.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange] {
     debug_assert!(!ranges.is_null(), "SlotRangeArray pointer is null");
 
@@ -169,9 +171,11 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) -> u32 {
     // SAFETY: Caller guarantees valid pointer
@@ -200,9 +204,11 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
     ranges: *const SlotRangeArray,
@@ -231,9 +237,11 @@ pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer
@@ -258,9 +266,11 @@ pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const Slo
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer
@@ -282,9 +292,11 @@ pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer
@@ -306,9 +318,11 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
     ranges: *const SlotRangeArray,
@@ -377,9 +391,11 @@ fn local_slots_array_layout(num_ranges: usize) -> std::alloc::Layout {
 /// # Safety
 ///
 /// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
+/// The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` [valid] elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_check_availability(
     ranges: *const SlotRangeArray,

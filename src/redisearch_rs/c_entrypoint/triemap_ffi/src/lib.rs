@@ -58,13 +58,15 @@ pub type TrieMapReplaceFunc =
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-///  - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+///  - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 ///  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 ///  - `len` can be 0. If so, `str` is regarded as an empty string.
 ///  - `value` holds a pointer to the value of the record, which can be NULL
 ///  - `cb` must not free the value it returns
 ///  - The Redis allocator must be initialized before calling this function,
 ///    and `RedisModule_Free` must not get mutated while running this function.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Add(
     t: *mut TrieMap,
@@ -133,13 +135,15 @@ pub unsafe extern "C" fn TrieMap_Add(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 /// - The value behind the returned pointer must not be destroyed by the caller.
 ///   Use [`TrieMap_Delete`] to remove it instead.
 /// - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
 ///   and the pointer must not be dereferenced.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Find(
     t: *const TrieMap,
@@ -191,10 +195,14 @@ pub type freeCB = Option<unsafe extern "C" fn(*mut c_void)>;
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
-/// - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
+/// - if `func` is not NULL, it must be an [ABI-compatible] function pointer of the type
+///   [`freeCB`].
+///
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Delete(
     t: *mut TrieMap,
@@ -253,9 +261,12 @@ pub unsafe extern "C" fn TrieMap_Delete(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
+/// - `func` must either be NULL or an [ABI-compatible] pointer to a function of type
+///   [`freeCB`].
 /// - The Redis allocator must be initialized before calling this function,
 ///   and `RedisModule_Free` must not get mutated while running this function.
+///
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
     if t.is_null() {
@@ -303,7 +314,9 @@ pub unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -322,7 +335,9 @@ pub unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn TrieMap_NUniqueKeys(t: *const TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
@@ -342,7 +357,9 @@ pub unsafe extern "C" fn TrieMap_NUniqueKeys(t: *const TrieMap) -> usize {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn TrieMap_NNodes(t: *const TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 

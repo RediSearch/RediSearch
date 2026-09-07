@@ -17,10 +17,11 @@ use std::hash::Hasher;
 ///
 /// # Safety
 ///
-/// 1. `buf` must point to a valid region of memory of length `len`.
+/// 1. `buf` must point to a [valid] region of memory of length `len`.
 ///
 /// [FNV-1a hash]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-1a
 /// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rs_fnv_32a_buf(buf: *const c_void, len: usize, hval: u32) -> u32 {
     // Safety: see safety point 1 above.
@@ -36,10 +37,11 @@ pub unsafe extern "C" fn rs_fnv_32a_buf(buf: *const c_void, len: usize, hval: u3
 ///
 /// # Safety
 ///
-/// 1. `buf` must point to a valid region of memory of length `len`.
+/// 1. `buf` must point to a [valid] region of memory of length `len`.
 ///
 /// [FNV-1a hash]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-1a
 /// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fnv_64a_buf(buf: *const c_void, len: usize, hval: u64) -> u64 {
     // Safety: see safety point 1 above.

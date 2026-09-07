@@ -47,7 +47,9 @@ struct FieldExpirationSlice FieldExpirationsSlice_Empty(void);
  * the caller.
  *
  * # Safety
- *  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
+ *  - `fields`, when non-null, must point to a [valid] [`FieldExpirations`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *fields);
 
@@ -119,12 +121,14 @@ FieldExpirations FieldExpirations_WithCapacity(size_t cap);
  * afterwards.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`] (no
+ *  - `table` must point to a [valid], initialized [`TimeToLiveTable`] (no
  *    other reference to it must exist for the duration of the call).
  *  - `field_expirations` must have been produced by [`FieldExpirations_Empty`]
  *    or [`FieldExpirations_WithCapacity`] and must be non-empty.
  *    Sortedness and uniqueness-by-`index` are carried by the type itself.
  *  - `doc_id` must not already be present in the table.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TimeToLiveTable_Add(struct TimeToLiveTable *table, t_docId doc_id, FieldExpirations field_expirations);
 
@@ -133,9 +137,11 @@ void TimeToLiveTable_Add(struct TimeToLiveTable *table, t_docId doc_id, FieldExp
  * No-op if `*table` is already null.
  *
  * # Safety
- *  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
+ *  - `table` must be a [valid], writable `*mut *mut TimeToLiveTable`.
  *  - If `*table` is non-null, it must point to a value previously returned
  *    by [`TimeToLiveTable_VerifyInit`] and not yet destroyed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
 
@@ -148,7 +154,7 @@ void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
  * the full [`FieldMask`] width is walked.
  *
  * `ft_id_to_field_index` must point to at least
- * `highest_set_bit(field_mask) + 1` valid `u16` entries.
+ * `highest_set_bit(field_mask) + 1` [valid] `u16` entries.
  * May be `NULL` when `field_mask == 0`.
  *
  * # Returns
@@ -162,9 +168,11 @@ void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
  * Documents with no entry trivially return `true` under either predicate.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
- *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
+ *  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+ *  - `expiration_point` must be a [valid] `*const t_expirationTimePoint`.
  *  - `ft_id_to_field_index` must satisfy the bound above.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool TimeToLiveTable_FieldMaskSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, t_fieldMask field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index, bool wide);
 
@@ -183,8 +191,10 @@ bool TimeToLiveTable_FieldMaskSatisfiesPredicate(const struct TimeToLiveTable *t
  * Documents with no entry trivially satisfy any predicate and return `true`.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
- *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
+ *  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+ *  - `expiration_point` must be a [valid] `*const t_expirationTimePoint`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
 
@@ -197,7 +207,9 @@ bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table
  * not be freed by the caller.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+ *  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct TimeToLiveTable *table, t_docId doc_id);
 
@@ -205,7 +217,9 @@ struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct Tim
  * Returns whether the table holds no entries.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+ *  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
 
@@ -220,8 +234,10 @@ bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
  * The current bucket-array length, or `0` if `table` is `NULL`.
  *
  * # Safety
- *  - If non-null, `table` must point to a valid, initialized
+ *  - If non-null, `table` must point to a [valid], initialized
  *    [`TimeToLiveTable`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TimeToLiveTable_NAllocatedBuckets(const struct TimeToLiveTable *table);
 
@@ -229,8 +245,10 @@ size_t TimeToLiveTable_NAllocatedBuckets(const struct TimeToLiveTable *table);
  * Remove the entry for `doc_id`, if any. No-op if absent.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`] with
+ *  - `table` must point to a [valid], initialized [`TimeToLiveTable`] with
  *    no other live references.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TimeToLiveTable_Remove(struct TimeToLiveTable *table, t_docId doc_id);
 
@@ -243,7 +261,9 @@ void TimeToLiveTable_Remove(struct TimeToLiveTable *table, t_docId doc_id);
  * `max_size` must be ≥ 1, otherwise the function panics
  *
  * # Safety
- *  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
+ *  - `table` must be a [valid], writable `*mut *mut TimeToLiveTable`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TimeToLiveTable_VerifyInit(struct TimeToLiveTable * *table, size_t max_size);
 

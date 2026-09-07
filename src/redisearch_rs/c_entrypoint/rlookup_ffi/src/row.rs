@@ -430,7 +430,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 ///
 /// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
-///    The pointed-to vector must remain valid for the lifetime of the row.
+///    The pointed-to vector must remain [valid] for the lifetime of the row.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -456,9 +456,11 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
 ///
 /// # Safety
 ///
-/// 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
-/// 2. `h1` and `h2` must be valid, non-null pointers to a `SearchResult`.
-/// 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
+/// 1. `keys` must point to an array of at least `nkeys` [valid], non-null `RLookupKey` pointers.
+/// 2. `h1` and `h2` must be [valid], non-null pointers to a `SearchResult`.
+/// 3. `qerr`, when non-null, must be a [valid], writable pointer to a `QueryError`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_CmpByFields(
     keys: *const *const RLookupKey,

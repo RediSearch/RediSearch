@@ -24,8 +24,10 @@ use redis_module::RedisModuleCtx;
 ///
 /// # Safety
 ///
-/// - `ctx` must be a valid Redis module context.
-/// - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+/// - `ctx` must be a [valid] Redis module context.
+/// - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
     ctx: *mut RedisModuleCtx,
@@ -48,8 +50,10 @@ pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
 ///
 /// # Safety
 ///
-/// - `ctx` must be a valid Redis module context.
-/// - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+/// - `ctx` must be a [valid] Redis module context.
+/// - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     ctx: *mut RedisModuleCtx,
@@ -73,8 +77,10 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
 ///
 /// # Safety
 ///
-/// - `ctx` must be a valid Redis module context.
-/// - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+/// - `ctx` must be a [valid] Redis module context.
+/// - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     ctx: *mut RedisModuleCtx,

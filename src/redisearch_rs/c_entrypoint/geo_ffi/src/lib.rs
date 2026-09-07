@@ -66,7 +66,9 @@ const INVALID_GEOHASH: f64 = -1.0;
 ///
 /// # Safety
 ///
-/// - `xy` must be a valid, non-null pointer to a writable `[f64; 2]`.
+/// - `xy` must be a [valid], non-null pointer to a writable `[f64; 2]`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn decodeGeo(bits: f64, xy: *mut f64) {
     let raw_bits = bits as u64;
@@ -118,7 +120,9 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
 ///
 /// # Safety
 ///
-/// - `distance` must be either null or a valid pointer to a writable `f64`.
+/// - `distance` must be either null or a [valid] pointer to a writable `f64`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn isWithinRadiusLonLat(
     lon1: f64,
@@ -148,8 +152,10 @@ pub unsafe extern "C" fn isWithinRadiusLonLat(
 ///
 /// # Safety
 ///
-/// - `status` must be a valid pointer to an [`OpaqueQueryError`] created by
+/// - `status` must be a [valid] pointer to an [`OpaqueQueryError`] created by
 ///   `QueryError_Default`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
     log_error!(err, level: tracing::Level::WARN, "parseGeo: failed to parse geo string");
     // SAFETY: caller guarantees `status` is valid.
@@ -166,10 +172,12 @@ unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
 ///
 /// # Safety
 ///
-/// - `c` must be a valid pointer to at least `len` bytes.
-/// - `lon` and `lat` must be valid, non-null pointers to writable `f64` values.
-/// - `status` must be a valid, non-null pointer to an [`OpaqueQueryError`]
+/// - `c` must be a [valid] pointer to at least `len` bytes.
+/// - `lon` and `lat` must be [valid], non-null pointers to writable `f64` values.
+/// - `status` must be a [valid], non-null pointer to an [`OpaqueQueryError`]
 ///   created by `QueryError_Default`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn parseGeo(
     c: *const u8,

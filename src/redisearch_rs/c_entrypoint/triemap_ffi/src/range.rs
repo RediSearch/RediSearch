@@ -31,14 +31,17 @@ pub type TrieMapRangeCallback =
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `trie` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `min` can be NULL only if `minlen == 0` or `minlen == -1`. It is not necessarily NULL-terminated.
 /// - `minlen` can be 0. If so, `min` is regarded as an empty string.
 /// - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
 /// - `maxlen` can be 0. If so, `max` is regarded as an empty string.
-/// - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+/// - `callback` must be an [ABI-compatible] pointer to a function of type
+///   [`TrieMapRangeCallback`]
 ///
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 /// [`NewTrieMap`]: crate::NewTrieMap
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateRange(
     trie: *const TrieMap,

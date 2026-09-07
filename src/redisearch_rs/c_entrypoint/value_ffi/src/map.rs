@@ -44,7 +44,7 @@ pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuild
 ///
 /// # Safety
 ///
-/// 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+/// 1. `map` must be a [valid] pointer to an [`RSValueMapBuilder`] created by
 ///    [`RSValue_NewMapBuilder`].
 /// 2. `key` and `value` must be [valid], non-null pointers to [`RSValue`]s.
 ///
@@ -74,9 +74,11 @@ pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
 ///
 /// # Safety
 ///
-/// 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+/// 1. `map` must be a [valid] pointer to an [`RSValueMapBuilder`] created by
 ///    [`RSValue_NewMapBuilder`].
 /// 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) -> *mut RSValue {
     // Safety: ensured by caller (1.)
@@ -133,7 +135,7 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RSValue) -> u32 {
 /// # Safety
 ///
 /// 1. `map` must be a [valid], non-null pointer to an [`RSValue`].
-/// 2. `key` and `value` must be valid, non-null pointers to writable
+/// 2. `key` and `value` must be [valid], non-null pointers to writable
 ///    `*mut RSValue` locations.
 ///
 /// # Panics
