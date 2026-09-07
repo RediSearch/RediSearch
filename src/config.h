@@ -146,6 +146,9 @@ typedef struct {
 
   // MT configuration
   size_t numWorkerThreads;
+  // PROTOTYPE: hand a contended indexed write back to the main thread instead of
+  // parking on the spec write lock. See deferred_index.c.
+  bool deferContendedIndexing;
   size_t minOperationWorkers;
   size_t tieredVecSimIndexBufferLimit;
   size_t highPriorityBiasNum;
@@ -449,6 +452,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
     .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
+    .deferContendedIndexing = false,                                           \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \

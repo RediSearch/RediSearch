@@ -102,6 +102,7 @@ class TestDebugCommands(object):
             'VECSIM_MOCK_TIMEOUT',
             'MOCK_REVALIDATE_TIMEOUT',
             'GET_MAX_DOC_ID',
+            'GET_DEFERRED_PENDING',
             'DUMP_DELETED_IDS',
             'NUMERIC_BUCKET_MAP',
             'DISK_IO_CONTROL',
@@ -133,7 +134,7 @@ class TestDebugCommands(object):
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
                         'HASH_SUBKEY_NOTIFICATIONS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
-                        'IO_RUNTIME_PENDING_REQUESTS']
+                        'IO_RUNTIME_PENDING_REQUESTS', 'GET_DEFERRED_PENDING']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 

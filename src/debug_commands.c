@@ -14,6 +14,7 @@
 
 #include "types_ffi.h"
 #include "debug_commands.h"
+#include "deferred_index.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "indexes_scanner.h"
@@ -3699,6 +3700,23 @@ DEBUG_COMMAND(DiskIOControl) {
   }
 }
 
+/**
+ * FT.DEBUG GET_DEFERRED_PENDING
+ * Number of indexing operations queued by `search-defer-contended-indexing`
+ * and not yet applied. Lets a test observe that the deferred path was taken,
+ * which is otherwise invisible: a deferred write and a synchronous one produce
+ * the same end state.
+ */
+DEBUG_COMMAND(GetDeferredPending) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return RedisModule_ReplyWithLongLong(ctx, (long long)DeferredIndex_PendingCount());
+}
+
 // FT.DEBUG GET_MAX_DOC_ID INDEX_NAME
 DEBUG_COMMAND(GetMaxDocId) {
   if (!debugCommandsEnabled(ctx)) {
@@ -3914,6 +3932,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
+                               {"GET_DEFERRED_PENDING", GetDeferredPending},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"NUMERIC_BUCKET_MAP", NumericBucketMap},
                                {"DISK_IO_CONTROL", DiskIOControl},

@@ -647,6 +647,51 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                         DocumentType type, RedisModuleKey *openKey);
 
+/* How IndexSpec_UpdateDocEx may treat a contended spec write lock.
+ *
+ * An explicit mode rather than a bool plus a global "am I the drain" flag: the
+ * drain re-enters the same function, and a flag would make a nested update take
+ * the drain's branch and be silently dropped. */
+typedef enum {
+  /* Park on the lock. For callers holding a key handle that is not addressable
+   * by name (the scan paths), since the drain reopens by name. */
+  DEFER_MODE_DISALLOW = 0,
+  /* Defer to the main-thread queue when the lock is contended. */
+  DEFER_MODE_ALLOW,
+  /* The drain itself: report contention to the caller instead of re-queueing. */
+  DEFER_MODE_DRAIN,
+  /* The drain, escalated. `trywrlock` never registers as a *waiting* writer, so
+   * writer preference gives it no eventual-acquisition guarantee: with readers
+   * whose lifetimes continuously overlap, a queue entry could starve forever.
+   * After a bounded wait the drain parks once, which bounds index lag at the
+   * cost of one bounded main-thread block. */
+  DEFER_MODE_DRAIN_BLOCKING,
+} DeferMode;
+
+/* As IndexSpec_UpdateDoc, with control over deferral of a contended write lock.
+ *
+ * `outContended` (optional) distinguishes the two reasons this can return
+ * REDISMODULE_ERR: lock contention, which the caller should retry, and a
+ * terminal failure such as the key having been deleted, which it must not --
+ * retrying a terminal failure forever is what jams the deferral queue. Set only
+ * on the contention path; the caller should initialise it to false. */
+int IndexSpec_UpdateDocEx(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                          DocumentType type, RedisModuleKey *openKey, DeferMode deferMode,
+                          bool *outContended);
+
+/* As IndexSpec_DeleteDoc, with the same deferral control as
+ * IndexSpec_UpdateDocEx. De-indexing must be deferrable for the same reason
+ * indexing is: an immediate delete can otherwise be applied ahead of an update
+ * already queued for the same key, leaving the index disagreeing with the
+ * keyspace. */
+int IndexSpec_DeleteDocEx(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                          RedisModuleKey *openKey, DeferMode deferMode, bool *outContended);
+
+/* True if the spec write lock could be taken right now. Probe only -- it is
+ * released immediately, so an acquisition may still lose a race. Lets the drain
+ * skip rebuilding a document for a lock it cannot take. */
+bool IndexSpec_WriteLockAvailable(IndexSpec *spec);
+
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                                    FieldType forType);

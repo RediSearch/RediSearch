@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "deferred_index.h"
 
 #include <math.h>
 #include <limits.h>
@@ -3568,7 +3569,14 @@ int CompareVersions(Version v1, Version v2) {
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                         DocumentType type, RedisModuleKey *openKey) {
+  return IndexSpec_UpdateDocEx(spec, ctx, key, type, openKey, DEFER_MODE_DISALLOW, NULL);
+}
+
+int IndexSpec_UpdateDocEx(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                          DocumentType type, RedisModuleKey *openKey, DeferMode deferMode,
+                          bool *outContended) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  if (outContended) *outContended = false;
 
   if (!spec->rule) {
     RedisModule_Log(ctx, "warning", "Index spec '%s': no rule found", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
@@ -3612,7 +3620,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     // to prevent mismatch of index and hash. Reuse the caller's pinned handle
     // (if any) so a scan-path cleanup does not reopen the key by name — inside
     // the async scan the key is not addressable by name.
-    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
+    // deferMode is propagated so this delete does not park the drain's main
+    // thread; DeleteDocEx sets *outContended if it could not take the lock,
+    // which tells the drain to retry the entry rather than drop it.
+    IndexSpec_DeleteDocEx(spec, ctx, key, openKey, deferMode, outContended);
     QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -3620,7 +3631,44 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
   IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+
+  // Parking on this lock blocks the whole shard: query workers hold the spec's
+  // read lock for the length of a query and the lock is writer-preferring, so
+  // the main thread waits behind them, and every other command -- HMGET
+  // included -- queues behind the main thread. When deferral is enabled, a
+  // contended write is handed to a main-thread queue instead (deferred_index.c).
+  if (deferMode == DEFER_MODE_DRAIN) {
+    // The drain must never park; it runs on the main thread.
+    if (RedisSearchCtx_TryLockSpecWrite(&sctx) != REDISMODULE_OK) {
+      if (outContended) *outContended = true;
+      Document_Free(&doc);
+      return REDISMODULE_ERR;
+    }
+  } else if (deferMode == DEFER_MODE_DRAIN_BLOCKING) {
+    RedisSearchCtx_LockSpecWrite(&sctx);  // escalation: guarantees progress
+  } else {
+    bool mayDefer = RSGlobalConfig.deferContendedIndexing && deferMode == DEFER_MODE_ALLOW &&
+                    !DeferredIndex_ShouldBlock();
+    // The synchronous fast path is available only while the queue is empty:
+    // otherwise a write could be indexed ahead of one queued before it.
+    bool deferred = false;
+    if (mayDefer) {
+      if (DeferredIndex_PendingCount() > 0 ||
+          RedisSearchCtx_TryLockSpecWrite(&sctx) != REDISMODULE_OK) {
+        DeferredIndex_Enqueue(spec, key, type, DEFER_OP_ADD);
+        deferred = true;
+      }
+    }
+    if (deferred) {
+      Document_Free(&doc);
+      return REDISMODULE_OK;
+    }
+    if (sctx.lock_state == SPEC_LOCK_UNSET) {
+      // Either deferral is off, or the queue is at its cap and we degrade to
+      // the previous blocking behaviour.
+      RedisSearchCtx_LockSpecWrite(&sctx);
+    }
+  }
   IndexSpec_IncrActiveWrites(spec);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
@@ -3745,10 +3793,37 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                         RedisModuleKey *openKey) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  return IndexSpec_DeleteDocEx(spec, ctx, key, openKey, DEFER_MODE_DISALLOW, NULL);
+}
 
-  IndexSpec_IncrActiveWrites(spec);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+bool IndexSpec_WriteLockAvailable(IndexSpec *spec) {
+  if (pthread_rwlock_trywrlock(&spec->rwlock) != 0) return false;
+  pthread_rwlock_unlock(&spec->rwlock);
+  return true;
+}
+
+int IndexSpec_DeleteDocEx(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                          RedisModuleKey *openKey, DeferMode deferMode, bool *outContended) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  if (outContended) *outContended = false;
+
+  if (deferMode == DEFER_MODE_DRAIN) {
+    if (RedisSearchCtx_TryLockSpecWrite(&sctx) != REDISMODULE_OK) {
+      if (outContended) *outContended = true;
+      return REDISMODULE_ERR;
+    }
+    IndexSpec_IncrActiveWrites(spec);
+  } else if (deferMode == DEFER_MODE_ALLOW && RSGlobalConfig.deferContendedIndexing &&
+             !DeferredIndex_ShouldBlock() &&
+             (DeferredIndex_PendingCount() > 0 || !IndexSpec_WriteLockAvailable(spec))) {
+    // Queue the deletion so it cannot be applied ahead of an update already
+    // queued for the same key.
+    DeferredIndex_Enqueue(spec, key, DocumentType_Unsupported, DEFER_OP_DEL);
+    return REDISMODULE_OK;
+  } else {
+    IndexSpec_IncrActiveWrites(spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+  }
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, openKey);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
