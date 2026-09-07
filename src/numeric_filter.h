@@ -37,6 +37,11 @@ typedef struct LegacyNumericFilter {
 NumericFilter *NewNumericFilter(double min, double max, bool inclusiveMin, bool inclusiveMax,
                                 bool asc, const FieldSpec *fs, const void* geoFilter);
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
+
+// Sets `nf->fieldSpec` and `nf->fieldIndex` together, so a caller that resolves the field
+// after construction (the legacy `FILTER` path, which builds `LegacyNumericFilter.base`
+// directly rather than through `NewNumericFilter`) cannot update one and forget the other.
+void NumericFilter_SetField(NumericFilter *nf, const FieldSpec *fs);
 void NumericFilter_Free(NumericFilter *nf);
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf);
 

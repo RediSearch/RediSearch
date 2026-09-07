@@ -15,15 +15,24 @@ use super::{
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags};
 use index_result::RSIndexResult;
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldIndex, RS_INVALID_FIELD_INDEX};
 
 /// Filter details to apply to numeric values
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 #[cheadergen::config(export, rename_all = "camelCase")]
 pub struct NumericFilter {
-    /// The field specification which this filter is acting on
+    /// The field specification which this filter is acting on, as it existed when the
+    /// filter was built. Only safe to dereference then: under `WORKERS>0`, evaluation can
+    /// run on a worker thread well after that, and a concurrent `FT.ALTER` may have since
+    /// reallocated the spec's field array, leaving this pointer dangling. At evaluation
+    /// time, re-derive the field via `field_index` instead (see `field_index`'s own doc).
     pub field_spec: *const FieldSpec,
+
+    /// Stable index of `field_spec` into `IndexSpec.fields`, captured at the same time as
+    /// `field_spec` itself. Use this for a fresh lookup into the spec actually held at
+    /// evaluation time, rather than dereferencing `field_spec` directly - see MOD-18361.
+    pub field_index: FieldIndex,
 
     /// Beginning of the range
     pub min: f64,
@@ -61,6 +70,7 @@ impl Default for NumericFilter {
             min_inclusive: true,
             max_inclusive: true,
             field_spec: std::ptr::null(),
+            field_index: RS_INVALID_FIELD_INDEX,
             geo_filter: std::ptr::null(),
             ascending: true,
             limit: 0,
