@@ -2141,7 +2141,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yylhsminor.yy3 = NewNumericNode(yymsp[0].minor.yy62, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(yymsp[0].minor.yy62, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2202,7 +2202,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
-    QueryNode* E = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = not_step(E);
   }
 }
@@ -2215,7 +2215,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2227,7 +2227,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 0, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2239,7 +2239,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 1, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2251,7 +2251,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 0);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2263,7 +2263,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;

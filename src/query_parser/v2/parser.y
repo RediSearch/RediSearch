@@ -796,7 +796,9 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    A = NewNumericNode(C, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(C, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -850,7 +852,9 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    QueryNode* E = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
     A = not_step(E);
   }
 }
@@ -861,7 +865,9 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -871,7 +877,9 @@ expr(A) ::= modifier(B) GT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -881,7 +889,9 @@ expr(A) ::= modifier(B) GE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -891,7 +901,9 @@ expr(A) ::= modifier(B) LT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -901,7 +913,9 @@ expr(A) ::= modifier(B) LE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 

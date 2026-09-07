@@ -182,6 +182,54 @@ def test_tag_query_survives_field_alter_race():
     assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
 
 
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_numeric_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i)
+
+    query_args = ('FT.SEARCH', 'idx', '@num:[0 10]', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race). WITHOUTCOUNT routes the
+# wildcard query through the SORTBY optimizer's partial-range path (query_optimizer.c /
+# NewOptimizerIterator), a separate field-index re-derivation site from the plain numeric
+# filter above.
+@skip(cluster=True)
+def test_numeric_optimizer_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i)
+
+    query_args = ('FT.SEARCH', 'idx', '*', 'SORTBY', 'num', 'LIMIT', 0, 3,
+                  'WITHOUTCOUNT', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race). Combining a scored predicate
+# with a filter on the SORTBY field routes through the optimizer's Hybrid mode instead: here
+# checkQueryTypes pulls the numeric node out of the query tree and reuses its already-parsed
+# NumericFilter (fieldIndex set at parse time) as the optimizer's own filter, rather than
+# building a fresh one - the wildcard case above never exercises that reuse.
+@skip(cluster=True)
+def test_numeric_optimizer_hybrid_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i, 't', f'hello{i}')
+
+    query_args = ('FT.SEARCH', 'idx', '(hello0|hello1|hello2) @num:[0 10]', 'SORTBY', 'num',
+                  'LIMIT', 0, 3, 'WITHOUTCOUNT', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
 def do_burst_threads_sanity(algo, data_type, test_name):
     env = initEnv(moduleArgs='MIN_OPERATION_WORKERS 2 DEFAULT_DIALECT 2')
     # Sanity check that the test parameters match the test name
