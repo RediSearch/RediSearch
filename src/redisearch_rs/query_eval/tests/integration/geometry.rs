@@ -72,6 +72,7 @@ impl GeometryFixture {
             format: ffi::GEOMETRY_FORMAT_GEOMETRY_FORMAT_WKT,
             query_type: ffi::QueryType_WITHIN,
             fs: context.field_spec() as *const _,
+            fieldIndex: context.field_spec().index,
             str_: wkt.as_ptr(),
             str_len: wkt.as_bytes().len(),
         });

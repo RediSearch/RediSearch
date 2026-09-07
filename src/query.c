@@ -388,6 +388,7 @@ QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const cha
   }
   QueryNode *ret = NewQueryNode(QN_GEOMETRY);
   GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
+  geomq->fieldIndex = RS_INVALID_FIELD_INDEX;
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;
   QueryNode_InitParams(ret, 1);
