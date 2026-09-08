@@ -91,7 +91,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     PLN_Reducer *pr = gstp->reducers + ii;
     const RLookupKey *input_key = NULL;
     if (pr->inputAlias) {
-      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_NOFLAGS);
+      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
       if (!input_key) {
         Grouper_Free(grp);
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
@@ -190,6 +190,9 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
+  // Reducers and implicit loaders have resolved their inputs. Later stages use
+  // the group's output lookup, so the input keys must now remain append-only.
+  RLookup_Seal(lookup);
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 
