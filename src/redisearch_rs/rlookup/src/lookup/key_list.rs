@@ -470,6 +470,61 @@ mod tests {
     }
 
     #[test]
+    fn only_row_writes_by_name_promote_wide_lookups() {
+        use crate::{RLookup, RLookupRow};
+        use value::SharedValue;
+
+        let names: Vec<_> = (0..NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("field{index}")).unwrap())
+            .collect();
+        let mut lookup = RLookup::new();
+        for name in &names {
+            lookup
+                .get_key_load(name.as_c_str(), name.as_c_str(), RLookupKeyFlags::empty())
+                .unwrap();
+        }
+        lookup
+            .get_key_write(c"constructed", RLookupKeyFlags::empty())
+            .unwrap();
+        assert!(lookup.find_key_by_name(c"constructed").is_some());
+        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_none());
+
+        lookup.seal();
+        let mut row = RLookupRow::new();
+        row.write_key_by_name(&mut lookup, names[0].as_c_str(), SharedValue::null_static());
+        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_some());
+        let key = lookup
+            .find_key_by_name(&names[0])
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert!(row.get(key).is_some());
+
+        lookup
+            .get_key_load(c"loaded_later", c"source", RLookupKeyFlags::empty())
+            .unwrap();
+        lookup
+            .get_key_write(c"written_later", RLookupKeyFlags::empty())
+            .unwrap();
+        for name in [c"loaded_later", c"written_later"] {
+            assert!(lookup.find_key_by_name(name).is_some());
+        }
+        assert_eq!(
+            lookup
+                .keys
+                .store
+                .as_ref()
+                .unwrap()
+                .by_name
+                .as_ref()
+                .unwrap()
+                .slots
+                .len(),
+            NAME_INDEX_MIN_KEYS + 3
+        );
+    }
+
+    #[test]
     fn name_index_is_promoted_only_for_wide_key_stores() {
         let names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
             .map(|index| CString::new(format!("key{index}")).unwrap())
