@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb to build and test RediSearch.
+# See https://ampcode.com/manual/orbs for the orb lifecycle.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+run_step() {
+  local label=$1
+  shift
+  local started=$SECONDS
+  echo "==> $label"
+  "$@"
+  echo "==> $label completed in $((SECONDS - started))s"
+}
+
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$HOME/.local/redis/bin:$PATH"
+
+profile_marker="# RediSearch orb tools"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# RediSearch orb tools
+[[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+export PATH="$HOME/.local/bin:$HOME/.local/redis/bin:$PATH"
+EOF
+fi
+
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -Fqx "$repo_root"; then
+  git config --global --add safe.directory "$repo_root"
+fi
+if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+  run_step "Fetch full Git history" git fetch --unshallow --tags origin
+fi
+run_step "Initialize submodules" git submodule update --init --recursive
+
+install_mode=""
+if [[ $(id -u) -ne 0 ]]; then
+  install_mode=sudo
+fi
+
+check_dependencies() {
+  (cd .install && env CHECK_DEPS=1 SKIP_BOOST=1 bash ./install_script.sh "$install_mode")
+}
+
+install_dependencies() {
+  (cd .install && env SKIP_BOOST=1 bash ./install_script.sh "$install_mode")
+}
+
+check_setup_tools() {
+  local missing=0 tool
+  for tool in curl tar uv lcov genhtml geninfo rsync unzip; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "Missing setup tool: $tool" >&2
+      missing=1
+    fi
+  done
+  return "$missing"
+}
+
+# Avoid package-manager and network work when a restored snapshot is complete.
+if check_dependencies && check_setup_tools; then
+  echo "==> Build and test dependencies are already installed"
+else
+  run_step "Install build and test dependencies" install_dependencies
+fi
+check_setup_tools
+
+install_rust_test_dependencies() {
+  local fingerprint marker nightly
+  fingerprint="$(sha256sum \
+    .install/test_deps/install_rust_deps.sh \
+    .rust-nightly \
+    .nextest-version \
+    .cheadergen-version | sha256sum | cut -d' ' -f1)"
+  marker="$HOME/.cache/redisearch-rust-test-deps"
+  nightly="$(<.rust-nightly)"
+
+  if [[ -f "$marker" && "$(<"$marker")" == "$fingerprint" ]] &&
+    cargo llvm-cov --version 2>/dev/null | grep -Fq '0.8.4' &&
+    rustup component list --installed --toolchain "$nightly" 2>/dev/null |
+      grep -q '^miri' &&
+    rustup component list --installed --toolchain "$nightly" 2>/dev/null |
+      grep -q '^llvm-tools' &&
+    rustup component list --installed --toolchain "$nightly" 2>/dev/null |
+      grep -q '^rust-src' &&
+    rustup component list --installed --toolchain "$nightly" 2>/dev/null |
+      grep -q '^rust-docs-json'; then
+    return 0
+  fi
+
+  bash .install/test_deps/install_rust_deps.sh "$install_mode"
+  mkdir -p "$(dirname "$marker")"
+  printf '%s\n' "$fingerprint" > "$marker"
+}
+
+run_step "Install Rust test dependencies" install_rust_test_dependencies
+
+install_python_test_dependencies() {
+  if [[ -x .venv/bin/python ]] && .venv/bin/python -m pip --version >/dev/null 2>&1; then
+    uv sync --locked --all-packages
+  else
+    SKIP_VENV_PROFILE_ACTIVATION=1 \
+      bash .install/test_deps/install_python_deps.sh "$install_mode"
+  fi
+}
+
+run_step "Install Python test dependencies" install_python_test_dependencies
+
+install_swamp() (
+  local version=20260825.013404.0-sha.59b73704
+  local checksum=cecc630d8ad8eb2b5c8dda7a2758dd38ee5dd9a74357a04b2418f60fa4536975
+  local swamp="$HOME/.local/bin/swamp"
+  local archive tmp
+
+  if [[ -x "$swamp" ]] &&
+    "$swamp" --version 2>/dev/null | grep -Fqx "swamp $version"; then
+    "$swamp" --version
+    return
+  fi
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  archive="swamp-$version-binary-linux-x86_64.tar.gz"
+
+  curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 \
+    "https://artifacts.swamp-club.com/swamp/$version/binary/linux/x86_64/$archive" \
+    -o "$tmp/$archive"
+  printf '%s  %s\n' "$checksum" "$tmp/$archive" | sha256sum --check
+  tar -xzf "$tmp/$archive" -C "$tmp" swamp
+  mkdir -p "$(dirname "$swamp")"
+  install -m 0755 "$tmp/swamp" "$swamp"
+  "$swamp" --version
+)
+
+run_step "Install swamp" install_swamp
+
+install_jj() (
+  local jj="$HOME/.cargo/bin/jj"
+
+  if [[ -x "$jj" ]]; then
+    "$jj" --version
+    return
+  fi
+
+  cargo binstall --strategies crate-meta-data --no-confirm --force jj-cli
+  "$jj" --version
+)
+
+run_step "Install jj" install_jj
+
+link_tool() {
+  local name=$1
+  local preferred_source=${2:-}
+  local source
+
+  if [[ -n "$preferred_source" && -x "$preferred_source" ]]; then
+    source=$preferred_source
+  else
+    source="$(command -v "$name" 2>/dev/null || true)"
+  fi
+  [[ -n "$source" ]] || return 0
+  [[ "$source" != "/usr/local/bin/$name" ]] || return 0
+
+  if [[ -n "$install_mode" ]]; then
+    "$install_mode" ln -sf "$source" "/usr/local/bin/$name"
+  else
+    ln -sf "$source" "/usr/local/bin/$name"
+  fi
+}
+
+for tool in cargo rustc rustup cargo-nextest cargo-llvm-cov cargo-hakari cheadergen rustfmt cargo-clippy clippy-driver; do
+  link_tool "$tool" "$HOME/.cargo/bin/$tool"
+done
+link_tool uv "$HOME/.local/bin/uv"
+link_tool swamp "$HOME/.local/bin/swamp"
+link_tool jj "$HOME/.cargo/bin/jj"
+
+source .install/LLVM_VERSION.sh
+versioned_clang="$(command -v "clang-$LLVM_VERSION")"
+versioned_clangxx="$(command -v "clang++-$LLVM_VERSION")"
+link_tool clang "$versioned_clang"
+link_tool clang++ "$versioned_clangxx"
+link_tool cc "$versioned_clang"
+link_tool c++ "$versioned_clangxx"
+
+verify_redis_server() {
+  local version
+  version="$("$1" --version || true)"
+  echo "$version"
+  [[ "$version" == *"v="* ]]
+}
+
+build_redis() {
+  # Keep the flow-test server aligned with the Redis revision used by CI.
+  local sanitizer=$1
+  local redis_ref=d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+  local redis_url=https://github.com/redis/redis.git
+  local redis_src="$HOME/.cache/redisearch-redis-src"
+  local redis_prefix="$HOME/.local/redis${sanitizer:+-$sanitizer}"
+
+  if [[ -x "$redis_prefix/bin/redis-server" &&
+        -f "$redis_prefix/.redis-ref" &&
+        "$(<"$redis_prefix/.redis-ref")" == "$redis_ref" ]]; then
+    verify_redis_server "$redis_prefix/bin/redis-server"
+    return
+  fi
+
+  if [[ ! -d "$redis_src/.git" ]]; then
+    rm -rf "$redis_src"
+    git init -q "$redis_src"
+  fi
+  if git -C "$redis_src" remote get-url origin >/dev/null 2>&1; then
+    git -C "$redis_src" remote set-url origin "$redis_url"
+  else
+    git -C "$redis_src" remote add origin "$redis_url"
+  fi
+
+  git -C "$redis_src" fetch --depth=1 origin "$redis_ref"
+  git -C "$redis_src" checkout --detach --force FETCH_HEAD
+  git -C "$redis_src" clean -fdx
+  rm -rf "$redis_prefix"
+  make -C "$redis_src" -j"$(nproc)" PREFIX="$redis_prefix" BUILD_TLS=yes \
+    CC="$versioned_clang" CXX="$versioned_clangxx" LD="$versioned_clang" \
+    SANITIZER="$sanitizer" install
+  printf '%s\n' "$redis_ref" > "$redis_prefix/.redis-ref"
+  verify_redis_server "$redis_prefix/bin/redis-server"
+}
+
+run_step "Install the flow-test Redis server" build_redis ""
+run_step "Install the ASan flow-test Redis server" build_redis address
+
+cat > "$HOME/.local/bin/redis-server" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${SANITIZER:-} == address || ${SANITIZER:-} == addr ]]; then
+  exec "$HOME/.local/redis-address/bin/redis-server" "$@"
+fi
+exec "$HOME/.local/redis/bin/redis-server" "$@"
+EOF
+chmod +x "$HOME/.local/bin/redis-server"
+link_tool redis-server "$HOME/.local/bin/redis-server"
+for tool in redis-cli redis-benchmark; do
+  link_tool "$tool" "$HOME/.local/redis/bin/$tool"
+done
+
+run_step "Verify the default command toolchain" env -i \
+  HOME="$HOME" PATH=/usr/local/bin:/usr/bin:/bin \
+  /bin/bash -c 'command -v cargo && cargo --version && command -v rustc && rustc --version && command -v uv && command -v swamp && command -v jj && command -v redis-server && command -v cmake && command -v clang && command -v cc && command -v c++ && command -v python3'
+
+run_step "Verify the login-shell toolchain" env -i \
+  HOME="$HOME" PATH=/usr/local/bin:/usr/bin:/bin \
+  /bin/bash -lc 'command -v cargo && cargo --version && command -v rustc && rustc --version && command -v uv && command -v swamp && command -v jj && command -v redis-server && command -v cmake && command -v clang && command -v cc && command -v c++ && command -v python3'
+
+echo "==> Orb setup complete"

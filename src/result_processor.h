@@ -95,13 +95,26 @@ void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 // Result count to report to the client: matches minus the rows a loader dropped
-// (deleted/re-indexed/expired mid-load). Invariant: skippedResults <= totalResults
-// — drops are a subset of counted matches, and any stage that transforms or replaces
-// totalResults (grouper, hybrid merge, optimizer offset/limit) folds in and clears
-// skippedResults first. The assert enforces the invariant at every reply site.
+// (deleted/re-indexed/expired mid-load). Saturates at zero.
+//
+// `skippedResults <= totalResults` reads like an invariant — drops are a subset of counted
+// matches, and any stage that transforms or replaces totalResults (grouper, hybrid merge,
+// optimizer offset/limit) folds in and clears skippedResults first. It does not hold across a
+// cursor chunk boundary. A read without WITHCOUNT resets both counters when it finishes, while
+// a buffering stage upstream — `SORTBY` with `MAX`, which accumulates every row before
+// yielding any — hands rows counted during one read to the loader during a later one. A
+// document that vanished in between is counted in `skippedResults` for a read whose
+// `totalResults` no longer includes it.
+//
+// Both counters are unsigned, so subtracting then wrapped: five such rows reported 4294967291
+// as the result count, and the assert this used to carry aborted an assert-enabled build
+// rather than catching anything a caller could act on. Same reasoning, and the same remedy, as
+// the clamp in `rpevalNext_filter` — and needed alongside it, since with both a filter and
+// dropped documents that clamp pins `totalResults` at zero and leaves this subtraction to wrap.
 static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
-  RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
-                "skippedResults must not exceed totalResults");
+  if (qctx->skippedResults >= qctx->totalResults) {
+    return 0;
+  }
   return qctx->totalResults - qctx->skippedResults;
 }
 
@@ -199,6 +212,7 @@ typedef struct ResultProcessor {
  */
 RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res);
 
+/** `sctx` must carry the owning request's non-NULL timeout state. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
@@ -313,7 +327,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 * The returned processor takes ownership of result depleting and yielding.
 * @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
 * @param depletingThreadCtx Search context for the upstream processor being wrapped; used only on
-*                           the depleting thread
+*                           the depleting thread and carrying its non-NULL request timeout
 * @param pool Thread pool used to run the depletion job (must be non-NULL)
 */
 ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool);
@@ -434,6 +448,7 @@ typedef struct HybridExplainContext HybridExplainContext;
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
  * `explainCtx` is optional: pass NULL to disable EXPLAINSCORE wrapping. When
  * non-NULL, RPHybridMerger takes ownership of the struct (frees it on Free).
+ * @param sctx Search context carrying the hybrid request's non-NULL timeout
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
 ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
@@ -468,8 +483,9 @@ ResultProcessorType StringToRPType(const char *str);
  *
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
 void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
+// Aggregate debug requires the legacy clock source even when the production timeout is disabled.
+void PipelineAddTimeoutAfterCountClock(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
 
 /*******************************************************************************************************************
  *  Crash Processor - DEBUG ONLY

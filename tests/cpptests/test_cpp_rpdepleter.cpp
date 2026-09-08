@@ -12,6 +12,7 @@
 #include "search_result_ffi.h"
 #include "spec.h"
 #include "search_ctx.h"
+#include "query_request.h"
 #include "rmalloc.h"
 #include "common.h"
 #include "module.h"
@@ -87,15 +88,18 @@ protected:
     // Initialize search contexts for all tests (with or without real spec)
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
+      timeouts[i] = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(QueryRequestTimeout)));
+      QueryRequestTimeout_Init(timeouts[i], TimeoutPolicy_Return, 10000);
+      QueryRequestTimeout_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+      searchContexts[i].timeout = timeouts[i];
     }
 
-    // Set proper timeout on all search contexts to avoid immediate timeout
-    // Since RS_IsMock prevents SearchCtx_UpdateTime from working, set timeout directly
+    // Set a stable request-owned deadline for tests that temporarily disable mock behavior.
     struct timespec future_timeout;
     clock_gettime(CLOCK_MONOTONIC_RAW, &future_timeout);
     future_timeout.tv_sec += 10; // 10 seconds from now
     for (size_t i = 0; i < NumberOfContexts; ++i) {
-      searchContexts[i].time.timeout = future_timeout;
+      *QueryRequestTimeout_GetClockDeadlineForUpdate(searchContexts[i].timeout) = future_timeout;
     }
   }
 
@@ -103,6 +107,9 @@ protected:
     // Free Redis contexts for all test variants (WithoutIndexLock and WithIndexLock)
     for (auto ctx : redisContexts) {
       RedisModule_FreeThreadSafeContext(ctx);
+    }
+    for (auto timeout : timeouts) {
+      rm_free(timeout);
     }
   }
 
@@ -140,6 +147,7 @@ protected:
 
   std::array<RedisModuleCtx*, NumberOfContexts> redisContexts;
   std::array<RedisSearchCtx, NumberOfContexts> searchContexts;
+  std::array<QueryRequestTimeout *, NumberOfContexts> timeouts = {nullptr};
   IndexSpec* mockSpec = nullptr;
 };
 

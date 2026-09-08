@@ -78,8 +78,17 @@ void Indexes_Propagate(RedisModuleCtx *ctx);
 
 void Indexes_SetTempSpecsTimers(TimerOp op);
 
+/**
+ * Re-index `key` on every spec whose schema rules match it.
+ *
+ * `changedFields` / `numChangedFields` name the fields the originating command
+ * modified, letting a spec that indexes none of them skip the reindex. They come
+ * from a hash subkey notification; pass `NULL` / `0` when the change set is
+ * unknown — for JSON writes, the background scan, and any event that carries no
+ * subkeys — which reindexes unconditionally.
+ */
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **hashFields);
+                                           RedisModuleString **changedFields, size_t numChangedFields);
 // Refresh the per-field TTL entries on every spec that indexes `key`: reads
 // the hash's current per-field expiration timestamps and writes them onto
 // the matching specs' TTL tables, without re-tokenizing the document or
@@ -94,8 +103,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 // Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
 void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **hashFields);
+                                           DocumentType type);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
 void Indexes_List(RedisModule_Reply* reply, bool obfuscate);

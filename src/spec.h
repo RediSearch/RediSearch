@@ -22,6 +22,7 @@
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/rs_atomic.h"
 #include "util/references.h"
 #include "rules.h"
 #include <pthread.h>
@@ -342,7 +343,9 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Background indexing failed due to Out Of Memory. Written under the GIL;
+  // read by query workers capturing the warning snapshot — hence atomic.
+  RS_Atomic(bool) scan_failed_OOM;
   // Number of keys the background build had scanned when it aborted on OOM, frozen
   // before the scanner is freed. IndexesScanner_IndexedPercent derives percent_indexed
   // from it (over the current DbSize) while scan_failed_OOM holds, so an OOM-cancelled
@@ -461,6 +464,13 @@ typedef struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
   size_t refcount;
+  // Owned copies of the schema rule's special document-field names (each may
+  // be NULL). Key creation marks keys with these names as hidden, so reply
+  // serialization needs no access to the schema rule (the rule may already be
+  // freed by reply time; this cache is refcounted and outlives the spec).
+  char *lang_field;
+  char *score_field;
+  char *payload_field;
 } IndexSpecCache;
 
 /**
@@ -480,6 +490,14 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
  * Can handle NULL
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
+
+/**
+ * Replace the spec's cache with a freshly built one, releasing the spec's
+ * reference to the old cache (queries holding their own reference are
+ * unaffected). Call after mutating what the cache carries — the field table
+ * or the schema rule's special-field names. Requires the spec write lock.
+ */
+void IndexSpec_RefreshSpecCache(IndexSpec *sp);
 
 /*
  * Get a field spec by field name. Case insensitive!

@@ -159,6 +159,15 @@ typedef struct {
 
   bool noMemPool;
 
+  /** Deprecated
+   *
+   * Once gated a command filter that captured hash field names before execution,
+   * which subkey notifications replaced
+   * Retained only so the surface it is bound to keeps working: `PARTIAL_INDEXED_DOCS`
+   * and, more importantly, the `search-partial-indexed-docs` module config. Dropping
+   * the latter's registration makes a server whose config file sets it refuse to
+   * start ("Module Configuration detected without loadmodule directive"), so it can
+   * only be removed at a major version. */
   bool filterCommands;
 
   // free resource on shutdown
@@ -193,14 +202,15 @@ typedef struct {
   uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
-  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  // The maximum ratio between current memory and max memory for which background indexing is allowed.
+  // Percent, 0-100.
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
-  // allocate more memory.
+  // allocate more memory. In Flex, how much time after OOM is detected to enable some RAM to be recovered
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
   // Minimum delay before checking trimming state after slot migration (in milliseconds)
   uint32_t minTrimDelayMS;

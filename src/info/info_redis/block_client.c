@@ -10,7 +10,6 @@
 #include <stdatomic.h>
 
 #include "redismodule.h"
-#include "util/references.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
@@ -21,33 +20,45 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
-void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb) {
+// The registry list every main-thread cycle links into. Asserts main-thread
+// use: the registry is single-threaded by design.
+static BlockedQueries *getBlockedQueries(void) {
+  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
+  return blockedQueries;
+}
+
+static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
+                             RedisModuleCmdFunc reply_cb, DLLIST *list) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same request. This holds structurally for
   // blocked cursor cycles — the cursor is only parked back into the idle list
-  // at cycle end (AREQ_CursorEndOfCycle records the disposition; EndCycle executes
-  // it), so no other client can take it before the cycle fully ended.
-  RS_ASSERT(!request->blockedClientCycleActive && request->registryInfo.node == NULL &&
-            request->registryInfo.kind == REGISTRY_ENTRY_NONE);
+  // at cycle end (AREQ_CursorEndOfCycle records the disposition; EndCycle
+  // executes it), so no other client can take it before the cycle fully ended.
+  RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
+  request->registryInfo.cycle_start = time(NULL);
+  dllist_prepend(list, &request->registryInfo.node);
   RedisModule_BlockClientSetPrivateData(bc, request);
 }
 
+void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
+                             RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->queries);
+}
+
+void QueryRequest_BeginCursorCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
+                                   RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->cursors);
+}
+
 void QueryRequest_EndCycle(QueryRequest *request) {
-  if (request->registryInfo.node) {
-    if (request->registryInfo.kind == REGISTRY_ENTRY_CURSOR) {
-      BlockedQueries_RemoveCursor(request->registryInfo.node);
-    } else {
-      RS_ASSERT(request->registryInfo.kind == REGISTRY_ENTRY_QUERY);
-      BlockedQueries_RemoveQuery(request->registryInfo.node);
-    }
-    rm_free(request->registryInfo.node);
+  if (RegistryInfo_IsLinked(&request->registryInfo)) {
+    dllist_delete(&request->registryInfo.node);
+    request->registryInfo.cycle_start = 0;
   }
-  request->registryInfo.node = NULL;
-  request->registryInfo.kind = REGISTRY_ENTRY_NONE;
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
   // not consume (unconsumed stored results when the timeout replied first).
   // Idempotent; base destruction also clears reply state as a safety net.
@@ -84,7 +95,26 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   QueryRequest_EndCycle(request);
 }
 
-RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,
+void BlockedQueries_UnwindCycles(void) {
+  BlockedQueries *blockedQueries = getBlockedQueries();
+  DLLIST *lists[] = {&blockedQueries->queries, &blockedQueries->cursors};
+  for (size_t i = 0; i < sizeof(lists) / sizeof(*lists); i++) {
+    while (!DLLIST_IS_EMPTY(lists[i])) {
+      QueryRequest *at = DLLIST_ITEM(lists[i]->next, QueryRequest, registryInfo.node);
+      // Unlink only — do NOT run the cycle end. Stopping the pools proves no
+      // new cycles start, not that a linked request has no borrowers: a
+      // deferred coordinator request (e.g. WITHCOUNT) is still referenced by
+      // its MR iterator context until the MR runtimes are gone, so freeing it
+      // here would be use-after-free on the IO threads. Leaking it instead is
+      // exactly what its queued, never-drained free-privdata callback would
+      // have left behind.
+      dllist_delete(&at->registryInfo.node);
+      at->registryInfo.cycle_start = 0;
+    }
+  }
+}
+
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
@@ -92,28 +122,15 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // If a timeout is armed, both callbacks must be provided.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
-  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // Registry bookkeeping only (FT.INFO / crash reports). The callbacks reach
-  // the request through the blocked client's private data,
-  // so the node carries no privdata and holds no reference. Unlinked in
-  // EndCycle; TRANSITIONAL(MOD-16691): link the request itself instead.
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, NULL, NULL);
-
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
   QueryRequest_BeginCycle(request, bc, reply_cb);
-  request->registryInfo = (RegistryInfo) {
-    .node = node,
-    .kind = REGISTRY_ENTRY_QUERY,
-  };
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
 }
 
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor,
-                                                       size_t count,
                                                        QueryRequest *request,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
@@ -121,16 +138,9 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RS_ASSERT(cursor->query == request);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
-  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-
-  // Registry bookkeeping only; see BlockQueryClientWithTimeout.
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref,
-                                                     cursor->id, count, NULL, NULL);
-
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
-  QueryRequest_BeginCycle(request, bc, reply_cb);
+  QueryRequest_BeginCursorCycle(request, bc, reply_cb);
   // Publish the cycle's cursor handle up front, on the main thread. The
   // disposition keeps its FREE default unless the cycle's reply exposes a
   // live cursor id and records PAUSE.
@@ -141,10 +151,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   if (request->async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(QueryRequest_GetAREQ(request));
   }
-  request->registryInfo = (RegistryInfo) {
-    .node = node,
-    .kind = REGISTRY_ENTRY_CURSOR,
-  };
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;

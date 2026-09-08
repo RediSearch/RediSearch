@@ -43,6 +43,10 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
 
 void RQ_Done(MRWorkQueue *q);
 
+/* Register an in-flight logical request that shares an already-scheduled job
+ * (see RQ_IncrPending in rq.c). Event-loop thread only, like RQ_Done. */
+void RQ_IncrPending(MRWorkQueue *q);
+
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
 
 queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async);

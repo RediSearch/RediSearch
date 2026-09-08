@@ -402,8 +402,7 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   memcpy(token, sufCtx->rune + idx[useIdx], toklen * sizeof(rune));
   token[toklen] = (rune)'\0';
 
-  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
-                       sufCtx->skipTimeoutChecks);
+  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
   return 1;
 }
 

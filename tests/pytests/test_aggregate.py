@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 import bz2
@@ -824,6 +831,26 @@ def testAggregateGroupByOnEmptyField(env):
     for var in expected:
         env.assertContains(var, res)
 
+
+def testReducerAliasesMayReuseDocumentControlFieldNames(env):
+    """Reducer aliases are query output, not schema document-control fields."""
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCORE_FIELD', '__score',
+        'LANGUAGE_FIELD', '__language',
+        'PAYLOAD_FIELD', '__payload',
+        'SCHEMA', 't', 'TEXT'
+    ).ok()
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', '{doc}:1', 't', 'value')
+
+    for alias in ('__score', '__language', '__payload'):
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*',
+            'GROUPBY', '0',
+            'REDUCE', 'COUNT', '0', 'AS', alias
+        ).equal([1, [alias, '1']])
+
 def test_groupby_array(env: Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
   with env.getClusterConnectionIfNeeded() as con:
@@ -1088,6 +1115,64 @@ def testLoadAll(env):
         env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
         env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
         env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
+
+def testLoadAllManyDynamicFields(env):
+    """LOAD * over documents with disjoint field sets: the reply lookup keeps
+    absorbing new keys while the query executes (it is sealed append-only at
+    pipeline-build time). In cluster mode this also exercises the coordinator's
+    RPNet lookup, which appends each field name it first sees in a shard reply."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'common', 'TEXT').ok()
+    n_docs = 24
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'common', 'x', f'field{i}', i)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LIMIT', '0', str(n_docs))
+    # Row order is not deterministic across shards; each row's field order is.
+    # Compare the exact multiset of rows, each as its sorted (name, value) pairs.
+    rows = sorted(sorted([row[i], row[i + 1]] for i in range(0, len(row), 2)) for row in res[1:])
+    exp = sorted(sorted([['common', 'x'], [f'field{i}', str(i)]]) for i in range(n_docs))
+    env.assertEqual(rows, exp)
+
+def testLoadAllWideCoordinatorRow(env):
+    """LOAD * a row wide enough for by-name writes to promote the RLookup name
+    index lazily, while preserving every dynamic field."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'marker', 'TEXT').ok()
+    fields = {f'field{i}': i for i in range(24)}
+    conn.execute_command(
+        'HSET', '{wide}:1', 'marker', 'x', *itertools.chain.from_iterable(fields.items()))
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(
+        dict(zip(res[1][::2], res[1][1::2])),
+        {'marker': 'x', **{k: str(v) for k, v in fields.items()}})
+
+def testSealedMultiGroupByCursor(env):
+    """Finalize each GROUPBY input after implicit loads, and resume the final sealed lookup."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'category', 'TAG', 'amount', 'NUMERIC').ok()
+    for i in range(6):
+        conn.execute_command('HSET', f'{{sealed}}:{i}', 'category', str(i % 3),
+                             'amount', i + 1, f'dynamic{i}', i)
+
+    for load in ([], ['LOAD', '*']):
+        res, cursor = env.cmd(
+            'FT.AGGREGATE', 'idx', '*', *load,
+            'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', '@amount', 'AS', 'total',
+            'APPLY', '@total + 1', 'AS', 'total',
+            'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', '@total', 'AS', 'total',
+            'SORTBY', '2', '@category', 'ASC', 'WITHCURSOR', 'COUNT', '1')
+        rows = res[1:]
+        while cursor:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '1')
+            rows.extend(res[1:])
+        env.assertEqual(rows, [
+            ['category', '0', 'total', '6'],
+            ['category', '1', 'total', '8'],
+            ['category', '2', 'total', '10'],
+        ])
 
 def testLimitIssue(env):
     #ticket 66895

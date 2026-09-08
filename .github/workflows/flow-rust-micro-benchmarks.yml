@@ -5,7 +5,7 @@ on:
 
 jobs:
   benchmarks:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions:
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3

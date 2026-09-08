@@ -7,21 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
-    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
-};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, lookup::TRANSIENT_FLAGS};
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
 use value::SharedValue;
-
-/// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
-/// with respect to this schema rule.
-fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
-    [rule.lang_field(), rule.score_field(), rule.payload_field()]
-        .into_iter()
-        .any(|f| f == Some(key.name().as_ref()))
-}
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
@@ -76,105 +66,6 @@ impl<'a> RLookupRow<'a> {
     #[inline]
     pub fn len(&self) -> usize {
         self.dyn_values.len()
-    }
-
-    /// Returns the number of visible fields in this [`RLookupRow`].
-    ///
-    /// # Arguments
-    ///
-    /// * `lookup` - The RLookup instance containing the keys and their flags.
-    /// * `required_flags` - Flags that must be present on a key for it to be counted.
-    /// * `excluded_flags` - Flags that must not be present on a key for it to be counted.
-    /// * `rule` - An optional [`SchemaRule`] to exclude key names used for special purposes, e.g. score, lang or payload.
-    ///   If set to `None`, no such exclusions are applied (this is the case on the coordinator).
-    ///
-    /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false) and the `usize` is the count of fields that
-    /// have not been skipped, i.e. it is the number of true values inside the `Vec<bool>`.
-    pub fn get_length(
-        &self,
-        lookup: &RLookup,
-        required_flags: RLookupKeyFlags,
-        excluded_flags: RLookupKeyFlags,
-        rule: Option<&SchemaRule>,
-    ) -> (usize, Vec<bool>) {
-        // Ensure that the length of skip_field_indices is lookup.get_row_len(), to avoid a panic in get_length_no_alloc().
-        let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
-        let num_fields = self.get_length_no_alloc(
-            lookup,
-            required_flags,
-            excluded_flags,
-            rule,
-            skip_field_indices.as_mut_slice(),
-        );
-        (num_fields, skip_field_indices)
-    }
-
-    /// Returns the number of visible fields in this [`RLookupRow`].
-    ///
-    /// It acts as [`RLookupRow::get_length`] but instead of allocating a Vec internally, it takes a mutable slice, thus
-    /// avoiding allocations and allowing the caller to reuse memory. For this reason the length of `out_flags` must be larger or equal to
-    /// the return value of `RLookup::get_row_len`.
-    ///
-    /// See [`RLookupRow::get_length`] for argument details.
-    ///
-    /// # Panics
-    /// This function will panic if `out_flags` length is less than `lookup.get_row_len()`.
-    pub fn get_length_no_alloc(
-        &self,
-        lookup: &RLookup,
-        required_flags: RLookupKeyFlags,
-        excluded_flags: RLookupKeyFlags,
-        rule: Option<&SchemaRule>,
-        out_flags: &mut [bool],
-    ) -> usize {
-        debug_assert!(
-            out_flags.len() >= lookup.get_row_len() as usize,
-            "out_flags length must be at least equal to lookup.get_row_len()"
-        );
-
-        debug_assert!(
-            !required_flags.contains(RLookupKeyFlag::NameAlloc),
-            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
-        );
-        debug_assert!(
-            !excluded_flags.contains(RLookupKeyFlag::NameAlloc),
-            "The NameAlloc flag should have been handled in the FFI function. This is a bug."
-        );
-
-        let mut num_fields = 0;
-        let mut idx = 0;
-        let mut cursor = lookup.cursor();
-
-        loop {
-            let Some(key) = cursor.current() else {
-                break;
-            };
-
-            let will_increment_idx = !key.is_tombstone();
-            let key_matches_flag_requirements =
-                key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
-            let key_has_associated_value = self.get(key).is_some();
-            // Is this key a "special key" according to the schema? If so, we skip it
-            let key_allowed_by_rule = !rule.is_some_and(|rule| is_special_key(rule, key));
-
-            let will_count = will_increment_idx
-                && key_matches_flag_requirements
-                && key_has_associated_value
-                && key_allowed_by_rule;
-
-            cursor.move_next();
-
-            if will_count {
-                out_flags[idx] = true;
-                num_fields += 1;
-            }
-
-            if will_increment_idx {
-                idx += 1;
-            }
-        }
-
-        num_fields
     }
 
     /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
@@ -291,13 +182,7 @@ impl<'a> RLookupRow<'a> {
         val: SharedValue,
     ) {
         let name = name.into();
-        let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
-            cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
-        } else {
-            rlookup
-                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
-        };
+        let key = rlookup.get_or_create_key_by_name(name);
         self.write_key(key, val);
     }
 
@@ -354,13 +239,8 @@ impl<'a> RLookupRow<'a> {
     ) {
         let dst_row = self;
 
-        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
-        let mut c = src_lookup.cursor();
-
-        while let Some(src_key) = c.current() {
-            if !src_key.is_tombstone()
-                && let Some(value) = src_row.get(src_key)
-            {
+        for src_key in src_lookup.iter() {
+            if let Some(value) = src_row.get(src_key) {
                 // Find corresponding key in destination lookup
                 let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
                     Some(k) => k.into_current().unwrap(),
@@ -380,20 +260,15 @@ impl<'a> RLookupRow<'a> {
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());
             }
-
-            c.move_next();
         }
     }
 
     /// Move data from the source row to the destination row. The source row is cleared.
     pub fn move_fields_from(&mut self, src: &mut Self, lookup: &RLookup) {
-        let mut c = lookup.cursor();
-        while let Some(key) = c.current() {
+        for key in lookup.iter() {
             if let Some(value) = src.get(key) {
                 self.write_key(key, value.to_owned());
             }
-
-            c.move_next();
         }
         src.wipe();
     }
@@ -423,230 +298,4 @@ pub mod opaque {
     pub struct OpaqueRLookupRow(Size<24>);
 
     c_ffi_utils::opaque!(RLookupRow<'_>, OpaqueRLookupRow);
-}
-
-#[cfg(test)]
-#[allow(clippy::undocumented_unsafe_blocks)]
-mod tests {
-    use std::ptr;
-
-    use document::DocumentType;
-    use enumflags2::make_bitflags;
-
-    use super::*;
-
-    fn test_schema_rule(
-        lang_field: Option<&std::ffi::CStr>,
-        score_field: Option<&std::ffi::CStr>,
-        payload_field: Option<&std::ffi::CStr>,
-    ) -> Box<ffi::SchemaRule> {
-        let lang_ptr = lang_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-        let score_ptr = score_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-        let payload_ptr =
-            payload_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
-
-        let schema_rule = ffi::SchemaRule {
-            lang_field: lang_ptr,
-            score_field: score_ptr,
-            payload_field: payload_ptr,
-            type_: DocumentType::Hash,
-            prefixes: std::ptr::null_mut(),
-            filter_exp_str: std::ptr::null_mut(),
-            filter_exp: std::ptr::null_mut(),
-            filter_fields: std::ptr::null_mut(),
-            filter_fields_index: std::ptr::null_mut(),
-            score_default: 0.0,
-            lang_default: 0,
-            index_all: false,
-        };
-
-        Box::new(schema_rule)
-    }
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
-    fn get_length_without_flags() {
-        let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
-
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-        assert_eq!(len, 3);
-        assert_eq!(flags, vec![true, true, true]);
-    }
-
-    #[test]
-    fn get_length_on_empty() {
-        let rlookup = RLookup::new();
-        let row = RLookupRow::new();
-
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-        assert_eq!(len, 0);
-        assert!(flags.is_empty());
-    }
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
-    fn get_length_required_flags() {
-        let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        let rlk = rlookup
-            .get_key_write(c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
-            .expect("key must be created");
-        row.write_key(rlk, SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
-
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-        assert_eq!(len, 1);
-        assert_eq!(flags, vec![true, false, false]);
-    }
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
-    fn get_length_excluded_flags() {
-        let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        let rlk = rlookup
-            .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
-            .expect("key must be created");
-        row.write_key(rlk, SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
-
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-        assert_eq!(len, 2);
-        assert_eq!(flags, vec![false, true, true]);
-    }
-
-    // historically this mix caused no items to be counted
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
-    fn get_length_required_and_excluded_flags_same() {
-        let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        let rlk = rlookup
-            .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
-            .expect("key must be created");
-        row.write_key(rlk, SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
-
-        let tsrw = test_schema_rule(None, None, None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-        assert_eq!(len, 0);
-        assert_eq!(flags, vec![false, false, false]);
-    }
-
-    // Without a rule we expect no filtering for special purpose keys like score, lang or payload
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
-    fn get_length_without_rule() {
-        let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
-
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            None,
-        );
-
-        assert_eq!(len, 3);
-        assert_eq!(flags, vec![true, true, true]);
-    }
-
-    // The rule is used to filter special purpose keys like score, lang or payload
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
-    fn get_length_with_rule() {
-        let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"score", SharedValue::new_num(100.));
-
-        let tsrw = test_schema_rule(None, Some(c"score"), None);
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-
-        assert_eq!(len, 2);
-        assert_eq!(flags, vec![true, true, false]);
-
-        // add some more keys with special keys:
-        row.write_key_by_name(
-            &mut rlookup,
-            c"lang",
-            SharedValue::new_string(b"en".to_vec()),
-        );
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"payload", SharedValue::new_num(815.0));
-
-        let tsrw = test_schema_rule(Some(c"lang"), Some(c"score"), Some(c"payload"));
-        let (len, flags) = row.get_length(
-            &rlookup,
-            RLookupKeyFlags::empty(),
-            RLookupKeyFlags::empty(),
-            Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
-        );
-
-        assert_eq!(len, 3);
-        assert_eq!(flags, vec![true, true, false, false, true, false]);
-    }
 }

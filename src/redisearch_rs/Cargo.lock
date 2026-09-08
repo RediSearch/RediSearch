@@ -737,10 +737,12 @@ name = "fork_gc"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_trie",
  "dict",
  "ffi",
  "field_spec",
  "fork_gc",
+ "global_config",
  "hidden_string",
  "index_result",
  "index_spec",
@@ -756,6 +758,7 @@ dependencies = [
  "rmp-serde",
  "rqe_core",
  "serde",
+ "string_utils",
  "thiserror",
  "tracing",
  "workspace_hack",
@@ -1105,6 +1108,7 @@ dependencies = [
  "document",
  "ffi",
  "field_spec",
+ "hidden_string",
  "inverted_index",
  "pretty_assertions",
  "redis_mock",
@@ -1221,11 +1225,12 @@ dependencies = [
  "query_types",
  "redis-module",
  "redis_reply",
- "rlookup",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "top_k",
  "trie_rs",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -1849,12 +1854,15 @@ dependencies = [
  "ffi",
  "field",
  "geo",
+ "hidden_string",
  "index_result",
  "inverted_index",
+ "inverted_index_ffi",
  "proptest",
  "query",
  "query_error",
  "query_eval",
+ "query_flags",
  "query_term",
  "query_types",
  "redis-module",
@@ -2168,6 +2176,7 @@ dependencies = [
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
  "syn 2.0.118",
+ "term_dictionary_ffi",
  "term_suffix_index_ffi",
  "toml",
  "trie_rdb_ffi",
@@ -2304,6 +2313,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "ahash",
  "build_utils",
  "c_ffi_utils",
  "cheadergen",
@@ -2312,6 +2322,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field_spec",
+ "hashbrown",
  "index_spec",
  "index_spec_cache",
  "itertools 0.15.0",
@@ -3063,10 +3074,16 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "field",
  "index_result",
  "inverted_index",
+ "lending-iterator",
+ "query_term",
  "redis_mock",
  "redisearch_rs",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "rqe_wildcard",
  "tag_index",
  "thin_vec",
  "trie_rs",
@@ -3084,6 +3101,29 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "term_dictionary"
+version = "0.0.1"
+dependencies = [
+ "string_utils",
+ "term_dictionary",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "redis_mock",
+ "redisearch_rs",
+ "term_dictionary",
+ "term_dictionary_ffi",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -3652,6 +3692,7 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rqe_core",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",
@@ -3936,6 +3977,7 @@ dependencies = [
  "clang-sys",
  "either",
  "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "getrandom 0.4.3",
  "insta",
  "itertools 0.13.0",

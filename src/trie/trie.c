@@ -109,16 +109,15 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
 }
 
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
-                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks) {
-  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
-                           skipTimeoutChecks);
+                          TrieRangeCallback callback, void *ctx,
+                          QueryRequestTimeout *timeout) {
+  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout);
 }
 
 void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
-                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks) {
-  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
+                          TrieRangeCallback callback, void *ctx,
+                          QueryRequestTimeout *timeout) {
+  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout);
 }
 
 // Forward declaration for the internal rune-based function

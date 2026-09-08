@@ -354,7 +354,15 @@ impl VectorFixture {
         // Documents 1..=3 with numeric values 1.0, 2.0, 3.0 — the index the
         // child node filters over.
         let records = (1u64..=3).map(|i| RSIndexResult::build_numeric(i as f64).doc_id(i).build());
-        let context = TestContext::numeric(records, false);
+        let mut context = TestContext::numeric(records, false);
+        // This direct evaluator fixture bypasses the request that owns timeout state in production.
+        context.set_search_time(
+            ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            true,
+        );
 
         // SAFETY: `context.qctx()` returns a valid, exclusively-owned
         // `QueryEvalCtx` (with real `status`, `config` and metric-request head),

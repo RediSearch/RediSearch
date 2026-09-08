@@ -15,6 +15,7 @@
 #include "resp3.h"
 #include "query_error_ffi.h"
 #include "value_ffi.h"
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
@@ -117,11 +118,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0 };
 #endif
   return reply;
 }
@@ -131,6 +132,11 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
   if (reply->stack) {
     array_free(reply->stack);
   }
+  if (reply->scratch) {
+    rm_free(reply->scratch);
+    reply->scratch = NULL;
+    reply->scratch_cap = 0;
+  }
 #ifdef REDISMODULE_REPLY_DEBUG
   if (reply->json) {
     array_free(reply->json);
@@ -138,6 +144,40 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
 #endif
   reply->stack = 0;
   return REDISMODULE_OK;
+}
+
+// Retention bound for the reply-owned scratch buffer. Values that fit reuse one
+// retained allocation (power-of-two growth capped by this bound); larger values
+// take an exact-sized temporary freed right after emission, so a huge field can
+// neither be rounded up by the geometric growth nor stay pinned until EndReply.
+#define REPLY_SCRATCH_RETAIN_MAX 4096
+
+static char *reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
+  RS_LOG_ASSERT(len <= REPLY_SCRATCH_RETAIN_MAX, "scratch request above retention bound");
+  if (reply->scratch_cap < len) {
+    size_t cap = reply->scratch_cap ? reply->scratch_cap : 128;
+    while (cap < len) {
+      cap *= 2;
+    }
+    reply->scratch = rm_realloc(reply->scratch, cap);
+    reply->scratch_cap = cap;
+  }
+  return reply->scratch;
+}
+
+int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s,
+                                           size_t n) {
+  RS_LOG_ASSERT(n < SIZE_MAX, "prefixed string length overflow");
+  const size_t total = n + 1;
+  char *buf = total <= REPLY_SCRATCH_RETAIN_MAX ? reply_ScratchBuffer(reply, total)
+                                                : rm_malloc(total);
+  buf[0] = prefix;
+  memcpy(buf + 1, s, n);
+  int rc = RedisModule_Reply_StringBuffer(reply, buf, total);
+  if (buf != reply->scratch) {
+    rm_free(buf);
+  }
+  return rc;
 }
 
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
@@ -507,79 +547,99 @@ char *escapeSimpleString(const char *str) {
   return escaped;
 }
 
-/* Based on the value type, serialize the RSValue into redis client response */
-int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  v = RSValue_Dereference(v);
-  uint32_t len = 0;
+/* Based on the value type, serialize the RSValue into redis client response.
+ * The value is resolved (references followed, trios collapsed) and its payload
+ * fetched in a single FFI call. */
+static int replyRSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags,
+                        RSValueTrioSelection trioSelection) {
+  RSValueView view = RSValue_GetReplyView(v, trioSelection);
 
-  switch (RSValue_Type(v)) {
-    case RSValueType_String:
-      {
-        const char* str = RSValue_String_Get(v, &len);
-        return RedisModule_Reply_StringBuffer(reply, str, len);
-      }
+  switch (view.view_type) {
+    case RSValueViewType_String:
+      return RedisModule_Reply_StringBuffer(reply, view.str_ptr, view.str_len);
 
-    case RSValueType_RedisString:
-      return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
-
-    case RSValueType_Number: {
+    case RSValueViewType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        char buf[32];
-        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
-
         if (flags & SENDREPLY_FLAG_TYPED) {
           if (reply->resp3) {
-            return RedisModule_Reply_Double(reply, RSValue_Number_Get(v));
+            return RedisModule_Reply_Double(reply, view.num);
           } else {
              // In RESP2, RM_ReplyWithDouble() does not tag the response as
              // double, it's just a plain string. So we send it as simple string
              // that is converted to double by MRReply_ToValue().
+            char buf[32];
+            RSValue_NumToString(view.resolved, buf, sizeof(buf));
             return RedisModule_Reply_Error(reply, buf);
           }
         } else {
+          char buf[32];
+          size_t len = RSValue_NumToString(view.resolved, buf, sizeof(buf));
           return RedisModule_Reply_StringBuffer(reply, buf, len);
         }
       } else {
-        double numval = RSValue_Number_Get(v);
-        long long ll = numval;
-        if (ll == numval) {
+        long long ll = view.num;
+        if (ll == view.num) {
           return RedisModule_Reply_LongLong(reply, ll);
         } else {
-          return RedisModule_Reply_Double(reply, numval);
+          return RedisModule_Reply_Double(reply, view.num);
         }
       }
     }
 
-    case RSValueType_Null:
+    case RSValueViewType_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValueType_Trio: {
-      return RedisModule_Reply_RSValue(reply, RSValue_Trio_GetMiddle(v), flags);
-    }
-
-    case RSValueType_Array:
+    case RSValueViewType_Array:
       RedisModule_Reply_Array(reply);
-      for (uint32_t i = 0; i < RSValue_ArrayLen(v); i++) {
-        RedisModule_Reply_RSValue(reply, RSValue_ArrayItem(v, i), flags);
+      for (uint32_t i = 0; i < view.len; i++) {
+        replyRSValue(reply, RSValue_ArrayItem(view.resolved, i), flags,
+                     RSValueTrioSelection_Middle);
       }
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
 
-    case RSValueType_Map:
+    case RSValueViewType_Map:
       // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
       RedisModule_Reply_Map(reply);
-      for (uint32_t i = 0; i < RSValue_Map_Len(v); i++) {
+      for (uint32_t i = 0; i < view.len; i++) {
         RSValue *key, *val;
-        RSValue_Map_GetEntry(v, i, &key, &val);
-        RedisModule_Reply_RSValue(reply, key, flags);
-        RedisModule_Reply_RSValue(reply, val, flags);
+        RSValue_Map_GetEntry(view.resolved, i, &key, &val);
+        replyRSValue(reply, key, flags, RSValueTrioSelection_Middle);
+        replyRSValue(reply, val, flags, RSValueTrioSelection_Middle);
       }
       RedisModule_Reply_MapEnd(reply);
       break;
-
-    default:
-      RedisModule_Reply_Null(reply);
   }
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+  return replyRSValue(reply, v, flags, RSValueTrioSelection_Middle);
+}
+
+int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, const RLookupRow *row,
+                                 uint32_t requiredFlags, uint32_t excludeFlags,
+                                 SendReplyFlags flags, unsigned int apiVersion) {
+  RSValueTrioSelection trioSelection = RSValueTrioSelection_Left;
+  if (flags & SENDREPLY_FLAG_EXPAND) {
+    trioSelection = RSValueTrioSelection_Right;
+  } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+    trioSelection = RSValueTrioSelection_Middle;
+  }
+
+  RLOOKUP_FOREACH(kk, lk, {
+    const uint32_t kflags = RLookupKey_GetFlags(kk);
+    if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) ||
+        (kflags & requiredFlags) != requiredFlags) {
+      continue;
+    }
+    const RSValue *v = RLookupRow_Get(kk, row);
+    if (!v) {
+      continue;
+    }
+    RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+    replyRSValue(reply, v, flags, trioSelection);
+  });
   return REDISMODULE_OK;
 }
 

@@ -10,7 +10,7 @@
 //! Safe wrappers around the C [`ffi::dict`] type.
 
 use std::cell::UnsafeCell;
-use std::ffi::{c_char, c_void};
+use std::ffi::{c_char, c_int, c_void};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
@@ -258,15 +258,17 @@ impl<DT: DictType> Dict<DT> {
         Some(unsafe { &mut *val_ptr.cast::<DT::V>() })
     }
 
-    /// Remove the entry for `key` from this dict, if present.
+    /// Remove the entry for `key` from this dict, returning whether an entry was
+    /// found and removed.
     ///
     /// If the dict's `valDestructor` is set, it is invoked to free the removed value.
     /// The key is only borrowed for the duration of this call.
-    pub fn remove(&mut self, key: DT::K<'_>) {
+    pub fn remove(&mut self, key: DT::K<'_>) -> bool {
         // SAFETY: self points to a valid dict; key is valid for the duration of the lookup.
-        DT::with_key_ptr(key, |key| unsafe {
+        let status = DT::with_key_ptr(key, |key| unsafe {
             ffi::RS_dictDelete(self.as_mut_ptr(), key)
         });
+        status == ffi::DICT_OK as c_int
     }
 
     /// Iterate over all entries in this dict.

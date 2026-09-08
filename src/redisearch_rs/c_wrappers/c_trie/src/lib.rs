@@ -15,10 +15,12 @@
 //! front-anchored. [`TrieTerm`] represents terms valid for trie operations,
 //! while [`LoweredPattern`] carries the wildcard patterns they walk.
 
+mod query_request_timeout;
 mod suffix;
 mod terms;
 mod util;
 
+pub use query_request_timeout::QueryRequestTimeoutHandle;
 pub use suffix::{SuffixMode, SuffixTrie, SuffixWalk};
 pub use terms::{
     FuzzyWalk, InvalidFuzzyDistance, TermsTrie, TermsTrieAllIterator, TermsTrieDecrResult,

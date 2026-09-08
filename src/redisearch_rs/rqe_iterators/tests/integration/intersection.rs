@@ -1538,3 +1538,24 @@ fn intersection_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [2, 3]);
     assert_current_contract_via_skip_to(&mut it, 10);
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "65536 children is too slow under miri")]
+fn child_count_is_not_capped_at_16_bits() {
+    // One past `u16::MAX`, the widest child count a 16-bit capacity can hold.
+    const CHILD_COUNT: usize = 65536;
+
+    let children = create_children(CHILD_COUNT, &[1]);
+    let mut ii = ContractChecker::new(Intersection::new(children, 1.0, false));
+    let result = ii.read().expect("read failed").expect("should have result");
+
+    assert_eq!(result.doc_id, 1);
+    assert_eq!(
+        result
+            .as_aggregate()
+            .expect("an intersection result is an aggregate")
+            .len(),
+        CHILD_COUNT,
+        "every child matches doc 1, so all of them belong to the aggregate"
+    );
+}

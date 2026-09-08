@@ -13,10 +13,11 @@
 //! Index layout: doc `i` (1..=n) is `[i; dim]` under L2, so distance to query
 //! `[q; dim]` is `dim*(q-i)^2` and the nearest neighbours are the highest ids.
 
-use std::{ffi::c_void, ptr, ptr::NonNull};
+use std::{cell::UnsafeCell, ffi::c_void, ptr, ptr::NonNull};
 
 use ffi::{
-    AlgoParams, BFParams, HNSWParams, VecSearchMode, VecSearchMode_EMPTY_MODE,
+    AlgoParams, BFParams, HNSWParams, QueryRequestTimeout,
+    QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode, VecSearchMode_EMPTY_MODE,
     VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
     VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
     VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
@@ -46,6 +47,8 @@ pub fn uniform_blob(value: f32, dim: usize) -> Vec<u8> {
 /// so they cannot outlive the index.
 pub struct TestIndex {
     index: NonNull<VecSimIndex>,
+    /// Standalone sources use request timeout state whose active source remains UNARMED.
+    timeout: Box<UnsafeCell<QueryRequestTimeout>>,
     /// Dimensionality every query blob for this index must match.
     dim: usize,
 }
@@ -70,7 +73,20 @@ impl TestIndex {
             }
         };
         fill(&mut add);
-        Self { index, dim }
+        // SAFETY: zero is a valid representation of the C timeout object. `UnsafeCell` permits
+        // the C timeout API to access the storage without creating an aliased Rust reference.
+        let timeout = Box::new(UnsafeCell::new(unsafe {
+            std::mem::zeroed::<QueryRequestTimeout>()
+        }));
+        // Keep the intended state explicit rather than depending only on the enum's numeric value.
+        unsafe {
+            (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+        }
+        Self {
+            index,
+            timeout,
+            dim,
+        }
     }
 
     /// HNSW L2 index of `n` vectors; doc `i` (1..=n) is `[i; dim]`.
@@ -221,15 +237,14 @@ impl TestIndex {
         query_params.searchMode = search_mode;
 
         // SAFETY: 1. `self` is borrowed for the source's lifetime. 2. `query` is
-        // sized for it, asserted above. Null timeout ctx and a RAM (non-disk) index.
+        // sized for it, asserted above. The timeout is owned by `self` and remains UNARMED.
         unsafe {
             VectorScoreSource::new(
                 self.index,
                 query,
                 query_params,
                 k,
-                std::mem::zeroed(),
-                true,
+                NonNull::new(self.timeout.get()).expect("boxed timeout is non-null"),
                 child_est,
                 0,
                 expiration,

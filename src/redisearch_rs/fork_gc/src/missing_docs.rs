@@ -103,7 +103,11 @@ pub fn apply_missing_docs(
     let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
         let extra = ii.memory_usage();
         let remaining_blocks = ii.number_of_blocks();
-        guard.missing_field_dict_mut().remove(&hidden);
+        let removed = guard.missing_field_dict_mut().remove(&hidden);
+        debug_assert!(
+            removed,
+            "`fetch_mut` found this field in the same dict, under the write lock we still hold"
+        );
         (extra, remaining_blocks)
     } else {
         (0, 0)

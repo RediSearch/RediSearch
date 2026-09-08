@@ -45,7 +45,7 @@ pub use config::Config;
 
 use nodes::{
     fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
-    wildcard, wildcard_query,
+    vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -62,9 +62,10 @@ pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 ///
 /// - [`Evaluated::RustLeaf`] — a Rust iterator held as a trait object, not yet
 ///   lowered to the C ABI.
-/// - [`Evaluated::C`] — an iterator *built by* the C [`ffi::Query_EvalNode`]
-///   dispatcher for a node type not yet ported. Handed straight back to C so the
-///   C-side optimizer/profiler keep seeing the original iterator.
+/// - [`Evaluated::C`] — an iterator *built by* C, either by the
+///   [`ffi::Query_EvalNode`] dispatcher for a node type not yet ported or by a C
+///   constructor a ported node calls. Handed straight back to C so the C-side
+///   optimizer/profiler keep seeing the original iterator.
 /// - [`Evaluated::RustCompound`] — an owning C-ABI handle that Rust built and
 ///   already lowered, returned as-is rather than as a trait object (see the
 ///   variant docs for the two cases that need this shape).
@@ -78,8 +79,10 @@ pub enum Evaluated<'index> {
     /// if and when it crosses back to C.
     RustLeaf(EvalResult<'index>),
 
-    /// An owning C iterator handle built by the C [`ffi::Query_EvalNode`]
-    /// dispatcher for a node type not yet ported to Rust.
+    /// An owning C iterator handle built by C: either by the
+    /// [`ffi::Query_EvalNode`] dispatcher, for a node type not yet ported to
+    /// Rust, or by a C constructor a ported node calls (e.g.
+    /// [`ffi::NewVectorIterator`]).
     C(NonNull<ffi::QueryIterator>),
 
     /// An owning C-ABI [`QueryIterator`](ffi::QueryIterator) handle that Rust
@@ -197,6 +200,7 @@ pub fn eval_node<'index>(
         QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
         QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
+        QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
         QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
         QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
         // Binds nothing, so the node stays free to be passed on by value —

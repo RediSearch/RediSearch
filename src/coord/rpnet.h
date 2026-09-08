@@ -14,11 +14,21 @@
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
-#include "hybrid/hybrid_cursor_mappings.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Which FT.HYBRID subquery stream this RPNet consumes, if any. A hybrid RPNet
+// reads a cursor stream whose per-shard commands are armed by the hybrid
+// fan-out callback (see dist_hybrid.c), which also injects mapping-stage shard
+// errors and warning strings into the stream — both need processing the plain
+// aggregate stream never sees.
+typedef enum {
+  RPNET_HYBRID_NONE = 0,
+  RPNET_HYBRID_SEARCH,
+  RPNET_HYBRID_VSIM,
+} RPNetHybridSubquery;
 
 typedef struct {
   ResultProcessor base;
@@ -34,11 +44,10 @@ typedef struct {
   MRCommand cmd;
   AREQ *areq;
 
-  // NEW: Direct cursor mappings (no more dispatcher context)
-  StrongRef mappings;  // Single mapping array per RPNet
-
   // profile vars
   arrayof(MRReply *) shardsProfile;
+
+  RPNetHybridSubquery hybridSubquery;
 
   // True when this is an async WITHCOUNT aggregate; total_results is
   // accumulated by withCountReplyCb on the IO thread, surfaced into
@@ -69,7 +78,6 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
-int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 
 // Get the next reply from the channel.
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies
