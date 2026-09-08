@@ -83,16 +83,6 @@ jobs:
               'ec2_instance_type': ''
           }
 
-          # Bullseye is EOL; pin metadata and packages together before live mirrors remove them.
-          # Only snapshot expiry checks are disabled; APT still verifies signatures.
-          bullseye_setup = (
-              "printf '%s\\n'"
-              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main'"
-              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main'"
-              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye-updates main'"
-              " > /etc/apt/sources.list"
-              " && apt update && apt install -y git"
-          )
 
           # Platform configurations
           platform_configs = {
@@ -214,18 +204,6 @@ jobs:
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -sf /usr/bin/node /opt/bin/node',
                       'name': 'Alpine 3 ARM64'
-                  }
-              },
-              "debian:bullseye": {
-                  "x86_64": {
-                      'container': 'gcc:11-bullseye',
-                      'setup_script': bullseye_setup,
-                      'name': 'Debian Bullseye x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'gcc:11-bullseye',
-                      'setup_script': bullseye_setup,
-                      'name': 'Debian Bullseye ARM64'
                   }
               },
               "debian:bookworm": {

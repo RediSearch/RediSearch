@@ -60,8 +60,6 @@ jobs:
               ('amazonlinux:2', 'x86_64'),
               ('amazonlinux:2023', 'x86_64'),
               ('amazonlinux:2023', 'aarch64'),
-              ('debian:bullseye', 'x86_64'),
-              ('debian:bullseye', 'aarch64'),
               ('debian:bookworm', 'x86_64'),
               ('debian:bookworm', 'aarch64'),
               ('mariner:2', 'x86_64'),
