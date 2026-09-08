@@ -103,6 +103,17 @@ jobs:
           # Platforms that don't support node20
           node20_unsupported_platforms = ['amazonlinux:2']
 
+          # Bullseye is EOL; pin metadata and packages together before live mirrors remove them.
+          # Only snapshot expiry checks are disabled; APT still verifies signatures.
+          bullseye_setup = (
+              "printf '%s\\n'"
+              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main'"
+              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main'"
+              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye-updates main'"
+              " > /etc/apt/sources.list"
+              " && apt update && apt install -y git"
+          )
+
           # Platform configurations
           platform_configs = {
               "macos-15": {
@@ -232,12 +243,12 @@ jobs:
               "debian:bullseye": {
                   "x86_64": {
                       'container': 'gcc:11-bullseye',
-                      'setup_script': 'apt update && apt install -y git',
+                      'setup_script': bullseye_setup,
                       'name': 'Debian Bullseye x86_64'
                   },
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
-                      'setup_script': 'apt update && apt install -y git',
+                      'setup_script': bullseye_setup,
                       'name': 'Debian Bullseye ARM64'
                   }
               },
