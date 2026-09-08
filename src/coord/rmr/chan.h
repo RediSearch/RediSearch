@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #pragma once
 
@@ -24,6 +24,10 @@ void MRChannel_Push(MRChannel *chan, void *ptr);
  * Return NULL if the channel is empty and MRChannel_Unblock was called by another thread */
 void *MRChannel_Pop(MRChannel *chan);
 
+// Pop an available item without waiting for a producer. Safe with another consumer;
+// an empty pop does not change the blocking consumer's wake/abort state.
+void *MRChannel_TryPop(MRChannel *chan);
+
 /* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
  * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
  * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;
@@ -36,7 +40,8 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
 void MRChannel_WakeAbort(MRChannel *chan);
 
 // Same as MRChannel_Pop, but does not lock the channel nor wait for results if it's empty.
-// This is unsafe, and should only be used when the caller is sure that the channel is not being used by other threads.
+// This is unsafe, and should only be used when the caller is sure that the channel is not being
+// used by other threads.
 void *MRChannel_UnsafeForcePop(MRChannel *chan);
 
 // Make channel unblocking for a single call to `MRChannel_Pop`.
