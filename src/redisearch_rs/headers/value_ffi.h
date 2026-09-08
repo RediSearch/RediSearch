@@ -278,6 +278,9 @@ bool RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, struct Qu
  * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
  * 2. The pointers in the returned view borrow from `value` and must not
  *    outlive it.
+ * 3. `trio_selection` must be a declared [`RSValueTrioSelection`] variant.
+ *    Passing any other integer from C is undefined behavior, even when `value`
+ *    is not a trio.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

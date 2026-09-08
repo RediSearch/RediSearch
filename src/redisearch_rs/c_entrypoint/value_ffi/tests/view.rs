@@ -32,6 +32,7 @@ const fn as_value_ptr(value: &Value) -> *const RSValue {
 fn number_view() {
     let value = Value::Number(3.5);
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
+    // The selector is a declared enum variant.
     let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Number);
     assert_eq!(view.num, 3.5);
@@ -42,6 +43,7 @@ fn number_view() {
 fn null_and_undefined_views() {
     for value in [Value::Null, Value::Undefined] {
         // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
+        // The selector is a declared enum variant.
         let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value), DEFAULT_TRIO_SELECTION) };
         assert_eq!(view.view_type, RSValueViewType::Null);
     }
@@ -55,6 +57,7 @@ fn null_and_undefined_views() {
 fn string_view_preserves_embedded_nul() {
     let value = SharedValue::new_string(b"a\0b".to_vec());
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
+    // The selector is a declared enum variant.
     let view = unsafe { RSValue_GetReplyView(as_rs_value(&value), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::String);
     // SAFETY: the view borrows `value`, which outlives the slice; `str_ptr`/`str_len`
@@ -73,6 +76,7 @@ fn reference_chain_resolves_to_leaf() {
     let inner = SharedValue::new(Value::Ref(leaf));
     let outer = Value::Ref(inner);
     // SAFETY: `outer` is a live local, so the pointer is a valid `RSValue` for the call.
+    // The selector is a declared enum variant.
     let view = unsafe { RSValue_GetReplyView(as_value_ptr(&outer), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Number);
     assert_eq!(view.num, 7.0);
@@ -89,13 +93,13 @@ fn outer_trio_uses_requested_selection() {
         SharedValue::new_num(2.0),
         SharedValue::new_num(3.0),
     );
-    // SAFETY: `trio` is a live local, so the pointer is a valid `RSValue` for the call.
     for (selection, expected) in [
         (RSValueTrioSelection::Left, 1.0),
         (RSValueTrioSelection::Middle, 2.0),
         (RSValueTrioSelection::Right, 3.0),
     ] {
-        // SAFETY: `trio` is live for the duration of each call.
+        // SAFETY: `trio` is live for the duration of each call, and `selection`
+        // is one of the declared enum variants above.
         let view = unsafe { RSValue_GetReplyView(as_rs_value(&trio), selection) };
         assert_eq!(view.view_type, RSValueViewType::Number);
         assert_eq!(view.num, expected);
@@ -117,7 +121,8 @@ fn trio_reached_through_reference_keeps_recursive_middle_selection() {
 
     // The selector applies only to an outer trio. A trio reached while resolving
     // references keeps the established recursive-serialization behavior.
-    // SAFETY: `reference` is live for the duration of the call.
+    // SAFETY: `reference` is live for the duration of the call, and the selector
+    // is a declared enum variant.
     let view =
         unsafe { RSValue_GetReplyView(as_value_ptr(&reference), RSValueTrioSelection::Right) };
     assert_eq!(view.view_type, RSValueViewType::Number);
@@ -132,6 +137,7 @@ fn trio_reached_through_reference_keeps_recursive_middle_selection() {
 fn array_view_reports_len_and_container() {
     let array = SharedValue::new_array([SharedValue::new_num(1.0), SharedValue::new_num(2.0)]);
     // SAFETY: `array` is a live local, so the pointer is a valid `RSValue` for the call.
+    // The selector is a declared enum variant.
     let view = unsafe { RSValue_GetReplyView(as_rs_value(&array), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Array);
     assert_eq!(view.len, 2);
@@ -146,6 +152,7 @@ fn array_view_reports_len_and_container() {
 fn map_view_reports_len_and_container() {
     let map = SharedValue::new_map([(SharedValue::new_num(1.0), SharedValue::new_num(2.0))]);
     // SAFETY: `map` is a live local, so the pointer is a valid `RSValue` for the call.
+    // The selector is a declared enum variant.
     let view = unsafe { RSValue_GetReplyView(as_rs_value(&map), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Map);
     assert_eq!(view.len, 1);
@@ -164,6 +171,7 @@ fn redis_string_view_exposes_ptr_len() {
     // `RedisString`, which frees it on drop.
     let value = Value::RedisString(unsafe { RedisString::from_raw(raw) });
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
+    // The selector is a declared enum variant.
     let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::String);
     // SAFETY: the view borrows `value`, which outlives the slice; `str_ptr`/`str_len`
