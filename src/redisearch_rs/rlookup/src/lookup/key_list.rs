@@ -24,6 +24,8 @@ pub struct KeyList<'a> {
     // of lookup keys. Overridden keys created through `CursorMut::override_current` increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     pub(crate) rowlen: u32,
+    // See `KeyList::seal`.
+    sealed: bool,
 }
 
 /// A cursor over an [`RLookup`][crate::RLookup]'s key list.
@@ -66,7 +68,25 @@ impl<'a> KeyList<'a> {
             head: None,
             tail: None,
             rowlen: 0,
+            sealed: false,
         }
+    }
+
+    /// Seal this list: from now on it is **append-only**.
+    ///
+    /// [`Self::push`] stays legal — document loaders and the coordinator
+    /// append keys during execution — but operations that change *existing*
+    /// keys ([`CursorMut::override_current`]) panic. Called once pipeline
+    /// construction is complete, so that anything compiled from the key set
+    /// (cached key pointers, reply plans) can rely on existing entries never
+    /// changing underneath it. Idempotent.
+    pub(crate) const fn seal(&mut self) {
+        self.sealed = true;
+    }
+
+    /// Whether [`Self::seal`] has been called.
+    pub(crate) const fn is_sealed(&self) -> bool {
+        self.sealed
     }
 
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
@@ -366,6 +386,12 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     /// receive a **new pointer identity**. The *new key* is returned.
     ///
     /// The old key remains as a hidden tombstone in the linked list.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the list has been sealed (see
+    /// [`RLookup::seal`](crate::RLookup::seal)): overriding changes an
+    /// existing key, which sealed lookups forbid.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
     pub fn override_current<'b>(
@@ -375,6 +401,11 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     where
         'a: 'b,
     {
+        assert!(
+            !self.list.sealed,
+            "cannot override a key in a sealed RLookup (sealed lookups are append-only)"
+        );
+
         let mut old = self.current()?;
 
         let new = {
@@ -794,6 +825,29 @@ mod tests {
             .map(|k| k.name().as_ref().to_owned())
             .collect();
         assert_eq!(names, vec![c"foo".to_owned()]);
+    }
+
+    // Sealing permits appends but makes overrides panic.
+    #[test]
+    fn sealed_keylist_allows_push() {
+        let mut keylist = KeyList::new();
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.seal();
+
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        assert!(keylist.find_by_name(c"bar").is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "sealed")]
+    fn sealed_keylist_forbids_override() {
+        let mut keylist = KeyList::new();
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.seal();
+
+        keylist
+            .cursor_front_mut()
+            .override_current(RLookupKeyFlags::empty());
     }
 
     #[test]
