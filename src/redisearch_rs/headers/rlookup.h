@@ -66,7 +66,8 @@ enum RLookup_F
    */
   RLOOKUP_F_UNRESOLVED = 0x80,
   /**
-   * This field is excluded from top-level client replies.
+   * This field is hidden within the document and is only used as a transient
+   * field for another consumer. Don't output this field.
    */
   RLOOKUP_F_HIDDEN = 0x100,
   /**
