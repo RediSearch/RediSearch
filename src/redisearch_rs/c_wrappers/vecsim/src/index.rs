@@ -270,9 +270,11 @@ impl<'index> IndexRef<'index> {
         let query = unsafe { self.prepare_query(query_vector) };
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimTieredIndex_AcquireSharedLocks(self.inner.as_ptr()) };
+        let lookup_args = (self.inner.as_ptr(), query.ptr());
         SharedLockGuard {
             index: *self,
             query,
+            lookup_args,
         }
     }
 
@@ -361,6 +363,14 @@ pub struct SharedLockGuard<'index> {
     /// call: an owned normalized copy for cosine indexes, or a borrow of the
     /// caller's blob (no copy) for non-cosine — see [`PreparedAdhocQueryBlob`].
     query: PreparedAdhocQueryBlob,
+    /// The two arguments every [`get_distance_from`](Self::get_distance_from)
+    /// passes to VecSim, resolved once here so a lookup is a single call rather
+    /// than a re-walk of [`index`](Self::index) and [`query`](Self::query).
+    ///
+    /// Stays valid for the guard's lifetime: the blob is never mutated after
+    /// the guard is built, and neither variant of [`PreparedAdhocQueryBlob`]
+    /// keeps its bytes inline, so moving the guard does not move them.
+    lookup_args: (*mut VecSimIndex, *const c_void),
 }
 
 impl SharedLockGuard<'_> {
@@ -369,20 +379,15 @@ impl SharedLockGuard<'_> {
     /// returns `NaN` (label not found).
     pub fn get_distance_from(&self, doc_id: DocId) -> Option<f64> {
         // SAFETY:
-        // 1. `self.index.inner` upholds its invariant.
+        // 1. `lookup_args.0` is `IndexRef::inner`, which upholds its invariant.
         // 2. The tiered-index shared locks are held for the lifetime of
         //    `self`, satisfying the `_Unsafe` precondition.
-        // 3. `self.query` was sized and (for cosine) normalized to match the
-        //    index in `acquire_shared_locks`. For the non-cosine `Borrowed`
-        //    variant the pointer aliases the caller's blob, whose validity for
+        // 3. `lookup_args.1` addresses a blob sized and (for cosine) normalized
+        //    to match the index in `acquire_shared_locks`. For the non-cosine
+        //    `Borrowed` variant it aliases the caller's blob, whose validity for
         //    `self`'s lifetime is guaranteed by `acquire_shared_locks`' contract.
-        let distance = unsafe {
-            VecSimIndex_GetDistanceFrom_Unsafe(
-                self.index.inner.as_ptr(),
-                doc_id as usize,
-                self.query.ptr(),
-            )
-        };
+        let (index, query) = self.lookup_args;
+        let distance = unsafe { VecSimIndex_GetDistanceFrom_Unsafe(index, doc_id as usize, query) };
         (!distance.is_nan()).then_some(distance)
     }
 }
