@@ -65,6 +65,29 @@ class RPNetBufferedDrainTest : public ::testing::Test {
   }
 };
 
+TEST_F(RPNetBufferedDrainTest, lookupIteratorKeepsOriginalBoundAcrossDynamicGrowth) {
+  auto iterator = RLookup_Iter(&lookup);
+  SearchResult result = SearchResult_New();
+  for (int i = 0; i < 100; ++i) {
+    auto name = "dynamic_" + std::to_string(i);
+    RLookupRow_WriteByNameOwned(&lookup, name.data(), name.size(),
+                                SearchResult_GetRowDataMut(&result), RSValue_NewNumber(i));
+  }
+  const RLookupKey *current = nullptr;
+  ASSERT_TRUE(RLookupIterator_Next(&iterator, &current));
+  EXPECT_EQ(key, current);
+  EXPECT_FALSE(RLookupIterator_Next(&iterator, &current));
+  EXPECT_FALSE(RLookupIterator_Next(&iterator, &current));
+  auto fresh = RLookup_Iter(&lookup);
+  size_t count = 0;
+  while (RLookupIterator_Next(&fresh, &current)) {
+    EXPECT_EQ(count, RLookupKey_GetDstIdx(current));
+    ++count;
+  }
+  EXPECT_EQ(101, count);
+  SearchResult_Destroy(&result);
+}
+
 TEST_F(RPNetBufferedDrainTest, queuedRowsRemainSerializableAndEOFTerminal) {
   MRChannel_Push(channel,
                  parseReply("*2\r\n*3\r\n:2\r\n*2\r\n+n\r\n:1\r\n*2\r\n+n\r\n:2\r\n:0\r\n"));
