@@ -36,22 +36,11 @@ impl ResultProcessor for Counter {
             .upstream()
             .expect("There is no processor upstream of this counter.");
 
-        let mut count = 0;
-        let status = loop {
-            match upstream.next(res) {
-                Ok(Some(())) => {
-                    count += 1;
-                    res.clear();
-                }
-                Ok(None) => break Ok(()),
-                Err(error) => break Err(error),
-            }
-        };
-        // `next` is the only writer today. Keeping the total atomic makes shared
-        // processor entry sound while paying one atomic operation per invocation,
-        // rather than one per consumed result.
-        self.count.fetch_add(count, Ordering::Relaxed);
-        status?;
+        while upstream.next(res)?.is_some() {
+            // Publish progress before the next upstream call can block.
+            self.count.fetch_add(1, Ordering::Relaxed);
+            res.clear();
+        }
 
         // In profiling mode, RPProfile is interleaved into the result processor chain: A chain of
         // processors A -> B -> C becomes A -> RPProfile -> B -> RPProfile -> C -> RPProfile, to
@@ -100,6 +89,48 @@ pub(crate) mod test {
     use super::*;
     use crate::test_utils::{Chain, from_iter};
     use std::iter;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn count_is_visible_while_upstream_is_blocked() {
+        let paused = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        let source_paused = Arc::clone(&paused);
+        let source_resume = Arc::clone(&resume);
+        let mut remaining = 3;
+        let mut chain = Chain::new();
+        chain.append(from_iter(iter::from_fn(move || {
+            if remaining > 0 {
+                remaining -= 1;
+                Some(SearchResult::default())
+            } else {
+                source_paused.wait();
+                source_resume.wait();
+                None
+            }
+        })));
+        chain.append(Counter::new());
+        let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
+
+        let (status, observed_count) = thread::scope(|scope| {
+            let observer = scope.spawn(|| {
+                paused.wait();
+                let count = rp.count.load(Ordering::Relaxed);
+                resume.wait();
+                count
+            });
+            let status = rp.next(cx, &mut SearchResult::default());
+            (status, observer.join().unwrap())
+        });
+
+        assert_eq!(status, Ok(None));
+        assert_eq!(observed_count, 3);
+    }
 
     #[test]
     #[cfg_attr(
