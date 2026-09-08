@@ -126,6 +126,17 @@ def scan_log_fragments(logFilePath, expected_fragments, crash_report_only=False)
     return results
 
 
+def assert_log_fragments(env, log_path, results):
+    found = [fragment for fragment, value in results.items() if value is not None]
+    complete = len(found) == len(results)
+    message = f"Expected fragments in order in {log_path}"
+    if not complete:
+        message += f"; log tail: {''.join(read_log_lines(log_path)[-10:])!r}"
+    for fragment in results:
+        env.assertContains(fragment, found, depth=1, message=message)
+    return complete
+
+
 def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_rust=False,
                                crash_report_only=False):
     """Crash a query thread mid-execution and scan the crash log."""
@@ -161,9 +172,8 @@ def test_query_thread_crash():
         "search_index_failures:",
     ])
 
-    # Verify all fragments were found
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, log_path, results):
+        return
 
     env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
@@ -231,9 +241,8 @@ def test_query_thread_crash_with_rust_panic():
         crash_report_only=True,
     )
 
-    # Verify all fragments were found
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, log_path, results):
+        return
 
     # The panic details must be emitted as INFO fields inside the bug-report
     # span: the hook's tracing line is not enough, since it lands above the
@@ -293,6 +302,16 @@ def test_query_thread_crash_with_rust_panic():
     env.assertIn("search_rust_backtrace", results["# search_rust_backtrace"])
 
 
+def crash_main_thread(conn):
+    # DEBUG SEGFAULT raises SIGBUS on macOS 14 ARM64, where libunwind traps while
+    # collecting Rust backtraces. DEBUG PANIC still runs the module crash-report
+    # callbacks on the main thread, without unwinding that faulting signal frame.
+    try:
+        conn.execute_command('DEBUG', 'PANIC')
+    except redis.exceptions.ConnectionError:
+        pass
+
+
 def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
     """Block an FT.SEARCH and an FT.CURSOR READ on a paused worker pool, then
     crash the main thread. Returns (logFilePath, cursor_id) for scanning the
@@ -329,10 +348,7 @@ def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
     wait_for_blocked_query_client(env, 'FT.SEARCH')
     wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
 
-    try:
-        env.cmd('DEBUG', 'SEGFAULT')  # crash the main thread
-    except Exception:
-        pass
+    crash_main_thread(env.getConnection())
 
     return logFilePath, cursor_id
 
@@ -353,8 +369,8 @@ def test_main_thread_crash_reports_blocked_queries():
         '# search_blocked_cursors',
         f'search_{cursor_id}:index=idx,started_at=',
     ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, logFilePath, results):
+        return
     env.assertGreater(int(results['search_idx:started_at=']), 0)
 
 
@@ -378,8 +394,8 @@ def test_main_thread_crash_reports_blocked_queries_obfuscated():
         '# search_blocked_cursors',
         f'search_{cursor_id}:index={obfuscated},started_at=',
     ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, logFilePath, results):
+        return
 
     # The raw index name must not leak into the blocked-query entries.
     with open(logFilePath) as logFile:
@@ -437,10 +453,7 @@ def test_main_thread_crash_reports_blocked_coordinator_queries():
     wait_for_blocked_query_client(env, 'FT.AGGREGATE')
     wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
 
-    try:
-        coordinator.execute_command('DEBUG', 'SEGFAULT')  # crash the coordinator's main thread
-    except Exception:
-        pass
+    crash_main_thread(coordinator)
 
     results = scan_log_fragments(logFilePath, [
         '# search_blocked_queries',
@@ -448,6 +461,6 @@ def test_main_thread_crash_reports_blocked_coordinator_queries():
         '# search_blocked_cursors',
         f'search_{cursor_id}:index=idx,started_at=',
     ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, logFilePath, results):
+        return
     env.assertGreater(int(results['search_idx:started_at=']), 0)
