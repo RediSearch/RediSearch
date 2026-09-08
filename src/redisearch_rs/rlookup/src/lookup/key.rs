@@ -60,7 +60,8 @@ pub enum RLookupKeyFlag {
     #[cheadergen(rename = "RLOOKUP_F_UNRESOLVED")]
     Unresolved = 0x80,
 
-    /// This field is excluded from top-level client replies.
+    /// This field is hidden within the document and is only used as a transient
+    /// field for another consumer. Don't output this field.
     #[cheadergen(rename = "RLOOKUP_F_HIDDEN")]
     Hidden = 0x100,
 
