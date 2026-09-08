@@ -111,6 +111,15 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+int RedisSearchCtx_TryLockSpecWrite(RedisSearchCtx *ctx) {
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
+  if (pthread_rwlock_trywrlock(&ctx->spec->rwlock) != 0) {
+    return REDISMODULE_ERR;  // a reader (or writer) holds it
+  }
+  ctx->lock_state = SPEC_LOCK_WRITE;
+  return REDISMODULE_OK;
+}
+
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
 #ifdef ENABLE_ASSERT
