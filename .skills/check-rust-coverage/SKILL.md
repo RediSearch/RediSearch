@@ -16,7 +16,27 @@ If a path points to a directory, consider all Rust crates in that directory.
 
 ## Instructions
 
-Run
+Prefer the swamp model, which runs the same command and records the uncovered
+lines as versioned data — as ranges per file, worst covered first — so the result
+can be referenced later instead of re-measured:
+
+swamp is optional here: check `command -v swamp` first, and follow the by-hand
+path below if it is not installed. Its files live under `swamp/`, and swamp only
+looks *upward* for them, so these commands need `--repo-dir swamp` from the
+repository root — or the export below, once per shell. See *Where swamp lives in
+this repository* in `AGENTS.md`.
+
+```bash
+export SWAMP_REPO_DIR="$PWD/swamp"
+swamp model method run rust-coverage run --input '{"crate":"<crate_name>"}'
+swamp data get rust-coverage summary --json | jq '.content.files'
+```
+
+Omit `crate` to measure the whole workspace; it then reads the bencher-crate
+exclude list out of `build.sh`, because instrumenting those crates fails at link
+time. Pass `manifestPath` instead of `crate` to point at a Cargo.toml directly.
+
+The equivalent by hand, if swamp is unavailable:
 
 ```bash
 cargo llvm-cov test --manifest-path <crate_directory>/Cargo.toml --quiet --json 2>/dev/null | jq -r '"Uncovered Lines:",
