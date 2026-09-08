@@ -24,6 +24,10 @@ harness = false
 name = "add_record"
 harness = false
 
+[[bench]]
+name = "tail_block_repair"
+harness = false
+
 [dependencies]
 buffer.workspace = true
 criterion.workspace = true

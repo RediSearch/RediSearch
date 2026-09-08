@@ -239,3 +239,43 @@ fn expiration_bit_survives_gc() {
     }
     assert!(!reader.next_record(&mut result).unwrap());
 }
+
+#[test]
+fn expiration_bit_survives_prefix_replay() {
+    // Like `expiration_bit_survives_gc`, but the first entry survives, so the
+    // repair replays a non-empty prefix from the buffer. The bits live in a side
+    // bitset addressed by ordinal rather than in the encoding, so an off-by-one
+    // in the replay's ordinal shifts every bit in the prefix.
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    let entries: &[(DocId, bool)] = &[(10, true), (11, false), (12, false), (13, true)];
+    for &(doc_id, has_exp) in entries {
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
+        ii.add_record(&rec).unwrap();
+    }
+
+    // Drop only doc 12, so 10 and 11 are read and dropped before the repair
+    // discovers the block changes.
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id != 12,
+            None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+        )
+        .expect("scan_gc ok")
+        .expect("scan_gc found entries to remove");
+    ii.apply_gc(delta);
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    for &(doc_id, has_exp) in &[(10u64, true), (11, false), (13, true)] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, doc_id);
+        assert_eq!(
+            result.has_field_expiration, has_exp,
+            "the prefix replay must preserve the expiration bit for doc {doc_id}"
+        );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
