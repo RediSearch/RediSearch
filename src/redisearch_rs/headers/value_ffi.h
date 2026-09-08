@@ -11,6 +11,15 @@
 #include "hiredis/sds.h"
 
 /**
+ * Selects which value an outer [`Value::Trio`] exposes to reply serialization.
+ */
+typedef enum RSValueTrioSelection {
+  RSValueTrioSelection_Left = 0,
+  RSValueTrioSelection_Middle = 1,
+  RSValueTrioSelection_Right = 2,
+} RSValueTrioSelection;
+
+/**
  * Enumeration of the types an [`RSValue`] can be of.
  *
  */
@@ -78,8 +87,7 @@ typedef struct RedisModuleString RedisModuleString;
  */
 typedef struct RSValueView {
   /**
-   * The fully resolved value this view describes: references followed,
-   * trios collapsed to their middle element. Borrows from the input value.
+   * The fully resolved value this view describes. Borrows from the input value.
    */
   const struct RSValue *resolved;
   /**
@@ -261,20 +269,22 @@ bool RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, struct Qu
 /**
  * Returns the reply-side view of `value` in a single call.
  *
- * The value is resolved the way `RedisModule_Reply_RSValue` historically
- * resolved it: references are followed, and a trio reached during resolution
- * collapses to its middle element (format-driven trio selection is the
- * caller's concern and must happen before this call).
+ * If `value` is a [`Value::Trio`], `trio_selection` chooses its exposed value.
+ * References are then followed, and any further trio reached during resolution
+ * collapses to its middle element, matching recursive reply serialization.
  *
  * # Safety
  *
  * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
  * 2. The pointers in the returned view borrow from `value` and must not
  *    outlive it.
+ * 3. `trio_selection` must be a declared [`RSValueTrioSelection`] variant.
+ *    Passing any other integer from C is undefined behavior, even when `value`
+ *    is not a trio.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValueView RSValue_GetReplyView(const struct RSValue *value);
+struct RSValueView RSValue_GetReplyView(const struct RSValue *value, enum RSValueTrioSelection trio_selection);
 
 /**
  * Computes a HashDoS-resistant 64-bit hash of an [`RSValue`], mixing in `hval` so that
