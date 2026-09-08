@@ -18,7 +18,6 @@ To build and test RediSearch you need to install several packages, depending on 
 * Ubuntu 20.04
 * Ubuntu 22.04
 * Ubuntu 24.04
-* Debian linux 11
 * Debian linux 12
 * Rocky linux 8
 * Rocky linux 9
@@ -42,7 +41,6 @@ For installing the prerequisites you can take the following approaches:
    - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
    - Ubuntu 22.04: GCC 12 (not default, PPA not required)
    - Ubuntu 24.04: Default GCC is sufficient
-   - Debian 11: Default GCC is sufficient
    - Debian 12: Default GCC is sufficient
    - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
    - Rocky Linux 9: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
