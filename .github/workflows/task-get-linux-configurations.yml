@@ -122,17 +122,31 @@ jobs:
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates"})
 
+          # Bullseye is EOL; pin metadata and packages together before live mirrors remove them.
+          # The minimal image has no CA certificates; bootstrap over HTTP with APT signatures.
+          # Only snapshot expiry checks are disabled; switch to HTTPS once certificates exist.
+          bullseye_setup = (
+              "printf '%s\\n'"
+              " 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main'"
+              " 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main'"
+              " 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye-updates main'"
+              " > /etc/apt/sources.list"
+              " && apt update && apt install -y git ca-certificates"
+              " && sed -i 's|http://snapshot.debian.org/|https://snapshot.debian.org/|g' /etc/apt/sources.list"
+          )
+
           # Ubuntu and Debian distributions need git pre-checkout dependencies
           debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'debian:bullseye', 'gcc:12-bookworm']
           for os_name in debian_based_os:
+            pre_deps = bullseye_setup if os_name == 'debian:bullseye' else "apt update && apt install -y git"
             if os_name in x86_platforms:
               x86_include.append({
                 'OS': os_name,
-                'pre-deps': "apt update && apt install -y git"})
+                'pre-deps': pre_deps})
             if os_name in arm_platforms:
               arm_include.append({
                 'OS': os_name,
-                'pre-deps': "apt update && apt install -y git"})
+                'pre-deps': pre_deps})
 
           # rockylinux needs git pre-checkout dependencies
           for rocky_version in ['rockylinux:8', 'rockylinux:9']:
