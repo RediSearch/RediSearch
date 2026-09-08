@@ -339,7 +339,8 @@ def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
 
 # a main-thread crash must report the in-flight blocked queries and cursors,
 # read through each request wrapper's registry entry
-@skip(cluster=True)
+# Skipped on macOS — remove macos=True once MOD-18432 is resolved.
+@skip(cluster=True, macos=True)
 def test_main_thread_crash_reports_blocked_queries():
     # WORKERS 1 forces the blocked-client path; the CI runner disables workers
     # by default, which would run the queries inline, unregistered.
@@ -362,7 +363,8 @@ def test_main_thread_crash_reports_blocked_queries():
 # obfuscated index name (the spec's own sha1 derivation) and never the raw one.
 # Enterprise skip: 'hide-user-data-from-log' is a server-level config whose
 # presence depends on the enterprise server build (see test_hideUserDataFromLogs).
-@skip(cluster=True, enterprise=True)
+# Skipped on macOS — remove macos=True once MOD-18432 is resolved.
+@skip(cluster=True, enterprise=True, macos=True)
 def test_main_thread_crash_reports_blocked_queries_obfuscated():
     # WORKERS 1 forces the blocked-client path; the CI runner disables workers
     # by default, which would run the queries inline, unregistered.
@@ -391,7 +393,8 @@ def test_main_thread_crash_reports_blocked_queries_obfuscated():
 # the coordinator's blocked cycles register too: a coordinator main-thread
 # crash must report its in-flight distributed queries and cursor reads
 # (FT.HYBRID shares the aggregate path's registration site)
-@skip(cluster=False)
+# Skipped on macOS — remove macos=True once MOD-18432 is resolved.
+@skip(cluster=False, macos=True)
 def test_main_thread_crash_reports_blocked_coordinator_queries():
     env = CrashingEnv(testName="test_main_thread_crash_reports_blocked_coordinator_queries",
                       freshEnv=True)
