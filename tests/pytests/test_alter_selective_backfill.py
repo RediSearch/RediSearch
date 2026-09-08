@@ -183,48 +183,203 @@ def testAlterSkipUnchangedDocsFallbackSkipInitialScanAtCreate(env):
 
 
 @skip(cluster=True)
-def testAlterSkipUnchangedDocsFallbackPriorSkipInitialScanAlter(env):
-    """A prior 'FT.ALTER ... SKIPINITIALSCAN' that added a field without ever backfilling it
-    sets Index_HasSkippedAlterScan; a later ALTER must run a full scan even though it did not
-    itself request SKIPINITIALSCAN, since documents may still be missing that earlier field."""
+def testAlterSkipUnchangedDocsAfterSkipInitialScanAlter(env):
+    """Consecutive skipped additions join the next backfill and are cleared on completion."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'category', 'fiction')
+    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'rating', '5')
+    conn.execute_command('HSET', 'doc:3', 'title', 'charlie')
+    conn.execute_command('HSET', 'doc:4', 'title', 'delta', 'author', 'alice')
+    keys = ['doc:1', 'doc:2', 'doc:3', 'doc:4']
+    ids_before = [get_internal_id(env, key) for key in keys]
 
-    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'a', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'author', 'TAG').ok()
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@author:{alice}', 'NOCONTENT').equal([0])
+    env.assertEqual([get_internal_id(env, key) for key in keys], ids_before)
 
-    id1_before = get_internal_id(env, 'doc:1')
-
-    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'b', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    # doc:1 has neither 'a' nor 'b': only the fallback (not the shortcut) reindexes it.
-    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+    ids_after = [get_internal_id(env, key) for key in keys]
+    env.assertGreater(ids_after[0], ids_before[0])
+    env.assertGreater(ids_after[1], ids_before[1])
+    env.assertEqual(ids_after[2], ids_before[2])
+    env.assertGreater(ids_after[3], ids_before[3])
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@title:charlie', 'NOCONTENT').equal([1, 'doc:3'])
+    env.expect('FT.SEARCH', 'idx', '@rating:[5 5]', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@author:{alice}', 'NOCONTENT').equal([1, 'doc:4'])
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual([get_internal_id(env, key) for key in keys], ids_after)
 
 
 @skip(cluster=True)
-def testAlterSkipUnchangedDocsHistorySurvivesRdbReload(env):
-    """Index_HasSkippedAlterScan rides along in the persisted IndexFlags value, so after a
-    reload a later ALTER still falls back to a full scan. The reload itself reindexes every
-    document from the keyspace, so this pins the conservative (stale-but-safe) direction of
-    the persisted bit rather than a correctness requirement."""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+def testAlterPendingFieldsArePerIndex(env):
+    """An index's skipped fields do not affect another index over the same hashes."""
+    for idx in ['idx', 'other']:
+        env.expect('FT.CREATE', idx, 'SCHEMA', 'title', 'TEXT').ok()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'category', 'fiction')
+    other_id = get_internal_id(env, 'doc:1', 'other')
 
-    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'a', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    env.expect('FT.ALTER', 'other', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+    waitForIndexFinishScan(env, 'other')
+    env.assertEqual(get_internal_id(env, 'doc:1', 'other'), other_id)
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([0])
 
-    env.dumpAndReload()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # Captured after the reload: reload rebuilds the doc table, so this is the baseline for
-    # the next ALTER, not a comparison across the reload itself.
+
+@skip(cluster=True)
+def testAlterPendingFieldsJson(env):
+    """Pending JSON fields retain their JSONPath and alias during the presence probe."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.title', 'AS', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('JSON.SET', 'doc:1', '$',
+                         json.dumps({'title': 'alpha', 'meta': {'category': 'fiction'}}))
+    conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'title': 'bravo'}))
     id1_before = get_internal_id(env, 'doc:1')
-
-    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'b', 'TAG').ok()
+    id2_before = get_internal_id(env, 'doc:2')
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD',
+               '$.meta.category', 'AS', 'category', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', '$.rating', 'AS', 'rating', 'NUMERIC').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    # doc:1 has neither 'a' nor 'b': the fallback must still be in effect after reload.
     env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+    env.assertEqual(get_internal_id(env, 'doc:2'), id2_before)
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True)
+def testAlterPendingFieldOptionsForceFullScan(env):
+    """SORTABLE and INDEXMISSING require a full scan even when added by a skipped ALTER."""
+    indexes = [('missing', 'INDEXMISSING'), ('sortable', 'SORTABLE')]
+    for idx, _ in indexes:
+        env.expect('FT.CREATE', idx, 'PREFIX', '1', f'{idx}:', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for idx, option in indexes:
+        key = f'{idx}:1'
+        conn.execute_command('HSET', key, 'title', 'alpha')
+        old_id = get_internal_id(env, key, idx)
+        env.expect('FT.ALTER', idx, 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'pending', 'TAG', option).ok()
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+        waitForIndexFinishScan(env, idx)
+        new_id = get_internal_id(env, key, idx)
+        env.assertGreater(new_id, old_id)
+        if option == 'INDEXMISSING':
+            env.expect('FT.SEARCH', idx, 'ismissing(@pending)', 'NOCONTENT', 'DIALECT', '2').equal([1, key])
+
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+        waitForIndexFinishScan(env, idx)
+        env.assertEqual(get_internal_id(env, key, idx), new_id)
+
+
+@skip(cluster=True)
+def testAlterPendingFieldsSurviveCancellation(env):
+    """A canceled backfill retains its fields for the next selective scan."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    keys = ['doc:1', 'doc:2', 'doc:3']
+    for key in keys:
+        conn.execute_command('HSET', key, 'title', 'alpha', 'category', 'fiction')
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 1).ok()
+    try:
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+        waitForIndexFinishScan(env, 'idx')
+    finally:
+        env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 0).ok()
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'LIMIT', '0', '0').equal([1])
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+    res = env.cmd('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT')
+    env.assertEqual([res[0]] + sorted(res[1:]), [3] + keys)
+
+
+@skip(cluster=True)
+def testAlterPendingFieldsAddedDuringScan(env):
+    """Completing a scan preserves skipped additions made after its schema snapshot."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    keys = ['doc:1', 'doc:2']
+    for key in keys:
+        conn.execute_command('HSET', key, 'title', 'alpha', 'category', 'fiction')
+    ids_before = [get_internal_id(env, key) for key in keys]
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 1).ok()
+    try:
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+        waitForIndexStatus(env, 'PAUSED', 'idx')
+        env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    finally:
+        env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual([get_internal_id(env, key) for key in keys], ids_before)
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([0])
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+    res = env.cmd('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT')
+    env.assertEqual([res[0]] + sorted(res[1:]), [2] + keys)
+
+
+@skip(cluster=True)
+def testAlterPendingFieldsClearedOnReload(env):
+    """RAM reload backfills the schema, so pending ALTER state must not survive it."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'category', 'fiction')
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([0])
+    env.dumpAndReload()
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([1, 'doc:1'])
+    old_id = get_internal_id(env, 'doc:1')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual(get_internal_id(env, 'doc:1'), old_id)
+
+
+@skip(cluster=True)
+def testAlterPendingFieldsClearedOnEmptyKeyspace(env):
+    """An empty keyspace completes pending backfills without scheduling a scanner."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'category', 'fiction')
+    old_id = get_internal_id(env, 'doc:1')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual(get_internal_id(env, 'doc:1'), old_id)
+
+
+@skip(cluster=True)
+def testAlterFailedAddDoesNotCreatePendingFields(env):
+    """A rolled-back schema addition must not widen the next ALTER's pending range."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'category', 'fiction')
+    old_id = get_internal_id(env, 'doc:1')
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD',
+               'category', 'TAG', 'category', 'TAG').error().contains('Duplicate field')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual(get_internal_id(env, 'doc:1'), old_id)
 
 
 @skip(cluster=True)
@@ -238,6 +393,7 @@ def testAlterSkipUnchangedDocsFallbackActiveScan(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'a', 'present')
 
     id1_before = get_internal_id(env, 'doc:1')
 
@@ -263,27 +419,27 @@ def testAlterSkipUnchangedDocsFallbackActiveScan(env):
     # doc:1 has neither 'a' nor 'b': only the fallback (not the shortcut) reindexes it.
     env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
 
+    env.expect('FT.SEARCH', 'idx', '@a:{present}', 'NOCONTENT').equal([1, 'doc:2'])
+    id_after = get_internal_id(env, 'doc:2')
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual(get_internal_id(env, 'doc:2'), id_after)
+
 
 @skip(cluster=True)
 def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
-    """A background scan that aborts on OOM leaves scan_failed_OOM set on the spec, which the
-    eligibility gate reads directly; a later ALTER must run a full scan to finish the work the
-    aborted scan left undone, even for a document missing the new ALTER's own added field.
-    A single document is enough to trigger OOM on the very first (and only) scanned key once
-    maxmemory is tightened, so this does not need the multi-document SET_PAUSE_ON_SCANNED_DOCS
-    staging that tests/pytests/test_index_oom.py uses to control how much of a larger scan
-    completes before OOM hits."""
+    """OOM retains pending fields and forces a full scan, which clears them on completion."""
     try:
         env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
         conn = getConnectionByEnv(env)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-        conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+        conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'category', 'fiction')
+        conn.execute_command('HSET', 'doc:2', 'title', 'bravo')
+        env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
 
         env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
         set_tight_maxmemory_for_oom(env, 0.85)
 
-        # This ALTER's own scan is the one that hits OOM; doc:1 is not reindexed by it either
-        # way, so its id is not meaningful until after the corrective full scan below.
         env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a', 'TAG').ok()
         waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
     finally:
@@ -297,7 +453,7 @@ def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
         env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '100').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    id1_before = get_internal_id(env, 'doc:1')
+    id2_before = get_internal_id(env, 'doc:2')
 
     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
     try:
@@ -310,27 +466,31 @@ def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
         env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    # doc:1 has neither 'a' nor 'b': only the fallback (not the shortcut) reindexes it.
-    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+    # doc:2 has none of the pending fields: only the full-scan fallback reindexes it.
+    env.assertGreater(get_internal_id(env, 'doc:2'), id2_before)
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([1, 'doc:1'])
+
+    id_after = get_internal_id(env, 'doc:1')
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.assertEqual(get_internal_id(env, 'doc:1'), id_after)
 
 
 def testAlterSkipUnchangedDocsCoordinatorSearchCorrectness(env):
-    """Task 3.5: a light, cluster-enabled counterpart to the id-based tests above. Internal ids
-    are per-shard and not meaningfully comparable across a cluster, so this test asserts only
-    search correctness -- the coordinator-fronted backfill must make exactly the right
-    documents searchable on the newly added field, and pre-existing-field queries must be
-    unaffected. Not skipped for cluster, so it runs standalone too."""
+    """Coordinator ALTER backfills pending and newly added fields on the owning shards."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
-    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'tags', 'premium')
+    conn.execute_command('HSET', '{doc}:1', 'title', 'alpha', 'category', 'fiction')
+    conn.execute_command('HSET', '{doc}:2', 'title', 'bravo', 'tags', 'premium')
 
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'tags', 'TAG').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
-    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
-    env.expect('FT.SEARCH', 'idx', '@tags:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, '{doc}:1'])
+    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, '{doc}:2'])
+    env.expect('FT.SEARCH', 'idx', '@tags:{premium}', 'NOCONTENT').equal([1, '{doc}:2'])
+    env.expect('FT.SEARCH', 'idx', '@category:{fiction}', 'NOCONTENT').equal([1, '{doc}:1'])
 
 
 @skip(cluster=True)

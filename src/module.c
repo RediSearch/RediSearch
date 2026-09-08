@@ -1041,13 +1041,9 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
 
   if (addFieldsOk) {
+    sp->numPendingAlterFields += sp->numFields - addedFieldsStart;
     if (initialScan) {
-      // Schedule the initial background scan for the new fields.
-      IndexSpec_ScanAndReindexForAlter(ctx, ref, addedFieldsStart);
-    } else {
-      // No backfill is scheduled: record that history so a later selective ALTER scan
-      // knows it cannot skip documents that may still be missing these fields.
-      sp->flags |= Index_HasSkippedAlterScan;
+      IndexSpec_ScanAndReindexForAlter(ctx, ref);
     }
   }
 

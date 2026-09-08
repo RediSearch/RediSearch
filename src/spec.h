@@ -194,14 +194,6 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-
-  // Set when an `FT.ALTER ... SKIPINITIALSCAN` successfully added fields and therefore left
-  // them without a backfill, so a later selective ALTER scan knows it must fall back to a full
-  // scan to pick up whatever that skipped scan left unindexed. Only meaningful within one
-  // process lifetime: an RDB load reindexes every document from the keyspace with the loaded
-  // schema, which repairs any such gap. The flag rides along in the persisted flags word like
-  // every other bit here; after a load it is stale but safe, costing only the optimization.
-  Index_HasSkippedAlterScan = 0x100000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -360,6 +352,10 @@ typedef struct IndexSpec {
   // build is distinguishable from a completed one (which reports 1.0). Only meaningful
   // when scan_failed_OOM is set.
   size_t scan_failed_OOM_scanned_keys;
+  // ALTER appends fields, so additions awaiting a completed backfill form a suffix of fields.
+  // Includes skipped, active, and aborted ALTER backfills. Accessed under the GIL; not
+  // persisted, since loading a RAM index rebuilds it from the keyspace.
+  t_fieldIndex numPendingAlterFields;
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
