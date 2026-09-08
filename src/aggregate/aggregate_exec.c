@@ -769,11 +769,38 @@ static inline void rowBlockFlags(const AREQ *req, uint32_t *requiredFlags,
 // The rows already in the block are re-emitted as RESP rows and the caller carries on down
 // the RESP path, refused row included, so the chunk degrades to the encoding a shard with
 // the format off would have used instead of losing values or the rows around them.
-static void rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter *w,
+//
+// Returns false when the block did not decode, which means this build's encoder and decoder
+// disagree. Nothing has been emitted in that case, and the caller must fail the query: the
+// rows are recoverable from nowhere else, and replying the chunk without them would report
+// partial aggregation results as complete ones.
+static bool rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter *w,
                              ChunkSerializeState *state) {
   RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "notice",
                   "Row block encoding refused a row; replying this chunk in RESP instead");
-  state->nelem += RowBlockWriter_ReplayAsResp(w, reply, AREQ_RequestFlags(req));
+  size_t replayed = 0;
+  if (!RowBlockWriter_ReplayAsResp(w, reply, AREQ_RequestFlags(req), &replayed)) {
+    return false;
+  }
+  state->nelem += replayed;
+  return true;
+}
+
+// The block did not decode, so the rows it held cannot be replied and exist nowhere else.
+// Fail the query rather than reply the chunk without them: a short aggregation reply is
+// indistinguishable from a complete one, so silently dropping rows would corrupt results.
+// A hard error reply is no longer available here - RedisModule_Reply has written the chunk
+// header through to the client and offers no way to retract it - so this uses the same
+// post-header failure signal as the rest of the pipeline: a QueryError plus RS_RESULT_ERROR,
+// which _replyWarnings reports and which ends the cursor.
+static int rowBlockReplayFailed(AREQ *req, QueryProcessingCtx *qctx,
+                                ChunkSerializeState *state) {
+  RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning",
+                  "Row block replay could not decode a block this build wrote; failing the query");
+  QueryError_SetError(qctx->err, QUERY_ERROR_CODE_GENERIC,
+                      "Internal error: could not serialize aggregation results");
+  state->cursor_done = true;
+  return RS_RESULT_ERROR;
 }
 
 static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
@@ -827,7 +854,10 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       if (inBlock &&
           !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
                                    AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
-        rowBlockFallback(req, reply, w, state);
+        if (!rowBlockFallback(req, reply, w, state)) {
+          rc = rowBlockReplayFailed(req, qctx, state);
+          goto done_2;
+        }
         inBlock = false;
       }
       if (!inBlock) {
@@ -843,7 +873,10 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       if (inBlock &&
           !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
                                    AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
-        rowBlockFallback(req, reply, w, state);
+        if (!rowBlockFallback(req, reply, w, state)) {
+          rc = rowBlockReplayFailed(req, qctx, state);
+          goto done_2;
+        }
         inBlock = false;
       }
       if (!inBlock) {

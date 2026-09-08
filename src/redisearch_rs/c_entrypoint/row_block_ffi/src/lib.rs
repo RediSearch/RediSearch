@@ -187,7 +187,15 @@ pub unsafe extern "C" fn RowBlockWriter_Bytes(
     bytes.as_ptr().cast()
 }
 
-/// Emits the rows appended so far as ordinary RESP rows, and returns how many were emitted.
+/// Emits the rows appended so far as ordinary RESP rows, reporting whether it could.
+///
+/// Returns `false`, having emitted nothing and leaving `nelem` untouched, when the block does
+/// not decode. That cannot happen for a block this process just wrote, so it means the encoder
+/// and decoder disagree; the caller's contract is to fail the query rather than reply rows it
+/// cannot vouch for. The whole block is decoded before the first row is emitted precisely so
+/// that failure is all-or-nothing: `RedisModule_Reply` writes through to the client with no way
+/// to retract, so detecting the disagreement half way through would leave a partial reply that
+/// can no longer be turned into an error.
 ///
 /// The encoder read backwards, for abandoning a block after rows have already gone into it:
 /// those rows exist nowhere else - the pipeline row they came from is long released - and a
@@ -204,6 +212,7 @@ pub unsafe extern "C" fn RowBlockWriter_Bytes(
 /// 1. Same contract as [`RowBlockWriter_Bytes`]'s `w`.
 /// 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building
 ///    an array, and must outlive this call.
+/// 3. `nelem` must be a non-null, writable pointer to a `size_t`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -211,7 +220,8 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     w: *const RowBlockWriter,
     reply: *mut RedisModule_Reply,
     req_flags: u32,
-) -> usize {
+    nelem: *mut usize,
+) -> bool {
     debug_assert!(
         !reply.is_null(),
         "RowBlockWriter_ReplayAsResp got a NULL reply"
@@ -223,23 +233,27 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     let block = match Block::parse(writer.as_bytes()) {
         Ok(block) => block,
         Err(error) => {
-            // Unreachable by construction: this is a block this process just wrote. Reaching
-            // it means the encoder and the decoder disagree, and the chunk's rows are lost.
             tracing::error!(%error, "a row block this build wrote is not one it can read");
             debug_assert!(false, "row block replay failed to parse its own block");
-            return 0;
+            return false;
         }
     };
 
+    // Decode every row before emitting any of it, so a mid-block error cannot strand a
+    // half-written reply. See this function's returns-`false` contract.
+    for row in block.rows() {
+        if let Err(error) = row {
+            tracing::error!(%error, "a row block this build wrote is not one it can read");
+            debug_assert!(false, "row block replay failed to decode its own row");
+            return false;
+        }
+    }
+
     let mut nrows = 0;
     for row in block.rows() {
-        let row = match row {
-            Ok(row) => row,
-            Err(error) => {
-                tracing::error!(%error, "a row block this build wrote is not one it can read");
-                debug_assert!(false, "row block replay failed to decode its own row");
-                break;
-            }
+        // Already proven decodable by the validation pass above.
+        let Ok(row) = row else {
+            unreachable!("row decoded during validation but not during replay")
         };
 
         // SAFETY: ensured by caller (2.)
@@ -263,7 +277,9 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         writer.nrows(),
         "replay must re-emit every row the block held"
     );
-    nrows
+    // SAFETY: ensured by caller (3.)
+    unsafe { nelem.write(nrows) };
+    true
 }
 
 /// Reinterprets an `RLookup_F` bit pair as the column predicate.

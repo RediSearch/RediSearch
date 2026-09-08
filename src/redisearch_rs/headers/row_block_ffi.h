@@ -110,7 +110,15 @@ void RowBlockWriter_Free(struct RowBlockWriter *w);
 struct RowBlockWriter *RowBlockWriter_New(void);
 
 /**
- * Emits the rows appended so far as ordinary RESP rows, and returns how many were emitted.
+ * Emits the rows appended so far as ordinary RESP rows, reporting whether it could.
+ *
+ * Returns `false`, having emitted nothing and leaving `nelem` untouched, when the block does
+ * not decode. That cannot happen for a block this process just wrote, so it means the encoder
+ * and decoder disagree; the caller's contract is to fail the query rather than reply rows it
+ * cannot vouch for. The whole block is decoded before the first row is emitted precisely so
+ * that failure is all-or-nothing: `RedisModule_Reply` writes through to the client with no way
+ * to retract, so detecting the disagreement half way through would leave a partial reply that
+ * can no longer be turned into an error.
  *
  * The encoder read backwards, for abandoning a block after rows have already gone into it:
  * those rows exist nowhere else - the pipeline row they came from is long released - and a
@@ -127,10 +135,11 @@ struct RowBlockWriter *RowBlockWriter_New(void);
  * 1. Same contract as [`RowBlockWriter_Bytes`]'s `w`.
  * 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building
  *    an array, and must outlive this call.
+ * 3. `nelem` must be a non-null, writable pointer to a `size_t`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Reply *reply, uint32_t req_flags);
+bool RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Reply *reply, uint32_t req_flags, size_t *nelem);
 
 /**
  * Discards the block, keeping the allocated capacity for the next chunk.
