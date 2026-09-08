@@ -307,7 +307,6 @@ The following operating systems are supported and tested in CI:
 * Ubuntu 20.04
 * Ubuntu 22.04
 * Ubuntu 24.04
-* Debian linux 11
 * Debian linux 12
 * Rocky linux 8
 * Rocky linux 9
@@ -324,7 +323,6 @@ The following operating systems are supported and tested in CI:
 - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
 - Ubuntu 22.04: GCC 12 (not default, PPA not required)
 - Ubuntu 24.04: Default GCC is sufficient
-- Debian 11: Default GCC is sufficient
 - Debian 12: Default GCC is sufficient
 - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
 - Rocky Linux 9: GCC 14 (not default, installed via gcc-toolset-14-gcc and gcc-toolset-14-gcc-c++)
