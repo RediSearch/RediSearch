@@ -177,7 +177,7 @@ impl<'a> RLookupRow<'a> {
     /// key.
     pub fn write_key_by_name(
         &mut self,
-        rlookup: &mut RLookup<'a>,
+        rlookup: &RLookup<'a>,
         name: impl Into<Cow<'a, CStr>>,
         val: SharedValue,
     ) {

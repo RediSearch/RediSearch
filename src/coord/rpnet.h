@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #pragma once
 
@@ -31,12 +31,32 @@ typedef enum {
 } RPNetHybridSubquery;
 
 typedef struct {
+  MRReply *root;
+  MRReply *rows;
+  MRReply *meta;
+} RPNetReply;
+
+typedef struct RPNet {
   ResultProcessor base;
-  struct {
-    MRReply *root;  // Root reply. We need to free this when done with the rows
-    MRReply *rows;  // Array containing reply rows for quick access
-    MRReply *meta;  // Metadata for the current reply, if any (RESP3)
-  } current;
+  RPNetReply current;
+  RS_Atomic(bool) stateLock;
+  bool draining;
+  bool drainEOF;
+  struct MRChannel *drainChannel;
+  int drainProtocol;
+  bool drainProfiling;
+  bool drainExplain;
+  bool drainWithCount;
+  RSTimeoutPolicy drainTimeoutPolicy;
+  RSOomPolicy drainOomPolicy;
+  RPNetHybridSubquery drainHybridSubquery;
+  RLookup *drainLookup;
+  RPNetReply drainCurrent;
+  size_t drainIdx;
+  // Drain-owned metadata is retained for the reply owner, never applied to AREQ here.
+  arrayof(MRReply *) drainedReplies;
+  uint64_t drainedCount;
+  struct RPNet *owner;
   // Lookup - the rows are written in here
   RLookup *lookup;
   size_t curIdx;
@@ -72,16 +92,16 @@ typedef struct {
   size_t knnKTokenLen;         // Length of K token in bytes
 } RPNet;
 
-
 void rpnetFree(ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
+void RPNet_PublishIterator(RPNet *nc);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 
 // Get the next reply from the channel.
-// Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies
-// Or RS_RESULT_TIMEDOUT if we timed out
+// Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more
+// replies Or RS_RESULT_TIMEDOUT if we timed out
 int getNextReply(RPNet *nc);
 
 #ifdef __cplusplus

@@ -820,6 +820,7 @@ static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate)
   RS_ASSERT(IsHybridSearchSubquery(nc->areq) || IsHybridVectorSubquery(nc->areq));
   nc->hybridSubquery =
       IsHybridSearchSubquery(nc->areq) ? RPNET_HYBRID_SEARCH : RPNET_HYBRID_VSIM;
+  RPNet_PublishIterator(nc);
   // Register the iterator's channel so the main-thread timeout callback can
   // wake a blocked reader after flipping AREQ's `timedOut` flag. Paired with
   // QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.

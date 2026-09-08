@@ -11,8 +11,14 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
-#include <stdatomic.h>
+#include "util/rs_atomic.h"
 #include <time.h>
+
+#ifdef __cplusplus
+extern "C" {
+#else
+#include <stdatomic.h>
+#endif
 
 typedef struct MRChannel MRChannel;
 MRChannel *MR_NewChannel();
@@ -33,7 +39,7 @@ void *MRChannel_TryPop(MRChannel *chan);
  * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;
  * callers wanting an indefinite blocking pop should use MRChannel_Pop. */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
-                               atomic_bool *abortFlag, bool *timedOut);
+                               RS_Atomic(bool) * abortFlag, bool *timedOut);
 
 /* Wake any thread currently blocked in MRChannel_PopWithTimeout so it re-evaluates
  * its abort flag. Safe to call even if no reader is blocked. */
@@ -51,3 +57,7 @@ size_t MRChannel_Size(MRChannel *chan);
 
 // Free the channel. Assumes the caller has already emptied the channel.
 void MRChannel_Free(MRChannel *chan);
+
+#ifdef __cplusplus
+}
+#endif

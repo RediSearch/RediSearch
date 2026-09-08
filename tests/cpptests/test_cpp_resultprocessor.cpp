@@ -9,6 +9,7 @@
 
 
 #include "result_processor.h"
+#include "query_request.h"
 #include "common.h"
 #include "query.h"
 #include "value_ffi.h"
@@ -176,7 +177,9 @@ TEST_F(ResultProcessorTest, drainPropagatesErrors) {
 TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
   IndexSpec spec = {0};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
-  sctx.time.skipTimeoutChecks = true;
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  sctx.timeout = &timeout;
   sctx.lock_state = SPEC_LOCK_READ_BORROWED;
 
   auto *iterator = new BlockingQueryIterator();

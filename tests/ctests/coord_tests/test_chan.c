@@ -92,5 +92,5 @@ int main(int argc, char **argv) {
   MU_RUN_TEST(testTryPopWithBlockingConsumer);
   MU_REPORT();
 
-  return minunit_status;
+  return minunit_fail != 0;
 }

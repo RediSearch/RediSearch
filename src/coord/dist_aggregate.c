@@ -331,6 +331,7 @@ static int rpnetCreateIterator(RPNet *nc) {
   }
 
   nc->it = it;
+  RPNet_PublishIterator(nc);
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.

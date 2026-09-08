@@ -5,19 +5,20 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #include <stdint.h>
 #include <string.h>
 
 #ifdef ENABLE_ASSERT
-#include "debug_commands.h" // IWYU pragma: keep
+#include "debug_commands.h"  // IWYU pragma: keep
 #endif
 
 #include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
+#include "rmr/chan.h"
 #include "coord/dist_utils.h"
 #include "score_explain_mr.h"
 #include "rmalloc.h"
@@ -33,8 +34,48 @@
 #include "search_result.h"
 #include "util/timeout.h"
 
-
 #define CURSOR_EOF 0
+
+static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r);
+static int convertRecord(RLookup *lookup, bool resp3, bool expectExplain, MRReply *record,
+                         SearchResult *r);
+
+static void lockState(RPNet *nc) {
+  while (atomic_exchange_explicit(&nc->stateLock, true, memory_order_acquire)) {
+  }
+}
+
+static void unlockState(RPNet *nc) {
+  atomic_store_explicit(&nc->stateLock, false, memory_order_release);
+}
+
+void RPNet_PublishIterator(RPNet *nc) {
+  lockState(nc);
+  nc->drainChannel = MRIterator_GetChannel(nc->it);
+  nc->drainProtocol = nc->cmd.protocol;
+  nc->drainProfiling = nc->cmd.forProfiling;
+  nc->drainExplain = (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+  nc->drainWithCount = nc->withCount;
+  nc->drainTimeoutPolicy = nc->areq->reqConfig.timeoutPolicy;
+  nc->drainOomPolicy = nc->areq->reqConfig.oomPolicy;
+  nc->drainHybridSubquery = nc->hybridSubquery;
+  nc->drainLookup = nc->lookup;
+  unlockState(nc);
+}
+
+static void publishRemainder(RPNet *local) {
+  RPNet *owner = local->owner;
+  lockState(owner);
+  bool closed = owner->drainEOF;
+  if (!closed) {
+    RS_ASSERT(!owner->current.root);
+    owner->current = local->current;
+    owner->curIdx = local->curIdx;
+  }
+  unlockState(owner);
+  if (closed) MRReply_Free(local->current.root);
+  RPNet_resetCurrent(local);
+}
 
 // Converts an MRReply to an RSValue, consuming the reply. String buffers can be
 // transferred directly because hiredis uses the Redis module allocator.
@@ -71,7 +112,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
         MRReply *e_k = MRReply_TakeArrayElement(r, i * 2);
         RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
         MRReply *e_v = MRReply_TakeArrayElement(r, (i * 2) + 1);
-        RSValue_MapBuilderSetEntry(map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
+        RSValue_MapBuilderSetEntry(map, i, MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
       v = RSValue_NewMapFromBuilder(map);
       break;
@@ -242,10 +283,9 @@ int getNextReply(RPNet *nc) {
   RS_ASSERT(nc->areq);
   QueryRequestTimeout *timeout = &nc->areq->base.timeout;
   const struct timespec *deadline = getAbsTimeout(nc);
-  RS_Atomic(bool) *abortFlag =
-      timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-          ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
-          : NULL;
+  RS_Atomic(bool) *abortFlag = timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                   ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
+                                   : NULL;
   bool popTimedOut = false;
   MRReply *root = deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
@@ -319,13 +359,13 @@ int getNextReply(RPNet *nc) {
 
   // Extract rows and meta from reply
   MRReply *rows = NULL, *meta = NULL;
-  if (nc->cmd.protocol == 3) { // RESP3
+  if (nc->cmd.protocol == 3) {  // RESP3
     meta = MRReply_ArrayElement(root, 0);
     if (nc->cmd.forProfiling) {
-      meta = MRReply_MapElement(meta, "results"); // profile has an extra level
+      meta = MRReply_MapElement(meta, "results");  // profile has an extra level
     }
     rows = MRReply_MapElement(meta, "results");
-  } else { // RESP2
+  } else {  // RESP2
     rows = MRReply_ArrayElement(root, 0);
   }
 
@@ -333,8 +373,10 @@ int getNextReply(RPNet *nc) {
   nc->current.rows = rows;
   nc->current.meta = meta;
 
-  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
+  const size_t empty_rows_len =
+      nc->cmd.protocol == 3 ? 0 : 1;  // RESP2 has the first element as the number of results.
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY,
+                rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
@@ -377,31 +419,35 @@ void rpnetFree(ResultProcessor *rp) {
   }
 
   MRReply_Free(nc->current.root);
+  MRReply_Free(nc->drainCurrent.root);
+  array_foreach(nc->drainedReplies, reply, MRReply_Free(reply));
+  array_free(nc->drainedReplies);
   MRCommand_Free(&nc->cmd);
 
   rm_free(rp);
 }
 
-
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
-  nc->cmd = *cmd; // Take ownership of the command's internal allocations
+  nc->cmd = *cmd;  // Take ownership of the command's internal allocations
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Drain = RPDrain_EOF;
+  nc->base.Drain = rpnetDrain;
+  nc->drainedReplies = array_new(MRReply *, 1);
+  atomic_init(&nc->stateLock, false);
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
 }
 
 void RPNet_resetCurrent(RPNet *nc) {
-    nc->current.root = NULL;
-    nc->current.rows = NULL;
-    nc->current.meta = NULL;
+  nc->current.root = NULL;
+  nc->current.rows = NULL;
+  nc->current.meta = NULL;
 }
 
-int rpnetNext(ResultProcessor *self, SearchResult *r) {
+static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   AREQ *areq = nc->areq;
   RS_ASSERT(areq);
@@ -481,12 +527,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
+      QueryErrorCode errCode =
+          QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
-      if (errCode == QUERY_ERROR_CODE_GENERIC ||
-          errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
-          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
-          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
+      if (errCode == QUERY_ERROR_CODE_GENERIC || errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
+          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) &&
+           nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) &&
+           nc->areq->reqConfig.oomPolicy == OomPolicy_Fail)) {
         // The shard reply already contains the prefixed error string — set it directly
         // without re-prefixing via QueryError_SetError.
         QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
@@ -538,7 +586,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // pipeline (popped from the channel, about to emit its rows).
     SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
 #endif
-    if (resp3) { // RESP3
+    if (resp3) {  // RESP3
       nc->curIdx = 0;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred from the shard-summed total accumulated on the
@@ -548,7 +596,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
-    } else { // RESP2
+    } else {  // RESP2
       nc->curIdx = 1;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred (see RESP3 branch above).
@@ -559,16 +607,24 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
+  MRReply *record = MRReply_TakeArrayElement(rows, nc->curIdx++);
+  publishRemainder(nc);
+  return convertRecord(nc->lookup, resp3, (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
+                       record, r);
+}
+
+static int convertRecord(RLookup *lookup, bool resp3, bool expectExplain, MRReply *record,
+                         SearchResult *r) {
   MRReply *score = NULL;
-  MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
+  MRReply *fields = record;
   size_t fields_length = 0;
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
     // extract score if it exists, WITHSCORES was specified
     score = MRReply_MapElement(fields, "score");
     fields = MRReply_MapElement(fields, "extra_attributes");
-    // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
-    // we do not have keys to return.
+    // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra
+    // attributes is returned. In that case we do not have keys to return.
     fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
   } else {
     fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
@@ -576,14 +632,13 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
-  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
-  // when opening shard connections.
+  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use
+  // resp3 when opening shard connections.
   if (score) {
-    const bool expectExplain = (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
     if (expectExplain) {
-      RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_ARRAY &&
-                        MRReply_Length(score) == SE_REPLY_NODE_ARITY,
-                    "EXPLAINSCORE expected score paired with explain tree");
+      RS_LOG_ASSERT(
+          MRReply_Type(score) == MR_REPLY_ARRAY && MRReply_Length(score) == SE_REPLY_NODE_ARITY,
+          "EXPLAINSCORE expected score paired with explain tree");
       const MRReply *scoreValue = MRReply_ArrayElement(score, 0);
       const MRReply *explainReply = MRReply_ArrayElement(score, 1);
       RS_LOG_ASSERT(scoreValue && MRReply_Type(scoreValue) == MR_REPLY_DOUBLE,
@@ -603,10 +658,136 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
-    RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
+    RLookupRow_WriteByNameOwned(lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }
 
+  MRReply_Free(record);
   return RS_RESULT_OK;
+}
+
+int rpnetNext(ResultProcessor *self, SearchResult *r) {
+  RPNet *nc = (RPNet *)self;
+  // Only Next owns these fields; Drain uses the separately published configuration.
+  RPNet local = {.base = nc->base,
+                 .lookup = nc->lookup,
+                 .it = nc->it,
+                 .cmd = nc->cmd,
+                 .areq = nc->areq,
+                 .shardsProfile = nc->shardsProfile,
+                 .withCount = nc->withCount,
+                 .drainOnly = nc->drainOnly,
+                 .hybridSubquery = nc->hybridSubquery,
+                 .owner = nc};
+  lockState(nc);
+  if (nc->draining) {
+    unlockState(nc);
+    return RS_RESULT_TIMEDOUT;
+  }
+  local.current = nc->current;
+  local.curIdx = nc->curIdx;
+  RPNet_resetCurrent(nc);
+  unlockState(nc);
+  int status = rpnetNextOwned(&local.base, r);
+  nc->shardsProfile = local.shardsProfile;
+  if (local.current.root) publishRemainder(&local);
+  return status;
+}
+
+static RPDrainStatus finishDrain(RPNet *nc, RPDrainStatus status) {
+  lockState(nc);
+  nc->drainEOF = true;
+  unlockState(nc);
+  return status;
+}
+
+static bool drainErrorFatal(const RPNet *nc, MRReply *root) {
+  QueryErrorCode code = QueryError_GetCodeFromMessage(MRReply_String(root, NULL));
+  if (code == QUERY_ERROR_CODE_TIMED_OUT) return nc->drainTimeoutPolicy == TimeoutPolicy_Fail;
+  if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY) return nc->drainOomPolicy == OomPolicy_Fail;
+  return code == QUERY_ERROR_CODE_GENERIC || code == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
+         nc->drainHybridSubquery != RPNET_HYBRID_NONE;
+}
+
+static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
+  RPNet *nc = (RPNet *)self;
+  lockState(nc);
+  nc->draining = true;
+  if (nc->drainEOF) {
+    unlockState(nc);
+    return RP_DRAIN_EOF;
+  }
+  MRChannel *channel = nc->drainChannel;
+  if (!channel) {
+    nc->drainEOF = true;
+    unlockState(nc);
+    return RP_DRAIN_EOF;
+  }
+  if (!nc->drainCurrent.root) {
+    nc->drainCurrent = nc->current;
+    nc->drainIdx = nc->curIdx;
+    RPNet_resetCurrent(nc);
+  }
+  unlockState(nc);
+
+  const bool resp3 = nc->drainProtocol == 3;
+  while (true) {
+    if (nc->drainCurrent.rows && nc->drainIdx < MRReply_Length(nc->drainCurrent.rows)) {
+      MRReply *record = MRReply_TakeArrayElement(nc->drainCurrent.rows, nc->drainIdx++);
+      convertRecord(nc->drainLookup, resp3, nc->drainExplain, record, r);
+      return RP_DRAIN_OK;
+    }
+    if (nc->drainCurrent.root) {
+      bool fatal = MRReply_Type(nc->drainCurrent.root) == MR_REPLY_ERROR &&
+                   drainErrorFatal(nc, nc->drainCurrent.root);
+      array_append(nc->drainedReplies, nc->drainCurrent.root);
+      nc->drainCurrent = (RPNetReply){0};
+      if (fatal) return finishDrain(nc, RP_DRAIN_ERROR);
+    }
+    lockState(nc);
+    if (nc->current.root) {
+      nc->drainCurrent = nc->current;
+      nc->drainIdx = nc->curIdx;
+      RPNet_resetCurrent(nc);
+      unlockState(nc);
+      continue;
+    }
+    unlockState(nc);
+    MRReply *root = MRChannel_TryPop(channel);
+    if (!root) return finishDrain(nc, RP_DRAIN_EOF);
+
+    if (MRReply_Type(root) == MR_REPLY_ERROR) {
+      array_append(nc->drainedReplies, root);
+      if (drainErrorFatal(nc, root)) return finishDrain(nc, RP_DRAIN_ERROR);
+      continue;
+    }
+    // Hybrid mapping warnings contain no row. Preserve them without modifying AREQ.
+    if (MRReply_Type(root) == MR_REPLY_STRING || MRReply_Type(root) == MR_REPLY_STATUS) {
+      array_append(nc->drainedReplies, root);
+      continue;
+    }
+    if (MRReply_Type(root) != MR_REPLY_ARRAY || MRReply_Length(root) < 1) {
+      array_append(nc->drainedReplies, root);
+      return finishDrain(nc, RP_DRAIN_ERROR);
+    }
+    MRReply *meta = NULL;
+    MRReply *rows = MRReply_ArrayElement(root, 0);
+    if (resp3) {
+      meta = nc->drainProfiling ? MRReply_MapElement(rows, "results") : rows;
+      rows = meta ? MRReply_MapElement(meta, "results") : NULL;
+    }
+    if (!rows || MRReply_Type(rows) != MR_REPLY_ARRAY) {
+      array_append(nc->drainedReplies, root);
+      return finishDrain(nc, RP_DRAIN_ERROR);
+    }
+    nc->drainCurrent = (RPNetReply){.root = root, .rows = rows, .meta = meta};
+    nc->drainIdx = resp3 ? 0 : 1;
+    if (nc->drainWithCount) continue;
+    if (resp3) {
+      nc->drainedCount += MRReply_Length(rows);
+    } else if (MRReply_Length(rows)) {
+      nc->drainedCount += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+    }
+  }
 }
 
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r) {

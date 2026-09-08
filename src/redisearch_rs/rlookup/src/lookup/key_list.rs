@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use super::structure_lock::StructureLock;
 use crate::{RLookupKey, RLookupKeyFlags};
 use ahash::RandomState;
 use hashbrown::HashTable;
@@ -141,9 +142,13 @@ impl KeyStore<'_> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct KeyList<'a> {
-    store: Option<Box<KeyStore<'a>>>,
+    store: StructureLock<Option<Box<KeyStore<'a>>>>,
     sealed: bool,
 }
+
+// SAFETY: shared operations serialize access to the pointer container and name index.
+// Published key allocations are immutable under shared access; replacements require &mut Self.
+unsafe impl Sync for KeyList<'_> {}
 
 /// A cursor over an [`RLookup`][crate::RLookup]'s current keys.
 pub struct Cursor<'list, 'a> {
@@ -159,7 +164,9 @@ pub struct CursorMut<'list, 'a> {
 
 /// Iterator over an [`RLookup`][crate::RLookup]'s current keys.
 pub struct Iter<'list, 'a> {
-    inner: slice::Iter<'list, OwnedKey<'a>>,
+    list: &'list KeyList<'a>,
+    next: u32,
+    end: u32,
 }
 
 /// Mutable iterator over an [`RLookup`][crate::RLookup]'s current keys.
@@ -170,7 +177,7 @@ pub struct IterMut<'list, 'a> {
 impl<'a> KeyList<'a> {
     pub const fn new() -> Self {
         Self {
-            store: None,
+            store: StructureLock::new(None),
             sealed: false,
         }
     }
@@ -184,11 +191,15 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn row_len(&self) -> u32 {
-        u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
+        self.store
+            .lock()
+            .as_ref()
+            .map_or(0, |s| s.live.len() as u32)
     }
 
+    #[cfg(test)]
     pub(crate) fn promote_name_index_if_wide(&mut self) {
-        let Some(store) = self.store.as_mut() else {
+        let Some(store) = self.store.get_mut().as_mut() else {
             return;
         };
         if store.live.len() >= NAME_INDEX_MIN_KEYS {
@@ -197,7 +208,10 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
-        let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
+        let store = self
+            .store
+            .get_mut()
+            .get_or_insert_with(|| Box::new(KeyStore::new()));
         let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
         key.dstidx = slot;
         store.live.push(OwnedKey::new(key));
@@ -216,6 +230,7 @@ impl<'a> KeyList<'a> {
         let slot = self.push_slot(key);
 
         self.store
+            .get_mut()
             .as_mut()
             .unwrap()
             .live
@@ -227,13 +242,15 @@ impl<'a> KeyList<'a> {
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         Cursor {
             list: self,
-            current: (!self.live().is_empty()).then_some(0),
+            current: (self.row_len() != 0).then_some(0),
         }
     }
 
     pub fn iter(&self) -> Iter<'_, 'a> {
         Iter {
-            inner: self.live().iter(),
+            list: self,
+            next: 0,
+            end: self.row_len(),
         }
     }
 
@@ -261,7 +278,7 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn cursor_at_mut(&mut self, slot: u16) -> CursorMut<'_, 'a> {
-        debug_assert!(usize::from(slot) < self.live().len());
+        debug_assert!(u32::from(slot) < self.row_len());
         CursorMut {
             list: self,
             current: Some(usize::from(slot)),
@@ -269,15 +286,43 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn find_slot(&self, name: &CStr) -> Option<u16> {
-        self.store.as_ref()?.find_slot(name)
+        self.store.lock().as_ref()?.find_slot(name)
+    }
+
+    pub(crate) fn get_or_create(&self, name: &CStr, flags: RLookupKeyFlags) -> &RLookupKey<'a> {
+        let mut guard = self.store.lock();
+        let store = guard.get_or_insert_with(|| Box::new(KeyStore::new()));
+        if store.live.len() >= NAME_INDEX_MIN_KEYS {
+            store.enable_name_index();
+        }
+        let slot = store.find_slot(name).unwrap_or_else(|| {
+            let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
+            let mut key = RLookupKey::new(name.to_owned(), flags);
+            key.dstidx = slot;
+            store.live.push(OwnedKey::new(key));
+            if store.by_name.is_some() {
+                store.index_slot_first_wins(slot);
+            }
+            slot
+        });
+        let ptr = store.live[usize::from(slot)].as_non_null();
+        // SAFETY: only the pointer container changes under shared access, never the key.
+        // The allocation remains owned by this list for the returned reference's lifetime.
+        unsafe { ptr.as_ref() }
     }
 
     pub(crate) fn get(&self, slot: u16) -> Option<&RLookupKey<'a>> {
-        self.live().get(usize::from(slot)).map(OwnedKey::get)
+        let ptr = self.get_ptr(slot)?;
+        // SAFETY: appends never mutate or move an existing allocation. Replacement requires
+        // an exclusive borrow of the list, which cannot overlap this returned reference.
+        Some(unsafe { ptr.as_ref() })
     }
 
     pub(crate) fn get_ptr(&self, slot: u16) -> Option<NonNull<RLookupKey<'a>>> {
-        self.live()
+        self.store
+            .lock()
+            .as_ref()?
+            .live
             .get(usize::from(slot))
             .map(OwnedKey::as_non_null)
     }
@@ -287,16 +332,16 @@ impl<'a> KeyList<'a> {
     /// Mutation may reallocate this pointer array, so the caller must keep the lookup immutable
     /// until it finishes consuming the returned range. The key allocations themselves stay stable.
     pub(crate) fn raw_parts(&self) -> (*const *const RLookupKey<'a>, usize) {
-        let live = self.live();
+        let guard = self.store.lock();
+        let live = guard.as_ref().map_or(&[][..], |store| &store.live);
         (live.as_ptr().cast(), live.len())
     }
 
-    fn live(&self) -> &[OwnedKey<'a>] {
-        self.store.as_ref().map_or(&[], |store| &store.live)
-    }
-
     fn live_mut(&mut self) -> &mut [OwnedKey<'a>] {
-        self.store.as_mut().map_or(&mut [], |store| &mut store.live)
+        self.store
+            .get_mut()
+            .as_mut()
+            .map_or(&mut [], |store| &mut store.live)
     }
 
     #[track_caller]
@@ -304,7 +349,8 @@ impl<'a> KeyList<'a> {
     pub(crate) fn assert_valid(&self, ctx: &str) {
         self.assert_structure_valid(ctx);
 
-        let Some(store) = &self.store else {
+        let guard = self.store.lock();
+        let Some(store) = &*guard else {
             return;
         };
 
@@ -325,7 +371,8 @@ impl<'a> KeyList<'a> {
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_structure_valid(&self, ctx: &str) {
-        let Some(store) = &self.store else {
+        let guard = self.store.lock();
+        let Some(store) = &*guard else {
             return;
         };
 
@@ -354,19 +401,15 @@ impl<'list, 'a> Cursor<'list, 'a> {
     pub fn move_next(&mut self) {
         self.current = self
             .current
-            .and_then(|slot| (slot + 1 < self.list.live().len()).then_some(slot + 1));
+            .and_then(|slot| (slot + 1 < self.list.row_len() as usize).then_some(slot + 1));
     }
 
     pub fn current(&self) -> Option<&RLookupKey<'a>> {
-        self.current
-            .and_then(|slot| self.list.live().get(slot))
-            .map(OwnedKey::get)
+        self.current.and_then(|slot| self.list.get(slot as u16))
     }
 
     pub fn into_current(self) -> Option<&'list RLookupKey<'a>> {
-        self.current
-            .and_then(|slot| self.list.live().get(slot))
-            .map(OwnedKey::get)
+        self.current.and_then(|slot| self.list.get(slot as u16))
     }
 }
 
@@ -374,7 +417,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     pub fn move_next(&mut self) {
         self.current = self
             .current
-            .and_then(|slot| (slot + 1 < self.list.live().len()).then_some(slot + 1));
+            .and_then(|slot| (slot + 1 < self.list.row_len() as usize).then_some(slot + 1));
     }
 
     pub fn current(&mut self) -> Option<Pin<&mut RLookupKey<'a>>> {
@@ -399,7 +442,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         );
 
         let slot = self.current?;
-        let store = self.list.store.as_mut().unwrap();
+        let store = self.list.store.get_mut().as_mut().unwrap();
         let old = &mut store.live[slot];
         let dstidx = old.get().dstidx;
         let (name, path) = old.get_pin_mut().make_tombstone();
@@ -416,7 +459,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         #[cfg(debug_assertions)]
         self.list.assert_valid("CursorMut::override_current");
 
-        Some(self.list.store.as_mut().unwrap().live[slot].get_pin_mut())
+        Some(self.list.store.get_mut().as_mut().unwrap().live[slot].get_pin_mut())
     }
 }
 
@@ -424,7 +467,12 @@ impl<'list, 'a> Iterator for Iter<'list, 'a> {
     type Item = &'list RLookupKey<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(OwnedKey::get)
+        if self.next == self.end {
+            return None;
+        }
+        let slot = self.next;
+        self.next += 1;
+        self.list.get(slot as u16)
     }
 }
 
@@ -443,6 +491,32 @@ impl FusedIterator for IterMut<'_, '_> {}
 mod tests {
     use super::*;
     use crate::RLookupKeyFlag;
+
+    #[test]
+    fn concurrent_append_and_iteration_preserve_keys() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"initial", RLookupKeyFlags::empty()));
+        keys.seal();
+        let first = keys.get(0).unwrap() as *const _;
+        std::thread::scope(|scope| {
+            let keys = &keys;
+            let worker = scope.spawn(move || {
+                for i in 0..100 {
+                    let name = std::ffi::CString::new(format!("field{i}")).unwrap();
+                    keys.get_or_create(&name, RLookupKeyFlags::empty());
+                }
+            });
+            for _ in 0..100 {
+                for (slot, key) in keys.iter().enumerate() {
+                    assert_eq!(slot, usize::from(key.dstidx));
+                }
+                keys.get_or_create(c"initial", RLookupKeyFlags::empty());
+            }
+            worker.join().unwrap();
+        });
+        assert_eq!(keys.row_len(), 101);
+        assert_eq!(first, keys.get(0).unwrap() as *const _);
+    }
     use enumflags2::make_bitflags;
     use std::ffi::CString;
 
@@ -487,12 +561,12 @@ mod tests {
             .get_key_write(c"constructed", RLookupKeyFlags::empty())
             .unwrap();
         assert!(lookup.find_key_by_name(c"constructed").is_some());
-        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_none());
+        assert!(lookup.keys.store.lock().as_ref().unwrap().by_name.is_none());
 
         lookup.seal();
         let mut row = RLookupRow::new();
         row.write_key_by_name(&mut lookup, names[0].as_c_str(), SharedValue::null_static());
-        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_some());
+        assert!(lookup.keys.store.lock().as_ref().unwrap().by_name.is_some());
         let key = lookup
             .find_key_by_name(&names[0])
             .unwrap()
@@ -513,6 +587,7 @@ mod tests {
             lookup
                 .keys
                 .store
+                .lock()
                 .as_ref()
                 .unwrap()
                 .by_name
@@ -535,13 +610,13 @@ mod tests {
         }
 
         keys.promote_name_index_if_wide();
-        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+        assert!(keys.store.lock().as_ref().unwrap().by_name.is_none());
 
         keys.push(RLookupKey::new(
             names[NAME_INDEX_MIN_KEYS - 1].as_c_str(),
             RLookupKeyFlags::empty(),
         ));
-        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+        assert!(keys.store.lock().as_ref().unwrap().by_name.is_none());
 
         keys.promote_name_index_if_wide();
         keys.promote_name_index_if_wide();
@@ -556,6 +631,7 @@ mod tests {
         assert_eq!(keys.find_slot(c"missing"), None);
         assert_eq!(
             keys.store
+                .lock()
                 .as_ref()
                 .unwrap()
                 .by_name
@@ -584,7 +660,7 @@ mod tests {
         }
 
         keys.promote_name_index_if_wide();
-        assert!(keys.store.as_ref().unwrap().by_name.is_some());
+        assert!(keys.store.lock().as_ref().unwrap().by_name.is_some());
         assert_eq!(keys.find_slot(c"pre"), Some(0));
 
         // A duplicate appended through the indexed path must not displace the
@@ -656,14 +732,14 @@ mod tests {
         let mut keys = KeyList::new();
         keys.push(RLookupKey::new(c"first", RLookupKeyFlags::empty()));
         let first = keys.get_ptr(0).unwrap();
-        let initial_capacity = keys.store.as_ref().unwrap().live.capacity();
+        let initial_capacity = keys.store.lock().as_ref().unwrap().live.capacity();
 
         for i in 0..initial_capacity {
             let name = std::ffi::CString::new(format!("key-{i}")).unwrap();
             keys.push(RLookupKey::new(name, RLookupKeyFlags::empty()));
         }
 
-        assert!(keys.store.as_ref().unwrap().live.capacity() > initial_capacity);
+        assert!(keys.store.lock().as_ref().unwrap().live.capacity() > initial_capacity);
         assert_eq!(NonNull::from(keys.get(0).unwrap()), first);
     }
 
@@ -681,7 +757,7 @@ mod tests {
         }
 
         assert_eq!(keys.row_len(), 1);
-        assert_eq!(keys.store.as_ref().unwrap().retired.len(), 8);
+        assert_eq!(keys.store.lock().as_ref().unwrap().retired.len(), 8);
         assert!(old.into_iter().all(|pointer| {
             // SAFETY: every previous allocation is retained by this list.
             unsafe { pointer.as_ref() }.is_tombstone()

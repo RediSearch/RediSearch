@@ -9,6 +9,7 @@
 
 mod key;
 mod key_list;
+mod structure_lock;
 
 use crate::HashDocumentFormat;
 use crate::JsonDocumentFormat;
@@ -199,17 +200,9 @@ impl<'a> RLookup<'a> {
     }
 
     /// Resolve a writable key by name, lazily indexing wide lookups before the search.
-    pub(crate) fn get_or_create_key_by_name(&mut self, name: Cow<'a, CStr>) -> &RLookupKey<'a> {
-        self.keys.promote_name_index_if_wide();
-        let slot = if let Some(slot) = self.keys.find_slot(&name) {
-            slot
-        } else {
-            // By-name callers only promise that the source string is valid for this call. Existing
-            // keys merely compare against it, but a newly inserted key must outlive that buffer.
-            self.get_key_write_slot(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("a missing key must be writable")
-        };
-        self.keys.get(slot).unwrap()
+    pub(crate) fn get_or_create_key_by_name(&self, name: Cow<'a, CStr>) -> &RLookupKey<'a> {
+        let flags = self.hidden_if_schema_special(&name) | RLookupKeyFlag::QuerySrc;
+        self.keys.get_or_create(&name, flags)
     }
 
     /// Add all non-overridden keys from `src` to `self`.
@@ -588,6 +581,11 @@ impl<'a> RLookup<'a> {
         self.keys.row_len()
     }
 
+    /// Fetch a stable key pointer by row slot without retaining vector storage.
+    pub fn key_at(&self, slot: u16) -> Option<NonNull<RLookupKey<'a>>> {
+        self.keys.get_ptr(slot)
+    }
+
     /// Returns the schema-source keys eligible for individual document loading.
     ///
     /// Mirrors the C `loadIndividualKeys` selection for the "load every loadable
@@ -714,7 +712,7 @@ pub mod opaque {
     /// structure exactly.
     #[cheadergen::config(rename = "RLookup")]
     #[repr(C, align(8))]
-    pub struct OpaqueRLookup(Size<32>);
+    pub struct OpaqueRLookup(Size<40>);
 
     c_ffi_utils::opaque!(RLookup<'_>, OpaqueRLookup);
 }
@@ -1779,11 +1777,7 @@ mod tests {
         rlookup
     }
 
-    fn selected_names<'a>(
-        rlookup: &'a RLookup<'a>,
-        cached_only: bool,
-        force_load: bool,
-    ) -> Vec<CString> {
+    fn selected_names(rlookup: &RLookup<'_>, cached_only: bool, force_load: bool) -> Vec<CString> {
         rlookup
             .schema_src_keys(cached_only, force_load)
             .map(|k| k.name().as_ref().to_owned())
