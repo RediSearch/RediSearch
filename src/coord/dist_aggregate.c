@@ -539,6 +539,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   APPEND_LITERAL("_NUM_SSTRING");
+  // Ask for the compact row-block encoding only when this coordinator can decode it.
+  // Older shards reject the unknown argument, so the config must stay off until the whole
+  // fleet is upgraded; see RSGlobalConfig.internalRowBlockFormat.
+  if (RSGlobalConfig.internalRowBlockFormat) {
+    APPEND_LITERAL("_ROW_BLOCK");
+  }
 
   int argOffset = 0;
   // Preserve WITHCOUNT flag from the original command
@@ -652,6 +658,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
+  // Only profiled requests pay for the wait/convert/free breakdown (see RPNet::breakdown).
+  rpRoot->profileBreakdown = (r->reqflags & QEXEC_F_PROFILE) != 0;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
   // rpnetNext_Start to build the iterator-owned AggregateKnnContext)

@@ -45,6 +45,7 @@ query_term_ffi = { path = "../query_term_ffi" }
 reducers_ffi = { path = "../reducers_ffi" }
 result_processor_ffi = { path = "../result_processor_ffi" }
 rlookup_ffi = { path = "../rlookup_ffi" }
+row_block_ffi = { path = "../row_block_ffi" }
 slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../sorting_vector_ffi" }
 spellcheck_dictionary_ffi = { path = "../spellcheck_dictionary_ffi" }

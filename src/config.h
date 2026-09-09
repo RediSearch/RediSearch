@@ -105,6 +105,13 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
+  // Set when a coordinator asked this shard, via the internal `_ROW_BLOCK` argument, to
+  // encode aggregation rows as one compact binary block per chunk (src/aggregate/row_block.h).
+  // The decision belongs to the sender: an old coordinator cannot ask, so it can never be
+  // sent a format it does not understand, and a shard's own config never enables the format
+  // on its own. This mirrors `_SLOTS_INFO` and `_COORD_DISPATCH_TIME`, where the coordinator
+  // opts in and the shard tolerates absence.
+  bool internalRowBlock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
   // OOM policy
@@ -207,6 +214,11 @@ typedef struct {
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // Encode internal coordinator<->shard aggregation rows as one compact binary block per
+  // chunk instead of one RESP map per row (see src/aggregate/row_block.h). Off by default:
+  // a shard only emits blocks when asked, and only a coordinator of the same version knows
+  // to decode them, so this must not be enabled mid-upgrade.
+  bool internalRowBlockFormat;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to

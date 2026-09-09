@@ -2171,6 +2171,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "row_block_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -2396,6 +2397,37 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "row_block"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "pretty_assertions",
+ "proptest",
+ "redis_mock",
+ "redisearch_rs",
+ "rlookup",
+ "row_block",
+ "thiserror",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "row_block_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "query_flags",
+ "rlookup",
+ "row_block",
+ "tracing",
+ "value",
+ "workspace_hack",
 ]
 
 [[package]]
