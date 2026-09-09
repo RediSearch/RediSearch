@@ -703,6 +703,23 @@ pub(crate) mod test {
     }
 
     #[test]
+    fn count_mutation_preserves_disjoint_parent_borrow() {
+        // SAFETY: the C context accepts zero initialization; this test uses only counters.
+        let mut parent: ffi::QueryProcessingCtx = unsafe { std::mem::zeroed() };
+        parent.totalResults = 2;
+        parent.skippedResults = 1;
+        let parent_ptr = &raw mut parent;
+        let header = Box::pin(test_header(parent_ptr.cast_const()));
+        let mut cx = Context::new(header.as_ref());
+        // SAFETY: this reference borrows only a field that the count adjustment does
+        // not access. Keeping it live detects a whole-parent mutable reborrow in Miri.
+        let skipped = unsafe { &(*parent_ptr).skippedResults };
+        cx.subtract_total_results(1);
+        assert_eq!(*skipped, 1);
+        assert_eq!(parent.totalResults, 1);
+    }
+
+    #[test]
     fn drain_traversal_does_not_borrow_the_c_header() {
         unsafe extern "C" fn drain(me: *mut Header, _res: *mut SearchResult) -> ffi::RPDrainStatus {
             // SAFETY: The test owns `me` and no Rust reference to the header is
