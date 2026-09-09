@@ -382,6 +382,10 @@ void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {
   RQ_Done(io_runtime_ctx->queue);
 }
 
+void IORuntimeCtx_RequestStarted(IORuntimeCtx *io_runtime_ctx) {
+  RQ_IncrPending(io_runtime_ctx->queue);
+}
+
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership) {
   struct queueItem *newTask = rm_new(struct queueItem);
   struct queueItem *oldTask = NULL;

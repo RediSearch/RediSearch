@@ -140,7 +140,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     AREQ *vecReq = testCtx->hybridReq->requests[VECTOR_REQUEST_INDEX];
     testCtx->rootiter = QAST_Iterate(&vecReq->ast, &vecReq->searchopts,
                                       AREQ_SearchCtx(vecReq), vecReq->reqflags,
-                                      vecReq, &testCtx->iterError);
+                                      &testCtx->iterError);
 
     if (!QueryError_IsOk(&testCtx->iterError) || !testCtx->rootiter) return false;
     if (testCtx->rootiter->type != HYBRID_ITERATOR) return false;

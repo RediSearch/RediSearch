@@ -351,6 +351,24 @@ static int set_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
+static void warnPartialIndexedDocsDeprecated(void) {
+  RedisModule_Log(RSDummyContext, "warning",
+                  "PARTIAL_INDEXED_DOCS is deprecated and has no effect. Hash field-change "
+                  "detection now comes from subkey notifications when the server supports "
+                  "them, and is unavailable otherwise.");
+}
+
+static int set_deprecated_partial_indexed_docs(const char *name, int val, void *privdata,
+                                               RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(bool *)privdata = val;
+  if (val) {
+    warnPartialIndexedDocsDeprecated();
+  }
+  return REDISMODULE_OK;
+}
+
 static int set_inverted_bool_config(const char *name, int val, void *privdata,
                              RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -1260,11 +1278,14 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcConfigParams.gcPolicy));
 }
 
-// PARTIAL_INDEXED_DOCS
+// PARTIAL_INDEXED_DOCS -- retained as a no-op, see the field's comment in config.h.
 CONFIG_SETTER(setFilterCommand) {
   int filterCommands;
   int acrc = AC_GetInt(ac, &filterCommands, AC_F_GE0);
   config->filterCommands = (bool)filterCommands;
+  if (config->filterCommands) {
+    warnPartialIndexedDocsDeprecated();
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -1797,7 +1818,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getNoMemPools,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "PARTIAL_INDEXED_DOCS",
-         .helpText = "Enable commands filter which optimize indexing on partial hash updates",
+         .helpText = "Deprecated, has no effect. Partial hash updates are now optimized via "
+                     "subkey notifications, with no configuration",
          .setValue = setFilterCommand,
          .getValue = getFilterCommand,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -2628,7 +2650,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterBoolConfig(
       ctx, "search-partial-indexed-docs", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
+      get_bool_config, set_deprecated_partial_indexed_docs, NULL,
       (void *)&(RSGlobalConfig.filterCommands)
     )
   )

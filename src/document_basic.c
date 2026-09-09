@@ -558,12 +558,17 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
+  // A lazily patched rule field must also reach the spec cache: queries read
+  // the special-field names from the cache snapshot (the rule itself may be
+  // gone by reply time), so a stale cache would leave the patched field
+  // visible in replies.
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     array_append(arguments, globalAddRSstrings[0]);
     array_append(arguments, opts->scoreStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -574,6 +579,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -584,6 +590,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }

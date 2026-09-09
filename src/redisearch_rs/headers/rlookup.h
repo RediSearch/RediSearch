@@ -10,22 +10,9 @@
 // Manually added alias for the "no flags" state of RLookup_F (not a variant in Rust).
 #define RLOOKUP_F_NOFLAGS 0x0
 
-// Forward typedef for RLookupKey.
-//
-// We have two distinct Rust types that both map to the C name `RLookupKey`:
-//   - `RLookupKeyHeader` (renamed via `#[cheadergen::config(rename = "RLookupKey")]`),
-//     whose struct body is what gets emitted in this header.
-//   - `RLookupKey` (the wrapping Rust struct, marked `#[cheadergen::config(skip)]`),
-//     which appears as the pointee of the `next: *mut RLookupKey` self-reference
-//     inside the `RLookupKeyHeader` body.
-//
-// Because the two Rust types share a C name (a name collision we introduced via
-// the rename), cheadergen takes the bare-reference path for the skipped type and
-// emits `RLookupKey *next` with no `struct` qualifier. The typedef is not yet in
-// scope at that point inside the body, so the C compiler errors. We pre-declare
-// the typedef here so the bare reference resolves; C11+ permits the later
-// `typedef struct RLookupKey { ... } RLookupKey;` as a compatible redeclaration.
+// Handles are emitted before the full key definition.
 typedef struct RLookupKey RLookupKey;
+
 
 
 #ifndef CHEADERGEN_ALIGNED
@@ -131,7 +118,18 @@ typedef uint32_t RLookup_Opt;
 /**
  * An append-only list of [`RLookupKey`]s.
  *
- * This type maintains a mapping from string names to [`RLookupKey`]s.
+ * This type maintains a list of [`RLookupKey`]s addressable by string name.
+ *
+ * # Sealing
+ *
+ * At the end of pipeline construction the lookup is [sealed](Self::seal):
+ * from that point on it is *append-only*. Creating new keys stays legal —
+ * document loaders and the coordinator append keys during execution — but
+ * every operation that changes an existing key panics. Each mutating method
+ * documents on which side of that line it falls. The invariant exists so
+ * that state derived from the key set at finalization (cached
+ * [`RLookupKey`] pointers, compiled reply plans) stays valid for the rest of
+ * the request without re-validation.
  */
 typedef struct RLookup RLookup;
 
@@ -346,10 +344,6 @@ typedef struct RLookupKey {
    * Should be used to avoid repeated `strlen` computations.
    */
   size_t name_len;
-  /**
-   * Pointer to next field in the list
-   */
-  RLookupKey *next;
 } RLookupKey;
 
 /**

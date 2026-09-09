@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "pipeline/pipeline_construction.h"
 
 #include <string.h>
@@ -184,6 +193,9 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
+  // Reducers and implicit loaders have resolved their inputs. Later stages use
+  // the group's output lookup, so the input keys must now remain append-only.
+  RLookup_Seal(lookup);
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 

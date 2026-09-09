@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include "result_processor.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
@@ -27,9 +31,9 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 // Struct used for debugging background indexing
 typedef struct BgIndexingDebugCtx {
   int maxDocsTBscanned; // Max number of documents to be scanned before stopping
-  int maxDocsTBscannedPause; // Number of documents to be scanned before pausing
+  int maxDocsTBscannedPause;  // Number of documents to be scanned before pausing
   bool pauseBeforeScan; // Whether to pause before scanning
-  volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
+  volatile RS_Atomic(bool) pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
   bool pauseBeforeOOMretry; // Whether to pause before the first OOM retry
   bool simulateAsyncOOM; // Force the AsyncScan driver into its OOM terminal branch (test hook)
@@ -39,7 +43,7 @@ typedef struct BgIndexingDebugCtx {
 // Struct used for debugging queries
 // Note: unrelated to timeout debugging
 typedef struct QueryDebugCtx {
-  volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
+  volatile RS_Atomic(bool) pause; // Volatile atomic bool to wait for the resume command
   ResultProcessor *debugRP; // Result processor for debugging, supports debugging one query at a time
 } QueryDebugCtx;
 
@@ -71,10 +75,11 @@ int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status
 // Struct used for debugging coordinator reduction (pause mid-reduce)
 // Only available in debug builds to avoid affecting release performance
 typedef struct CoordReduceDebugCtx {
-  atomic_bool pause;           // Atomic bool to wait for the resume command
-  atomic_int pauseBeforeN;     // COORD_REDUCE_NO_PAUSE, COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT,
-                               // COORD_REDUCE_PAUSE_AFTER_LAST_RESULT, or N>0 to pause before the Nth result
-  atomic_int reduceCount;      // Counter of results reduced so far
+  RS_Atomic(bool) pause;  // Atomic bool to wait for the resume command
+  RS_Atomic(int)
+      pauseBeforeN;  // COORD_REDUCE_NO_PAUSE, COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT,
+                     // COORD_REDUCE_PAUSE_AFTER_LAST_RESULT, or N>0 to pause before the Nth result
+  RS_Atomic(int) reduceCount;  // Counter of results reduced so far
 } CoordReduceDebugCtx;
 
 // CoordReduceDebugCtx API function declarations
@@ -92,9 +97,10 @@ int CoordReduceDebugCtx_GetReduceCount(void);
 // (pause after extracting N results from the pipeline). Only available in debug
 // builds to avoid affecting release performance.
 typedef struct AggregateResultsDebugCtx {
-  atomic_bool pause;          // Atomic bool to wait for the resume command
-  atomic_int  pauseAfterN;    // AGGREGATE_RESULTS_NO_PAUSE, or N>0 to pause after the Nth result is extracted
-  atomic_int  resultsCount;   // Counter of results extracted so far
+  RS_Atomic(bool) pause;  // Atomic bool to wait for the resume command
+  RS_Atomic(int)
+      pauseAfterN;  // AGGREGATE_RESULTS_NO_PAUSE, or N>0 to pause after the Nth result is extracted
+  RS_Atomic(int) resultsCount;  // Counter of results extracted so far
 } AggregateResultsDebugCtx;
 
 // AggregateResultsDebugCtx API function declarations
@@ -117,10 +123,10 @@ typedef enum {
 // Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
 // Only available in debug builds to avoid affecting release performance
 typedef struct StoreResultsDebugCtx {
-  atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
-  atomic_bool pauseAfterEnabled;    // Whether pause after StoreResults is enabled
-  atomic_int  scope;                // StoreResultsScope; updated together with the enable flags
-  atomic_bool pause;                // Atomic bool to wait for the resume command
+  RS_Atomic(bool) pauseBeforeEnabled;  // Whether pause before StoreResults is enabled
+  RS_Atomic(bool) pauseAfterEnabled;   // Whether pause after StoreResults is enabled
+  RS_Atomic(int) scope;                // StoreResultsScope; updated together with the enable flags
+  RS_Atomic(bool) pause;               // Atomic bool to wait for the resume command
 } StoreResultsDebugCtx;
 
 // StoreResultsDebugCtx API function declarations
@@ -152,10 +158,11 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_HYBRID_DEPLETION              "BeforeHybridDepletion"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
-#define SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE        "BeforeCursorMappingPromote"
-#define SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED  "AfterCursorMappingPromoteFailed"
+#define SYNC_POINT_BEFORE_HYBRID_ARM_READS              "BeforeHybridArmReads"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
+// After private batch preparation, before offering it to the current owner.
+#define SYNC_POINT_RPNET_BEFORE_BATCH_PUBLISH "RpnetBeforeBatchPublish"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 #define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
@@ -210,6 +217,13 @@ bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of times a thread entered the named sync point since it was armed
+uint32_t SyncPoint_HitCount(const char *name);
+// Monotonic event ids for ordering sync-point hits and releases
+uint64_t SyncPoint_LastHitSeq(const char *name);
+uint64_t SyncPoint_LastReleaseSeq(const char *name);
+// Publish a sync-point event sequence without letting an older event regress it
+void SyncPoint_PublishMaxSeq(RS_Atomic(uint64_t) * target, uint64_t seq);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
@@ -245,9 +259,9 @@ uint32_t PendingSpecWriters_Get(void);
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control
 typedef struct HybridStoreCursorsDebugCtx {
-  atomic_bool pauseBeforeEnabled;   // Whether pause before cursor storage is enabled
-  atomic_bool pauseAfterEnabled;    // Whether pause after cursor storage is enabled
-  atomic_bool pause;                // Atomic bool to wait for the resume command
+  RS_Atomic(bool) pauseBeforeEnabled;  // Whether pause before cursor storage is enabled
+  RS_Atomic(bool) pauseAfterEnabled;   // Whether pause after cursor storage is enabled
+  RS_Atomic(bool) pause;               // Atomic bool to wait for the resume command
 } HybridStoreCursorsDebugCtx;
 
 // HybridStoreCursorsDebugCtx API function declarations
@@ -286,3 +300,7 @@ void IncrementGCTimerArmFromOneShot(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);
+
+#ifdef __cplusplus
+}
+#endif

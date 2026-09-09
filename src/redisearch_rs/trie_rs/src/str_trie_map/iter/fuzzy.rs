@@ -11,7 +11,7 @@ use crate::{
     TrieMap,
     automaton::{CaseFoldLevenshtein, CaseFoldLevenshteinNfa},
     iter::AutomatonIter,
-    str_trie_map::iter::unfiltered::key_to_string,
+    str_trie_map::iter::{LendingStrIter, key_to_str},
 };
 
 /// Iterator over the entries of a
@@ -47,14 +47,40 @@ impl<'tm, Data: 'tm> FuzzyIter<'tm, Data> {
     }
 }
 
+impl<'tm, Data: 'tm> FuzzyIter<'tm, Data> {
+    /// Advance whichever backend is driving this iteration.
+    fn advance(&mut self) -> Option<&'tm Data> {
+        match &mut self.0 {
+            Backend::Nfa64(it) => it.advance(),
+            Backend::Nfa128(it) => it.advance(),
+            Backend::Dp(it) => it.advance(),
+        }
+    }
+
+    /// The key the backend last stopped on.
+    fn key(&self) -> &str {
+        key_to_str(match &self.0 {
+            Backend::Nfa64(it) => it.key(),
+            Backend::Nfa128(it) => it.key(),
+            Backend::Dp(it) => it.key(),
+        })
+    }
+}
+
+impl<'tm, Data: 'tm> LendingStrIter<'tm> for FuzzyIter<'tm, Data> {
+    type Data = Data;
+
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
+        let data = self.advance()?;
+        Some((self.key(), data))
+    }
+}
+
 impl<'tm, Data: 'tm> Iterator for FuzzyIter<'tm, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            Backend::Nfa64(it) => it.next().map(|(k, v)| (key_to_string(k), v)),
-            Backend::Nfa128(it) => it.next().map(|(k, v)| (key_to_string(k), v)),
-            Backend::Dp(it) => it.next().map(|(k, v)| (key_to_string(k), v)),
-        }
+        let (key, data) = self.next_borrowed()?;
+        Some((key.to_owned(), data))
     }
 }

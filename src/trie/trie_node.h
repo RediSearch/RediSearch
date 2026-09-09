@@ -42,6 +42,7 @@ struct timespec;
 typedef struct TriePayload TriePayload;
 typedef struct TrieNode TrieNode;
 typedef struct TrieIterator TrieIterator;
+typedef struct QueryRequestTimeout QueryRequestTimeout;
 
 /* Opaque accessors over TrieNode struct internals. These are the only
  * supported way to read TrieNode fields from outside src/trie/. */
@@ -134,12 +135,12 @@ typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
  * @param ctx data to be passed to the callback
  */
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks);
+                              TrieRangeCallback callback, void *ctx,
+                              QueryRequestTimeout *timeout);
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks);
+                              TrieRangeCallback callback, void *ctx,
+                              QueryRequestTimeout *timeout);
 
 #ifdef __cplusplus
 }

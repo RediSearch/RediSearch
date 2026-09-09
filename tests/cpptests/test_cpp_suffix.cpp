@@ -8,6 +8,7 @@
 */
 
 #include "gtest/gtest.h"
+#include "query_request.h"
 #include "suffix.h"
 #include "trie/trie.h"
 #include "trie/rune_util.h"
@@ -179,7 +180,12 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
   addSuffixTrie(t, "abc", 3);
   int hits = 0;
-  struct timespec timeout = {};
+  QueryRequestTimeout timeout = {
+      .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
+      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
+      .source = {},
+  };
   rune emptyPattern[1] = {0};
   SuffixCtx ctx = {};
   ctx.trie = t;
@@ -189,7 +195,6 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   ctx.callback = countSuffixHit;
   ctx.cbCtx = &hits;
   ctx.timeout = &timeout;
-  ctx.skipTimeoutChecks = true;
 
   EXPECT_EQ(Suffix_IterateWildcard(&ctx), 0);
   EXPECT_EQ(hits, 0);
@@ -221,14 +226,20 @@ TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
   // guards against gives a deterministic "no prefix" answer if it ever returns.
   rune patternBuf[2] = {(rune)'x', 0};
   rune *emptyPattern = patternBuf + 1;
-  Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, NULL, true);
+  QueryRequestTimeout timeout = {
+      .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
+      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
+      .source = {},
+  };
+  Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, &timeout);
   EXPECT_EQ(hits, 0);
 
   // control: "*" matches the inserted term
   size_t rlen = 0;
   runeBuf buf;
   rune *star = runeBufFill("*", 1, &buf, &rlen);
-  Trie_IterateWildcard(t, star, rlen, countRangeHit, &hits, NULL, true);
+  Trie_IterateWildcard(t, star, rlen, countRangeHit, &hits, &timeout);
   EXPECT_EQ(hits, 1);
   runeBufFree(&buf);
 

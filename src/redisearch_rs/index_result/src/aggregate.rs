@@ -10,7 +10,7 @@
 use std::ptr::NonNull;
 
 use ref_mode::{Active, Ref, SharedPtr, Suspended};
-use thin_vec::SmallThinVec;
+use thin_vec::MediumThinVec;
 
 use super::core::{RSIndexResult, RawIndexResult};
 use super::kind::RSResultKindMask;
@@ -27,7 +27,7 @@ use super::kind::RSResultKindMask;
 ///
 /// `RawAggregateResult` is part of a union in
 /// [`super::result_data::RawResultData`], so it needs to have a known size. That
-/// is why both payloads hold their children in a [`SmallThinVec`] rather than the
+/// is why both payloads hold their children in a [`MediumThinVec`] rather than the
 /// std `Vec`, which is not `#[repr(C)]`.
 ///
 /// The C code should always use `AggregateResult_New` to construct a new instance of this type
@@ -59,7 +59,7 @@ pub struct RawBorrowedAggregateResult<'query, R: Ref> {
     /// Each child is stored as a [`SharedPtr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
     /// equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
     /// an inert raw pointer that survives lock release/reacquire cycles.
-    records: SmallThinVec<SharedPtr<R, RawIndexResult<'query, R>>>,
+    records: MediumThinVec<SharedPtr<R, RawIndexResult<'query, R>>>,
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
@@ -76,7 +76,7 @@ pub type RSBorrowedAggregateResult<'a> = RawBorrowedAggregateResult<'a, Active<'
 #[repr(C)]
 pub struct RawOwnedAggregateResult<'query, R: Ref> {
     /// The records making up this aggregate result, each owned by this aggregate.
-    records: SmallThinVec<Box<RawIndexResult<'query, R>>>,
+    records: MediumThinVec<Box<RawIndexResult<'query, R>>>,
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
@@ -154,7 +154,7 @@ impl<'query, R: Ref> RawBorrowedAggregateResult<'query, R> {
     /// Create a new empty borrowed aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            records: SmallThinVec::with_capacity(cap),
+            records: MediumThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -230,7 +230,7 @@ impl<'a> RSBorrowedAggregateResult<'a> {
     /// The returned aggregate result will have the same lifetime as the original one,
     /// since it may borrow terms from the original result.
     pub fn to_owned(&'a self) -> RSOwnedAggregateResult<'a> {
-        let mut records = SmallThinVec::with_capacity(self.records.len());
+        let mut records = MediumThinVec::with_capacity(self.records.len());
 
         records.extend(
             self.records
@@ -250,7 +250,7 @@ impl<'query, R: Ref> RawOwnedAggregateResult<'query, R> {
     /// Create a new empty owned aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            records: SmallThinVec::with_capacity(cap),
+            records: MediumThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -282,7 +282,7 @@ impl<'query, R: Ref> RawOwnedAggregateResult<'query, R> {
 
     /// Take the children out of this aggregate result, transferring ownership of
     /// each one to the caller.
-    pub fn into_records(self) -> SmallThinVec<Box<RawIndexResult<'query, R>>> {
+    pub fn into_records(self) -> MediumThinVec<Box<RawIndexResult<'query, R>>> {
         self.records
     }
 
@@ -347,7 +347,7 @@ impl<'a> RSOwnedAggregateResult<'a> {
     /// The returned aggregate result will have the same lifetime as the original one,
     /// since it may borrow terms from the original result.
     pub fn to_owned(&'a self) -> RSOwnedAggregateResult<'a> {
-        let mut records = SmallThinVec::with_capacity(self.records.len());
+        let mut records = MediumThinVec::with_capacity(self.records.len());
 
         records.extend(
             self.records

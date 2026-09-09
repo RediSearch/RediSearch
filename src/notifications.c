@@ -43,7 +43,6 @@
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
-RedisModuleString **hashFields = NULL;
 
 // The list of events we handle in the notification callback.
 #define REDIS_NOTIFICATION_EVENT_LIST(X)  \
@@ -109,18 +108,9 @@ enum RedisCmd {
 REDIS_NOTIFICATION_EVENT_LIST(DECLARE_REDIS_NOTIFICATION_EVENT_CACHE)
 #undef DECLARE_REDIS_NOTIFICATION_EVENT_CACHE
 
-static void freeHashFields() {
-  if (hashFields != NULL) {
-    for (size_t i = 0; hashFields[i] != NULL; ++i) {
-      RedisModule_FreeString(RSDummyContext, hashFields[i]);
-    }
-    rm_free(hashFields);
-    hashFields = NULL;
-  }
-}
-
 int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
-                               RedisModuleString *key);
+                               RedisModuleString *key, RedisModuleString **changedFields,
+                               size_t numChangedFields);
 
 // Transform the event string into its corresponding enum value. The core events
 // (REDIS_NOTIFICATION_EVENT_LIST) are pointer-cached: Redis core passes static
@@ -164,7 +154,36 @@ static enum RedisCmd GetRedisCmd(const char *event) {
 // nothing per notification. We deliberately do not carry the raw event string:
 // RedisJSON frees it once the notification returns (see GetRedisCmd).
 void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-  HandleKeyspaceNotification(ctx, (enum RedisCmd)(uintptr_t)pd, key);
+  HandleKeyspaceNotification(ctx, (enum RedisCmd)(uintptr_t)pd, key, NULL, 0);
+}
+
+/**
+ * Deferred payload for a subkey notification.
+ *
+ * The plain path packs its event enum into the payload pointer and allocates
+ * nothing, but subkeys cannot travel that way: Redis owns `subkeys[]` and it is
+ * only valid for the duration of the callback, while the indexing work runs
+ * later in a post-notification job. So the array is copied and each element
+ * retained here, and released by `freeSubkeyJobCtx`.
+ */
+typedef struct {
+  enum RedisCmd redisCommand;
+  size_t numFields;
+  RedisModuleString **fields;
+} SubkeyJobCtx;
+
+static void freeSubkeyJobCtx(void *pd) {
+  SubkeyJobCtx *jobCtx = pd;
+  for (size_t i = 0; i < jobCtx->numFields; ++i) {
+    RedisModule_FreeString(RSDummyContext, jobCtx->fields[i]);
+  }
+  rm_free(jobCtx->fields);
+  rm_free(jobCtx);
+}
+
+static void HandleSubkeyPerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+  SubkeyJobCtx *jobCtx = pd;
+  HandleKeyspaceNotification(ctx, jobCtx->redisCommand, key, jobCtx->fields, jobCtx->numFields);
 }
 
 static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
@@ -192,11 +211,60 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
     return REDISMODULE_OK;
   }
-  return HandleKeyspaceNotification(ctx, redisCommand, key);
+  return HandleKeyspaceNotification(ctx, redisCommand, key, NULL, 0);
+}
+
+/**
+ * Hash notifications, carrying the fields the command modified.
+ *
+ * Registered only when the running Redis exposes subkey notifications, and only
+ * for `REDISMODULE_NOTIFY_HASH`. JSON and every other type keep
+ * `KeySpaceNotificationCallback`
+ *
+ * `subkeys` may contain duplicates: Redis does not dedupe them, and neither do
+ * we — a repeated field only costs a redundant comparison in the schema match.
+ *
+ * `count` of zero is a real case, not a defensive check: a module mutating a hash and
+ * emitting `RedisModule_NotifyKeyspaceEvent` names no fields. It is passed on as an absent
+ * change set rather than an empty one, which is the difference between "we do not know what
+ * changed" and "nothing the index reads changed" — the former reindexes, the latter would
+ * let the write be skipped and leave the document stale.
+ */
+void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, const char *event,
+                                             RedisModuleString *key, RedisModuleString **subkeys,
+                                             int count) {
+  REDISMODULE_NOT_USED(type);
+  enum RedisCmd redisCommand = GetRedisCmd(event);
+  if (redisCommand == _null_cmd) {
+    return;
+  }
+
+  // Hash events are always deferred (ShouldDeferKeyspaceNotification only
+  // exempts _null_cmd / loaded / rename_from, none of which reach here), so the
+  // subkeys must outlive this callback.
+  RS_LOG_ASSERT(ShouldDeferKeyspaceNotification(redisCommand),
+                "hash subkey notifications are expected to be deferred");
+
+  SubkeyJobCtx *jobCtx = rm_new(SubkeyJobCtx);
+  jobCtx->redisCommand = redisCommand;
+  jobCtx->numFields = count > 0 ? (size_t)count : 0;
+  jobCtx->fields = jobCtx->numFields ? rm_malloc(jobCtx->numFields * sizeof(*jobCtx->fields)) : NULL;
+  for (size_t i = 0; i < jobCtx->numFields; ++i) {
+    jobCtx->fields[i] = RedisModule_HoldString(RSDummyContext, subkeys[i]);
+  }
+
+  int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandleSubkeyPerKeyJobFunc, key, jobCtx,
+                                                   freeSubkeyJobCtx);
+  if (rc != REDISMODULE_OK) {
+    // The job never runs, so nothing else will release the payload.
+    freeSubkeyJobCtx(jobCtx);
+    RS_LOG_ASSERT(false, "Failed to add post-notification job for key");
+  }
 }
 
 int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
-                               RedisModuleString *key) {
+                               RedisModuleString *key, RedisModuleString **changedFields,
+                               size_t numChangedFields) {
 
   RedisModuleKey *kp;
   DocumentType kType;
@@ -211,7 +279,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       // document we must copy it
       if (!IS_SST_RDB_LOADING(ctx)) {
         key = RedisModule_CreateStringFromString(ctx, key);
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields); //TODO: avoid getDocTypeFromString ?
         RedisModule_FreeString(ctx, key);
       }
       break;
@@ -223,12 +291,12 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
     case hincrbyfloat_cmd:
     case hdel_cmd:
       if (!IS_SST_RDB_LOADING(ctx)) {
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, changedFields, numChangedFields);
       }
       break;
     case hexpired_cmd:
       if (!SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, changedFields, numChangedFields);
       } else {
         static bool hexpired_warned = false;
         if (!hexpired_warned && Indexes_Count() > 0) {
@@ -246,7 +314,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       // the matching DMDs. Disk-backed indexes still take the full reindex
       // path until they grow an equivalent fast path.
       if (SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
       } else {
         Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
       }
@@ -254,7 +322,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
 
     case restore_cmd:
     case copy_to_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
       break;
 
     // Any RedisJSON write event reindexes the doc. Each command has its own enum
@@ -272,7 +340,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
     case json_arrpop_cmd:
     case json_arrtrim_cmd:
     case json_toggle_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, changedFields, numChangedFields);
       break;
 
     case rename_from_cmd:
@@ -336,75 +404,13 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       }
       // todo: here we will open the key again, we can optimize it by
       //       somehow passing the key pointer
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, changedFields, numChangedFields);
       break;
   }
-
-  freeHashFields();
 
   return REDISMODULE_OK;
 }
 
-/*****************************************************************************/
-
-void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
-  size_t len;
-  const RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
-  const char *cmdStr = RedisModule_StringPtrLen(cmd, &len);
-  if (*cmdStr != 'H' && *cmdStr != 'h') {
-    return;
-  }
-
-  int numArgs = RedisModule_CommandFilterArgsCount(filter);
-  if (numArgs < 3) {
-    return;
-  }
-  int cmdFactor = 1;
-
-  // HSETNX does not fire keyspace event if hash exists. No need to keep fields
-  if (!strcasecmp("HSET", cmdStr) || !strcasecmp("HMSET", cmdStr) || !strcasecmp("HSETNX", cmdStr) ||
-      !strcasecmp("HINCRBY", cmdStr) || !strcasecmp("HINCRBYFLOAT", cmdStr)) {
-    if (numArgs % 2 != 0) return;
-    // HSET receives field&value, HDEL receives field
-    cmdFactor = 2;
-  } else if (!strcasecmp("HDEL", cmdStr)) {
-    // Nothing to do
-  } else {
-    // TODO: HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT/HPERSIST also carry an
-    // explicit `FIELDS numfields field [field ...]` list. Capturing it here
-    // (scan argv for the FIELDS keyword, parse numfields, retain each field)
-    // would let Indexes_UpdateMatchingHashFieldExpiration in src/spec.c skip
-    // specs whose schema does not reference any of the affected fields,
-    // saving a HashFieldMinExpire + per-indexed-field HashGet pass on wide
-    // schemas where HEXPIRE only touches unindexed fields.
-    return;
-  }
-
-  freeHashFields();
-
-  const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
-  RedisModuleString *copyKeyStr = RedisModule_CreateStringFromString(RSDummyContext, keyStr);
-  int fieldsNum = 0;
-
-  RedisModuleKey *k = RedisModule_OpenKey(RSDummyContext, copyKeyStr, REDISMODULE_READ);
-  if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    // key does not exist or is not a hash, nothing to do
-    goto done;
-  }
-
-  fieldsNum = (numArgs - 2) / cmdFactor;
-  hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
-
-  for (size_t i = 0; i < fieldsNum; ++i) {
-    RedisModuleString *field = (RedisModuleString *)RedisModule_CommandFilterArgGet(filter, 2 + i * cmdFactor);
-    RedisModule_RetainString(RSDummyContext, field);
-    hashFields[i] = field;
-  }
-
-done:
-  RedisModule_FreeString(RSDummyContext, copyKeyStr);
-  RedisModule_CloseKey(k);
-}
 
 // These events do not use ASM State Machine
 void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -773,8 +779,36 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
   }
 }
 
+// Set when a subkey subscription attempt has been made and rejected. Stays false until an
+// attempt happens, so the probe below can still answer from capability alone before the first
+// index exists -- the subscription is lazy, and a caller asking early needs a useful answer.
+static bool RS_HashSubkeyRegistrationFailed = false;
+
+// Whether the plain channel was forced, for testing the degraded path. Owned here rather
+// than in the config: the lever exists only for tests, and `_FT.DEBUG` is unavailable
+// unless the module was loaded with DEBUG, so it cannot be reached in production at all.
+static bool RS_ForcePlainHashNotifications = false;
+
+// File scope so `ForcePlainHashNotifications_Set` can refuse once the channel is chosen.
+static bool RS_KeyspaceEvents_Initialized = false;
+
+bool HashSubkeyNotificationsSupported(void) {
+  return RedisModule_SubscribeToKeyspaceEventsWithSubkeys != NULL &&
+         !RS_HashSubkeyRegistrationFailed && !RS_ForcePlainHashNotifications;
+}
+
+bool ForcePlainHashNotifications_Set(bool force) {
+  // Refused after the subscription, not merely ineffective: the channel is chosen once, so
+  // a later flip would leave `HashSubkeyNotificationsSupported` describing a channel that is
+  // not in use, and a test could not tell the fallback from a working subscription.
+  if (RS_KeyspaceEvents_Initialized) {
+    return false;
+  }
+  RS_ForcePlainHashNotifications = force;
+  return true;
+}
+
 void Initialize_KeyspaceNotifications() {
-  static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
     // Physical key removal (EXPIRED/EVICTED) is de-indexed via the DocIdMeta
     // `unlink` callback in both modes, so we don't subscribe to those.
@@ -790,6 +824,46 @@ void Initialize_KeyspaceNotifications() {
     // Disk does not reshard today, and keeps the cheaper background path.
     if (!SearchDisk_IsEnabled()) {
       notifyFlags |= REDISMODULE_NOTIFY_KEY_TRIMMED;
+    }
+    // Take hash events over the subkey channel when the server has one: it names
+    // the fields the command touched, letting a spec that indexes none of them
+    // skip the reindex. Hash moves off the plain subscription entirely rather than
+    // being served by both -- subscribing twice would deliver each hash event to
+    // both callbacks and index it twice.
+    //
+    // Deliberately not SUBKEYS_REQUIRED. Not every hash event carries subkeys: a module
+    // mutating a hash and emitting `RedisModule_NotifyKeyspaceEvent(..., NOTIFY_HASH, ...)`
+    // names none. Requiring them would drop such an event from this subscription while the
+    // plain one no longer covers hash either, so the write would reach neither callback and
+    // the document's index entries would go stale. Instead the callback treats an event with
+    // no subkeys as an unknown change set, which reindexes unconditionally.
+    //
+    // The pointer is NULL against a Redis that predates subkey notifications
+    // (REDISMODULE_GET_API leaves it unset rather than failing the load); there
+    // hash stays on the plain path and reindexes unconditionally, as before.
+    //
+    // Hash is dropped from the plain subscription only once the subkey one has actually been
+    // accepted. Clearing the flag first and then ignoring the return would leave a server
+    // whose registration failed with no hash subscription at all, and every later HSET and
+    // HDEL would stop reaching the index -- silently, since nothing else reports it.
+    // `_FT.DEBUG FORCE_PLAIN_HASH_NOTIFICATIONS` selects the plain channel regardless, so a test can
+    // drive the path an older Redis takes. Nothing else reaches it: every CI lane runs a
+    // server that has the API.
+    if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys &&
+        !RS_ForcePlainHashNotifications) {
+      if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys(
+              RSDummyContext, REDISMODULE_NOTIFY_HASH, /* flags */ 0,
+              KeySpaceNotificationWithSubkeysCallback) == REDISMODULE_OK) {
+        notifyFlags &= ~REDISMODULE_NOTIFY_HASH;
+      } else {
+        // Recorded, not just logged: the fallback is indistinguishable from an active subkey
+        // subscription otherwise, and `HashSubkeyNotificationsSupported` is what tests and
+        // operators ask.
+        RS_HashSubkeyRegistrationFailed = true;
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Failed to subscribe to hash subkey keyspace notifications; falling "
+                        "back to reindexing the whole document on every hash write.");
+      }
     }
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, KeySpaceNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
@@ -1192,11 +1266,6 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   }
 }
 
-void Initialize_CommandFilter(RedisModuleCtx *ctx) {
-  if (RSGlobalConfig.filterCommands) {
-    RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
-  }
-}
 
 
 void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {

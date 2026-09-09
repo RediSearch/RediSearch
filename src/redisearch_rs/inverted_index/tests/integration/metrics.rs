@@ -31,7 +31,6 @@ const fn make_key() -> RLookupKey {
         path: ptr::null(),
         name: ptr::null(),
         name_len: 0,
-        next: ptr::null_mut(),
     }
 }
 

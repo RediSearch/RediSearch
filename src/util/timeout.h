@@ -9,9 +9,9 @@
 #pragma once
 
 #include <time.h>
+#include "query_request.h"
 #include "redisearch.h"
 #include "version.h"
-#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,21 +60,10 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
   }
 }
 
-static inline double rs_timer_ms(struct timespec *a){
-  return a->tv_sec * 1000 + (double)a->tv_nsec / 1000000.0;
-}
-
 #define NOT_TIMED_OUT 0
 #define TIMED_OUT 1
 
-#define TIMEOUT_COUNTER_LIMIT 100
-
-typedef struct TimeoutCtx {
-  struct timespec timeout;
-  uint32_t counter;
-} TimeoutCtx;
-
-typedef int(*TimeoutCb)(TimeoutCtx *);
+#define TIMEOUT_COUNTER_LIMIT QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT
 
 static inline int TimedOut(const struct timespec *timeout) {
   static struct timespec now;
@@ -85,55 +74,12 @@ static inline int TimedOut(const struct timespec *timeout) {
   return NOT_TIMED_OUT;
 }
 
-// Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
-static inline int TimedOut_WithCounter(const struct timespec *timeout, uint32_t *counter) {
-  if (RS_IsMock) return 0;
-
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {
-    *counter = 0;
-    return TimedOut(timeout);
-  }
-  return NOT_TIMED_OUT;
-}
-
-// Check if time has been reached, bypassing the once-every-N-calls throttle.
-// Honors the same escapes as TimedOut_WithCounter: the unit-test harness has no
-// Redis module API and so never populates the deadline, and REDISEARCH_UNINITIALIZED
-// means the caller opted out of timeout checks entirely.
-static inline int TimedOut_Unthrottled(const struct timespec *timeout, const uint32_t *counter) {
+// VecSim timeout callback adapter. The request timeout owns the active source and decides how it
+// is checked; its shared counter amortizes clock reads without delaying blocked-client checks.
+static inline int VecSim_TimedOut(QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout);
   if (RS_IsMock) return NOT_TIMED_OUT;
-  if (*counter == REDISEARCH_UNINITIALIZED) return NOT_TIMED_OUT;
-  return TimedOut(timeout);
-}
-
-// Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, uint32_t *counter, uint32_t gran) {
-  if (RS_IsMock) return 0;
-
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
-    *counter = 0;
-    return TimedOut(timeout);
-  }
-  return NOT_TIMED_OUT;
-}
-
-// Check if time has been reached (run once every 100 calls)
-static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
-  return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
-}
-
-// Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
-  return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
-}
-
-// Check if time has been reached
-static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
-  int rc = TimedOut(timeout);
-  if (status && rc == TIMED_OUT) {
-    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-  }
-  return rc;
+  return QueryRequestTimeout_IsTimedOut(timeout);
 }
 
 #ifdef __cplusplus

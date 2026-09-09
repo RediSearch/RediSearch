@@ -23,6 +23,7 @@ mod optional;
 mod phrase;
 mod prefix;
 mod qast_iterate;
+mod tag;
 mod token;
 mod union;
 mod util;

@@ -15,6 +15,10 @@
 
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MR_REPLY_STRING 1
 #define MR_REPLY_ARRAY 2
 #define MR_REPLY_INTEGER 3
@@ -77,9 +81,13 @@ int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRRep
 
 // Clone MRReply from another MRReply
 // Currently implements a partial clone, only for the type and string types.
-// Support types - MR_REPLY_STRING, MR_REPLY_ERROR
+// Support types - MR_REPLY_STRING, MR_REPLY_ERROR, MR_REPLY_STATUS
 MRReply *MRReply_Clone(MRReply *src);
 
 // Create a new error reply with the given message.
 // `msg` must be non-NULL and `len` must be greater than 0.
 MRReply *MRReply_CreateError(const char *msg, size_t len);
+
+#ifdef __cplusplus
+}
+#endif

@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import threading
 import time
@@ -29,6 +36,18 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
 
+    def testHashSubkeyNotifications(self):
+        """The probe answers whether this server can name the fields a hash command wrote.
+
+        Which decides whether a write reaching no indexed field can skip the reindex, so a
+        test asserting change-set-driven behavior has to be able to ask. Only the shape is
+        checked here: the answer depends on the Redis under test, and pinning either value
+        would make this fail on the other.
+        """
+        res = self.env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+        self.env.assertIn(res, (0, 1, True, False),
+                          message=f'expected a boolean, got {res!r}')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
@@ -51,6 +70,9 @@ class TestDebugCommands(object):
             "GC_FORCEINVOKE",
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
+            "DISK_FLUSH_NOWAIT",
+            "DISK_PAUSE_BG_WORK",
+            "DISK_RESUME_BG_WORK",
             "GC_CLEAN_NUMERIC",
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
@@ -70,6 +92,8 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
+            'HASH_SUBKEY_NOTIFICATIONS',
+            'FORCE_PLAIN_HASH_NOTIFICATIONS',
             'YIELDS_COUNTER',
             'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
@@ -107,6 +131,7 @@ class TestDebugCommands(object):
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
+                        'HASH_SUBKEY_NOTIFICATIONS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
                         'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
@@ -847,6 +872,16 @@ class TestQueryDebugCommands(object):
             # The query should succeed and return a timeout error (not a parse error)
             with env.assertResponseError(contained="Timeout limit was reached"):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+            if self.cmd == 'AGGREGATE':
+                # A retained clock-simulation processor cannot safely become a blocked-client
+                # timeout consumer if workers are enabled before a later cursor read.
+                env.expect(
+                    *self.basic_debug_query, 'WITHCURSOR', 'COUNT', 1,
+                    'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 2,
+                ).error().contains(
+                    'TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL'
+                )
 
         # Test ON_TIMEOUT RETURN-STRICT (never supported)
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
@@ -1872,7 +1907,8 @@ def _run_sync_point_query(conn, result_holder, error_holder, *query):
         error_holder.append(e)
 
 
-def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *query):
+def _assert_sync_point_query_blocks_and_resumes(
+        env, sync_point, release_cmd, *query, release_preserves_state=True):
     """Run a query in the background, wait for the sync point, then release it."""
     conn = env.getConnection()
     result_holder = []
@@ -1889,11 +1925,21 @@ def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *q
         f'Timeout waiting for {sync_point} sync point')
 
     env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', sync_point).equal(1)
+    hit_seq = env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_HIT_SEQ', sync_point)
+    env.assertGreater(hit_seq, 0)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point).equal(0)
     env.expect(*release_cmd).ok()
 
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
         f'Timeout waiting for {sync_point} sync point to resume')
+    if release_preserves_state:
+        env.assertGreater(env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point), hit_seq)
+    else:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', sync_point).equal(0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_HIT_SEQ', sync_point).equal(0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point).equal(0)
 
     query_thread.join(timeout=10)
     env.assertFalse(query_thread.is_alive(), message='Query thread is still blocked after release')
@@ -1968,7 +2014,8 @@ def test_sync_point_clear_releases_waiting_query(env):
         env,
         'BeforeFirstRead',
         (debug_cmd(), 'SYNC_POINT', 'CLEAR'),
-        'FT.SEARCH', 'idx', '*'
+        'FT.SEARCH', 'idx', '*',
+        release_preserves_state=False
     )
 
 

@@ -22,6 +22,7 @@ extern "C" {
 #include "query_test_utils.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
+#include "query_request.h"
 #include "rmalloc.h"
 
 #include "gtest/gtest.h"
@@ -122,6 +123,10 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC(redisCtx, "idx", args.data(), args.size(), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
+  // This direct QAST test bypasses the QueryRequest that owns timeout state in production.
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  ctx.timeout = &timeout;
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
@@ -167,7 +172,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErr)) << QueryError_GetUserError(&iterErr);
 
   // Disk-backed pre-filtered KNN requires explicit HYBRID_POLICY during iteration setup.
-  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, NULL, &iterErr);
+  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, &iterErr);
   ASSERT_NE(it, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErr));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErr), "require explicit HYBRID_POLICY"), nullptr)
@@ -207,7 +212,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
 
   // Query attributes syntax without HYBRID_POLICY still raises the same error.
   QueryIterator *it_missing_attrs =
-      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, NULL, &iterErrMissingAttrs);
+      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, &iterErrMissingAttrs);
   ASSERT_NE(it_missing_attrs, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErrMissingAttrs));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErrMissingAttrs), "require explicit HYBRID_POLICY"), nullptr)
@@ -240,7 +245,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 
   // Query attributes syntax also satisfies the explicit HYBRID_POLICY requirement.
-  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, NULL, &iterErrAttrs);
+  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, &iterErrAttrs);
   ASSERT_NE(it_attrs, nullptr);
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 

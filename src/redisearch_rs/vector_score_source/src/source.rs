@@ -16,8 +16,8 @@ use std::{
 };
 
 use ffi::{
-    RLookupKeyHandle, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode,
-    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams, timespec,
+    QueryRequestTimeout, RLookupKeyHandle, RS_VecSimCheckTimeout, VecSearchMode,
+    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
 use rlookup::RLookupKey;
@@ -67,9 +67,11 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     query_vector: QueryVector<'index>,
     query_params: VecSimQueryParams,
     k: usize,
-    /// Heap-allocated timeout context passed to VecSim as a `*mut c_void`.
-    /// Boxed so the pointer remains stable even if `VectorScoreSource` is moved.
-    timeout_ctx: Box<TimeoutCtx>,
+    /// Request-owned timeout passed directly to VecSim.
+    ///
+    /// Its validity is guaranteed by [`VectorScoreSource::new`]. Keeping it as a raw-pointer
+    /// wrapper avoids creating a Rust reference while C may atomically publish a timeout.
+    timeout: NonNull<QueryRequestTimeout>,
     /// Adhoc-BF path selection and scan-scoped state.
     adhoc_state: AdhocPathState<'index>,
     /// Whether the disk adhoc-BF scan should rescore its top-k with exact
@@ -87,9 +89,9 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// Batch iterator, lazily created on the first `next_batch` call. Reset
     /// on rewind.
     ///
-    /// Both lifetime slots are `'index`: the iterator borrows the index (`'index`)
-    /// and reads the `timeoutCtx` referent, the `timeout_ctx` field, dropped no
-    /// earlier than this iterator.
+    /// Both lifetime slots are `'index`: the iterator borrows the index and may read the
+    /// request-owned timeout referenced by [`VecSimQueryParams::timeoutCtx`]. The
+    /// [`VectorScoreSource::new`] contract guarantees that both outlive this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
     /// Number of batches consumed over the whole evaluation.
     pub num_iterations: usize,
@@ -141,18 +143,16 @@ impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index` pointer is non-owning; everything else is owned and
-// managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
-// responsibility to ensure the index outlives the iterator.
+// thread). The `index` and `timeout` pointers are non-owning; the constructor contract requires
+// both to outlive the source. Everything else is owned and managed by the struct itself.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
-    /// `timeout` is the query deadline as an absolute `timespec`.
-    /// `skip_timeout_checks` mirrors `sctx->time.skipTimeoutChecks`: when
-    /// `true`, the VecSim periodic counter check is disabled
-    /// (`REDISEARCH_UNINITIALIZED`).
+    /// `timeout` points to request-owned state that is consulted dynamically, so a cursor may
+    /// select a different timeout source between uses of the returned source. Standalone users
+    /// that do not have a query request must supply an UNARMED timeout.
     ///
     /// # Safety
     ///
@@ -161,14 +161,17 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 2. `query_vector` must satisfy the [`QueryVector`] length invariant for
     ///    `index`, which VecSim reads in full on every query path (a shorter
     ///    blob is read out of bounds).
+    /// 3. `timeout` must remain valid for the returned source's lifetime. Its active source may
+    ///    change only while no operation on the returned source is running. Operations on one
+    ///    source must remain serialized because clock checks mutate the request-owned counter;
+    ///    only the C atomic blocked-client marker may be changed concurrently.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout: timespec,
-        skip_timeout_checks: bool,
+        timeout: NonNull<QueryRequestTimeout>,
         child_num_estimated: usize,
         fixed_batch_size: usize,
         expiration: E,
@@ -193,11 +196,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             query_vector,
             query_params,
             k,
-            timeout_ctx: Box::new(TimeoutCtx {
-                timeout,
-                // u32::MAX ≡ REDISEARCH_UNINITIALIZED = (uint32_t)(-1)
-                counter: if skip_timeout_checks { u32::MAX } else { 0 },
-            }),
+            timeout,
             adhoc_state,
             should_rerank,
             batch_iter: None,
@@ -215,10 +214,9 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
         }
     }
 
-    /// Return a `*mut c_void` pointing to the owned [`TimeoutCtx`],
-    /// suitable for assignment to [`VecSimQueryParams::timeoutCtx`].
-    fn timeout_ctx_ptr(&mut self) -> *mut c_void {
-        self.timeout_ctx.as_mut() as *mut TimeoutCtx as *mut c_void
+    /// Return the request-owned timeout as the opaque context expected by VecSim.
+    fn timeout_ctx_ptr(&self) -> *mut c_void {
+        self.timeout.as_ptr().cast()
     }
 
     /// Return the number of vectors currently in the index.
@@ -304,10 +302,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             let params: *mut VecSimQueryParams = &mut self.query_params;
             // SAFETY:
             // - `params` points to `self.query_params`, valid for this call.
-            // - The returned iterator's `'params` is unified with `'index`. Its
-            //   `timeoutCtx` is the `timeout_ctx` field, dropped no earlier than
-            //   `self.batch_iter`, so the referent outlives the iterator despite
-            //   the widened `'index`.
+            // - The returned iterator's `'params` is unified with `'index`. The constructor
+            //   contract guarantees that the request-owned timeout referenced by `timeoutCtx`
+            //   outlives the iterator despite the widened `'index`.
             self.batch_iter = unsafe {
                 self.index
                     .batch_iterator_unchecked(&self.query_vector, params)
@@ -513,12 +510,10 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
-        // source is single-threaded so no other access to the aliased raw
-        // pointer in `query_params.timeoutCtx` is live during the call. The
-        // callee reads the deadline and bumps the counter without retaining the
-        // pointer.
-        let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
+        // SAFETY: the constructor contract keeps the request timeout valid while the source and
+        // retained VecSim work can use it. The callee may update the clock counter but does not
+        // retain the pointer.
+        let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout.as_ptr()) };
         if timeout != 0 {
             return Err(RQEIteratorError::TimedOut);
         }

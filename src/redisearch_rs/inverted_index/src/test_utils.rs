@@ -91,6 +91,9 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
 /// two cannot share an address whatever the allocator does. The original is then freed, which is
 /// what makes a reader's cached pointer genuinely dangle.
 ///
+/// The guarantee is only against the address being replaced here, not against any address a
+/// caller sampled earlier: an address freed before this call can be handed back by the allocator.
+///
 /// Returns the buffer's new base address.
 ///
 /// # Panics
@@ -104,6 +107,7 @@ pub fn relocate_block_buffer<E: crate::Encoder + crate::DecodedBy>(
 
     // Hold the original allocation while the replacement is allocated, so they cannot overlap.
     let original = std::mem::take(&mut block.buffer);
+    let original_base = original.as_ptr();
     let mut relocated = Vec::with_capacity(original.len().max(1));
     relocated.extend_from_slice(&original);
 
@@ -111,7 +115,11 @@ pub fn relocate_block_buffer<E: crate::Encoder + crate::DecodedBy>(
     block.buffer = relocated;
     drop(original);
 
-    assert_ne!(base, std::ptr::null(), "relocated buffer must be allocated");
+    // Guaranteed by construction: `original` was still alive when `relocated` was allocated.
+    assert_ne!(
+        base, original_base,
+        "must not reuse the address it just replaced"
+    );
     base
 }
 
