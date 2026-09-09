@@ -87,9 +87,9 @@ fn load_all_dollar(
         let format = JsonDocumentFormat::new(ctx, &japi, api_version);
         let key_name = make_redis_string(c"doc:1");
 
-        let mut rlookup = RLookup::new();
+        let rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        format.load_all(&mut rlookup, &mut row, &key_name)?;
+        format.load_all(&rlookup, &mut row, &key_name)?;
 
         let cursor = rlookup
             .find_key_by_name(c"$")
@@ -194,7 +194,7 @@ fn load_all_writes_root_value() {
             .unwrap();
 
         let mut row = RLookupRow::new();
-        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+        format.load_all(&rlookup, &mut row, &key_name).unwrap();
 
         let cursor = rlookup.find_key_by_name(c"$").unwrap();
         let key = cursor.current().unwrap();
