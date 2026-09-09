@@ -762,6 +762,23 @@ bool MRIterator_AllShardsConnected(const MRIterator *it) {
   return true;
 }
 
+// Ask a single shard for the compact row-block encoding (src/aggregate/row_block.h),
+// once `cmd` already has its final `targetShard` set. Per-shard, not per-request:
+// asking a shard we don't yet know is capable of decoding the token (or which is
+// known incapable, or sticky-demoted after previously rejecting it - see
+// MRConnManager_DemoteRowBlockCap) would hard-fail that shard's whole query
+// (parseAggPlan's terminal `else` on an unrecognized argument), so an incapable or
+// Unknown shard gets no token at all, not a placeholder: even an empty argument
+// would be just as unrecognized as `_ROW_BLOCK` itself to an older build.
+static inline void maybeAskRowBlock(IORuntimeCtx *io_runtime_ctx, MRCommand *cmd) {
+  if (!RSGlobalConfig.internalRowBlockFormat) return;
+  MRNodeCapState cap =
+      MRConnManager_GetRowBlockCapability(&io_runtime_ctx->conn_mgr, cmd->targetShard, NULL);
+  if (cap == MRNodeCap_Yes) {
+    MRCommand_AppendLiteral(cmd, "_ROW_BLOCK");
+  }
+}
+
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
   MRIterator *it = (MRIterator *)p;
@@ -795,24 +812,13 @@ void iterStartCb(void *p) {
     it->ctx.commandModifier(cmd, numShards, MRIterator_GetPrivateData(it));
   }
 
-  // Ask for the compact row-block encoding (src/aggregate/row_block.h) only when this
-  // coordinator wants it. Filled here, at fan-out time, rather than where the rest of the
-  // command is built (dist_aggregate.c's buildMRCommand): every shard's copy is made from
-  // `cmd` below, so appending it once here reaches every shard identically. A later commit
-  // makes this a per-shard decision driven by each shard's rolling-upgrade capability; until
-  // then this is a pure relocation of the existing config-gated behavior, appended after
-  // every other argument (including ones inserted at fixed offsets, like SLOTS and
-  // _COORD_DISPATCH_TIME) to prove a bare flag token parses correctly from any position.
-  if (RSGlobalConfig.internalRowBlockFormat) {
-    MRCommand_AppendLiteral(cmd, "_ROW_BLOCK");
-  }
-
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
     it->cbxs[targetShardIdx].it = it;
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
+    maybeAskRowBlock(io_runtime_ctx, &it->cbxs[targetShardIdx].cmd);
 
     it->cbxs[targetShardIdx].privateData = MRIterator_GetPrivateData(it);
   }
@@ -820,6 +826,7 @@ void iterStartCb(void *p) {
   // Set the first command to target the first shard (while not having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
+  maybeAskRowBlock(io_runtime_ctx, cmd);
 
   // Send commands to all shards
   for (size_t i = 0; i < numShards; i++) {
