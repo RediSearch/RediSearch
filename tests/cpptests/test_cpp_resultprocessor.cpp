@@ -533,6 +533,311 @@ TEST_F(SafeLoaderDrainTest, loadAllDoesNotPublishKeysFromUnloadedBuffer) {
   SearchResult_Destroy(&next);
 }
 
+// A worker-only source with a reusable borrowed index result and an observable Drain barrier.
+static thread_local bool pauseSorterAllocation = false;
+struct SorterDrainSource : ResultProcessor {
+  std::vector<double> scores;
+  std::vector<RSValue *> values;
+  const RLookupKey *key = nullptr;
+  size_t position = 0, pauseAt = SIZE_MAX, allocationPauseAt = SIZE_MAX;
+  size_t drainCalls = 0;
+  std::atomic<bool> entered{false}, release{false};
+  int terminal = RS_RESULT_EOF;
+  RSIndexResult *borrowed = NewVirtualResult(1, RS_FIELDMASK_ALL);
+
+  SorterDrainSource() {
+    *static_cast<ResultProcessor *>(this) = {};
+    Drain = [](ResultProcessor *base, SearchResult *) {
+      ++static_cast<SorterDrainSource *>(base)->drainCalls;
+      return RP_DRAIN_ERROR;
+    };
+    Next = [](ResultProcessor *base, SearchResult *result) -> int {
+      auto *self = static_cast<SorterDrainSource *>(base);
+      if (self->position == self->pauseAt) {
+        self->entered.store(true, std::memory_order_release);
+        while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      }
+      if (self->position == self->scores.size()) return self->terminal;
+      pauseSorterAllocation = self->position == self->allocationPauseAt;
+      SearchResult_SetScore(result, self->scores[self->position++]);
+      SearchResult_SetDocId(result, self->position);
+      if (self->key && self->values[self->position - 1]) {
+        auto *value = self->values[self->position - 1];
+        RSValue_IncrRef(value);
+        RLookup_WriteOwnKey(self->key, SearchResult_GetRowDataMut(result), value);
+      }
+      self->borrowed->docId = self->position;
+      SearchResult_SetBorrowedIndexResult(result, self->borrowed);
+      return RS_RESULT_OK;
+    };
+  }
+  ~SorterDrainSource() {
+    IndexResult_Free(borrowed);
+    for (auto *value : values)
+      if (value) RSValue_DecrRef(value);
+  }
+};
+
+class SorterDrainTest : public ::testing::Test {
+ protected:
+  QueryProcessingCtx qctx = {};
+  QueryError error = QueryError_Default();
+  RLookup lookup = RLookup_New();
+  SorterDrainSource source;
+  ResultProcessor *sorter = nullptr;
+  SearchResult result = SearchResult_New();
+
+  void create(size_t capacity) {
+    qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    qctx.resultLimit = 37;
+    qctx.err = &error;
+    sorter = RPSorter_NewByScore(capacity, nullptr);
+    sorter->parent = &qctx;
+    sorter->upstream = &source;
+  }
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    if (sorter) sorter->Free(sorter);
+    RLookup_Cleanup(&lookup);
+    QueryError_ClearError(&error);
+  }
+  std::vector<double> drainScores() {
+    std::vector<double> output;
+    RPDrainStatus status;
+    while ((status = sorter->Drain(sorter, &result)) == RP_DRAIN_OK) {
+      output.push_back(SearchResult_GetScore(&result));
+      const auto *index = SearchResult_GetIndexResult(&result);
+      EXPECT_NE(nullptr, index);
+      if (index) EXPECT_EQ(SearchResult_GetDocId(&result), index->docId);
+      EXPECT_TRUE(SearchResult_GetFlags(&result) & Result_OwnsIndexResult);
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, status);
+    EXPECT_EQ(RP_DRAIN_EOF, sorter->Drain(sorter, &result));
+    EXPECT_EQ(0, source.drainCalls);
+    return output;
+  }
+};
+
+TEST_F(SorterDrainTest, unstartedHeapIsTerminalWithoutSourceWork) {
+  source.scores = {9};
+  create(3);
+  EXPECT_TRUE(drainScores().empty());
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
+  EXPECT_EQ(0, source.position);
+}
+
+TEST_F(SorterDrainTest, takesPartialTopNWhileUpstreamRemainsParked) {
+  source.scores = {2, 8, 4, 10, 1};
+  source.pauseAt = 3;
+  create(2);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = sorter->Next(sorter, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<double>{8, 4}), drainScores());
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(37, qctx.resultLimit);
+  EXPECT_EQ(nullptr, SearchResult_GetIndexResult(&next));
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SorterDrainTest, preservesAlreadyClaimedNextOutputAndNormalEofOrder) {
+  source.scores = {2, 8, 4, 1};
+  create(3);
+  SearchResult next = SearchResult_New();
+  ASSERT_EQ(RS_RESULT_OK, sorter->Next(sorter, &next));
+  EXPECT_EQ(8, SearchResult_GetScore(&next));
+  EXPECT_EQ((std::vector<double>{4, 2}), drainScores());
+  EXPECT_EQ(8, SearchResult_GetScore(&next));
+  EXPECT_EQ(2, SearchResult_GetIndexResult(&next)->docId);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SorterDrainTest, preparationLosesAdmissionWithoutWaitingForWorker) {
+  source.scores = {2, 8};
+  source.allocationPauseAt = 1;
+  create(3);
+  static std::atomic<bool> prepared, resume;
+  static decltype(RedisModule_Alloc) originalAlloc;
+  prepared.store(false);
+  resume.store(false);
+  originalAlloc = RedisModule_Alloc;
+  RedisModule_Alloc = [](size_t size) -> void * {
+    if (pauseSorterAllocation && size == sizeof(SearchResult)) {
+      pauseSorterAllocation = false;
+      prepared.store(true, std::memory_order_release);
+      while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+    }
+    return originalAlloc(size);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = sorter->Next(sorter, &next); });
+  bool entered = RS::WaitForCondition([&] { return prepared.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<double>{2}), drainScores());
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  RedisModule_Alloc = originalAlloc;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SorterDrainTest, upstreamErrorDoesNotEraseCommittedHeap) {
+  source.scores = {3, 1, 2};
+  source.terminal = RS_RESULT_ERROR;
+  create(2);
+  ASSERT_EQ(RS_RESULT_ERROR, sorter->Next(sorter, &result));
+  EXPECT_EQ((std::vector<double>{3, 2}), drainScores());
+}
+
+TEST_F(SorterDrainTest, limitStopLeavesRemainingHeapForFree) {
+  source.scores = {3, 1, 2};
+  source.terminal = RS_RESULT_TIMEDOUT;
+  create(3);
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
+  ASSERT_EQ(RP_DRAIN_OK, sorter->Drain(sorter, &result));
+  EXPECT_EQ(3, SearchResult_GetScore(&result));
+  EXPECT_FALSE(RPSorter_TakeDrainError(sorter, &error));
+  sorter->Free(sorter);
+  sorter = nullptr;
+  EXPECT_EQ(1, SearchResult_GetIndexResult(&result)->docId);
+}
+
+TEST_F(SorterDrainTest, sequentialPoliciesKeepNormalNextOrdering) {
+  for (auto policy : {TimeoutPolicy_Return, TimeoutPolicy_Fail}) {
+    source.scores = {3, 1, 2, 4};
+    source.position = 0;
+    create(3);
+    qctx.timeoutPolicy = policy;
+    for (double expected : {4, 3, 2}) {
+      ASSERT_EQ(RS_RESULT_OK, sorter->Next(sorter, &result));
+      EXPECT_EQ(expected, SearchResult_GetScore(&result));
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(RS_RESULT_EOF, sorter->Next(sorter, &result));
+    sorter->Free(sorter);
+    sorter = nullptr;
+  }
+}
+
+TEST_F(SorterDrainTest, sequentialDrainKeepsRemainingHeapAfterNextUnwinds) {
+  source.scores = {3, 1, 2, 4};
+  create(3);
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  ASSERT_EQ(RS_RESULT_OK, sorter->Next(sorter, &result));
+  EXPECT_EQ(4, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ((std::vector<double>{3, 2}), drainScores());
+}
+
+TEST_F(SorterDrainTest, preservesLegacyTimeoutDispatchUntilPipelineIntegration) {
+  for (auto policy : {TimeoutPolicy_Return, TimeoutPolicy_Fail}) {
+    source.scores = {3, 1, 2};
+    source.position = 0;
+    source.terminal = RS_RESULT_TIMEDOUT;
+    create(3);
+    qctx.timeoutPolicy = policy;
+    if (policy == TimeoutPolicy_Return) {
+      for (double expected : {3, 2, 1}) {
+        ASSERT_EQ(RS_RESULT_OK, sorter->Next(sorter, &result));
+        EXPECT_EQ(expected, SearchResult_GetScore(&result));
+        SearchResult_Clear(&result);
+      }
+    }
+    EXPECT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
+    sorter->Free(sorter);
+    sorter = nullptr;
+  }
+}
+
+TEST_F(SorterDrainTest, fieldOrderingAndScoreTiesMatchNext) {
+  source.scores = {1, 1, 1};
+  source.values = {RSValue_NewNumber(5), RSValue_NewNumber(1), RSValue_NewNumber(3)};
+  source.key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
+  RLookup_Seal(&lookup);
+  for (int mode = 0; mode < 3; ++mode) {
+    create(3);
+    sorter->Free(sorter);
+    sorter = mode == 2 ? RPSorter_NewByScore(3, source.key)
+                       : RPSorter_NewByFields(3, &source.key, 1, mode);
+    sorter->parent = &qctx;
+    sorter->upstream = &source;
+    source.position = 0;
+    source.terminal = RS_RESULT_TIMEDOUT;
+    ASSERT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
+    std::vector<t_docId> ids;
+    while (sorter->Drain(sorter, &result) == RP_DRAIN_OK) {
+      ids.push_back(SearchResult_GetDocId(&result));
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(mode == 0 ? (std::vector<t_docId>{1, 3, 2}) : (std::vector<t_docId>{2, 3, 1}), ids);
+    sorter->Free(sorter);
+    sorter = nullptr;
+  }
+}
+
+TEST_F(SorterDrainTest, comparisonDiagnosticsNeverWriteNextErrorDuringDrain) {
+  source.scores = {1, 1, 1, 1};
+  source.values = {RSValue_NewNumber(1), RSValue_NewCopiedString("z", 1), RSValue_NewNumber(2),
+                   RSValue_NewCopiedString("y", 1)};
+  source.key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
+  RLookup_Seal(&lookup);
+  create(4);
+  sorter->Free(sorter);
+  sorter = RPSorter_NewByFields(4, &source.key, 1, 1);
+  sorter->parent = &qctx;
+  sorter->upstream = &source;
+  source.terminal = RS_RESULT_TIMEDOUT;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
+  EXPECT_STREQ("Error converting string", QueryError_GetUserError(&error));
+  EXPECT_STREQ("Error converting string", QueryError_GetDisplayableError(&error, true));
+  QueryError_ClearError(&error);
+  QueryError drainError = QueryError_Default();
+  size_t count = 0;
+  while (sorter->Drain(sorter, &result) == RP_DRAIN_OK) {
+    ++count;
+    SearchResult_Clear(&result);
+  }
+  EXPECT_EQ(4, count);
+  EXPECT_FALSE(QueryError_HasError(&error));
+  EXPECT_TRUE(RPSorter_TakeDrainError(sorter, &drainError));
+  EXPECT_TRUE(QueryError_HasError(&drainError));
+  EXPECT_STREQ("Error converting string", QueryError_GetUserError(&drainError));
+  EXPECT_STREQ("Error converting string", QueryError_GetDisplayableError(&drainError, true));
+  EXPECT_FALSE(RPSorter_TakeDrainError(sorter, &drainError));
+  QueryError_ClearError(&drainError);
+}
+
+TEST_F(SorterDrainTest, comparisonDiagnosticsPreserveExistingErrors) {
+  source.scores = {1, 1, 1, 1};
+  source.values = {RSValue_NewNumber(1), RSValue_NewCopiedString("z", 1), RSValue_NewNumber(2),
+                   RSValue_NewCopiedString("y", 1)};
+  source.key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
+  RLookup_Seal(&lookup);
+  create(4);
+  sorter->Free(sorter);
+  sorter = RPSorter_NewByFields(4, &source.key, 1, 1);
+  sorter->parent = &qctx;
+  sorter->upstream = &source;
+  source.terminal = RS_RESULT_TIMEDOUT;
+  QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+  QueryError_SetDetail(&error, "earlier Next error");
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
+  EXPECT_STREQ("earlier Next error", QueryError_GetUserError(&error));
+  while (sorter->Drain(sorter, &result) == RP_DRAIN_OK) SearchResult_Clear(&result);
+  QueryError drainError = QueryError_Default();
+  QueryError_SetCode(&drainError, QUERY_ERROR_CODE_GENERIC);
+  QueryError_SetDetail(&drainError, "earlier Drain error");
+  EXPECT_TRUE(RPSorter_TakeDrainError(sorter, &drainError));
+  EXPECT_STREQ("earlier Drain error", QueryError_GetUserError(&drainError));
+  QueryError_ClearError(&drainError);
+}
+
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
