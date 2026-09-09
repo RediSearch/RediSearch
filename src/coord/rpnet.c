@@ -51,30 +51,10 @@ static void unlockState(RPNet *nc) {
 
 void RPNet_PublishIterator(RPNet *nc) {
   lockState(nc);
+  RS_ASSERT(!nc->drainChannel);
   nc->drainChannel = MRIterator_GetChannel(nc->it);
-  nc->drainProtocol = nc->cmd.protocol;
-  nc->drainProfiling = nc->cmd.forProfiling;
-  nc->drainExplain = (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
-  nc->drainWithCount = nc->withCount;
-  nc->drainTimeoutPolicy = nc->areq->reqConfig.timeoutPolicy;
-  nc->drainOomPolicy = nc->areq->reqConfig.oomPolicy;
-  nc->drainHybridSubquery = nc->hybridSubquery;
-  nc->drainLookup = nc->lookup;
+  nc->explainScores = (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
   unlockState(nc);
-}
-
-static void publishRemainder(RPNet *local) {
-  RPNet *owner = local->owner;
-  lockState(owner);
-  bool closed = owner->drainEOF;
-  if (!closed) {
-    RS_ASSERT(!owner->current.root);
-    owner->current = local->current;
-    owner->curIdx = local->curIdx;
-  }
-  unlockState(owner);
-  if (closed) MRReply_Free(local->current.root);
-  RPNet_resetCurrent(local);
 }
 
 // Converts an MRReply to an RSValue, consuming the reply. String buffers can be
@@ -156,8 +136,7 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
   return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
 }
 
-// Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
-// Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
+// Process warnings from a Next-owned batch (RESP3 only), then release it.
 //
 // Shard warnings are always recorded on the AREQ / QueryError so the reply
 // emitter can surface them. A shard's TIMEDOUT warning additionally controls
@@ -168,12 +147,12 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
 //     authoritative stop signal.
 //   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
 //     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
-static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
+static int processWarningsAndCleanup(RPNet *nc, RPNetReply *batch, bool is_resp3) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
   if (is_resp3) {
-    RS_ASSERT(nc->current.meta);
-    MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
+    RS_ASSERT(batch->meta);
+    MRReply *warning = MRReply_MapElement(batch->meta, "warning");
     size_t num_warnings = MRReply_Length(warning);
     // Iterate over all warnings in the array
     for (size_t i = 0; i < num_warnings; i++) {
@@ -197,8 +176,8 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
     }
   }
 
-  MRReply_Free(nc->current.root);
-  RPNet_resetCurrent(nc);
+  MRReply_Free(batch->root);
+  *batch = (RPNetReply){0};
 
   if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
@@ -261,10 +240,10 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   return RS_RESULT_OK;
 }
 
-int getNextReply(RPNet *nc) {
+int getNextReply(RPNet *nc, RPNetReply *batch) {
   if (nc->cmd.forCursor) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-      RPNet_resetCurrent(nc);
+      *batch = (RPNetReply){0};
       return RS_RESULT_EOF;
     }
   }
@@ -292,7 +271,7 @@ int getNextReply(RPNet *nc) {
                       : MRIterator_Next(nc->it);
 
   if (root == NULL) {
-    RPNet_resetCurrent(nc);
+    *batch = (RPNetReply){0};
     // Drain-only: empty channel means end of queued replies, not a timeout —
     // the main-thread timeout callback already observed the deadline and is
     // now consuming whatever the I/O threads had already pushed.
@@ -311,13 +290,13 @@ int getNextReply(RPNet *nc) {
   if (isHybridMappingWarning(nc, root)) {
     int rc = processHybridMappingWarning(nc, MRReply_String(root, NULL));
     MRReply_Free(root);
-    RPNet_resetCurrent(nc);
+    *batch = (RPNetReply){0};
     return rc;
   }
 
   // Check if an error was returned
   if (MRReply_Type(root) == MR_REPLY_ERROR) {
-    nc->current.root = root;
+    batch->root = root;
     // If for profiling, clone and append the error
     if (nc->cmd.forProfiling) {
       // Clone the error and append it to the profile
@@ -369,9 +348,9 @@ int getNextReply(RPNet *nc) {
     rows = MRReply_ArrayElement(root, 0);
   }
 
-  nc->current.root = root;
-  nc->current.rows = rows;
-  nc->current.meta = meta;
+  batch->root = root;
+  batch->rows = rows;
+  batch->meta = meta;
 
   const size_t empty_rows_len =
       nc->cmd.protocol == 3 ? 0 : 1;  // RESP2 has the first element as the number of results.
@@ -379,7 +358,7 @@ int getNextReply(RPNet *nc) {
                 rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+    int ret = processWarningsAndCleanup(nc, batch, nc->cmd.protocol == 3);
 
     if (ret == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
@@ -419,9 +398,7 @@ void rpnetFree(ResultProcessor *rp) {
   }
 
   MRReply_Free(nc->current.root);
-  MRReply_Free(nc->drainCurrent.root);
-  array_foreach(nc->drainedReplies, reply, MRReply_Free(reply));
-  array_free(nc->drainedReplies);
+  RPNetDrainMetadata_Free(nc->drainMetadata);
   MRCommand_Free(&nc->cmd);
 
   rm_free(rp);
@@ -434,27 +411,15 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Drain = rpnetDrain;
-  nc->drainedReplies = array_new(MRReply *, 1);
   atomic_init(&nc->stateLock, false);
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
 }
 
-void RPNet_resetCurrent(RPNet *nc) {
-  nc->current.root = NULL;
-  nc->current.rows = NULL;
-  nc->current.meta = NULL;
-}
-
-static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
-  RPNet *nc = (RPNet *)self;
+static int readNextBatch(RPNet *nc, RPNetReply *batch) {
   AREQ *areq = nc->areq;
   RS_ASSERT(areq);
-
-#ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
-#endif
 
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
@@ -464,7 +429,7 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
     return RS_RESULT_TIMEDOUT;
   }
 
-  MRReply *root = nc->current.root, *rows = nc->current.rows;
+  MRReply *root = batch->root, *rows = batch->rows;
   const bool resp3 = nc->cmd.protocol == 3;
 
   // root (array) has similar structure for RESP2/3:
@@ -485,8 +450,8 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
   if (rows) {
     size_t len = MRReply_Length(rows);
 
-    if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
+    if (batch->index == len) {
+      if (processWarningsAndCleanup(nc, batch, resp3) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
 
@@ -513,7 +478,7 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    int ret = getNextReply(nc);
+    int ret = getNextReply(nc, batch);
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
     } else if (ret == RS_RESULT_TIMEDOUT) {
@@ -526,9 +491,8 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
     }
 
     // If an error was returned, propagate it
-    if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      QueryErrorCode errCode =
-          QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
+    if (batch->root && MRReply_Type(batch->root) == MR_REPLY_ERROR) {
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(batch->root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC || errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
           ((errCode == QUERY_ERROR_CODE_TIMED_OUT) &&
@@ -543,7 +507,7 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
         // text instead, as the pre-arming-fan-out coordinator did.
         if (nc->hybridSubquery == RPNET_HYBRID_NONE || errCode != QUERY_ERROR_CODE_TIMED_OUT) {
           QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
-                               MRReply_String(nc->current.root, NULL));
+                               MRReply_String(batch->root, NULL));
         }
         return RS_RESULT_ERROR;
       } else {
@@ -564,19 +528,19 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
             // return incomplete results.
             QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
             QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
-                                 MRReply_String(nc->current.root, NULL));
+                                 MRReply_String(batch->root, NULL));
             return RS_RESULT_ERROR;
           }
         }
         // Free the error reply before we override it and continue
-        MRReply_Free(nc->current.root);
+        MRReply_Free(batch->root);
         // Set it as NULL avoid another free
-        nc->current.root = NULL;
+        batch->root = NULL;
       }
     }
 
-    root = nc->current.root;
-    rows = nc->current.rows;
+    root = batch->root;
+    rows = batch->rows;
   }
 
   // invariant: at least one row exists
@@ -587,7 +551,7 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
     SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
 #endif
     if (resp3) {  // RESP3
-      nc->curIdx = 0;
+      batch->index = 0;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred from the shard-summed total accumulated on the
       // IO thread; it is preserved across cursor reads by finishSendChunk.
@@ -595,9 +559,9 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
-      processResultFormat(&nc->areq->reqflags, nc->current.meta);
+      processResultFormat(&nc->areq->reqflags, batch->meta);
     } else {  // RESP2
-      nc->curIdx = 1;
+      batch->index = 1;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred (see RESP3 branch above).
       if (!nc->withCount) {
@@ -607,10 +571,7 @@ static int rpnetNextOwned(ResultProcessor *self, SearchResult *r) {
     }
   }
 
-  MRReply *record = MRReply_TakeArrayElement(rows, nc->curIdx++);
-  publishRemainder(nc);
-  return convertRecord(nc->lookup, resp3, (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
-                       record, r);
+  return RS_RESULT_OK;
 }
 
 static int convertRecord(RLookup *lookup, bool resp3, bool expectExplain, MRReply *record,
@@ -667,125 +628,244 @@ static int convertRecord(RLookup *lookup, bool resp3, bool expectExplain, MRRepl
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
-  // Only Next owns these fields; Drain uses the separately published configuration.
-  RPNet local = {.base = nc->base,
-                 .lookup = nc->lookup,
-                 .it = nc->it,
-                 .cmd = nc->cmd,
-                 .areq = nc->areq,
-                 .shardsProfile = nc->shardsProfile,
-                 .withCount = nc->withCount,
-                 .drainOnly = nc->drainOnly,
-                 .hybridSubquery = nc->hybridSubquery,
-                 .owner = nc};
+  RS_ASSERT(nc->areq);
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, nc->areq);
+#endif
+  if (QueryRequest_UsesReplyCallback(&nc->areq->base) && !nc->drainOnly &&
+      QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
+    return RS_RESULT_TIMEDOUT;
+  }
   lockState(nc);
-  if (nc->draining) {
+  if (nc->phase != RPNET_READING) {
     unlockState(nc);
     return RS_RESULT_TIMEDOUT;
   }
-  local.current = nc->current;
-  local.curIdx = nc->curIdx;
-  RPNet_resetCurrent(nc);
+  // Claim only this row; the remainder stays available even while conversion stalls.
+  if (nc->current.rows && nc->current.index < MRReply_Length(nc->current.rows)) {
+    MRReply *record = MRReply_TakeArrayElement(nc->current.rows, nc->current.index++);
+    unlockState(nc);
+    return convertRecord(nc->lookup, nc->cmd.protocol == 3, nc->explainScores, record, r);
+  }
+  RPNetReply batch = nc->current;
+  nc->current = (RPNetReply){0};
   unlockState(nc);
-  int status = rpnetNextOwned(&local.base, r);
-  nc->shardsProfile = local.shardsProfile;
-  if (local.current.root) publishRemainder(&local);
+
+  // All network waits and Next-only bookkeeping operate on an unpublished batch.
+  int status = readNextBatch(nc, &batch);
+  lockState(nc);
+  if (nc->phase != RPNET_READING) {
+    unlockState(nc);
+    MRReply_Free(batch.root);
+    return RS_RESULT_TIMEDOUT;
+  }
+  nc->current = batch;
+  MRReply *record = status == RS_RESULT_OK
+                        ? MRReply_TakeArrayElement(nc->current.rows, nc->current.index++)
+                        : NULL;
+  unlockState(nc);
+  if (record) return convertRecord(nc->lookup, nc->cmd.protocol == 3, nc->explainScores, record, r);
   return status;
 }
 
 static RPDrainStatus finishDrain(RPNet *nc, RPDrainStatus status) {
   lockState(nc);
-  nc->drainEOF = true;
+  nc->phase = RPNET_DRAINED;
   unlockState(nc);
   return status;
 }
 
 static bool drainErrorFatal(const RPNet *nc, MRReply *root) {
   QueryErrorCode code = QueryError_GetCodeFromMessage(MRReply_String(root, NULL));
-  if (code == QUERY_ERROR_CODE_TIMED_OUT) return nc->drainTimeoutPolicy == TimeoutPolicy_Fail;
-  if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY) return nc->drainOomPolicy == OomPolicy_Fail;
+  if (code == QUERY_ERROR_CODE_TIMED_OUT)
+    return nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail;
+  if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY)
+    return nc->areq->reqConfig.oomPolicy == OomPolicy_Fail;
   return code == QUERY_ERROR_CODE_GENERIC || code == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
-         nc->drainHybridSubquery != RPNET_HYBRID_NONE;
+         nc->hybridSubquery != RPNET_HYBRID_NONE;
+}
+
+static void drainWarning(RPNetDrainMetadata *metadata, const char *warning) {
+  if (!warning) return;
+  if (!strcmp(warning, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
+    metadata->stateFlags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+  } else if (!strncmp(warning, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS))) {
+    QueryError_SetReachedMaxPrefixExpansionsWarning(&metadata->error);
+  } else if (!strcmp(warning, QUERY_WOOM_SHARD)) {
+    QueryError_SetQueryOOMWarning(&metadata->error);
+  } else if (!strcmp(warning, QUERY_WINDEXING_FAILURE)) {
+    metadata->bgScanOOM = true;
+  } else if (!strcmp(warning, QUERY_ASM_INACCURATE_RESULTS)) {
+    metadata->stateFlags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  }
+}
+
+static void drainProfile(RPNetDrainMetadata *metadata, MRReply *profile) {
+  if (!profile) return;
+  if (!metadata->profiles) metadata->profiles = array_new(MRReply *, 2);
+  array_append(metadata->profiles, profile);
+}
+
+// Extract once on drain admission, so a caller stopping at LIMIT has metadata too.
+static void collectDrainMetadata(RPNet *nc, RPNetReply *batch, bool admittedByNext) {
+  RPNetDrainMetadata *metadata = nc->drainMetadata;
+  MRReply *root = batch->root;
+  if (!root) return;
+  if (MRReply_Type(root) == MR_REPLY_ERROR) {
+    QueryErrorCode code = QueryError_GetCodeFromMessage(MRReply_String(root, NULL));
+    if (drainErrorFatal(nc, root)) {
+      QueryError_SetCode(&metadata->error, code);
+      if (nc->hybridSubquery == RPNET_HYBRID_NONE || code != QUERY_ERROR_CODE_TIMED_OUT)
+        QueryError_SetDetail(&metadata->error, MRReply_String(root, NULL));
+    } else if (nc->hybridSubquery != RPNET_HYBRID_NONE) {
+      if (code == QUERY_ERROR_CODE_TIMED_OUT)
+        metadata->stateFlags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+      if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY) QueryError_SetQueryOOMWarning(&metadata->error);
+    }
+    if (nc->cmd.forProfiling && !admittedByNext) {
+      drainProfile(metadata, root);
+      batch->root = NULL;
+    }
+  } else if (MRReply_Type(root) == MR_REPLY_STRING || MRReply_Type(root) == MR_REPLY_STATUS) {
+    drainWarning(metadata, MRReply_String(root, NULL));
+  } else if (MRReply_Type(root) == MR_REPLY_ARRAY) {
+    if (batch->meta) {
+      MRReply *format = MRReply_MapElement(batch->meta, "format");
+      if (format) {
+        metadata->hasFormat = true;
+        metadata->formatFlags =
+            MRReply_StringEquals(format, "EXPAND", false) ? QEXEC_FORMAT_EXPAND : 0;
+      }
+      MRReply *warnings = MRReply_MapElement(batch->meta, "warning");
+      for (size_t i = 0; i < MRReply_Length(warnings); ++i)
+        drainWarning(metadata, MRReply_String(MRReply_ArrayElement(warnings, i), NULL));
+    }
+    if (nc->cmd.forProfiling && MRReply_Length(root) > 1 &&
+        MRReply_Integer(MRReply_ArrayElement(root, 1)) == CURSOR_EOF) {
+      MRReply *profile =
+          nc->cmd.protocol == 3
+              ? MRReply_TakeMapElement(MRReply_ArrayElement(root, 0), "profile")
+              : (MRReply_Length(root) > 2 ? MRReply_TakeArrayElement(root, 2) : NULL);
+      drainProfile(metadata, profile);
+    }
+  }
+}
+
+RPNetDrainMetadata *RPNet_TakeDrainMetadata(RPNet *nc) {
+  RS_ASSERT(nc->phase != RPNET_READING);
+  RPNetDrainMetadata *metadata = nc->drainMetadata;
+  nc->drainMetadata = NULL;
+  return metadata;
+}
+
+void RPNetDrainMetadata_Free(RPNetDrainMetadata *metadata) {
+  if (!metadata) return;
+  QueryError_ClearError(&metadata->error);
+  if (metadata->profiles) {
+    array_foreach(metadata->profiles, profile, MRReply_Free(profile));
+    array_free(metadata->profiles);
+  }
+  rm_free(metadata);
 }
 
 static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   lockState(nc);
-  nc->draining = true;
-  if (nc->drainEOF) {
+  if (nc->phase == RPNET_DRAINED) {
     unlockState(nc);
     return RP_DRAIN_EOF;
   }
+  bool first = nc->phase == RPNET_READING;
+  nc->phase = RPNET_DRAINING;
   MRChannel *channel = nc->drainChannel;
   if (!channel) {
-    nc->drainEOF = true;
+    nc->phase = RPNET_DRAINED;
     unlockState(nc);
     return RP_DRAIN_EOF;
-  }
-  if (!nc->drainCurrent.root) {
-    nc->drainCurrent = nc->current;
-    nc->drainIdx = nc->curIdx;
-    RPNet_resetCurrent(nc);
   }
   unlockState(nc);
 
-  const bool resp3 = nc->drainProtocol == 3;
+  if (!nc->drainMetadata) nc->drainMetadata = rm_calloc(1, sizeof(*nc->drainMetadata));
+  const bool resp3 = nc->cmd.protocol == 3;
+  // Next can only touch its private row/batch after the phase transition.
+  RPNetReply *batch = &nc->current;
+  if (first) {
+    bool fatal = batch->root && MRReply_Type(batch->root) == MR_REPLY_ERROR &&
+                 drainErrorFatal(nc, batch->root);
+    collectDrainMetadata(nc, batch, true);
+    if (fatal) {
+      MRReply_Free(batch->root);
+      *batch = (RPNetReply){0};
+      return finishDrain(nc, RP_DRAIN_ERROR);
+    }
+  }
   while (true) {
-    if (nc->drainCurrent.rows && nc->drainIdx < MRReply_Length(nc->drainCurrent.rows)) {
-      MRReply *record = MRReply_TakeArrayElement(nc->drainCurrent.rows, nc->drainIdx++);
-      convertRecord(nc->drainLookup, resp3, nc->drainExplain, record, r);
+    if (batch->rows && batch->index < MRReply_Length(batch->rows)) {
+      MRReply *record = MRReply_TakeArrayElement(batch->rows, batch->index++);
+      convertRecord(nc->lookup, resp3, nc->explainScores, record, r);
       return RP_DRAIN_OK;
     }
-    if (nc->drainCurrent.root) {
-      bool fatal = MRReply_Type(nc->drainCurrent.root) == MR_REPLY_ERROR &&
-                   drainErrorFatal(nc, nc->drainCurrent.root);
-      array_append(nc->drainedReplies, nc->drainCurrent.root);
-      nc->drainCurrent = (RPNetReply){0};
-      if (fatal) return finishDrain(nc, RP_DRAIN_ERROR);
-    }
-    lockState(nc);
-    if (nc->current.root) {
-      nc->drainCurrent = nc->current;
-      nc->drainIdx = nc->curIdx;
-      RPNet_resetCurrent(nc);
-      unlockState(nc);
-      continue;
-    }
-    unlockState(nc);
+    bool fatal = batch->root && MRReply_Type(batch->root) == MR_REPLY_ERROR &&
+                 drainErrorFatal(nc, batch->root);
+    MRReply_Free(batch->root);
+    *batch = (RPNetReply){0};
+    if (fatal) return finishDrain(nc, RP_DRAIN_ERROR);
+
     MRReply *root = MRChannel_TryPop(channel);
     if (!root) return finishDrain(nc, RP_DRAIN_EOF);
-
-    if (MRReply_Type(root) == MR_REPLY_ERROR) {
-      array_append(nc->drainedReplies, root);
-      if (drainErrorFatal(nc, root)) return finishDrain(nc, RP_DRAIN_ERROR);
-      continue;
-    }
-    // Hybrid mapping warnings contain no row. Preserve them without modifying AREQ.
-    if (MRReply_Type(root) == MR_REPLY_STRING || MRReply_Type(root) == MR_REPLY_STATUS) {
-      array_append(nc->drainedReplies, root);
+    batch->root = root;
+    if (MRReply_Type(root) == MR_REPLY_ERROR || MRReply_Type(root) == MR_REPLY_STRING ||
+        MRReply_Type(root) == MR_REPLY_STATUS) {
+      bool error = MRReply_Type(root) == MR_REPLY_ERROR && drainErrorFatal(nc, root);
+      collectDrainMetadata(nc, batch, false);
+      if (nc->hybridSubquery != RPNET_HYBRID_NONE &&
+          (MRReply_Type(root) == MR_REPLY_STRING || MRReply_Type(root) == MR_REPLY_STATUS)) {
+        QueryWarningCode warning = QueryWarningCode_GetCodeFromMessage(MRReply_String(root, NULL));
+        if (warning == QUERY_WARNING_CODE_TIMED_OUT &&
+            nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+          QueryError_SetCode(&nc->drainMetadata->error, QUERY_ERROR_CODE_TIMED_OUT);
+          error = true;
+        } else if (warning == QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD &&
+                   nc->areq->reqConfig.oomPolicy == OomPolicy_Fail) {
+          QueryError_SetCode(&nc->drainMetadata->error, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+          QueryError_SetDetail(&nc->drainMetadata->error, MRReply_String(root, NULL));
+          error = true;
+        }
+      }
+      if (error) {
+        MRReply_Free(batch->root);
+        *batch = (RPNetReply){0};
+        return finishDrain(nc, RP_DRAIN_ERROR);
+      }
       continue;
     }
     if (MRReply_Type(root) != MR_REPLY_ARRAY || MRReply_Length(root) < 1) {
-      array_append(nc->drainedReplies, root);
+      MRReply_Free(batch->root);
+      *batch = (RPNetReply){0};
+      QueryError_SetCode(&nc->drainMetadata->error, QUERY_ERROR_CODE_GENERIC);
       return finishDrain(nc, RP_DRAIN_ERROR);
     }
-    MRReply *meta = NULL;
     MRReply *rows = MRReply_ArrayElement(root, 0);
     if (resp3) {
-      meta = nc->drainProfiling ? MRReply_MapElement(rows, "results") : rows;
-      rows = meta ? MRReply_MapElement(meta, "results") : NULL;
+      batch->meta = nc->cmd.forProfiling ? MRReply_MapElement(rows, "results") : rows;
+      rows = batch->meta ? MRReply_MapElement(batch->meta, "results") : NULL;
     }
     if (!rows || MRReply_Type(rows) != MR_REPLY_ARRAY) {
-      array_append(nc->drainedReplies, root);
+      MRReply_Free(batch->root);
+      *batch = (RPNetReply){0};
+      QueryError_SetCode(&nc->drainMetadata->error, QUERY_ERROR_CODE_GENERIC);
       return finishDrain(nc, RP_DRAIN_ERROR);
     }
-    nc->drainCurrent = (RPNetReply){.root = root, .rows = rows, .meta = meta};
-    nc->drainIdx = resp3 ? 0 : 1;
-    if (nc->drainWithCount) continue;
+    batch->rows = rows;
+    batch->index = resp3 ? 0 : 1;
+    collectDrainMetadata(nc, batch, false);
+    // An inherited current batch was already counted by Next. Only newly popped
+    // batches contribute this delta; WITHCOUNT uses the caller's published total.
+    if (nc->withCount) continue;
     if (resp3) {
-      nc->drainedCount += MRReply_Length(rows);
+      nc->drainMetadata->additionalResults += MRReply_Length(rows);
     } else if (MRReply_Length(rows)) {
-      nc->drainedCount += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      nc->drainMetadata->additionalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
     }
   }
 }

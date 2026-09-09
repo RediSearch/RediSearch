@@ -34,32 +34,36 @@ typedef struct {
   MRReply *root;
   MRReply *rows;
   MRReply *meta;
+  size_t index;
 } RPNetReply;
+
+// The phase guards ownership, not cancellation (the request owns timeout).
+typedef enum { RPNET_READING, RPNET_DRAINING, RPNET_DRAINED } RPNetPhase;
+
+// Additional metadata observed by Drain, to merge into caller-owned reply state.
+// Never merge into live AREQ/QueryProcessingCtx while Next is active.
+typedef struct {
+  uint64_t additionalResults;
+  uint32_t formatFlags;
+  uint32_t stateFlags;
+  bool hasFormat;
+  bool bgScanOOM;
+  QueryError error;
+  arrayof(MRReply *) profiles;
+} RPNetDrainMetadata;
 
 typedef struct RPNet {
   ResultProcessor base;
+  // Next claims one row under stateLock. After takeover only Drain owns this cursor.
   RPNetReply current;
   RS_Atomic(bool) stateLock;
-  bool draining;
-  bool drainEOF;
+  RPNetPhase phase;
+  // Published once after lookup, command, policies and hybrid mode are initialized.
   struct MRChannel *drainChannel;
-  int drainProtocol;
-  bool drainProfiling;
-  bool drainExplain;
-  bool drainWithCount;
-  RSTimeoutPolicy drainTimeoutPolicy;
-  RSOomPolicy drainOomPolicy;
-  RPNetHybridSubquery drainHybridSubquery;
-  RLookup *drainLookup;
-  RPNetReply drainCurrent;
-  size_t drainIdx;
-  // Drain-owned metadata is retained for the reply owner, never applied to AREQ here.
-  arrayof(MRReply *) drainedReplies;
-  uint64_t drainedCount;
-  struct RPNet *owner;
+  bool explainScores;                 // reqflags itself remains mutable on the Next path.
+  RPNetDrainMetadata *drainMetadata;  // Allocated only on first active Drain.
   // Lookup - the rows are written in here
   RLookup *lookup;
-  size_t curIdx;
   MRIterator *it;
   MRCommand cmd;
   AREQ *areq;
@@ -94,15 +98,18 @@ typedef struct RPNet {
 
 void rpnetFree(ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
-void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 void RPNet_PublishIterator(RPNet *nc);
+// Drain caller only, between Drain calls (including a LIMIT stop). Transfers the
+// accumulated delta; repeated takes return NULL until another Drain produces metadata.
+RPNetDrainMetadata *RPNet_TakeDrainMetadata(RPNet *nc);
+void RPNetDrainMetadata_Free(RPNetDrainMetadata *metadata);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 
 // Get the next reply from the channel.
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more
 // replies Or RS_RESULT_TIMEDOUT if we timed out
-int getNextReply(RPNet *nc);
+int getNextReply(RPNet *nc, RPNetReply *reply);
 
 #ifdef __cplusplus
 }

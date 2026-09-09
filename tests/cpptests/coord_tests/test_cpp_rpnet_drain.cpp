@@ -19,6 +19,8 @@
 #include "query_error_ffi.h"
 #include <thread>
 #include <string>
+#include <atomic>
+#include <chrono>
 
 static MRReply *parseReply(const char *wire) {
   redisReader *reader = redisReaderCreate();
@@ -44,11 +46,10 @@ class RPNetBufferedDrainTest : public ::testing::Test {
     MRCommand command = {};
     command.protocol = 2;
     network = RPNet_New(&command, rpnetNext);
-    network->lookup = network->drainLookup = &lookup;
+    network->lookup = &lookup;
     network->areq = &request;
     network->base.parent = &qctx;
     network->drainChannel = channel;
-    network->drainProtocol = 2;
   }
 
   void TearDown() override {
@@ -99,7 +100,7 @@ TEST_F(RPNetBufferedDrainTest, queuedRowsRemainSerializableAndEOFTerminal) {
   }
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
   EXPECT_EQ(0, qctx.totalResults);
-  EXPECT_EQ(2, network->drainedCount);
+  EXPECT_EQ(2, network->drainMetadata->additionalResults);
   MRChannel_Push(channel, parseReply("*2\r\n*1\r\n:0\r\n:0\r\n"));
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
   EXPECT_EQ(1, MRChannel_Size(channel));
@@ -107,7 +108,7 @@ TEST_F(RPNetBufferedDrainTest, queuedRowsRemainSerializableAndEOFTerminal) {
 }
 
 TEST_F(RPNetBufferedDrainTest, resp3RetainsWarningsAndCreatesDynamicFields) {
-  network->drainProtocol = 3;
+  network->cmd.protocol = 3;
   MRChannel_Push(
       channel, parseReply("*2\r\n%2\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n%2\r\n+n\r\n:"
                           "7\r\n+dynamic\r\n+value\r\n+warning\r\n*1\r\n+warning text\r\n:0\r\n"));
@@ -116,7 +117,7 @@ TEST_F(RPNetBufferedDrainTest, resp3RetainsWarningsAndCreatesDynamicFields) {
   EXPECT_EQ(7, number(&result));
   EXPECT_EQ(2, RLookup_GetRowLen(&lookup));
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
-  ASSERT_EQ(1, array_len(network->drainedReplies));
+  ASSERT_NE(nullptr, network->drainMetadata);
   EXPECT_EQ(0, request.stateflags);
   SearchResult_Destroy(&result);
 }
@@ -127,7 +128,7 @@ TEST_F(RPNetBufferedDrainTest, emptyRepliesAndErrorsDoNotWait) {
   SearchResult result = SearchResult_New();
   EXPECT_EQ(RP_DRAIN_ERROR, network->base.Drain(&network->base, &result));
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
-  EXPECT_EQ(2, array_len(network->drainedReplies));
+  EXPECT_TRUE(QueryError_HasError(&network->drainMetadata->error));
   SearchResult_Destroy(&result);
 }
 
@@ -135,7 +136,7 @@ TEST_F(RPNetBufferedDrainTest, concurrentNextAndDrainNeverDuplicateClaimedRow) {
   network->current.root =
       parseReply("*2\r\n*3\r\n:2\r\n*2\r\n+n\r\n:1\r\n*2\r\n+n\r\n:2\r\n:0\r\n");
   network->current.rows = MRReply_ArrayElement(network->current.root, 0);
-  network->curIdx = 1;
+  network->current.index = 1;
   SearchResult bg = SearchResult_New(), drained = SearchResult_New();
   int nextStatus = RS_RESULT_EOF;
   std::thread worker([&] { nextStatus = network->base.Next(&network->base, &bg); });
@@ -161,9 +162,10 @@ TEST_F(RPNetBufferedDrainTest, nextPublishesUnclaimedRowsBeforeDrain) {
   network->current.root =
       parseReply("*2\r\n*3\r\n:2\r\n*2\r\n+n\r\n:1\r\n*2\r\n+n\r\n:2\r\n:0\r\n");
   network->current.rows = MRReply_ArrayElement(network->current.root, 0);
-  network->curIdx = 1;
+  network->current.index = 1;
   SearchResult result = SearchResult_New();
   ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &result));
+  EXPECT_EQ(nullptr, network->drainMetadata);
   EXPECT_EQ(1, number(&result));
   SearchResult_Clear(&result);
   ASSERT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
@@ -171,6 +173,97 @@ TEST_F(RPNetBufferedDrainTest, nextPublishesUnclaimedRowsBeforeDrain) {
   SearchResult_Clear(&result);
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
   EXPECT_EQ(RS_RESULT_TIMEDOUT, network->base.Next(&network->base, &result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(RPNetBufferedDrainTest, drainCompletesWhileDownstreamOwnsAnInFlightRow) {
+  network->current.root =
+      parseReply("*2\r\n*3\r\n:2\r\n*2\r\n+n\r\n:1\r\n*2\r\n+n\r\n:2\r\n:0\r\n");
+  network->current.rows = MRReply_ArrayElement(network->current.root, 0);
+  network->current.index = 1;
+  std::atomic_bool claimed = false, resume = false;
+  SearchResult bg = SearchResult_New(), drained = SearchResult_New();
+  std::thread worker([&] {
+    EXPECT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &bg));
+    claimed.store(true, std::memory_order_release);
+    while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+    EXPECT_EQ(1, number(&bg));
+    SearchResult_Destroy(&bg);
+  });
+  while (!claimed.load(std::memory_order_acquire)) std::this_thread::yield();
+  QueryRequestTimeout_Init(&request.base.timeout, TimeoutPolicy_ReturnStrict, 1000);
+  QueryRequestTimeout_BeginCycle(&request.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestTimeout_MarkTimedOut(&request.base.timeout);
+  EXPECT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &drained));
+  EXPECT_EQ(2, number(&drained));
+  SearchResult_Clear(&drained);
+  EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &drained));
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &drained));
+  SearchResult_Destroy(&drained);
+}
+
+TEST_F(RPNetBufferedDrainTest, metadataCanBeTakenAtLimitWithoutTouchingLiveBookkeeping) {
+  network->cmd.protocol = 3;
+  network->cmd.forProfiling = true;
+  qctx.totalResults = 99;
+  request.reqflags = QEXEC_FORMAT_DEFAULT;
+  std::string wire =
+      "*2\r\n%2\r\n+results\r\n%3\r\n+results\r\n*2\r\n%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:"
+      "1\r\n"
+      "%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:2\r\n+format\r\n+EXPAND\r\n+warning\r\n*1\r\n+";
+  wire += QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
+  wire += "\r\n+profile\r\n%0\r\n:0\r\n";
+  MRChannel_Push(channel, parseReply(wire.c_str()));
+  SearchResult result = SearchResult_New();
+  ASSERT_EQ(nullptr, network->drainMetadata);
+  ASSERT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
+  auto *metadata = RPNet_TakeDrainMetadata(network);
+  ASSERT_NE(nullptr, metadata);
+  EXPECT_EQ(2, metadata->additionalResults);
+  EXPECT_TRUE(metadata->hasFormat);
+  EXPECT_EQ(QEXEC_FORMAT_EXPAND, metadata->formatFlags);
+  EXPECT_EQ(QEXEC_S_SHARD_TIMED_OUT_WARNING, metadata->stateFlags);
+  ASSERT_NE(nullptr, metadata->profiles);
+  EXPECT_EQ(1, array_len(metadata->profiles));
+  EXPECT_EQ(nullptr, RPNet_TakeDrainMetadata(network));
+  EXPECT_EQ(99, qctx.totalResults);
+  EXPECT_EQ(QEXEC_FORMAT_DEFAULT, request.reqflags);
+  EXPECT_EQ(0, request.stateflags);
+  SearchResult_Clear(&result);
+  ASSERT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
+  EXPECT_EQ(2, number(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
+  auto *remaining = RPNet_TakeDrainMetadata(network);
+  ASSERT_NE(nullptr, remaining);
+  EXPECT_EQ(0, remaining->additionalResults);
+  EXPECT_EQ(nullptr, remaining->profiles);
+  RPNetDrainMetadata_Free(remaining);
+  RPNetDrainMetadata_Free(metadata);
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(RPNetBufferedDrainTest, DISABLED_bufferedNextBenchmark) {
+  constexpr size_t count = 200000;
+  std::string wire =
+      "*2\r\n*" + std::to_string(count + 1) + "\r\n:" + std::to_string(count) + "\r\n";
+  for (size_t i = 0; i < count; ++i) wire += "*2\r\n+n\r\n:1\r\n";
+  wire += ":0\r\n";
+  network->current.root = parseReply(wire.c_str());
+  network->current.rows = MRReply_ArrayElement(network->current.root, 0);
+  network->current.index = 1;
+  SearchResult result = SearchResult_New();
+  auto start = std::chrono::steady_clock::now();
+  for (size_t i = 0; i < count; ++i) {
+    ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &result));
+    SearchResult_Clear(&result);
+  }
+  auto elapsed = std::chrono::steady_clock::now() - start;
+  printf("RPNet size=%zu ns/row=%.2f\n", sizeof(RPNet),
+         std::chrono::duration<double, std::nano>(elapsed).count() / count);
+  EXPECT_EQ(nullptr, network->drainMetadata);
   SearchResult_Destroy(&result);
 }
 
@@ -191,10 +284,10 @@ TEST_F(RPNetBufferedDrainTest, errorPoliciesPreserveFollowingRowsWhenAllowed) {
   };
   for (const auto &test : cases) {
     SCOPED_TRACE(static_cast<int>(test.code));
-    network->draining = network->drainEOF = false;
-    network->drainTimeoutPolicy = test.fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
-    network->drainOomPolicy = test.fail ? OomPolicy_Fail : OomPolicy_Return;
-    network->drainHybridSubquery = test.hybrid ? RPNET_HYBRID_SEARCH : RPNET_HYBRID_NONE;
+    network->phase = RPNET_READING;
+    request.reqConfig.timeoutPolicy = test.fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
+    request.reqConfig.oomPolicy = test.fail ? OomPolicy_Fail : OomPolicy_Return;
+    network->hybridSubquery = test.hybrid ? RPNET_HYBRID_SEARCH : RPNET_HYBRID_NONE;
     QueryError error = {};
     QueryError_SetCode(&error, test.code);
     const char *message = QueryError_GetUserError(&error);
@@ -216,12 +309,12 @@ TEST_F(RPNetBufferedDrainTest, errorPoliciesPreserveFollowingRowsWhenAllowed) {
 }
 
 TEST_F(RPNetBufferedDrainTest, profileScoresAndWithCountUsePrivateDrainState) {
-  network->drainProtocol = 3;
-  network->drainProfiling = true;
-  network->drainWithCount = true;
+  network->cmd.protocol = 3;
+  network->cmd.forProfiling = true;
+  network->withCount = true;
   for (bool explain : {false, true}) {
-    network->draining = network->drainEOF = false;
-    network->drainExplain = explain;
+    network->phase = RPNET_READING;
+    network->explainScores = explain;
     std::string wire =
         "*2\r\n%2\r\n+results\r\n%1\r\n+results\r\n*1\r\n%2\r\n+extra_attributes\r\n%1\r\n+n\r\n:"
         "9\r\n+score\r\n";
@@ -234,9 +327,44 @@ TEST_F(RPNetBufferedDrainTest, profileScoresAndWithCountUsePrivateDrainState) {
     EXPECT_EQ(3.5, SearchResult_GetScore(&result));
     EXPECT_EQ(explain, SearchResult_GetScoreExplain(&result) != nullptr);
     EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
-    EXPECT_EQ(0, network->drainedCount);
+    EXPECT_EQ(0, network->drainMetadata->additionalResults);
     EXPECT_EQ(0, qctx.totalResults);
     SearchResult_Destroy(&result);
+  }
+}
+
+TEST_F(RPNetBufferedDrainTest, hybridMappingWarningsRespectFailPolicies) {
+  network->hybridSubquery = RPNET_HYBRID_SEARCH;
+  for (bool fail : {false, true}) {
+    for (auto warning : {QUERY_WARNING_CODE_TIMED_OUT, QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD}) {
+      network->phase = RPNET_READING;
+      request.reqConfig.timeoutPolicy = fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
+      request.reqConfig.oomPolicy = fail ? OomPolicy_Fail : OomPolicy_Return;
+      std::string wire = "+";
+      wire += QueryWarning_Strwarning(warning);
+      wire += "\r\n";
+      MRChannel_Push(channel, parseReply(wire.c_str()));
+      MRChannel_Push(channel, parseReply("*2\r\n*2\r\n:1\r\n*2\r\n+n\r\n:8\r\n:0\r\n"));
+      SearchResult result = SearchResult_New();
+      EXPECT_EQ(fail ? RP_DRAIN_ERROR : RP_DRAIN_OK, network->base.Drain(&network->base, &result));
+      auto *metadata = RPNet_TakeDrainMetadata(network);
+      ASSERT_NE(nullptr, metadata);
+      EXPECT_EQ(fail, QueryError_HasError(&metadata->error));
+      if (fail) {
+        EXPECT_EQ(warning == QUERY_WARNING_CODE_TIMED_OUT ? QUERY_ERROR_CODE_TIMED_OUT
+                                                          : QUERY_ERROR_CODE_OUT_OF_MEMORY,
+                  QueryError_GetCode(&metadata->error));
+        EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
+      } else {
+        EXPECT_EQ(8, number(&result));
+        SearchResult_Clear(&result);
+        EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
+      }
+      RPNetDrainMetadata_Free(metadata);
+      RPNetDrainMetadata_Free(RPNet_TakeDrainMetadata(network));
+      while (auto *reply = static_cast<MRReply *>(MRChannel_TryPop(channel))) MRReply_Free(reply);
+      SearchResult_Destroy(&result);
+    }
   }
 }
 
