@@ -407,3 +407,42 @@ def testInfoIndexingTime(env):
 
     d = index_info(env, 'idx2')
     env.assertGreater(float(d['total_indexing_time']), 0)
+
+def testInfoFieldIndexingTime(env):
+    conn = getConnectionByEnv(env)
+
+    def field_indexing_stats():
+        return {to_dict(field)['attribute']: to_dict(field)
+                for field in index_info(env, 'idx')['field statistics']}
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA',
+            'txt', 'TEXT',
+            'n', 'NUMERIC',
+            'tag', 'TAG')
+
+    fields = field_indexing_stats()
+    env.assertTrue('indexing_preprocess_count' not in fields['txt'])
+    env.assertTrue('indexing_preprocess_count' not in fields['n'])
+    env.assertTrue('indexing_preprocess_count' not in fields['tag'])
+
+    for i in range(100):
+        conn.execute_command('HSET', f'doc:{i}', 'txt', f'hello world {i}', 'n', i, 'tag', f'tag{i % 4}')
+
+    fields = field_indexing_stats()
+    for field_name in ('txt', 'n', 'tag'):
+        field_stats = fields[field_name]
+        env.assertGreater(int(field_stats['indexing_preprocess_count']), 0)
+        env.assertGreater(int(field_stats['indexing_preprocess_time_ns']), 0)
+        env.assertGreater(int(field_stats['indexing_preprocess_max_time_ns']), 0)
+
+    for field_name in ('txt', 'n', 'tag'):
+        field_stats = fields[field_name]
+        env.assertGreater(int(field_stats['indexing_index_count']), 0)
+        env.assertGreater(int(field_stats['indexing_index_time_ns']), 0)
+        env.assertGreater(int(field_stats['indexing_index_max_time_ns']), 0)
+
+    for field_name in ('n', 'tag'):
+        field_stats = fields[field_name]
+        env.assertGreater(int(field_stats['indexing_apply_count']), 0)
+        env.assertGreater(int(field_stats['indexing_apply_time_ns']), 0)
+        env.assertGreater(int(field_stats['indexing_apply_max_time_ns']), 0)

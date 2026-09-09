@@ -28,6 +28,7 @@ typedef struct FieldSpecStats {
     VectorIndexStats vecStats;
   };
   FieldType type;
+  FieldIndexingStats indexingStats;
   // Optional disk-backed FT.INFO metrics; each `available` flag gates output.
   PerFieldTextDiskMetrics textDisk;
   PerFieldCfDiskMetrics cfDisk;

@@ -22,8 +22,26 @@ index_errors_unique_entries_dict = {
     "background indexing status": 'OK'
 }
 
+field_indexing_stat_keys = {
+  'indexing_preprocess_count',
+  'indexing_preprocess_time_ns',
+  'indexing_preprocess_max_time_ns',
+  'indexing_index_count',
+  'indexing_index_time_ns',
+  'indexing_index_max_time_ns',
+  'indexing_apply_count',
+  'indexing_apply_time_ns',
+  'indexing_apply_max_time_ns',
+}
+
 def get_field_stats_dict(info_command_output, index = 0):
   return to_dict(info_command_output['field statistics'][index])
+
+def field_stats_without_indexing_times(field_stats):
+  field_stats = to_dict(field_stats).copy()
+  for key in field_indexing_stat_keys:
+    field_stats.pop(key, None)
+  return [item for pair in field_stats.items() for item in pair]
 
 def test_vector_index_failures(env):
   con = getConnectionByEnv(env)
@@ -118,7 +136,8 @@ def test_alter_failures(env):
       ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']
   ]
 
-  env.assertEqual(info['field statistics'][0], expected_no_error_field_stats)
+  env.assertEqual(field_stats_without_indexing_times(info['field statistics'][0]),
+                  expected_no_error_field_stats)
 
   # Add the field of which the document contains an invalid numeric value.
   env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n2', 'NUMERIC').ok()
@@ -144,8 +163,10 @@ def test_alter_failures(env):
         'last indexing error key', 'doc']
   ]
 
-  env.assertEqual(info['field statistics'][0], expected_no_error_field_stats)
-  env.assertEqual(info['field statistics'][1], expected_failed_field_stats)
+  env.assertEqual(field_stats_without_indexing_times(info['field statistics'][0]),
+                  expected_no_error_field_stats)
+  env.assertEqual(field_stats_without_indexing_times(info['field statistics'][1]),
+                  expected_failed_field_stats)
 
 def test_mixed_index_failures(env):
   con = getConnectionByEnv(env)
@@ -342,8 +363,10 @@ def test_partial_doc_index_failures(env):
   for _ in env.reloadingIterator():
     info = index_info(env)
     env.assertEqual(info['num_docs'], 0)
-    env.assertEqual(info['field statistics'][0], expected_text_stats)
-    env.assertEqual(info['field statistics'][1], excepted_numeric_stats)
+    env.assertEqual(field_stats_without_indexing_times(info['field statistics'][0]),
+                    expected_text_stats)
+    env.assertEqual(field_stats_without_indexing_times(info['field statistics'][1]),
+                    excepted_numeric_stats)
 
 def test_multiple_index_failures(env):
     # Create 2 indices with a different schema order.
@@ -387,8 +410,10 @@ def test_multiple_index_failures(env):
         ]
 
         env.assertEqual(info['num_docs'], 0)
-        env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
-        env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)
+        env.assertEqual(field_stats_without_indexing_times(info['field statistics'][0]),
+                        expected_failed_field_stats)
+        env.assertEqual(field_stats_without_indexing_times(info['field statistics'][1]),
+                        expected_no_error_field_stats)
 
 
 ###################### JSON failures ######################
@@ -461,5 +486,7 @@ def test_multiple_index_failures_json(env):
           ]
 
           env.assertEqual(info['num_docs'], 0)
-          env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
-          env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)
+          env.assertEqual(field_stats_without_indexing_times(info['field statistics'][0]),
+                          expected_failed_field_stats)
+          env.assertEqual(field_stats_without_indexing_times(info['field statistics'][1]),
+                          expected_no_error_field_stats)

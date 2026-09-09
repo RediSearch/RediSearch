@@ -535,7 +535,13 @@ def test_info():
                                         'indexing failures': 0,
                                         'last indexing error': 'N/A',
                                         'last indexing error key': 'N/A'
-                                       }
+                                       },
+                       'indexing_preprocess_count': ANY,
+                       'indexing_preprocess_time_ns': ANY,
+                       'indexing_preprocess_max_time_ns': ANY,
+                       'indexing_index_count': ANY,
+                       'indexing_index_time_ns': ANY,
+                       'indexing_index_max_time_ns': ANY,
                       },
                       {'attribute': 'f2',
                        'identifier': 'f2',
@@ -543,7 +549,13 @@ def test_info():
                                         'indexing failures': 0,
                                         'last indexing error': 'N/A',
                                         'last indexing error key': 'N/A'
-                                       }
+                                       },
+                       'indexing_preprocess_count': ANY,
+                       'indexing_preprocess_time_ns': ANY,
+                       'indexing_preprocess_max_time_ns': ANY,
+                       'indexing_index_count': ANY,
+                       'indexing_index_time_ns': ANY,
+                       'indexing_index_max_time_ns': ANY,
                         }
                       ],
       'bytes_per_record_avg': ANY,
