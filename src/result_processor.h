@@ -177,12 +177,16 @@ typedef struct ResultProcessor {
    * for background progress. The result ownership convention is the same as
    * for Next().
    *
-   * Drain may run concurrently with at most one call active in the Next chain.
+   * RETURN-STRICT may run Drain on the main thread concurrently with at most
+   * one BG call active in the Next chain. RETURN invokes Drain inline only
+   * after Next fully unwinds. FAIL returns an error without invoking Drain.
    * The caller guarantees that the processor chain remains alive until both
    * calls return and that `res` points to initialized, exclusively accessible
    * storage distinct from the concurrent Next call's result. Implementations
    * must not wait for the Next call, background work, I/O, condition variables,
-   * or global runtime locks.
+   * or global runtime locks. Synchronization needed only for RETURN-STRICT
+   * should have minimal cost for RETURN/FAIL; policy-specialized entry is
+   * allowed when the execution configuration guarantees sequential access.
    *
    * The RETURN-STRICT caller sets the request timeout flag before entering
    * Drain. This does not make an earlier Next timeout check a mutation guard:
@@ -214,10 +218,11 @@ typedef struct ResultProcessor {
  */
 RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res);
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx);
 
-ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                              const ScoringFunctionArgs *fnargs,
+ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs, const ScoringFunctionArgs *fnargs,
                               const RLookupKey *rlk);
 
 ResultProcessor *RPMetricsLoader_New();
