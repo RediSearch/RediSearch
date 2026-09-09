@@ -184,6 +184,21 @@ typedef struct ResultProcessor {
    * must not wait for the Next call, background work, I/O, condition variables,
    * or global runtime locks.
    *
+   * The RETURN-STRICT caller sets the request timeout flag before entering
+   * Drain. This does not make an earlier Next timeout check a mutation guard:
+   * an in-flight call can still return from upstream after local draining ends.
+   * Buffer admission and drain ownership transfer must be serialized locally;
+   * a late result is discarded by its owner, never published after drain EOF.
+   * No ownership guard may span upstream calls, conversion, cleanup or the GIL.
+   * Distinct result storage also requires safe ownership of reachable payloads.
+   *
+   * Drain neither reads nor modifies live Next query bookkeeping. The caller
+   * owns a separately published reply snapshot, result budget and metadata;
+   * processor metadata is transferred only into that caller-owned state.
+   * Paging applies OFFSET once in the processor; the caller's remaining LIMIT
+   * accounts for results already published for this reply, excluding late Next
+   * results. Cancellation does not transfer ownership of those results.
+   *
    * Constructors must initialize this callback. Processors without a custom
    * implementation use RPDrain_EOF. Chain insertion also supplies that default
    * for externally provided processors during migration.
