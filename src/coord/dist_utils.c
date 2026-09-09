@@ -19,6 +19,7 @@
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
+#include "rmr/io_runtime_ctx.h"
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
 
@@ -79,6 +80,19 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
+    // Defence in depth: this shard was believed capable (RediSearchCaps_HasRowBlock
+    // said yes for its advertised version), so we asked it for the row-block format
+    // on its first command (cmd->rootCommand == C_AGG - a cursor READ/DEL never
+    // carries the token, see getCursorCommand below), and it rejected the token
+    // anyway. That is a hole in the version-to-capability mapping, not a transient
+    // error. Demote it so later queries stop repeating the mistake against this
+    // node; this cannot rescue the query that discovered the problem, which still
+    // fails here as it does today for any unrecognized argument.
+    if (cmd->rootCommand == C_AGG && cmd->targetShard && strstr(error, "_ROW_BLOCK")) {
+      MRIterator *it = MRIteratorCallback_GetIterator(ctx);
+      IORuntimeCtx *ioRuntime = MRIterator_GetIORuntime(it);
+      MRConnManager_DemoteRowBlockCap(&ioRuntime->conn_mgr, cmd->targetShard);
+    }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
