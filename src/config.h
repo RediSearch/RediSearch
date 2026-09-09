@@ -219,6 +219,14 @@ typedef struct {
   // a shard only emits blocks when asked, and only a coordinator of the same version knows
   // to decode them, so this must not be enabled mid-upgrade.
   bool internalRowBlockFormat;
+  // Test-only knob: make this shard reject the internal `_ROW_BLOCK` argument
+  // exactly as a pre-row-block build would (see aggregate_request.c's parseAggPlan),
+  // regardless of what this shard's own build actually supports. RLTest starts every
+  // shard in a cluster from the same modulePath, so a genuinely mixed-build fleet
+  // cannot be started by the harness; this is the only way to exercise the
+  // coordinator's per-shard capability negotiation (see RediSearchCaps_HasRowBlock)
+  // against a shard that truly rejects the token.
+  bool simulateLegacyShard;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
