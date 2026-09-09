@@ -11,6 +11,7 @@
 #include "result_processor.h"
 #include "iterators_ffi.h"
 #include "coord/rmr/rmr.h"
+#include "coord/rpnet.h"
 #include "hybrid/hybrid_request.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/expr/expression.h"
@@ -86,6 +87,11 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   if (printProfileClock && rp->upstream &&
       (rp->upstream->type == RP_LOADER || rp->upstream->type == RP_SAFE_LOADER)) {
     RPLoader_ReplyProfileFields(reply, rp->upstream);
+  }
+  // Same pattern for the Network RP: split its single Time figure into shard wait,
+  // row conversion, and reply-tree destruction.
+  if (printProfileClock && rp->upstream && rp->upstream->type == RP_NETWORK) {
+    RPNet_ReplyProfileBreakdown(reply, rp->upstream);
   }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
