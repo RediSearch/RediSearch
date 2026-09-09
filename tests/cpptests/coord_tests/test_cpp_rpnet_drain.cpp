@@ -17,6 +17,8 @@
 #include "rlookup.h"
 #include "value_ffi.h"
 #include "query_error_ffi.h"
+#include "debug_commands.h"
+#include "coord/rmr/io_runtime_ctx.h"
 #include <thread>
 #include <string>
 #include <atomic>
@@ -100,7 +102,7 @@ TEST_F(RPNetBufferedDrainTest, queuedRowsRemainSerializableAndEOFTerminal) {
   }
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
   EXPECT_EQ(0, qctx.totalResults);
-  EXPECT_EQ(2, network->drainMetadata->additionalResults);
+  EXPECT_EQ(2, network->drainMetadata->sourceResults);
   MRChannel_Push(channel, parseReply("*2\r\n*1\r\n:0\r\n:0\r\n"));
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
   EXPECT_EQ(1, MRChannel_Size(channel));
@@ -221,7 +223,7 @@ TEST_F(RPNetBufferedDrainTest, metadataCanBeTakenAtLimitWithoutTouchingLiveBookk
   ASSERT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
   auto *metadata = RPNet_TakeDrainMetadata(network);
   ASSERT_NE(nullptr, metadata);
-  EXPECT_EQ(2, metadata->additionalResults);
+  EXPECT_EQ(2, metadata->sourceResults);
   EXPECT_TRUE(metadata->hasFormat);
   EXPECT_EQ(QEXEC_FORMAT_EXPAND, metadata->formatFlags);
   EXPECT_EQ(QEXEC_S_SHARD_TIMED_OUT_WARNING, metadata->stateFlags);
@@ -238,12 +240,96 @@ TEST_F(RPNetBufferedDrainTest, metadataCanBeTakenAtLimitWithoutTouchingLiveBookk
   EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
   auto *remaining = RPNet_TakeDrainMetadata(network);
   ASSERT_NE(nullptr, remaining);
-  EXPECT_EQ(0, remaining->additionalResults);
+  EXPECT_EQ(2, remaining->sourceResults);
   EXPECT_EQ(nullptr, remaining->profiles);
   RPNetDrainMetadata_Free(remaining);
   RPNetDrainMetadata_Free(metadata);
   SearchResult_Destroy(&result);
 }
+
+#ifdef ENABLE_ASSERT
+TEST_F(RPNetBufferedDrainTest, privateBatchIsOfferedToDrainBeforeTerminalEOF) {
+  for (bool closeBeforeResume : {false, true}) {
+    SCOPED_TRACE(closeBeforeResume);
+    network->phase = RPNET_READING;
+    network->sourceResults = 0;
+    qctx.totalResults = 0;
+    IORuntimeCtx runtime = {};
+    runtime.queue = RQ_New(1, 0);
+    RQ_IncrPending(runtime.queue);
+    MRCommand command = {};
+    command.protocol = 3;
+    MRIteratorConfig config = {};
+    config.successCB = [](MRIteratorCallbackCtx *, MRReply *) {};
+    config.ioRuntime = &runtime;
+    auto *iterator = MR_CreateIterator(&command, &config);
+    auto *fixtureChannel = channel;
+    channel = MRIterator_GetChannel(iterator);
+    network->it = iterator;
+    network->cmd.protocol = 3;
+    network->drainChannel = nullptr;
+    RPNet_PublishIterator(network);
+    QueryRequestTimeout_Init(&request.base.timeout, TimeoutPolicy_ReturnStrict, 1000);
+    QueryRequestTimeout_BeginCycle(&request.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    MRChannel_Push(
+        channel,
+        parseReply(
+            "*2\r\n%1\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:0\r\n:0\r\n"));
+    SearchResult published = SearchResult_New();
+    ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &published));
+    EXPECT_EQ(0, number(&published));
+    EXPECT_EQ(1, network->sourceResults);
+    SearchResult_Destroy(&published);
+    std::string first =
+        "*2\r\n%3\r\n+results\r\n*2\r\n%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:1\r\n"
+        "%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:2\r\n+format\r\n+EXPAND\r\n+warning\r\n*1\r\n+";
+    first += QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
+    first += "\r\n:0\r\n";
+    MRChannel_Push(channel, parseReply(first.c_str()));
+    ASSERT_TRUE(SyncPoint_Arm(SYNC_POINT_RPNET_BEFORE_BATCH_PUBLISH));
+    SearchResult bg = SearchResult_New(), result = SearchResult_New();
+    int status = RS_RESULT_EOF;
+    std::thread worker([&] { status = network->base.Next(&network->base, &bg); });
+    while (!SyncPoint_IsWaiting(SYNC_POINT_RPNET_BEFORE_BATCH_PUBLISH)) std::this_thread::yield();
+    MRChannel_Push(
+        channel,
+        parseReply(
+            "*2\r\n%1\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:3\r\n:0\r\n"));
+    QueryRequestTimeout_MarkTimedOut(&request.base.timeout);
+    EXPECT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
+    EXPECT_EQ(3, number(&result));
+    SearchResult_Clear(&result);
+    if (closeBeforeResume) EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
+    SyncPoint_Signal(SYNC_POINT_RPNET_BEFORE_BATCH_PUBLISH);
+    worker.join();
+    EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+    EXPECT_EQ(closeBeforeResume, network->pendingBatch == nullptr);
+    if (!closeBeforeResume)
+      for (int expected : {1, 2}) {
+        EXPECT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
+        EXPECT_EQ(expected, number(&result));
+        SearchResult_Clear(&result);
+      }
+    EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
+    EXPECT_EQ(nullptr, network->pendingBatch);
+    auto *metadata = RPNet_TakeDrainMetadata(network);
+    ASSERT_NE(nullptr, metadata);
+    EXPECT_EQ(closeBeforeResume ? 0 : QEXEC_S_SHARD_TIMED_OUT_WARNING, metadata->stateFlags);
+    EXPECT_EQ(closeBeforeResume ? 0 : QEXEC_FORMAT_EXPAND, metadata->formatFlags);
+    EXPECT_EQ(closeBeforeResume ? 2 : 4, metadata->sourceResults);
+    EXPECT_EQ(3, qctx.totalResults);
+    RPNetDrainMetadata_Free(metadata);
+    SearchResult_Destroy(&result);
+    SearchResult_Destroy(&bg);
+    network->it = nullptr;
+    MRIterator_ResolveShard(iterator, 0, 0);
+    MRIterator_Release(iterator);
+    RQ_Free(runtime.queue);
+    channel = fixtureChannel;
+    network->drainChannel = channel;
+  }
+}
+#endif
 
 TEST_F(RPNetBufferedDrainTest, DISABLED_bufferedNextBenchmark) {
   constexpr size_t count = 200000;
@@ -327,7 +413,7 @@ TEST_F(RPNetBufferedDrainTest, profileScoresAndWithCountUsePrivateDrainState) {
     EXPECT_EQ(3.5, SearchResult_GetScore(&result));
     EXPECT_EQ(explain, SearchResult_GetScoreExplain(&result) != nullptr);
     EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
-    EXPECT_EQ(0, network->drainMetadata->additionalResults);
+    EXPECT_EQ(0, network->drainMetadata->sourceResults);
     EXPECT_EQ(0, qctx.totalResults);
     SearchResult_Destroy(&result);
   }

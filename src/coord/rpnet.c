@@ -398,6 +398,10 @@ void rpnetFree(ResultProcessor *rp) {
   }
 
   MRReply_Free(nc->current.root);
+  if (nc->pendingBatch) {
+    MRReply_Free(nc->pendingBatch->root);
+    rm_free(nc->pendingBatch);
+  }
   RPNetDrainMetadata_Free(nc->drainMetadata);
   MRCommand_Free(&nc->cmd);
 
@@ -626,6 +630,12 @@ static int convertRecord(RLookup *lookup, bool resp3, bool expectExplain, MRRepl
   return RS_RESULT_OK;
 }
 
+static uint64_t batchResultCount(const RPNet *nc, const RPNetReply *batch) {
+  if (nc->withCount || !batch->rows || batch->index >= MRReply_Length(batch->rows)) return 0;
+  return nc->cmd.protocol == 3 ? MRReply_Length(batch->rows)
+                               : MRReply_Integer(MRReply_ArrayElement(batch->rows, 0));
+}
+
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   RS_ASSERT(nc->areq);
@@ -653,13 +663,31 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // All network waits and Next-only bookkeeping operate on an unpublished batch.
   int status = readNextBatch(nc, &batch);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_RPNET_BEFORE_BATCH_PUBLISH);
+#endif
   lockState(nc);
   if (nc->phase != RPNET_READING) {
+    bool offer = nc->phase == RPNET_DRAINING && batch.root;
     unlockState(nc);
+    if (offer) {
+      RPNetReply *pending = rm_malloc(sizeof(*pending));
+      *pending = batch;
+      lockState(nc);
+      if (nc->phase == RPNET_DRAINING) {
+        RS_ASSERT(!nc->pendingBatch);
+        nc->pendingBatch = pending;
+        pending = NULL;
+      }
+      unlockState(nc);
+      if (!pending) return RS_RESULT_TIMEDOUT;
+      rm_free(pending);
+    }
     MRReply_Free(batch.root);
     return RS_RESULT_TIMEDOUT;
   }
   nc->current = batch;
+  if (status == RS_RESULT_OK) nc->sourceResults += batchResultCount(nc, &batch);
   MRReply *record = status == RS_RESULT_OK
                         ? MRReply_TakeArrayElement(nc->current.rows, nc->current.index++)
                         : NULL;
@@ -786,6 +814,7 @@ static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
   unlockState(nc);
 
   if (!nc->drainMetadata) nc->drainMetadata = rm_calloc(1, sizeof(*nc->drainMetadata));
+  nc->drainMetadata->sourceResults = nc->sourceResults;
   const bool resp3 = nc->cmd.protocol == 3;
   // Next can only touch its private row/batch after the phase transition.
   RPNetReply *batch = &nc->current;
@@ -811,8 +840,34 @@ static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
     *batch = (RPNetReply){0};
     if (fatal) return finishDrain(nc, RP_DRAIN_ERROR);
 
+    lockState(nc);
+    RPNetReply *pending = nc->pendingBatch;
+    nc->pendingBatch = NULL;
+    if (pending) *batch = *pending;
+    unlockState(nc);
+    if (pending) {
+      rm_free(pending);
+      nc->sourceResults += batchResultCount(nc, batch);
+      nc->drainMetadata->sourceResults = nc->sourceResults;
+      bool error = batch->root && MRReply_Type(batch->root) == MR_REPLY_ERROR &&
+                   drainErrorFatal(nc, batch->root);
+      collectDrainMetadata(nc, batch, true);
+      if (error) {
+        MRReply_Free(batch->root);
+        *batch = (RPNetReply){0};
+        return finishDrain(nc, RP_DRAIN_ERROR);
+      }
+      continue;
+    }
     MRReply *root = MRChannel_TryPop(channel);
-    if (!root) return finishDrain(nc, RP_DRAIN_EOF);
+    if (!root) {
+      lockState(nc);
+      bool pending = nc->pendingBatch != NULL;
+      if (!pending) nc->phase = RPNET_DRAINED;
+      unlockState(nc);
+      if (pending) continue;
+      return RP_DRAIN_EOF;
+    }
     batch->root = root;
     if (MRReply_Type(root) == MR_REPLY_ERROR || MRReply_Type(root) == MR_REPLY_STRING ||
         MRReply_Type(root) == MR_REPLY_STATUS) {
@@ -859,14 +914,8 @@ static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
     batch->rows = rows;
     batch->index = resp3 ? 0 : 1;
     collectDrainMetadata(nc, batch, false);
-    // An inherited current batch was already counted by Next. Only newly popped
-    // batches contribute this delta; WITHCOUNT uses the caller's published total.
-    if (nc->withCount) continue;
-    if (resp3) {
-      nc->drainMetadata->additionalResults += MRReply_Length(rows);
-    } else if (MRReply_Length(rows)) {
-      nc->drainMetadata->additionalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
-    }
+    nc->sourceResults += batchResultCount(nc, batch);
+    nc->drainMetadata->sourceResults = nc->sourceResults;
   }
 }
 

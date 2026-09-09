@@ -40,10 +40,13 @@ typedef struct {
 // The phase guards ownership, not cancellation (the request owns timeout).
 typedef enum { RPNET_READING, RPNET_DRAINING, RPNET_DRAINED } RPNetPhase;
 
-// Additional metadata observed by Drain, to merge into caller-owned reply state.
+// Metadata observed by Drain, to merge into caller-owned reply state.
 // Never merge into live AREQ/QueryProcessingCtx while Next is active.
 typedef struct {
-  uint64_t additionalResults;
+  // Cumulative source count since construction, independent of BG query bookkeeping.
+  // Cursor reply owners subtract their source count at cycle start. WITHCOUNT
+  // uses its separately published shard total instead (this count remains zero).
+  uint64_t sourceResults;
   uint32_t formatFlags;
   uint32_t stateFlags;
   bool hasFormat;
@@ -56,6 +59,8 @@ typedef struct RPNet {
   ResultProcessor base;
   // Next claims one row under stateLock. After takeover only Drain owns this cursor.
   RPNetReply current;
+  RPNetReply *pendingBatch;  // Rare-race mailbox: a private Next batch offered to active Drain.
+  uint64_t sourceResults;    // Updated at batch admission under stateLock, then Drain-owned.
   RS_Atomic(bool) stateLock;
   RPNetPhase phase;
   // Published once after lookup, command, policies and hybrid mode are initialized.
@@ -101,7 +106,7 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 void RPNet_PublishIterator(RPNet *nc);
 // Drain caller only, between Drain calls (including a LIMIT stop). Transfers the
-// accumulated delta; repeated takes return NULL until another Drain produces metadata.
+// metadata; repeated takes return NULL until another Drain produces metadata.
 RPNetDrainMetadata *RPNet_TakeDrainMetadata(RPNet *nc);
 void RPNetDrainMetadata_Free(RPNetDrainMetadata *metadata);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
