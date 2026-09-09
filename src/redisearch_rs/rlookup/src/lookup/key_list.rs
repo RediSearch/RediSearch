@@ -290,25 +290,111 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn get_or_create(&self, name: &CStr, flags: RLookupKeyFlags) -> &RLookupKey<'a> {
-        let mut guard = self.store.lock();
-        let store = guard.get_or_insert_with(|| Box::new(KeyStore::new()));
-        if store.live.len() >= NAME_INDEX_MIN_KEYS {
-            store.enable_name_index();
-        }
-        let slot = store.find_slot(name).unwrap_or_else(|| {
-            let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
-            let mut key = RLookupKey::new(name.to_owned(), flags);
-            key.dstidx = slot;
-            store.live.push(OwnedKey::new(key));
-            if store.by_name.is_some() {
-                store.index_slot_first_wins(slot);
+        self.get_or_create_with(name, true, || RLookupKey::new(name.to_owned(), flags))
+    }
+
+    /// Publish an initialized key without allocating or invoking `create` under the guard.
+    /// Loading can suppress name-index promotion while retaining an already-built index.
+    pub(crate) fn get_or_create_with(
+        &self,
+        name: &CStr,
+        promote: bool,
+        create: impl FnOnce() -> RLookupKey<'a>,
+    ) -> &RLookupKey<'a> {
+        let mut create = Some(create);
+        let mut candidate: Option<OwnedKey<'a>> = None;
+        let mut spare_store = None;
+        let mut spare_live: Vec<OwnedKey<'a>> = Vec::new();
+        let mut spare_index: Option<NameIndex> = None;
+        loop {
+            let mut guard = self.store.lock();
+            let existing = guard.as_ref().and_then(|store| store.find_slot(name));
+            let len = guard.as_ref().map_or(0, |store| store.live.len());
+            let indexed = guard.as_ref().is_some_and(|store| store.by_name.is_some());
+            let promote_now = promote && len >= NAME_INDEX_MIN_KEYS && !indexed;
+            if let Some(slot) = existing.filter(|_| !promote_now) {
+                let ptr = guard.as_ref().unwrap().live[usize::from(slot)].as_non_null();
+                drop(guard);
+                // SAFETY: published keys are immutable and pinned for this list's lifetime.
+                return unsafe { ptr.as_ref() };
             }
-            slot
-        });
-        let ptr = store.live[usize::from(slot)].as_non_null();
-        // SAFETY: only the pointer container changes under shared access, never the key.
-        // The allocation remains owned by this list for the returned reference's lifetime.
-        unsafe { ptr.as_ref() }
+
+            let needed = len + usize::from(existing.is_none());
+            let grow_live = guard
+                .as_ref()
+                .is_none_or(|store| store.live.capacity() < needed);
+            let grow_index = promote_now
+                || (indexed
+                    && guard
+                        .as_ref()
+                        .unwrap()
+                        .by_name
+                        .as_ref()
+                        .unwrap()
+                        .slots
+                        .capacity()
+                        < needed);
+            let prepare_store = guard.is_none() && spare_store.is_none();
+            let prepare_key = existing.is_none() && candidate.is_none();
+            let prepare_live = grow_live && spare_live.capacity() < needed;
+            let prepare_index = grow_index
+                && spare_index
+                    .as_ref()
+                    .is_none_or(|index| index.slots.capacity() < needed);
+            if prepare_store || prepare_key || prepare_live || prepare_index {
+                drop(guard);
+                // Capacity preparation may lose to another append; recheck before publishing.
+                let capacity = needed.max(4).next_power_of_two();
+                if prepare_store {
+                    spare_store = Some(Box::new(KeyStore::new()));
+                }
+                if prepare_key {
+                    candidate = Some(OwnedKey::new(create.take().unwrap()()));
+                }
+                if prepare_live {
+                    spare_live = Vec::with_capacity(capacity);
+                }
+                if prepare_index {
+                    spare_index = Some(NameIndex {
+                        slots: HashTable::with_capacity(capacity),
+                        hash_builder: RandomState::new(),
+                    });
+                }
+                continue;
+            }
+
+            if guard.is_none() {
+                *guard = spare_store.take();
+            }
+            let store = guard.as_mut().unwrap();
+            if grow_live {
+                // Only pointer slots move; no key allocation or destruction occurs here.
+                spare_live.append(&mut store.live);
+                mem::swap(&mut store.live, &mut spare_live);
+            }
+            if grow_index {
+                mem::swap(&mut store.by_name, &mut spare_index);
+                for slot in 0..len {
+                    store.index_slot_first_wins(u16::try_from(slot).unwrap());
+                }
+            }
+            let slot = existing.unwrap_or_else(|| {
+                let slot = u16::try_from(len).expect("RLookup key count exceeds u16::MAX");
+                let mut key = candidate.take().unwrap();
+                // SAFETY: the candidate is private and this non-pinned field may be initialized.
+                unsafe { key.get_pin_mut().get_unchecked_mut() }.dstidx = slot;
+                store.live.push(key);
+                if store.by_name.is_some() {
+                    store.index_slot_first_wins(slot);
+                }
+                slot
+            });
+            let ptr = store.live[usize::from(slot)].as_non_null();
+            // Losing preparations and replaced empty containers are freed only after unlocking.
+            drop(guard);
+            // SAFETY: published keys are immutable and pinned for this list's lifetime.
+            return unsafe { ptr.as_ref() };
+        }
     }
 
     pub(crate) fn get(&self, slot: u16) -> Option<&RLookupKey<'a>> {
@@ -519,6 +605,40 @@ mod tests {
     }
     use enumflags2::make_bitflags;
     use std::ffi::CString;
+
+    #[test]
+    fn key_preparation_can_reenter_and_lose_publication() {
+        let keys = KeyList::new();
+        let key = keys.get_or_create_with(c"winner", false, || {
+            // The callback must run unlocked. Its append wins the outer publication race.
+            keys.get_or_create(c"winner", make_bitflags!(RLookupKeyFlags::{DocSrc}));
+            RLookupKey::new(c"winner", RLookupKeyFlags::empty())
+        });
+        assert!(key.flags.contains(RLookupKeyFlags::DocSrc));
+        assert_eq!(keys.row_len(), 1);
+        assert!(std::ptr::eq(key, keys.get(0).unwrap()));
+    }
+
+    #[test]
+    fn suppressed_promotion_preserves_existing_name_index() {
+        let keys = KeyList::new();
+        for i in 0..32 {
+            let name = CString::new(format!("field{i}")).unwrap();
+            keys.get_or_create_with(&name, false, || {
+                RLookupKey::new(name.clone(), RLookupKeyFlags::empty())
+            });
+        }
+        assert!(keys.store.lock().as_ref().unwrap().by_name.is_none());
+        keys.get_or_create(c"field0", RLookupKeyFlags::empty());
+        assert!(keys.store.lock().as_ref().unwrap().by_name.is_some());
+        for i in 32..100 {
+            let name = CString::new(format!("field{i}")).unwrap();
+            keys.get_or_create_with(&name, false, || {
+                RLookupKey::new(name.clone(), RLookupKeyFlags::empty())
+            });
+            assert_eq!(keys.find_slot(&name), Some(i));
+        }
+    }
 
     #[test]
     fn append_and_lookup_preserve_row_order() {
