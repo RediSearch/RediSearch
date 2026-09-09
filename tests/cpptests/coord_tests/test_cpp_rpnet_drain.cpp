@@ -332,25 +332,30 @@ TEST_F(RPNetBufferedDrainTest, privateBatchIsOfferedToDrainBeforeTerminalEOF) {
 #endif
 
 TEST_F(RPNetBufferedDrainTest, DISABLED_bufferedNextBenchmark) {
-  constexpr size_t count = 200000;
-  std::string wire =
-      "*2\r\n*" + std::to_string(count + 1) + "\r\n:" + std::to_string(count) + "\r\n";
-  for (size_t i = 0; i < count; ++i) wire += "*2\r\n+n\r\n:1\r\n";
-  wire += ":0\r\n";
-  network->current.root = parseReply(wire.c_str());
-  network->current.rows = MRReply_ArrayElement(network->current.root, 0);
-  network->current.index = 1;
-  SearchResult result = SearchResult_New();
-  auto start = std::chrono::steady_clock::now();
-  for (size_t i = 0; i < count; ++i) {
-    ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &result));
-    SearchResult_Clear(&result);
+  for (auto policy : {TimeoutPolicy_Return, TimeoutPolicy_Fail, TimeoutPolicy_ReturnStrict}) {
+    request.reqConfig.timeoutPolicy = policy;
+    constexpr size_t count = 200000;
+    std::string wire =
+        "*2\r\n*" + std::to_string(count + 1) + "\r\n:" + std::to_string(count) + "\r\n";
+    for (size_t i = 0; i < count; ++i) wire += "*2\r\n+n\r\n:1\r\n";
+    wire += ":0\r\n";
+    network->current.root = parseReply(wire.c_str());
+    network->current.rows = MRReply_ArrayElement(network->current.root, 0);
+    network->current.index = 1;
+    SearchResult result = SearchResult_New();
+    auto start = std::chrono::steady_clock::now();
+    for (size_t i = 0; i < count; ++i) {
+      ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &result));
+      SearchResult_Clear(&result);
+    }
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    printf("RPNet policy=%d size=%zu ns/row=%.2f\n", static_cast<int>(policy), sizeof(RPNet),
+           std::chrono::duration<double, std::nano>(elapsed).count() / count);
+    EXPECT_EQ(nullptr, network->drainMetadata);
+    SearchResult_Destroy(&result);
+    MRReply_Free(network->current.root);
+    network->current = {};
   }
-  auto elapsed = std::chrono::steady_clock::now() - start;
-  printf("RPNet size=%zu ns/row=%.2f\n", sizeof(RPNet),
-         std::chrono::duration<double, std::nano>(elapsed).count() / count);
-  EXPECT_EQ(nullptr, network->drainMetadata);
-  SearchResult_Destroy(&result);
 }
 
 TEST_F(RPNetBufferedDrainTest, errorPoliciesPreserveFollowingRowsWhenAllowed) {

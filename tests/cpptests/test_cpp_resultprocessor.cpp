@@ -93,7 +93,7 @@ struct BlockingQueryIterator {
       return ITERATOR_EOF;
     };
     base.Free = [](QueryIterator *base) {
-      IndexResult_Free(base->current);
+      if (base->current) IndexResult_Free(base->current);
       delete reinterpret_cast<BlockingQueryIterator *>(base);
     };
   }
@@ -228,6 +228,7 @@ TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext)
   spec.docs = DocTable_New(1);
   auto *dmd =
       DocTable_Put(&spec.docs, "late", 4, 1, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  DMD_Return(dmd);  // Keep only the table's reference before Next borrows the document.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
