@@ -189,6 +189,9 @@ typedef struct ResultProcessor {
    * Populates `res` with the next result that can be produced without waiting
    * for background progress. The result ownership convention is the same as
    * for Next().
+   * Transparent processors pull upstream Drain and apply their normal output
+   * semantics. Accumulators yield only locally committed, valid state without
+   * replenishing from upstream. Sources without ready output return EOF.
    *
    * RETURN-STRICT may run Drain on the main thread concurrently with at most
    * one BG call active in the Next chain. RETURN invokes Drain inline only
@@ -204,7 +207,8 @@ typedef struct ResultProcessor {
    * The RETURN-STRICT caller sets the request timeout flag before entering
    * Drain. This does not make an earlier Next timeout check a mutation guard:
    * an in-flight call can still return from upstream after local draining ends.
-   * Buffer admission and drain ownership transfer must be serialized locally;
+   * Published-buffer admission and drain ownership transfer must be serialized locally;
+   * unfinished worker-private buffers may remain inaccessible to Drain.
    * a late result is discarded by its owner, never published after drain EOF.
    * No ownership guard may span upstream calls, conversion, cleanup or the GIL.
    * Distinct result storage also requires safe ownership of reachable payloads.
@@ -212,9 +216,9 @@ typedef struct ResultProcessor {
    * Drain neither reads nor modifies live Next query bookkeeping. The caller
    * owns a separately published reply snapshot, result budget and metadata;
    * processor metadata is transferred only into that caller-owned state.
-   * Paging applies OFFSET once in the processor; the caller's remaining LIMIT
-   * accounts for results already published for this reply, excluding late Next
-   * results. Cancellation does not transfer ownership of those results.
+   * Paging applies committed OFFSET progress once and conservatively reserves
+   * LIMIT capacity for in-flight output. The caller owns the remaining reply
+   * budget; late Next completion must not reopen a finished drain.
    *
    * Constructors must initialize this callback. Processors without a custom
    * implementation use RPDrain_EOF. Chain insertion also supplies that default
