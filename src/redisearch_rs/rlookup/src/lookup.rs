@@ -207,12 +207,22 @@ impl<'a> RLookup<'a> {
 
     /// Resolve a runtime load-all field without replacing or mutating published keys.
     /// Unlike [`Self::get_key_load`], this operation permits concurrent lookup readers.
-    pub(crate) fn get_or_create_loaded_key(&self, name: &CStr) -> &RLookupKey<'a> {
+    /// `load_path` preserves an explicit path for subsequent individual loading when no schema
+    /// field provides one; hash load-all keeps its existing implicit-name path representation.
+    pub(crate) fn get_or_create_loaded_key(
+        &self,
+        name: &CStr,
+        load_path: Option<&'a CStr>,
+    ) -> &RLookupKey<'a> {
         self.keys.get_or_create_with(name, false, || {
             let flags = self.hidden_if_schema_special(name)
                 | RLookupKeyFlag::DocSrc
                 | RLookupKeyFlag::IsLoaded;
-            let mut key = RLookupKey::new(name.to_owned(), flags);
+            let mut key = if let Some(path) = load_path {
+                RLookupKey::new_with_path(name.to_owned(), path, flags)
+            } else {
+                RLookupKey::new(name.to_owned(), flags)
+            };
             if let Some(field) = self.find_field_in_spec_cache(name) {
                 key.update_from_field_spec(field);
             }
