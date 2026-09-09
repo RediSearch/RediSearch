@@ -273,8 +273,8 @@ TEST_F(RPNetBufferedDrainTest, privateBatchIsOfferedToDrainBeforeTerminalEOF) {
     QueryRequestTimeout_BeginCycle(&request.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     MRChannel_Push(
         channel,
-        parseReply(
-            "*2\r\n%1\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:0\r\n:0\r\n"));
+        parseReply("*2\r\n%2\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n%1\r\n+n\r\n:0\r\n"
+                   "+format\r\n+STRING\r\n:0\r\n"));
     SearchResult published = SearchResult_New();
     ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &published));
     EXPECT_EQ(0, number(&published));
