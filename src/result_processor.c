@@ -1037,9 +1037,7 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   return true;
 }
 
-// Drain supplies private error/profile storage and must not publish a failure in shared DMD flags.
-static void rpLoader_loadDocumentWithState(RPLoader *self, SearchResult *r, QueryError *status,
-                                           LoadFieldProfile *profileFields, bool cacheFailure) {
+static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
   if (!isDocumentStillValid(self, r)) {
@@ -1054,7 +1052,7 @@ static void rpLoader_loadDocumentWithState(RPLoader *self, SearchResult *r, Quer
         .sctx = self->sctx,
         .dmd = dmd,
         .force_string = true,
-        .status = status,
+        .status = &self->status,
     };
     ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
@@ -1066,8 +1064,8 @@ static void rpLoader_loadDocumentWithState(RPLoader *self, SearchResult *r, Quer
         .force_string = true,
         .force_load = self->forceLoad,
         .cached_only = false,
-        .status = status,
-        .profile_fields = profileFields,
+        .status = &self->status,
+        .profile_fields = self->profileFields,
     };
     ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
@@ -1076,17 +1074,11 @@ static void rpLoader_loadDocumentWithState(RPLoader *self, SearchResult *r, Quer
   // Error code and message are ignored.
   if (ret != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
-    if (cacheFailure) {
-      ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
-    }
+    ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
     SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
-    QueryError_ClearError(status);
+    QueryError_ClearError(&self->status);
   }
-}
-
-static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
-  rpLoader_loadDocumentWithState(self, r, &self->status, self->profileFields, true);
 }
 
 // Whether a loaded result can be serialized to the client. A result flagged
@@ -1207,7 +1199,7 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
 #define DEFAULT_BUFFER_BLOCK_SIZE 1024
 
-// Stable blocks allow allocation before admission, outside the ownership guard.
+// Blocks are grown and reused only during worker-owned accumulation.
 typedef struct SafeLoaderBlock {
   struct SafeLoaderBlock *next;
   SearchResult results[DEFAULT_BUFFER_BLOCK_SIZE];
@@ -1224,12 +1216,11 @@ typedef struct RPSafeLoader {
   // Results iterator
   size_t curr_result_index;
 
-  // The GIL excludes Drain from loading; this guard only protects admission, yield and takeover.
+  // Protects loaded-batch publication, yield claims, reset and terminal takeover.
+  // Drain never accesses an unloaded batch; accumulation needs no per-row guard.
   atomic_bool stateLock;
   bool draining;
   bool loaded;
-  bool drainDone;
-  RPLoaderDrainMetadata *drainMetadata;
 
   // Last buffered result code. To know weather to return OK or EOF.
   char last_buffered_rc;
@@ -1267,27 +1258,13 @@ static void safeLoaderUnlock(RPSafeLoader *self) {
   atomic_store_explicit(&self->stateLock, false, memory_order_release);
 }
 
-// False leaves the late row with Next, which must discard it outside the guard.
-static bool InsertResult(RPSafeLoader *self, SearchResult *result) {
-  SafeLoaderBlock *allocated = NULL;
-  safeLoaderLock(self);
-  if (self->draining) {
-    safeLoaderUnlock(self);
-    return false;
-  }
+// Even after Drain closes publication, an unfinished batch remains worker-owned.
+static void InsertResult(RPSafeLoader *self, SearchResult *result) {
   size_t index = self->buffer_results_count % DEFAULT_BUFFER_BLOCK_SIZE;
   if (index == 0) {
     SafeLoaderBlock *block = self->buffer_results_count ? self->tail->next : self->blocks;
     if (!block) {
-      safeLoaderUnlock(self);
-      allocated = rm_calloc(1, sizeof(*allocated));
-      safeLoaderLock(self);
-      if (self->draining) {
-        safeLoaderUnlock(self);
-        rm_free(allocated);
-        return false;
-      }
-      block = allocated;
+      block = rm_calloc(1, sizeof(*block));
       if (self->tail)
         self->tail->next = block;
       else
@@ -1297,8 +1274,6 @@ static bool InsertResult(RPSafeLoader *self, SearchResult *result) {
   }
   self->tail->results[index] = *result;
   ++self->buffer_results_count;
-  safeLoaderUnlock(self);
-  return true;
 }
 
 static SearchResult *GetNextResult(RPSafeLoader *self) {
@@ -1431,11 +1406,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     // downstream needs it, otherwise drop the borrow before storing.
     SearchResult_BufferIndexResult(rp, &resToBuffer);
     // Buffer the result.
-    if (!InsertResult(self, &resToBuffer)) {
-      SearchResult_Destroy(&resToBuffer);
-      rp->parent->resultLimit = bufferLimit;
-      return RS_RESULT_TIMEDOUT;
-    }
+    InsertResult(self, &resToBuffer);
 
     resToBuffer = SearchResult_New();
   }
@@ -1493,14 +1464,16 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
-  // Drain's caller also holds the GIL. A worker that acquired it after takeover must
-  // not touch the transferred buffer; no guard is held across document loading.
+  // Main Drain holds the same GIL, so loading and publication form one eligibility
+  // boundary. An unfinished batch stays worker-owned if Drain closes publication first.
   safeLoaderLock(self);
   bool taken = self->draining;
   safeLoaderUnlock(self);
   if (!taken) {
     rpSafeLoader_Load(self);
+    safeLoaderLock(self);
     self->loaded = true;
+    safeLoaderUnlock(self);
   }
 
   // Clear the GIL-gate handshake flag while we still hold the Redis lock. The
@@ -1538,73 +1511,24 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   return rp->Next(rp, res);
 }
 
-RPLoaderDrainMetadata *RPSafeLoader_TakeDrainMetadata(ResultProcessor *base) {
-  RS_ASSERT(base->type == RP_SAFE_LOADER);
-  RPSafeLoader *self = (RPSafeLoader *)base;
-  RPLoaderDrainMetadata *metadata = self->drainMetadata;
-  self->drainMetadata = NULL;
-  return metadata;
-}
-
-void RPLoaderDrainMetadata_Free(RPLoaderDrainMetadata *metadata) {
-  if (!metadata) return;
-  rm_free(metadata->fields);
-  rm_free(metadata);
-}
-
-// After takeover the buffer belongs exclusively to Drain. A BG loader can only
-// enter the load phase with the GIL and checks takeover after acquiring it.
+// The caller holds the Redis lock, including inline RETURN. Only a completed loaded
+// batch is eligible: no upstream traversal, document loading or worker-private access.
 static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *base, SearchResult *result) {
   RPSafeLoader *self = (RPSafeLoader *)base;
-  if (self->drainDone) return RP_DRAIN_EOF;
-  if (!self->drainMetadata) {
-    self->drainMetadata = rm_calloc(1, sizeof(*self->drainMetadata));
-    if (self->base_loader.profileFields) {
-      self->drainMetadata->nfields = self->base_loader.nkeys;
-      self->drainMetadata->fields = rm_calloc(self->base_loader.nkeys, sizeof(LoadFieldProfile));
-    }
+  if (!self->draining) {
+    safeLoaderLock(self);
+    self->draining = true;
+    safeLoaderUnlock(self);
   }
-  safeLoaderLock(self);
-  self->draining = true;
-  safeLoaderUnlock(self);
-
-  // Rust borrows the supplied search context. Do not lend it the live BG context,
-  // whose lock bookkeeping can still change during a concurrent upstream call.
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(self->sctx->redisCtx, self->sctx->spec);
-  sctx.apiVersion = self->sctx->apiVersion;
-  RPLoader loader = {.lk = self->base_loader.lk,
-                     .sctx = &sctx,
-                     .keys = self->base_loader.keys,
-                     .nkeys = self->base_loader.nkeys,
-                     .load_all = self->base_loader.load_all,
-                     .forceLoad = self->base_loader.forceLoad};
-  QueryError error = QueryError_Default();
-  for (;;) {
-    SearchResult *buffered = GetNextResult(self);
-    bool needsLoad = true;
-    if (buffered) {
-      if (!SearchResult_GetDocumentMetadata(buffered)) continue;
-      SetResult(buffered, result);
-      needsLoad = !self->loaded;
-    } else {
-      RPDrainStatus rc = base->upstream->Drain(base->upstream, result);
-      if (rc != RP_DRAIN_OK) {
-        self->drainDone = true;
-        QueryError_ClearError(&error);
-        return rc;
-      }
-    }
-    if (needsLoad) {
-      rpLoader_loadDocumentWithState(&loader, result, &error, self->drainMetadata->fields, false);
-    }
-    if (loaderResultIsEmittable(result)) {
-      QueryError_ClearError(&error);
-      return RP_DRAIN_OK;
-    }
-    ++self->drainMetadata->skippedResults;
-    SearchResult_Destroy(result);
-    *result = SearchResult_New();
+  // No worker can publish or reset after takeover. An unloaded cursor is still private.
+  if (!self->loaded) return RP_DRAIN_EOF;
+  SearchResult *buffered;
+  while ((buffered = GetNextResult(self))) {
+    if (!SearchResult_GetDocumentMetadata(buffered)) continue;
+    SetResult(buffered, result);
+    return RP_DRAIN_OK;
   }
+  return RP_DRAIN_EOF;
 }
 
 static void rpSafeLoaderFree(ResultProcessor *base) {
@@ -1622,7 +1546,6 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
     sl->blocks = block->next;
     rm_free(block);
   }
-  RPLoaderDrainMetadata_Free(sl->drainMetadata);
 
   rploaderFreeInternal(base);
 

@@ -192,28 +192,26 @@ TEST_F(LoaderDrainTest, forceLoadReplacesPreviouslyLoadedValues) {
 
 TEST_F(LoaderDrainTest, promotionToSafeLoaderUsesSafeDrain) {
   source.documents = {document("drain:safe", "safe")};
-  const auto *key = create();
+  create();
   SetLoadersForBG(&qctx);
   loader = qctx.endProc;
   EXPECT_EQ(RP_SAFE_LOADER, loader->type);
   RedisModule_ThreadSafeContextLock(ctx);
   const auto status = loader->Drain(loader, &result);
   RedisModule_ThreadSafeContextUnlock(ctx);
-  ASSERT_EQ(RP_DRAIN_OK, status);
-  expectValue(key, "safe");
-  EXPECT_EQ(1, source.position);
+  ASSERT_EQ(RP_DRAIN_EOF, status);
+  EXPECT_EQ(0, source.position);
 }
 
 TEST_F(LoaderDrainTest, constructedSafeLoaderUsesSafeDrain) {
   source.documents = {document("drain:safe", "safe")};
-  const auto *key = create(false, QEXEC_F_RUN_IN_BACKGROUND);
+  create(false, QEXEC_F_RUN_IN_BACKGROUND);
   EXPECT_EQ(RP_SAFE_LOADER, loader->type);
   RedisModule_ThreadSafeContextLock(ctx);
   const auto status = loader->Drain(loader, &result);
   RedisModule_ThreadSafeContextUnlock(ctx);
-  ASSERT_EQ(RP_DRAIN_OK, status);
-  expectValue(key, "safe");
-  EXPECT_EQ(1, source.position);
+  ASSERT_EQ(RP_DRAIN_EOF, status);
+  EXPECT_EQ(0, source.position);
 }
 
 // Next and Drain deliberately have independent inputs; a parked Next owns its late row.
@@ -222,8 +220,6 @@ struct SafeLoaderSource : LoaderDrainSource {
   size_t nextPosition = 0;
   size_t pauseAt = SIZE_MAX;
   std::atomic<bool> entered{false}, release{false};
-  RLookup *lookupToRead = nullptr;
-  std::atomic<bool> sawLoadedKey{false};
   int nextTerminal = RS_RESULT_EOF;
   RSDocumentMetadata *terminalDocument = nullptr;
   const RLookupKey *terminalKey = nullptr;
@@ -235,17 +231,6 @@ struct SafeLoaderSource : LoaderDrainSource {
       if (self->nextPosition == self->pauseAt) {
         self->entered.store(true, std::memory_order_release);
         while (!self->release.load(std::memory_order_acquire)) {
-          if (self->lookupToRead) {
-            auto iterator = RLookup_Iter(self->lookupToRead);
-            const RLookupKey *key;
-            while (RLookupIterator_Next(&iterator, &key)) {
-              if (strcmp(RLookupKey_GetName(key), "field") == 0) {
-                EXPECT_TRUE(key->flags & RLOOKUP_F_DOCSRC);
-                EXPECT_STREQ("field", RLookupKey_GetPath(key));
-                self->sawLoadedKey.store(true, std::memory_order_release);
-              }
-            }
-          }
           std::this_thread::yield();
         }
       }
@@ -290,7 +275,7 @@ class SafeLoaderDrainTest : public LoaderDrainTest {
   }
 };
 
-TEST_F(SafeLoaderDrainTest, releasesTerminalScratchAfterDrainTakesEarlierRows) {
+TEST_F(SafeLoaderDrainTest, releasesTerminalScratchAfterDrainClosesPublication) {
   auto *buffered = document("safe:buffered", "buffered");
   auto *scratch = document("safe:scratch", "scratch");
   safeSource.nextDocuments = {buffered};
@@ -307,9 +292,8 @@ TEST_F(SafeLoaderDrainTest, releasesTerminalScratchAfterDrainTakesEarlierRows) {
   bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
   QueryRequestTimeout_MarkTimedOut(&timeout);
   if (entered) {
-    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
-    EXPECT_EQ(buffered, SearchResult_GetDocumentMetadata(&result));
-    SearchResult_Clear(&result);
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
     EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
   }
   safeSource.release.store(true, std::memory_order_release);
@@ -329,13 +313,13 @@ TEST_F(SafeLoaderDrainTest, releasesTerminalScratchAfterDrainTakesEarlierRows) {
   SearchResult_Destroy(&next);
 }
 
-TEST_F(SafeLoaderDrainTest, takesBufferedRowsWhileUpstreamIsParkedAndRejectsLateRow) {
+TEST_F(SafeLoaderDrainTest, leavesUnloadedAndLateRowsWorkerOwned) {
   auto *first = document("safe:1", "one");
   auto *late = document("safe:late", "late");
   safeSource.nextDocuments = {first, late};
   safeSource.pauseAt = 1;
   safeSource.documents = {document("safe:drain", "drained")};
-  const auto *key = createSafe(false, true);
+  createSafe(false, true);
   SearchResult next = SearchResult_New();
   int nextStatus = RS_RESULT_MAX;
   RedisModule_ThreadSafeContextLock(ctx);
@@ -343,12 +327,8 @@ TEST_F(SafeLoaderDrainTest, takesBufferedRowsWhileUpstreamIsParkedAndRejectsLate
   bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
   QueryRequestTimeout_MarkTimedOut(&timeout);
   if (entered) {
-    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
-    expectValue(key, "one");
-    SearchResult_Clear(&result);
-    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
-    expectValue(key, "drained");
-    SearchResult_Clear(&result);
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
     EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
     EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
     EXPECT_FALSE(safeSource.release.load());
@@ -359,23 +339,20 @@ TEST_F(SafeLoaderDrainTest, takesBufferedRowsWhileUpstreamIsParkedAndRejectsLate
   ASSERT_TRUE(entered);
   EXPECT_EQ(RS_RESULT_TIMEDOUT, nextStatus);
   EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  EXPECT_EQ(0, safeSource.position);
+  // Free, not Drain, owns cleanup of the unpublished batch after the worker finishes.
+  loader->Free(loader);
+  loader = nullptr;
   EXPECT_EQ(1, first->ref_count);
   EXPECT_EQ(1, late->ref_count);
   EXPECT_EQ(4096, qctx.resultLimit);
   EXPECT_EQ(7, qctx.skippedResults);
-  auto *metadata = RPSafeLoader_TakeDrainMetadata(loader);
-  ASSERT_NE(nullptr, metadata);
-  EXPECT_EQ(0, metadata->skippedResults);
-  ASSERT_EQ(1, metadata->nfields);
-  EXPECT_EQ(2, metadata->fields[0].load_count);
-  RPLoaderDrainMetadata_Free(metadata);
-  EXPECT_EQ(nullptr, RPSafeLoader_TakeDrainMetadata(loader));
   SearchResult_Destroy(&next);
 }
 
 TEST_F(SafeLoaderDrainTest, drainsBeforeWorkerAcquiresGil) {
   safeSource.nextDocuments = {document("safe:gil", "buffered")};
-  const auto *key = createSafe();
+  createSafe();
   // Interpose only to observe entry. The real mock mutex keeps BG parked until Drain completes.
   static std::atomic<bool> waiting;
   static decltype(RedisModule_ThreadSafeContextLock) originalLock;
@@ -392,9 +369,8 @@ TEST_F(SafeLoaderDrainTest, drainsBeforeWorkerAcquiresGil) {
   bool entered = RS::WaitForCondition([&] { return waiting.load(std::memory_order_acquire); }, 5);
   QueryRequestTimeout_MarkTimedOut(&timeout);
   if (entered) {
-    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
-    expectValue(key, "buffered");
-    SearchResult_Clear(&result);
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
     EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
   }
   RedisModule_ThreadSafeContextUnlock(ctx);
@@ -420,35 +396,87 @@ TEST_F(SafeLoaderDrainTest, yieldsLoadedRowsWithoutReloadingAndPreservesNextOwne
   EXPECT_EQ(first, SearchResult_GetDocumentMetadata(&next));
   SearchResult_Clear(&result);
   EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
-  auto *metadata = RPSafeLoader_TakeDrainMetadata(loader);
-  EXPECT_EQ(0, metadata->fields[0].load_count);
-  EXPECT_EQ(0, metadata->skippedResults);
   EXPECT_EQ(8, qctx.skippedResults);
-  RPLoaderDrainMetadata_Free(metadata);
   RedisModule_ThreadSafeContextUnlock(ctx);
   SearchResult_Destroy(&next);
 }
 
-TEST_F(SafeLoaderDrainTest, keepsDrainFailuresAndAccountingPrivate) {
+TEST_F(SafeLoaderDrainTest, takesPublishedBatchBeforeFirstNextYield) {
+  safeSource.nextDocuments = {document("safe:published", "ready")};
+  safeSource.documents = {document("safe:upstream", "must not drain")};
+  const auto *key = createSafe();
+  // Park after the actual GIL release, before Next can claim any loaded row.
+  static std::atomic<bool> published, resume;
+  static decltype(RedisModule_ThreadSafeContextUnlock) originalUnlock;
+  published.store(false);
+  resume.store(false);
+  originalUnlock = RedisModule_ThreadSafeContextUnlock;
+  RedisModule_ThreadSafeContextUnlock = [](RedisModuleCtx *ctx) {
+    originalUnlock(ctx);
+    published.store(true, std::memory_order_release);
+    while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return published.load(); }, 5);
+  RedisModule_ThreadSafeContextLock(ctx);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    expectValue(key, "ready");
+    SearchResult_Clear(&result);
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(0, safeSource.position);
+  }
+  originalUnlock(ctx);
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  RedisModule_ThreadSafeContextUnlock = originalUnlock;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, resetMakesNextBatchPrivateBeforeUpstreamCall) {
+  safeSource.nextDocuments = {document("safe:old", "old"), document("safe:new", "new")};
+  createSafe();
+  qctx.resultLimit = 1;
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+  SearchResult_Clear(&result);
+  safeSource.pauseAt = 1;
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  RedisModule_ThreadSafeContextLock(ctx);
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  safeSource.release.store(true, std::memory_order_release);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, unstartedDrainDoesNotLoadOrReadUpstreamErrors) {
   auto *missing = document("safe:missing", nullptr);
   safeSource.documents = {missing, document("safe:live", "live")};
   safeSource.terminal = RP_DRAIN_ERROR;
-  const auto *key = createSafe();
+  createSafe();
   RedisModule_ThreadSafeContextLock(ctx);
   QueryRequestTimeout_MarkTimedOut(&timeout);
-  EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
-  expectValue(key, "live");
-  SearchResult_Clear(&result);
-  EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
   EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
   RedisModule_ThreadSafeContextUnlock(ctx);
   EXPECT_FALSE(missing->flags & Document_FailedToOpen);
   EXPECT_EQ(7, qctx.skippedResults);
   EXPECT_EQ(100, qctx.totalResults);
-  auto *metadata = RPSafeLoader_TakeDrainMetadata(loader);
-  ASSERT_NE(nullptr, metadata);
-  EXPECT_EQ(1, metadata->skippedResults);
-  RPLoaderDrainMetadata_Free(metadata);
+  EXPECT_EQ(0, safeSource.position);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
 }
 
 TEST_F(SafeLoaderDrainTest, reusesBlocksAcrossChunksThenFreesUndrainedRows) {
@@ -472,11 +500,10 @@ TEST_F(SafeLoaderDrainTest, reusesBlocksAcrossChunksThenFreesUndrainedRows) {
   EXPECT_EQ(1, dmd->ref_count);
 }
 
-TEST_F(SafeLoaderDrainTest, loadAllDrainsUnloadedBufferWhileUpstreamIsParked) {
+TEST_F(SafeLoaderDrainTest, loadAllDoesNotPublishKeysFromUnloadedBuffer) {
   safeSource.nextDocuments = {document("safe:all", "all")};
   safeSource.pauseAt = 1;
   createSafe(true);
-  safeSource.lookupToRead = &lookup;
   auto scanKey = RedisModule_ScanKey;
   RedisModule_ScanKey = [](RedisModuleKey *key, RedisModuleScanCursor *,
                            RedisModuleScanKeyCB callback, void *data) {
@@ -491,16 +518,11 @@ TEST_F(SafeLoaderDrainTest, loadAllDrainsUnloadedBufferWhileUpstreamIsParked) {
   bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
   QueryRequestTimeout_MarkTimedOut(&timeout);
   if (entered) {
-    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
     auto iterator = RLookup_Iter(&lookup);
     const RLookupKey *key = nullptr;
-    EXPECT_TRUE(RLookupIterator_Next(&iterator, &key));
-    EXPECT_NE(nullptr, key);
-    if (key) expectValue(key, "all");
-    SearchResult_Clear(&result);
+    EXPECT_FALSE(RLookupIterator_Next(&iterator, &key));
     EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
-    EXPECT_TRUE(RS::WaitForCondition(
-        [&] { return safeSource.sawLoadedKey.load(std::memory_order_acquire); }, 5));
   }
   safeSource.release.store(true, std::memory_order_release);
   RedisModule_ThreadSafeContextUnlock(ctx);

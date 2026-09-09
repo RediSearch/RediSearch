@@ -283,19 +283,6 @@ struct QueryRequest;
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base);
 
-// Safe-loader Drain requires the caller's Redis lock (also for inline RETURN).
-// Its accounting stays separate from live Next state; the reply owner consumes this
-// metadata after its final Drain call, never merging it into an active Next context.
-typedef struct {
-  uint32_t skippedResults;
-  size_t nfields;
-  struct LoadFieldProfile *fields;
-} RPLoaderDrainMetadata;
-
-// Transfers optional metadata from an RP_SAFE_LOADER. Must not overlap Drain.
-RPLoaderDrainMetadata *RPSafeLoader_TakeDrainMetadata(ResultProcessor *loader);
-void RPLoaderDrainMetadata_Free(RPLoaderDrainMetadata *metadata);
-
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
