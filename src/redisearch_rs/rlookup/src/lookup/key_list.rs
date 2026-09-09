@@ -95,6 +95,7 @@ impl KeyStore<'_> {
         Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
     }
 
+    #[cfg(test)]
     fn enable_name_index(&mut self) {
         if self.by_name.is_some() {
             return;
