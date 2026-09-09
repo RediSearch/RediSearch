@@ -249,7 +249,7 @@ impl<'n> DocumentFormat for HashDocumentFormat<'n> {
                 CStr::from_bytes_until_nul(bytes).expect("SDS string must contain null-terminator")
             };
 
-            let key = rlookup.get_or_create_loaded_key(field_cstr);
+            let key = rlookup.get_or_create_loaded_key(field_cstr, None);
             if key.flags.contains(RLookupKeyFlag::QuerySrc) {
                 return;
             }
