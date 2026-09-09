@@ -611,10 +611,10 @@ mod tests {
         let keys = KeyList::new();
         let key = keys.get_or_create_with(c"winner", false, || {
             // The callback must run unlocked. Its append wins the outer publication race.
-            keys.get_or_create(c"winner", make_bitflags!(RLookupKeyFlags::{DocSrc}));
+            keys.get_or_create(c"winner", make_bitflags!(RLookupKeyFlag::{DocSrc}));
             RLookupKey::new(c"winner", RLookupKeyFlags::empty())
         });
-        assert!(key.flags.contains(RLookupKeyFlags::DocSrc));
+        assert!(key.flags.contains(RLookupKeyFlag::DocSrc));
         assert_eq!(keys.row_len(), 1);
         assert!(std::ptr::eq(key, keys.get(0).unwrap()));
     }
