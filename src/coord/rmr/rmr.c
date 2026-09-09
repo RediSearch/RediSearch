@@ -770,12 +770,20 @@ bool MRIterator_AllShardsConnected(const MRIterator *it) {
 // (parseAggPlan's terminal `else` on an unrecognized argument), so an incapable or
 // Unknown shard gets no token at all, not a placeholder: even an empty argument
 // would be just as unrecognized as `_ROW_BLOCK` itself to an older build.
+//
+// Inserts at cmd->rowBlockArgIndex rather than appending at the current tail:
+// commands built via the FT.DEBUG wrapper (dist_aggregate.c) have their
+// DEBUG_PARAMS_COUNT block appended *after* this command was built but *before*
+// fan-out, and the shard parses that block by position from the end of the
+// command, so a tail append here would silently displace it. A command that never
+// reserved a position (rowBlockArgIndex == 0) - not built via buildMRCommand, e.g.
+// a hybrid or cursor-read command - is simply never asked.
 static inline void maybeAskRowBlock(IORuntimeCtx *io_runtime_ctx, MRCommand *cmd) {
-  if (!RSGlobalConfig.internalRowBlockFormat) return;
+  if (!RSGlobalConfig.internalRowBlockFormat || !cmd->rowBlockArgIndex) return;
   MRNodeCapState cap =
       MRConnManager_GetRowBlockCapability(&io_runtime_ctx->conn_mgr, cmd->targetShard, NULL);
   if (cap == MRNodeCap_Yes) {
-    MRCommand_AppendLiteral(cmd, "_ROW_BLOCK");
+    MRCommand_Insert(cmd, cmd->rowBlockArgIndex, "_ROW_BLOCK", sizeof("_ROW_BLOCK") - 1);
   }
 }
 

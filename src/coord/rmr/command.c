@@ -69,6 +69,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
   cmd->slotsInfoArgIndex = 0;
   cmd->dispatchTimeArgIndex = 0;
+  cmd->rowBlockArgIndex = 0;
   cmd->targetShard = NULL;
   cmd->cmd = NULL;
   cmd->protocol = 0;
@@ -94,6 +95,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand_Init(&ret, cmd->num);
   ret.slotsInfoArgIndex = cmd->slotsInfoArgIndex;
   ret.dispatchTimeArgIndex = cmd->dispatchTimeArgIndex;
+  ret.rowBlockArgIndex = cmd->rowBlockArgIndex;
   ret.targetShard = cmd->targetShard ? rm_strdup(cmd->targetShard) : NULL;
   ret.protocol = cmd->protocol;
   ret.forCursor = cmd->forCursor;
@@ -131,6 +133,13 @@ static void MRCommand_updateArgIndices(MRCommand *cmd, int pos, int toAdd) {
 
   if (cmd->dispatchTimeArgIndex && pos < cmd->dispatchTimeArgIndex) {
     cmd->dispatchTimeArgIndex += toAdd;
+  }
+
+  // rowBlockArgIndex has no reserved placeholder to protect (see command.h), so unlike
+  // the two indices above it may equal `pos` here - that is exactly the row-block
+  // insertion itself (see maybeAskRowBlock in rmr.c), not a corruption.
+  if (cmd->rowBlockArgIndex && pos < cmd->rowBlockArgIndex) {
+    cmd->rowBlockArgIndex += toAdd;
   }
 }
 
