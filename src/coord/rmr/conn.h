@@ -102,6 +102,19 @@ typedef enum {
   MRNodeCap_Yes,
 } MRNodeCapState;
 
+static inline const char *MRNodeCapState_Str(MRNodeCapState state) {
+  switch (state) {
+    case MRNodeCap_Unknown:
+      return "Unknown";
+    case MRNodeCap_No:
+      return "No";
+    case MRNodeCap_Yes:
+      return "Yes";
+    default:
+      return "<UNKNOWN CAPABILITY STATE>";
+  }
+}
+
 /* Get the row-block capability belief for the node's pool, and (for diagnostics
  * only) the last `search` module version parsed from its HELLO reply in
  * *outVersion, or -1 if none was ever parsed. outVersion may be NULL.
@@ -130,9 +143,14 @@ void MRConnManager_ReplyState(dict *stateDict, RedisModuleCtx *ctx);
 
 /*
  * Fill the state dictionary with the connection pool state.
- * The dictionary is a map of host:port strings to an array of connection states.
- * The array contains the state of each connection in the pool. The stateDict may be empty
- * or already contain information from other ConnManager
+ * The dictionary is a map of host:port strings to an array of strings: the state of
+ * each connection in the pool (see MRConnState_Str), followed by one row-block
+ * capability line for the pool as a whole (see MRNodeCapState_Str and
+ * MRConnManager_GetRowBlockCapability) - capability is tracked per node/pool, not
+ * per connection, so it appears once per pool rather than once per connection.
+ * The stateDict may be empty or already contain information from other ConnManagers
+ * (one per IO thread; a node's entries from different IO threads can disagree
+ * while a rolling capability belief is still converging).
 */
 void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict);
 

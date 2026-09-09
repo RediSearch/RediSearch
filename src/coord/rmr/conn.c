@@ -255,6 +255,15 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
       array_append(stateList, rm_strdup(stateStr));
     }
 
+    // One row-block capability line per pool (not per connection - see
+    // MRNodeCapState in conn.h for why this is tracked per node).
+    char *capStr;
+    MRNodeCapState cap = pool->rowBlockDemoted ? MRNodeCap_No : pool->rowBlockCap;
+    rm_asprintf(&capStr, "RowBlockCapability=%s(demoted=%s,version=%d)",
+               MRNodeCapState_Str(cap), pool->rowBlockDemoted ? "true" : "false",
+               pool->rowBlockCapVersion);
+    array_append(stateList, capStr);
+
     dictSetVal(stateDict, target_entry, stateList); // Update the value in case it was reallocated
     rm_free(key);
   }
