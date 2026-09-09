@@ -202,6 +202,36 @@ fn load_all_writes_root_value() {
     });
 }
 
+/// A root key published by load-all must remain usable by a later individual loader.
+#[test]
+#[cfg_attr(miri, ignore)] // RedisJSON loading calls FFI.
+fn load_all_root_key_supports_individual_reload() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(json!("root")), |japi, ctx| {
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        let key_name = make_redis_string(c"doc:1");
+        let mut lookup = RLookup::new();
+        lookup.seal();
+        let mut all = RLookupRow::new();
+        format.load_all(&lookup, &mut all, &key_name).unwrap();
+        let key = lookup
+            .find_key_by_name(c"$")
+            .unwrap()
+            .into_current()
+            .unwrap();
+        let mut individual = RLookupRow::new();
+        format
+            .open(&key_name)
+            .unwrap()
+            .load_field(key, &mut individual)
+            .unwrap();
+        assert_eq!(
+            individual.get(key).and_then(|v| v.as_str_bytes()),
+            Some(&b"root"[..])
+        );
+    });
+}
+
 /// Assert that `load_all` maps a missing key to `KeyNotFound`, and a present-but-empty
 /// root (`$` resolving to an empty array) to `JsonRootMissing`.
 #[test]

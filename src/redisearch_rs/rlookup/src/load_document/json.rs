@@ -121,7 +121,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         let value = json_iter_to_value(self.ctx, json_iter, self.api_version)?
             .ok_or(LoadAllError::JsonRootMissing)?;
 
-        let rlk = rlookup.get_or_create_loaded_key(JSON_ROOT);
+        let rlk = rlookup.get_or_create_loaded_key(JSON_ROOT, Some(JSON_ROOT));
 
         dst_row.write_key(rlk, value);
 
