@@ -511,6 +511,26 @@ fn explicit_field_policy_preserves_string_fallback() {
     assert_explicit_field_policy(true);
 }
 
+#[test]
+fn explicit_field_policy_preserves_string_and_non_numeric_ordering() {
+    let cases = [
+        (
+            Value::String(String::from_vec(b"a".to_vec())),
+            Value::String(String::from_vec(b"b".to_vec())),
+            Ordering::Less,
+        ),
+        (Value::Number(f64::NAN), Value::Number(1.0), Ordering::Equal),
+    ];
+    for (a, b, expected) in cases {
+        let mut diagnostic = false;
+        assert_eq!(
+            cmp_fields_with_policy([(Some(&a), Some(&b))], 0, false, &mut diagnostic),
+            expected
+        );
+        assert!(!diagnostic);
+    }
+}
+
 fn assert_explicit_field_policy(fallback: bool) {
     let n = Value::Number(1.0);
     let s = Value::String(String::from_vec(b"not-a-number".to_vec()));
