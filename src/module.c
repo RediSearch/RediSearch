@@ -1964,6 +1964,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "The QUERY keyword is expected");
     searchRequestCtx_Free(req);
     return NULL;
   }
