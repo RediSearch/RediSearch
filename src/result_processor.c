@@ -1037,7 +1037,9 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   return true;
 }
 
-static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+// Drain supplies private error/profile storage and must not publish a failure in shared DMD flags.
+static void rpLoader_loadDocumentWithState(RPLoader *self, SearchResult *r, QueryError *status,
+                                           LoadFieldProfile *profileFields, bool cacheFailure) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
   if (!isDocumentStillValid(self, r)) {
@@ -1048,37 +1050,43 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      LoadAllKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .force_string = true,
-          .status = &self->status,
-      };
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadAllKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .force_string = true,
+        .status = status,
+    };
+    ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      LoadIndividualKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .keys = self->keys,
-          .nkeys = self->nkeys,
-          .force_string = true,
-          .force_load = self->forceLoad,
-          .cached_only = false,
-          .status = &self->status,
-          .profile_fields = self->profileFields,
-      };
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadIndividualKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .keys = self->keys,
+        .nkeys = self->nkeys,
+        .force_string = true,
+        .force_load = self->forceLoad,
+        .cached_only = false,
+        .status = status,
+        .profile_fields = profileFields,
+    };
+    ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
   if (ret != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
-    ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
+    if (cacheFailure) {
+      ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
+    }
     // The result contains an expired document.
     SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
-    QueryError_ClearError(&self->status);
+    QueryError_ClearError(status);
   }
+}
+
+static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+  rpLoader_loadDocumentWithState(self, r, &self->status, self->profileFields, true);
 }
 
 // Whether a loaded result can be serialized to the client. A result flagged
@@ -1199,16 +1207,29 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
 #define DEFAULT_BUFFER_BLOCK_SIZE 1024
 
+// Stable blocks allow allocation before admission, outside the ownership guard.
+typedef struct SafeLoaderBlock {
+  struct SafeLoaderBlock *next;
+  SearchResult results[DEFAULT_BUFFER_BLOCK_SIZE];
+} SafeLoaderBlock;
+
 typedef struct RPSafeLoader {
   // Loading context
   RPLoader base_loader;
 
   // Buffer management
-  SearchResult **BufferBlocks;
+  SafeLoaderBlock *blocks, *tail, *cursor;
   size_t buffer_results_count;
 
   // Results iterator
   size_t curr_result_index;
+
+  // The GIL excludes Drain from loading; this guard only protects admission, yield and takeover.
+  atomic_bool stateLock;
+  bool draining;
+  bool loaded;
+  bool drainDone;
+  RPLoaderDrainMetadata *drainMetadata;
 
   // Last buffered result code. To know weather to return OK or EOF.
   char last_buffered_rc;
@@ -1237,36 +1258,47 @@ static void SetResult(SearchResult *buffered_result, SearchResult *result_output
   *buffered_result = SearchResult_New();
 }
 
-static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
-  // Get a pointer to the block at the given index
-  SearchResult **ret = array_ensure_at(&self->BufferBlocks, idx, SearchResult*);
-
-  // If the block is not allocated, allocate it
-  if (!*ret) {
-    *ret = array_new(SearchResult, DEFAULT_BUFFER_BLOCK_SIZE);
+static void safeLoaderLock(RPSafeLoader *self) {
+  while (atomic_exchange_explicit(&self->stateLock, true, memory_order_acquire)) {
   }
-
-  return *ret;
-
 }
 
-// If @param currBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
-static SearchResult *InsertResult(RPSafeLoader *self, SearchResult *resToBuffer, SearchResult *currBlock) {
-  size_t idx_in_curr_block = self->buffer_results_count % DEFAULT_BUFFER_BLOCK_SIZE;
-  // if the block is full, allocate a new one
-  if (idx_in_curr_block == 0) {
-    // get the curr block, allocate new block if needed
-    currBlock = GetResultsBlock(self, self->buffer_results_count / DEFAULT_BUFFER_BLOCK_SIZE);
+static void safeLoaderUnlock(RPSafeLoader *self) {
+  atomic_store_explicit(&self->stateLock, false, memory_order_release);
+}
+
+// False leaves the late row with Next, which must discard it outside the guard.
+static bool InsertResult(RPSafeLoader *self, SearchResult *result) {
+  SafeLoaderBlock *allocated = NULL;
+  safeLoaderLock(self);
+  if (self->draining) {
+    safeLoaderUnlock(self);
+    return false;
   }
-  // append the result to the current block at rp->curr_idx_at_block
-  // this operation takes ownership of the result's allocated data
-  currBlock[idx_in_curr_block] = *resToBuffer;
+  size_t index = self->buffer_results_count % DEFAULT_BUFFER_BLOCK_SIZE;
+  if (index == 0) {
+    SafeLoaderBlock *block = self->buffer_results_count ? self->tail->next : self->blocks;
+    if (!block) {
+      safeLoaderUnlock(self);
+      allocated = rm_calloc(1, sizeof(*allocated));
+      safeLoaderLock(self);
+      if (self->draining) {
+        safeLoaderUnlock(self);
+        rm_free(allocated);
+        return false;
+      }
+      block = allocated;
+      if (self->tail)
+        self->tail->next = block;
+      else
+        self->blocks = block;
+    }
+    self->tail = block;
+  }
+  self->tail->results[index] = *result;
   ++self->buffer_results_count;
-  return currBlock;
-}
-
-static bool IsBufferEmpty(RPSafeLoader *self) {
-  return self->buffer_results_count == 0;
+  safeLoaderUnlock(self);
+  return true;
 }
 
 static SearchResult *GetNextResult(RPSafeLoader *self) {
@@ -1278,10 +1310,12 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
   }
 
   // get current block
-  SearchResult *curr_block = self->BufferBlocks[curr_elem_index / DEFAULT_BUFFER_BLOCK_SIZE];
+  if (curr_elem_index % DEFAULT_BUFFER_BLOCK_SIZE == 0) {
+    self->cursor = curr_elem_index ? self->cursor->next : self->blocks;
+  }
 
   // get the result in the block
-  SearchResult* ret = curr_block + (curr_elem_index % DEFAULT_BUFFER_BLOCK_SIZE);
+  SearchResult *ret = self->cursor->results + (curr_elem_index % DEFAULT_BUFFER_BLOCK_SIZE);
 
   // Increase result's index
   ++self->curr_result_index;
@@ -1293,6 +1327,11 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res);  // Forward declaration
 
 static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult *res) {
+  safeLoaderLock(self);
+  if (self->draining) {
+    safeLoaderUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
   // Reset the next function, in case we are in cursor mode
   if (self->becomePlainLoader) {
     self->base_loader.base.Next = rploaderNext;
@@ -1301,9 +1340,12 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
   }
   self->buffer_results_count = 0;
   self->curr_result_index = 0;
+  self->loaded = false;
+  self->tail = NULL;
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  safeLoaderUnlock(self);
   // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
   // success while no population of the result was done.
   // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
@@ -1338,16 +1380,28 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
-  SearchResult *curr_res;
-
-  while ((curr_res = GetNextResult(self))) {
+  for (;;) {
+    safeLoaderLock(self);
+    if (self->draining) {
+      safeLoaderUnlock(self);
+      return RS_RESULT_TIMEDOUT;
+    }
+    SearchResult *curr_res = GetNextResult(self);
+    if (!curr_res) {
+      safeLoaderUnlock(self);
+      break;
+    }
     // rpSafeLoader_Load emptied the slots of documents invalidated mid-query (and
     // counted them in skippedResults). A tombstone owns nothing, so skip it with no
     // cleanup; a live buffered result always carries document metadata.
     if (SearchResult_GetDocumentMetadata(curr_res) == NULL) {
+      safeLoaderUnlock(self);
       continue;
     }
-    SetResult(curr_res, result_output);
+    SearchResult owned = *curr_res;
+    *curr_res = SearchResult_New();
+    safeLoaderUnlock(self);
+    SetResult(&owned, result_output);
     return RS_RESULT_OK;
   }
   return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
@@ -1358,13 +1412,16 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
+  safeLoaderLock(self);
+  bool takenOver = self->draining;
+  safeLoaderUnlock(self);
+  if (takenOver) return RS_RESULT_TIMEDOUT;
 
   // Keep fetching results from the upstream result processor until EOF is reached
   RedisSearchCtx *sctx = self->sctx;
-  int result_status;
+  int result_status = RS_RESULT_OK;
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = SearchResult_New();
-  SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
@@ -1374,20 +1431,33 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     // downstream needs it, otherwise drop the borrow before storing.
     SearchResult_BufferIndexResult(rp, &resToBuffer);
     // Buffer the result.
-    currBlock = InsertResult(self, &resToBuffer, currBlock);
+    if (!InsertResult(self, &resToBuffer)) {
+      SearchResult_Destroy(&resToBuffer);
+      rp->parent->resultLimit = bufferLimit;
+      return RS_RESULT_TIMEDOUT;
+    }
 
     resToBuffer = SearchResult_New();
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  SearchResult_Destroy(&resToBuffer);
 
+  safeLoaderLock(self);
+  if (self->draining) {
+    safeLoaderUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
-      IsBufferEmpty(self)) {
+       !(result_status == RS_RESULT_TIMEDOUT &&
+         rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+      self->buffer_results_count == 0) {
+    safeLoaderUnlock(self);
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
+  safeLoaderUnlock(self);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1423,7 +1493,15 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
-  rpSafeLoader_Load(self);
+  // Drain's caller also holds the GIL. A worker that acquired it after takeover must
+  // not touch the transferred buffer; no guard is held across document loading.
+  safeLoaderLock(self);
+  bool taken = self->draining;
+  safeLoaderUnlock(self);
+  if (!taken) {
+    rpSafeLoader_Load(self);
+    self->loaded = true;
+  }
 
   // Clear the GIL-gate handshake flag while we still hold the Redis lock. The
   // timeout callback only runs on the main thread while it holds the GIL, so it
@@ -1437,6 +1515,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+  if (taken) return RS_RESULT_TIMEDOUT;
 
 #ifdef ENABLE_ASSERT
   // Sync point: pause after clearing the flag and unlocking Redis. The
@@ -1459,6 +1538,75 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   return rp->Next(rp, res);
 }
 
+RPLoaderDrainMetadata *RPSafeLoader_TakeDrainMetadata(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_LOADER);
+  RPSafeLoader *self = (RPSafeLoader *)base;
+  RPLoaderDrainMetadata *metadata = self->drainMetadata;
+  self->drainMetadata = NULL;
+  return metadata;
+}
+
+void RPLoaderDrainMetadata_Free(RPLoaderDrainMetadata *metadata) {
+  if (!metadata) return;
+  rm_free(metadata->fields);
+  rm_free(metadata);
+}
+
+// After takeover the buffer belongs exclusively to Drain. A BG loader can only
+// enter the load phase with the GIL and checks takeover after acquiring it.
+static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *base, SearchResult *result) {
+  RPSafeLoader *self = (RPSafeLoader *)base;
+  if (self->drainDone) return RP_DRAIN_EOF;
+  if (!self->drainMetadata) {
+    self->drainMetadata = rm_calloc(1, sizeof(*self->drainMetadata));
+    if (self->base_loader.profileFields) {
+      self->drainMetadata->nfields = self->base_loader.nkeys;
+      self->drainMetadata->fields = rm_calloc(self->base_loader.nkeys, sizeof(LoadFieldProfile));
+    }
+  }
+  safeLoaderLock(self);
+  self->draining = true;
+  safeLoaderUnlock(self);
+
+  // Rust borrows the supplied search context. Do not lend it the live BG context,
+  // whose lock bookkeeping can still change during a concurrent upstream call.
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(self->sctx->redisCtx, self->sctx->spec);
+  sctx.apiVersion = self->sctx->apiVersion;
+  RPLoader loader = {.lk = self->base_loader.lk,
+                     .sctx = &sctx,
+                     .keys = self->base_loader.keys,
+                     .nkeys = self->base_loader.nkeys,
+                     .load_all = self->base_loader.load_all,
+                     .forceLoad = self->base_loader.forceLoad};
+  QueryError error = QueryError_Default();
+  for (;;) {
+    SearchResult *buffered = GetNextResult(self);
+    bool needsLoad = true;
+    if (buffered) {
+      if (!SearchResult_GetDocumentMetadata(buffered)) continue;
+      SetResult(buffered, result);
+      needsLoad = !self->loaded;
+    } else {
+      RPDrainStatus rc = base->upstream->Drain(base->upstream, result);
+      if (rc != RP_DRAIN_OK) {
+        self->drainDone = true;
+        QueryError_ClearError(&error);
+        return rc;
+      }
+    }
+    if (needsLoad) {
+      rpLoader_loadDocumentWithState(&loader, result, &error, self->drainMetadata->fields, false);
+    }
+    if (loaderResultIsEmittable(result)) {
+      QueryError_ClearError(&error);
+      return RP_DRAIN_OK;
+    }
+    ++self->drainMetadata->skippedResults;
+    SearchResult_Destroy(result);
+    *result = SearchResult_New();
+  }
+}
+
 static void rpSafeLoaderFree(ResultProcessor *base) {
   RPSafeLoader *sl = (RPSafeLoader *)base;
 
@@ -1469,8 +1617,12 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   }
 
   // Free buffer memory blocks
-  array_foreach(sl->BufferBlocks, SearchResultsBlock, array_free(SearchResultsBlock));
-  array_free(sl->BufferBlocks);
+  while (sl->blocks) {
+    SafeLoaderBlock *block = sl->blocks;
+    sl->blocks = block->next;
+    rm_free(block);
+  }
+  RPLoaderDrainMetadata_Free(sl->drainMetadata);
 
   rploaderFreeInternal(base);
 
@@ -1484,7 +1636,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
-  sl->BufferBlocks = NULL;
+  atomic_init(&sl->stateLock, false);
   sl->buffer_results_count = 0;
   sl->curr_result_index = 0;
 
@@ -1494,7 +1646,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
-  sl->base_loader.base.Drain = RPDrain_EOF;
+  sl->base_loader.base.Drain = rpSafeLoaderDrain;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
 }
@@ -1598,7 +1750,7 @@ void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor
 
 // Consumes the input loader and returns a new safe loader that wraps it.
 static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
-  RPSafeLoader *sl = rm_new(RPSafeLoader);
+  RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
@@ -1606,7 +1758,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   rm_free(loader);
 
   // Reset the loader's buffer and state
-  sl->BufferBlocks = NULL;
+  atomic_init(&sl->stateLock, false);
   sl->buffer_results_count = 0;
   sl->curr_result_index = 0;
 
@@ -1615,7 +1767,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
-  sl->base_loader.base.Drain = RPDrain_EOF;
+  sl->base_loader.base.Drain = rpSafeLoaderDrain;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
 }

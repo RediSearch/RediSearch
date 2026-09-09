@@ -205,6 +205,21 @@ impl<'a> RLookup<'a> {
         self.keys.get_or_create(&name, flags)
     }
 
+    /// Resolve a runtime load-all field without replacing or mutating published keys.
+    /// Unlike [`Self::get_key_load`], this operation permits concurrent lookup readers.
+    pub(crate) fn get_or_create_loaded_key(&self, name: &CStr) -> &RLookupKey<'a> {
+        self.keys.get_or_create_with(name, false, || {
+            let flags = self.hidden_if_schema_special(name)
+                | RLookupKeyFlag::DocSrc
+                | RLookupKeyFlag::IsLoaded;
+            let mut key = RLookupKey::new(name.to_owned(), flags);
+            if let Some(field) = self.find_field_in_spec_cache(name) {
+                key.update_from_field_spec(field);
+            }
+            key
+        })
+    }
+
     /// Add all non-overridden keys from `src` to `self`.
     ///
     /// For each key in `src`, check if it already exists *by name*.
