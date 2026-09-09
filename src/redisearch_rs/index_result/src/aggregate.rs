@@ -8,7 +8,7 @@
 */
 
 use ref_mode::{Active, Ref, SharedPtr};
-use thin_vec::SmallThinVec;
+use thin_vec::MediumThinVec;
 
 use super::core::{RSIndexResult, RawIndexResult};
 use super::kind::RSResultKindMask;
@@ -34,7 +34,7 @@ pub enum RawAggregateResult<'query, R: Ref> {
         /// Each child is stored as a [`SharedPtr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
         /// equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
         /// an inert raw pointer that survives lock release/reacquire cycles.
-        records: SmallThinVec<SharedPtr<R, RawIndexResult<'query, R>>>,
+        records: MediumThinVec<SharedPtr<R, RawIndexResult<'query, R>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -45,7 +45,7 @@ pub enum RawAggregateResult<'query, R: Ref> {
         /// The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
         /// own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
-        records: SmallThinVec<Box<RawIndexResult<'query, R>>>,
+        records: MediumThinVec<Box<RawIndexResult<'query, R>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -59,7 +59,7 @@ pub type RSAggregateResult<'a> = RawAggregateResult<'a, Active<'a>>;
 // Compile-time proof that the `Active` and `Suspended` instantiations of
 // `RawAggregateResult` are layout-identical. Only `size_of`/`align_of` are
 // checked: `offset_of!` cannot address `#[repr(u8)]` enum variant fields. Each
-// variant stores its children behind a `SmallThinVec` pointer, so the inline
+// variant stores its children behind a `MediumThinVec` pointer, so the inline
 // layout is pointer-sized regardless of `R`; the child `RawIndexResult<R>`
 // read through that pointer is guarded by the `core/mod.rs` block. Part of the
 // recursive net backing the conversions on `RawIndexResult`.
@@ -111,7 +111,7 @@ impl<'query, R: Ref> RawAggregateResult<'query, R> {
     /// Create a new empty aggregate result (of the borrowed kind) with the given capacity
     pub fn borrowed_with_capacity(cap: usize) -> Self {
         Self::Borrowed {
-            records: SmallThinVec::with_capacity(cap),
+            records: MediumThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -119,7 +119,7 @@ impl<'query, R: Ref> RawAggregateResult<'query, R> {
     /// Create a new empty aggregate result (of the owned kind) with the given capacity
     pub fn owned_with_capacity(cap: usize) -> Self {
         Self::Owned {
-            records: SmallThinVec::with_capacity(cap),
+            records: MediumThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
@@ -247,7 +247,7 @@ impl<'a> RSAggregateResult<'a> {
     pub fn to_owned(&'a self) -> RSAggregateResult<'a> {
         match self {
             Self::Borrowed { records, kind_mask } => {
-                let mut new_records = SmallThinVec::with_capacity(records.len());
+                let mut new_records = MediumThinVec::with_capacity(records.len());
 
                 new_records.extend(
                     records
@@ -262,7 +262,7 @@ impl<'a> RSAggregateResult<'a> {
                 }
             }
             Self::Owned { records, kind_mask } => {
-                let mut new_records = SmallThinVec::with_capacity(records.len());
+                let mut new_records = MediumThinVec::with_capacity(records.len());
 
                 new_records.extend(
                     records

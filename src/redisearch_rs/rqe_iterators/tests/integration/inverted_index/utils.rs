@@ -582,9 +582,8 @@ impl RevalidateTest {
             assert_eq!(doc.doc_id, *expected);
         }
 
-        // Append documents the iterator has not reached, then move the buffer they live in.
-        // Appending alone would leave it to the allocator whether the address changes at all — see
-        // `inverted_index::test_utils::relocate_block_buffer`.
+        // The address the iterator cached. Callers reserve headroom before creating it, so nothing
+        // moves the buffer until the relocation below does.
         let base_before = ii.block_ref(0).unwrap().data().as_ptr();
         let appended: Vec<DocId> = (1..=3)
             .map(|i| self.doc_ids.last().unwrap() + 2 * i)
@@ -596,6 +595,12 @@ impl RevalidateTest {
             ii.number_of_blocks(),
             1,
             "the appends must stay in the block the iterator is parked in"
+        );
+
+        assert_eq!(
+            ii.block_ref(0).unwrap().data().as_ptr(),
+            base_before,
+            "the appends moved the buffer; reserve headroom before creating the iterator"
         );
 
         let base_after = inverted_index::test_utils::relocate_block_buffer(ii, 0);

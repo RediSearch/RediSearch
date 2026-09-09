@@ -4728,7 +4728,6 @@ def test_with_tls():
     common_with_auth(env)
 
 # TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
-@skip_until("2026-07-29", reason="Flaky test, see RED-176581")
 @skip(cluster=False, macos=True, asan=True)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
@@ -4744,7 +4743,7 @@ def test_with_tls_and_non_tls_ports():
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     common_with_auth(env)
@@ -4761,7 +4760,7 @@ def test_dual_tls():
               dualTLS=True)         # Sets the ports to be both TLS and regular ports.
 
     # Turn off tls-cluster, which means it's not the preferred port type anymore (but still available)
-    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     # Verify all nodes has both `port` (tcp) and `tls-port`
