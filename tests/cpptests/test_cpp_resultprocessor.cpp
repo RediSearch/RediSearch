@@ -5,8 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
-
+ */
 
 #include "result_processor.h"
 #include "query_request.h"
@@ -38,7 +37,8 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
 
   SearchResult_SetDocId(res, ++p->counter);
   SearchResult_SetScore(res, (double)SearchResult_GetDocId(res));
-  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RSValue_NewNumber(SearchResult_GetDocId(res)));
+  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res),
+                      RSValue_NewNumber(SearchResult_GetDocId(res)));
   return RS_RESULT_OK;
 }
 
@@ -75,18 +75,27 @@ struct BlockingQueryIterator {
   QueryIterator base = {};
   std::atomic_bool entered = false;
   std::atomic_bool release = false;
+  bool yieldResult = false;
 
-  BlockingQueryIterator() {
+  explicit BlockingQueryIterator(bool yieldResult = false) : yieldResult(yieldResult) {
+    if (yieldResult) {
+      base.current = NewVirtualResult(1, RS_FIELDMASK_ALL);
+      base.current->docId = base.lastDocId = 1;
+    }
     base.Read = [](QueryIterator *base) {
       auto *self = reinterpret_cast<BlockingQueryIterator *>(base);
       self->entered.store(true, std::memory_order_release);
       while (!self->release.load(std::memory_order_acquire)) {
         std::this_thread::yield();
       }
+      if (self->yieldResult) return ITERATOR_OK;
       base->atEOF = true;
       return ITERATOR_EOF;
     };
-    base.Free = [](QueryIterator *base) { delete reinterpret_cast<BlockingQueryIterator *>(base); };
+    base.Free = [](QueryIterator *base) {
+      IndexResult_Free(base->current);
+      delete reinterpret_cast<BlockingQueryIterator *>(base);
+    };
   }
 };
 
@@ -214,6 +223,45 @@ TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
   rp->Free(rp);
 }
 
+TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext) {
+  IndexSpec spec = {};
+  spec.docs = DocTable_New(1);
+  auto *dmd =
+      DocTable_Put(&spec.docs, "late", 4, 1, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  sctx.timeout = &timeout;
+  sctx.lock_state = SPEC_LOCK_READ_BORROWED;
+  QueryProcessingCtx qctx = {};
+  auto *iterator = new BlockingQueryIterator(true);
+  ResultProcessor *rp = RPQueryIterator_New(&iterator->base, nullptr, 0, &sctx);
+  rp->parent = &qctx;
+  SearchResult next = SearchResult_New(), drained = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = rp->Next(rp, &next); });
+  const bool entered =
+      RS::WaitForCondition([&] { return iterator->entered.load(std::memory_order_acquire); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+  iterator->release.store(true, std::memory_order_release);
+  worker.join();
+  ASSERT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(1, SearchResult_GetDocId(&next));
+  EXPECT_EQ(dmd, SearchResult_GetDocumentMetadata(&next));
+  EXPECT_EQ(iterator->base.current, SearchResult_GetIndexResult(&next));
+  EXPECT_EQ(2, dmd->ref_count);
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+  SearchResult_Destroy(&next);
+  EXPECT_EQ(1, dmd->ref_count);
+  SearchResult_Destroy(&drained);
+  rp->Free(rp);
+  DocTable_Free(&spec.docs);
+}
+
 /*
  * Test SearchResult_mergeFlags function with no flags set
  */
@@ -232,7 +280,7 @@ TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
 TEST_F(ResultProcessorTest, testmergeFlags_ExpiredDoc) {
   SearchResult a = SearchResult_New();
   SearchResult b = SearchResult_New();
-  SearchResult_SetFlags(&b, Result_ExpiredDoc); // Source has expired flag
+  SearchResult_SetFlags(&b, Result_ExpiredDoc);  // Source has expired flag
 
   // Test merging expired flag
   SearchResult_MergeFlags(&a, &b);
