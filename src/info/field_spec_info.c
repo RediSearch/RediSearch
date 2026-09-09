@@ -378,7 +378,7 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
 FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
-  stats.indexingStats = fs->indexingStats;
+  stats.indexingStats = FieldSpec_GetIndexingStats(fs);
   switch (stats.type) {
     case INDEXFLD_T_VECTOR:
       stats.vecStats = IndexSpec_GetVectorIndexStats(fs);

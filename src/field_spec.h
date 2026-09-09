@@ -201,14 +201,34 @@ static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *quer
   FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
 }
 
+// Indexing worker threads call this concurrently with each other and with FT.INFO's
+// unlocked read of the same counters (see `FieldSpec_GetIndexingStats`), so every
+// field is updated atomically rather than with plain ++/+=.
 static inline void FieldSpec_AddIndexingTime(FieldSpec *fs, FieldIndexingPhase phase,
                                              rs_wall_clock_ns_t duration) {
   FieldIndexingPhaseStats *stats = &fs->indexingStats.phases[phase];
-  stats->count++;
-  stats->totalTimeNs += duration;
-  if (duration > stats->maxTimeNs) {
-    stats->maxTimeNs = duration;
+  __atomic_fetch_add(&stats->count, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&stats->totalTimeNs, duration, __ATOMIC_RELAXED);
+  rs_wall_clock_ns_t cur = __atomic_load_n(&stats->maxTimeNs, __ATOMIC_RELAXED);
+  while (duration > cur &&
+         !__atomic_compare_exchange_n(&stats->maxTimeNs, &cur, duration, true, __ATOMIC_RELAXED,
+                                       __ATOMIC_RELAXED)) {
+    // `cur` is refreshed with the current value on CAS failure; retry.
   }
+}
+
+// Snapshot `fs->indexingStats` with atomic loads, matching the atomic writes in
+// `FieldSpec_AddIndexingTime`. Callers (FT.INFO) read this without the spec lock.
+static inline FieldIndexingStats FieldSpec_GetIndexingStats(const FieldSpec *fs) {
+  FieldIndexingStats stats = {0};
+  for (int phase = 0; phase < FIELD_INDEXING_NUM_PHASES; ++phase) {
+    const FieldIndexingPhaseStats *src = &fs->indexingStats.phases[phase];
+    FieldIndexingPhaseStats *dst = &stats.phases[phase];
+    dst->count = __atomic_load_n(&src->count, __ATOMIC_RELAXED);
+    dst->totalTimeNs = __atomic_load_n(&src->totalTimeNs, __ATOMIC_RELAXED);
+    dst->maxTimeNs = __atomic_load_n(&src->maxTimeNs, __ATOMIC_RELAXED);
+  }
+  return stats;
 }
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
