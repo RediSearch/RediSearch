@@ -795,6 +795,18 @@ void iterStartCb(void *p) {
     it->ctx.commandModifier(cmd, numShards, MRIterator_GetPrivateData(it));
   }
 
+  // Ask for the compact row-block encoding (src/aggregate/row_block.h) only when this
+  // coordinator wants it. Filled here, at fan-out time, rather than where the rest of the
+  // command is built (dist_aggregate.c's buildMRCommand): every shard's copy is made from
+  // `cmd` below, so appending it once here reaches every shard identically. A later commit
+  // makes this a per-shard decision driven by each shard's rolling-upgrade capability; until
+  // then this is a pure relocation of the existing config-gated behavior, appended after
+  // every other argument (including ones inserted at fixed offsets, like SLOTS and
+  // _COORD_DISPATCH_TIME) to prove a bare flag token parses correctly from any position.
+  if (RSGlobalConfig.internalRowBlockFormat) {
+    MRCommand_AppendLiteral(cmd, "_ROW_BLOCK");
+  }
+
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
     it->cbxs[targetShardIdx].it = it;
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
