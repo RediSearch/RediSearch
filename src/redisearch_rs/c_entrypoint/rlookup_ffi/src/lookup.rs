@@ -700,6 +700,9 @@ pub struct LoadIndividualKeysOptions {
 ///    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
 /// 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
 ///    be a valid [`DocumentType`].
+/// 5. The caller must hold the Redis lock. `dst_row` and `status` must be exclusively
+///    accessible; `sctx` must remain immutable during the call. Concurrent access to
+///    `lookup` may use shared reads and append-only runtime writes, not exclusive operations.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -708,9 +711,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
     dst_row: *mut OpaqueRLookupRow,
     opts: *const LoadAllKeysOptions,
 ) -> c_int {
-    // Safety: ensured by caller (1.)
-    let lookup =
-        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
+    // SAFETY: caller (1, 5) supplies a live lookup with shared-access-compatible aliases.
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup) }.expect("`lookup` must not be null");
 
     // Safety: ensured by caller (2.)
     let dst_row =

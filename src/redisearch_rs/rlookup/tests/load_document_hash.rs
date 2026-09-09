@@ -133,7 +133,7 @@ proptest! {
 
             let mut row = RLookupRow::new();
             format
-                .load_all(&mut rlookup, &mut row, &key_name)
+                .load_all(&rlookup, &mut row, &key_name)
                 .expect("load_all should succeed");
 
             for (value, dstidx) in fields_dstidx {
@@ -175,7 +175,7 @@ proptest! {
                 .collect();
 
             let mut row = RLookupRow::new();
-            format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+            format.load_all(&rlookup, &mut row, &key_name).unwrap();
 
             for dstidx in query_dstidxs {
                 assert!(
@@ -198,13 +198,13 @@ proptest! {
             let format = HashDocumentFormat::new(ctx, false);
             let key_name = make_redis_string(&key_name_bytes);
 
-            let mut rlookup = RLookup::new();
+            let rlookup = RLookup::new();
             for (field_name, _) in &fields {
                 assert!(rlookup.find_key_by_name(field_name).is_none());
             }
 
             let mut row = RLookupRow::new();
-            format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+            format.load_all(&rlookup, &mut row, &key_name).unwrap();
 
             for (field_name, field_value) in &fields {
                 let cursor = rlookup
@@ -271,7 +271,7 @@ fn load_all_composes_branches_in_one_pass() {
             .dstidx;
 
         let mut row = RLookupRow::new();
-        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+        format.load_all(&rlookup, &mut row, &key_name).unwrap();
 
         // Existing load key -> written.
         assert_eq!(
@@ -301,6 +301,60 @@ fn load_all_composes_branches_in_one_pass() {
             Some(fields[2].1.as_bytes()),
         );
     })
+}
+
+/// Loading may append schema-derived keys while an iterator and key references remain live.
+#[test]
+#[cfg_attr(miri, ignore)] // Redis document loading calls FFI.
+fn load_all_preserves_concurrent_iterator_and_key_references() {
+    let fields = [(c"n".to_owned(), c"42".to_owned())];
+    with_ctx(KeyType::Hash, &fields, |ctx| {
+        let mut lookup = RLookup::new();
+        lookup.set_cache(Some(IndexSpecCache::from_fields([FieldSpecBuilder::new(
+            c"n",
+        )
+        .with_types(FieldSpecType::Numeric.into())
+        .finish()])));
+        lookup.get_key_write(c"existing", RLookupKeyFlags::empty());
+        lookup.seal();
+        let existing = lookup
+            .find_key_by_name(c"existing")
+            .unwrap()
+            .into_current()
+            .unwrap();
+        let barrier = std::sync::Barrier::new(2);
+        let mut iterator = lookup.iter();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                barrier.wait();
+                assert_eq!(iterator.next().unwrap().name().as_ref(), c"existing");
+                assert!(iterator.next().is_none());
+            });
+            barrier.wait();
+            let format = HashDocumentFormat::new(ctx, false);
+            let key_name = make_redis_string(&c"doc".to_owned());
+            let mut row = RLookupRow::new();
+            let loaded = format.load_all(&lookup, &mut row, &key_name);
+            loaded.unwrap();
+            let key = lookup
+                .find_key_by_name(c"n")
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert!(key.flags.contains(
+                RLookupKeyFlag::Numeric | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::IsLoaded
+            ));
+            assert_eq!(key.path().as_ref().unwrap().as_ref(), c"n");
+            assert_eq!(
+                row.dyn_values()[usize::from(key.dstidx)]
+                    .as_ref()
+                    .unwrap()
+                    .as_num(),
+                Some(42.0)
+            );
+            assert_eq!(existing.name().as_ref(), c"existing");
+        });
+    });
 }
 
 #[test]
@@ -338,7 +392,7 @@ fn load_all_coerces_numeric_keys_unless_force_string() {
         let dstidx = key.dstidx;
 
         let mut row = RLookupRow::new();
-        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+        format.load_all(&rlookup, &mut row, &key_name).unwrap();
 
         assert_eq!(
             row.dyn_values()[dstidx as usize].as_ref().unwrap().as_num(),
@@ -364,7 +418,7 @@ fn load_all_coerces_numeric_keys_unless_force_string() {
             .dstidx;
 
         let mut row = RLookupRow::new();
-        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+        format.load_all(&rlookup, &mut row, &key_name).unwrap();
 
         assert_eq!(
             row.dyn_values()[dstidx as usize]
