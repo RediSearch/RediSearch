@@ -121,7 +121,8 @@ static inline const char *MRNodeCapState_Str(MRNodeCapState state) {
  * Returns MRNodeCap_Unknown (with *outVersion == -1) if `id` is not in the pool.
  * Must be called from the uv event loop thread that owns `mgr`, as mgr->map is
  * not thread-safe. */
-MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id, int *outVersion);
+MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id,
+                                                    int *outVersion);
 
 /* Defence in depth, on top of (not instead of) RediSearchCaps_HasRowBlock: force a
  * node's row-block capability to No, sticky until its connection pool is rebuilt

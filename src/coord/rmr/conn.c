@@ -297,7 +297,8 @@ const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id) {
   return NULL;
 }
 
-MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id, int *outVersion) {
+MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id,
+                                                    int *outVersion) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (!ptr) {
     if (outVersion) *outVersion = -1;
@@ -419,7 +420,8 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     // after this dispatch's own command (see MRConn_HelloCallback's doc comment
     // and RediSearchCaps_HasRowBlock's callers), so up to one command per
     // connection runs without knowing the shard's capability yet.
-    if (redisAsyncCommand(c->conn, MRConn_HelloCallback, NULL, "HELLO %d", requiredProtocol) == REDIS_ERR) {
+    if (redisAsyncCommand(c->conn, MRConn_HelloCallback, NULL, "HELLO %d", requiredProtocol) ==
+        REDIS_ERR) {
       return REDIS_ERR;
     }
     c->protocol = requiredProtocol;
