@@ -11,7 +11,9 @@
 
 use query_error::QueryError;
 use std::cmp::Ordering;
-use value::comparison::{CompareError, cmp_fields, compare, compare_on_equality_only};
+use value::comparison::{
+    CompareError, cmp_fields, cmp_fields_with_policy, compare, compare_on_equality_only,
+};
 use value::{Array, Map, SharedValue, String, Trio, Value};
 
 fn array(values: impl IntoIterator<Item = Value>) -> Value {
@@ -496,4 +498,36 @@ fn cmp_fields_without_qerr_uses_num_to_string_fallback() {
     // "1" < "2" byte-wise, descending (bit 0 clear) => Less.
     let ord = cmp_fields(vec![(Some(&n), Some(&s))].into_iter(), 0b0, None);
     assert_eq!(ord, Ordering::Less);
+}
+
+#[test]
+fn explicit_field_policy_preserves_order_and_accumulates_diagnostics() {
+    assert_explicit_field_policy(false);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "numeric-to-string fallback calls libc::snprintf")]
+fn explicit_field_policy_preserves_string_fallback() {
+    assert_explicit_field_policy(true);
+}
+
+fn assert_explicit_field_policy(fallback: bool) {
+    let n = Value::Number(1.0);
+    let s = Value::String(String::from_vec(b"not-a-number".to_vec()));
+    let tie_a = Value::Number(5.0);
+    let tie_b = Value::Number(6.0);
+    for ascending in [0, 3] {
+        let pairs = [(Some(&n), Some(&s)), (Some(&tie_a), Some(&tie_b))];
+        let mut error = QueryError::default();
+        let expected = cmp_fields(pairs, ascending, (!fallback).then_some(&mut error));
+        let mut diagnostic = false;
+        assert_eq!(
+            cmp_fields_with_policy(pairs, ascending, fallback, &mut diagnostic),
+            expected
+        );
+        assert_eq!(diagnostic, !error.is_ok());
+        // A later successful comparison must not hide an earlier conversion failure.
+        cmp_fields_with_policy([(Some(&n), Some(&n))], ascending, fallback, &mut diagnostic);
+        assert_eq!(diagnostic, !error.is_ok());
+    }
 }
