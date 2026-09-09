@@ -35,24 +35,38 @@ pub enum CompareError {
 /// recorded on the [`QueryError`] and the pair is treated as equal.
 #[inline]
 pub fn compare_with_query_error(v1: &Value, v2: &Value, qerr: Option<&mut QueryError>) -> Ordering {
+    let mut conversion_error = false;
+    let ord = compare_with_policy(v1, v2, qerr.is_none(), &mut conversion_error);
+    if conversion_error {
+        let query_error = qerr.unwrap();
+        let message = c"Error converting string".to_owned();
+        query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
+    }
+    ord
+}
+
+/// Apply comparison policy without allocating a diagnostic inside a caller's ownership guard.
+#[inline]
+fn compare_with_policy(
+    v1: &Value,
+    v2: &Value,
+    string_fallback: bool,
+    conversion_error: &mut bool,
+) -> Ordering {
     // This is a performance optimization to check for string comparisons early
     // as that is used most often in searches and aggregates.
     if let (Value::String(s1), Value::String(s2)) = (v1, v2) {
         return s1.as_bytes().cmp(s2.as_bytes());
     }
 
-    match compare(v1, v2, qerr.is_none()) {
+    match compare(v1, v2, string_fallback) {
         Ok(ord) => ord,
         Err(CompareError::NaNFloat)
         | Err(CompareError::MapComparison)
         | Err(CompareError::IncompatibleTypes) => Ordering::Equal,
         Err(CompareError::IncompatibleAgainstString(ord)) => ord,
         Err(CompareError::NoNumberToStringFallback) => {
-            // SAFETY: `qerr` is `Some` because `num_to_str_cmp_fallback` was
-            // `false` (set from `qerr.is_none()`).
-            let query_error = qerr.unwrap();
-            let message = c"Error converting string".to_owned();
-            query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
+            *conversion_error = true;
             Ordering::Equal
         }
     }
@@ -91,14 +105,39 @@ pub fn cmp_fields<'a, 'b>(
     ascend_map: u64,
     mut qerr: Option<&mut QueryError>,
 ) -> Ordering {
+    cmp_fields_by(pairs, ascend_map, |a, b| {
+        compare_with_query_error(a, b, qerr.as_deref_mut())
+    })
+}
+
+/// Compare fields with the same ordering as [`cmp_fields`], separating policy from diagnostics.
+///
+/// `string_fallback` selects the policy described by [`compare`]. Failed numeric conversion
+/// sets `conversion_error` without clearing an earlier failure or allocating an error message.
+#[inline]
+pub fn cmp_fields_with_policy<'a, 'b>(
+    pairs: impl IntoIterator<Item = (Option<&'a Value>, Option<&'b Value>)>,
+    ascend_map: u64,
+    string_fallback: bool,
+    conversion_error: &mut bool,
+) -> Ordering {
+    cmp_fields_by(pairs, ascend_map, |a, b| {
+        compare_with_policy(a, b, string_fallback, conversion_error)
+    })
+}
+
+/// Keep missing-field ordering and direction handling identical across diagnostic policies.
+#[inline]
+fn cmp_fields_by<'a, 'b>(
+    pairs: impl IntoIterator<Item = (Option<&'a Value>, Option<&'b Value>)>,
+    ascend_map: u64,
+    mut compare_pair: impl FnMut(&Value, &Value) -> Ordering,
+) -> Ordering {
     for (i, (v1, v2)) in pairs.into_iter().enumerate() {
         let ascending = (ascend_map & (1u64 << i)) != 0;
 
         match (v1, v2) {
-            // Delegates to `compare_with_query_error` so we inherit its
-            // `(String, String)` fast path and the num-to-string fallback policy
-            // (kept in sync by construction, not by duplication).
-            (Some(a), Some(b)) => match compare_with_query_error(a, b, qerr.as_deref_mut()) {
+            (Some(a), Some(b)) => match compare_pair(a, b) {
                 Ordering::Equal => continue,
                 ord => return if ascending { ord.reverse() } else { ord },
             },
