@@ -161,25 +161,29 @@ def testAlterSkipUnchangedDocsFallbackIndexMissing(env):
 
 
 @skip(cluster=True)
-def testAlterSkipUnchangedDocsFallbackSkipInitialScanAtCreate(env):
-    """An index created with SKIPINITIALSCAN carries Index_SkipInitialScan for its lifetime,
-    so a later FT.ALTER (even without SKIPINITIALSCAN) must run a full scan rather than the
-    shortcut -- the index may still hold documents from before creation that were never
-    backfilled, and the shortcut's skip decision assumes a document's existing index entries
-    are already complete."""
-    env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'title', 'TEXT').ok()
+def testAlterSkipUnchangedDocsAfterSkipInitialScanAtCreate(env):
+    """CREATE's skipped documents are indexed by a selective ALTER only if selected."""
     conn = getConnectionByEnv(env)
-    # Written after CREATE, so the keyspace-notification path indexes it synchronously and
-    # gives it a known id; this does not exercise the skipped initial scan itself.
     conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
+    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'rating', '5')
+    env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndexFinishScan(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
 
-    id1_before = get_internal_id(env, 'doc:1')
+    conn.execute_command('HSET', 'doc:3', 'title', 'charlie')
+    id3_before = get_internal_id(env, 'doc:3')
 
-    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'status', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'rating', 'NUMERIC').ok()
     waitForIndexFinishScan(env, 'idx')
 
-    # doc:1 has no 'status': only the fallback (not the shortcut) reindexes it.
-    env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@rating:[5 5]', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@title:charlie', 'NOCONTENT').equal([1, 'doc:3'])
+    env.assertEqual(get_internal_id(env, 'doc:3'), id3_before)
+
+    conn.execute_command('HSET', 'doc:1', 'title', 'updated')
+    env.expect('FT.SEARCH', 'idx', '@title:updated', 'NOCONTENT').equal([1, 'doc:1'])
 
 
 @skip(cluster=True)

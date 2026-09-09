@@ -493,8 +493,7 @@ void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
     return;
   }
 
-  bool canBeSelective = sp->scanner == NULL && !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
-                        !(sp->flags & Index_SkipInitialScan);
+  bool canBeSelective = sp->scanner == NULL && !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
   for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
     // A sortable field widens every document's sorting vector, and only the full reindex path
