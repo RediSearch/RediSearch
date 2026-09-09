@@ -1,0 +1,25 @@
+version: 0.5
+name: "vecsim-arxiv-titles-384-angular-filters-redis-hnsw-m-32-ef-512-mixed-5pct_updates"
+metadata:
+  component: "vecsim"
+
+timeout_seconds: 1800
+setups:
+  - oss-standalone
+  - oss-standalone-threads-6
+
+
+dbconfig:
+  dataset_name: "vecsim-arxiv-titles-384-angular-filters-redis-hnsw-m-32-ef-512"
+  dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/arxiv-titles-384-angular-filters-redis-hnsw-m-32-ef-512/vector.arxiv-titles-384-angular-filters.dump.NOINDEX.rdb"
+  dataset_load_timeout_secs: 1000
+  init_commands:
+    - '"FT.CREATE" "idx" "SCHEMA" "vector" "VECTOR" "hnsw" "10" "TYPE" "float32" "DIM" "384" "DISTANCE_METRIC" "COSINE" "M" "32" "EF_CONSTRUCTION" "512" "update_date_ts" "NUMERIC" "SORTABLE" "labels" "TAG" "SEPARATOR" ";" "SORTABLE" "submitter" "TAG" "SEPARATOR" ";" "SORTABLE"'
+
+  check:
+    keyspacelen: 2141205
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 120 -c 32 -t 1  --hide-histogram --monitor-input https://s3.us-east-1.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/arxiv-titles-384-angular-filters-redis-hnsw-m-32-ef-512/vector.arxiv-titles-384-angular-filters.50K-QUERIES_and_2.5K-UPDATES.monitor.txt --command '__monitor_line@__'"
