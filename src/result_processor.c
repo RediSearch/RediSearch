@@ -1123,6 +1123,19 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   return rc;
 }
 
+// Plain loaders run under the Redis lock, and RETURN drains only after Next has unwound.
+// Background execution replaces them with safe loaders in SetLoadersForBG.
+static RPDrainStatus rploaderDrain(ResultProcessor *base, SearchResult *r) {
+  RPLoader *self = (RPLoader *)base;
+  RPDrainStatus rc;
+  while ((rc = base->upstream->Drain(base->upstream, r)) == RP_DRAIN_OK) {
+    rpLoader_loadDocument(self, r);
+    if (loaderResultIsEmittable(r)) return RP_DRAIN_OK;
+    loaderDropResult(base, r);
+  }
+  return rc;
+}
+
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
@@ -1165,7 +1178,7 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
-  self->base.Drain = RPDrain_EOF;
+  self->base.Drain = rploaderDrain;
   self->base.type = RP_LOADER;
   return &self->base;
 }
@@ -1602,6 +1615,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
+  sl->base_loader.base.Drain = RPDrain_EOF;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
 }
