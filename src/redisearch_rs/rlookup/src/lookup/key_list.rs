@@ -95,6 +95,7 @@ impl KeyStore<'_> {
         Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
     }
 
+    #[cfg(test)]
     fn enable_name_index(&mut self) {
         if self.by_name.is_some() {
             return;
@@ -611,10 +612,10 @@ mod tests {
         let keys = KeyList::new();
         let key = keys.get_or_create_with(c"winner", false, || {
             // The callback must run unlocked. Its append wins the outer publication race.
-            keys.get_or_create(c"winner", make_bitflags!(RLookupKeyFlags::{DocSrc}));
+            keys.get_or_create(c"winner", make_bitflags!(RLookupKeyFlag::{DocSrc}));
             RLookupKey::new(c"winner", RLookupKeyFlags::empty())
         });
-        assert!(key.flags.contains(RLookupKeyFlags::DocSrc));
+        assert!(key.flags.contains(RLookupKeyFlag::DocSrc));
         assert_eq!(keys.row_len(), 1);
         assert!(std::ptr::eq(key, keys.get(0).unwrap()));
     }
