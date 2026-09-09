@@ -16,9 +16,197 @@
 #include "search_result_ffi.h"
 #include "search_result.h"
 #include "spec.h"
+#include "redismock/util.h"
+#include "query_flags.h"
 
 #include <atomic>
 #include <thread>
+#include <vector>
+
+// Upstream owns a separate drain cursor; Next must never consume it.
+struct LoaderDrainSource : ResultProcessor {
+  std::vector<RSDocumentMetadata *> documents;
+  size_t position = 0;
+  size_t nextCalls = 0;
+  RPDrainStatus terminal = RP_DRAIN_EOF;
+
+  LoaderDrainSource() {
+    *static_cast<ResultProcessor *>(this) = {};
+    Drain = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = static_cast<LoaderDrainSource *>(base);
+      if (self->position == self->documents.size()) {
+        RPDrainStatus status = self->terminal;
+        self->terminal = RP_DRAIN_EOF;
+        return status;
+      }
+      auto *dmd = self->documents[self->position++];
+      DMD_Incref(dmd);
+      SearchResult_SetDocumentMetadata(result, dmd);
+      SearchResult_SetDocId(result, dmd->id);
+      return RP_DRAIN_OK;
+    };
+    Next = [](ResultProcessor *base, SearchResult *) -> int {
+      static_cast<LoaderDrainSource *>(base)->nextCalls++;
+      return RS_RESULT_TIMEDOUT;
+    };
+  }
+};
+
+class LoaderDrainTest : public ::testing::Test {
+ protected:
+  RMCK::Context ctx;
+  IndexSpec spec = {};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, &spec);
+  QueryProcessingCtx qctx = {};
+  LoaderDrainSource source;
+  RLookup lookup = RLookup_New();
+  ResultProcessor *loader = nullptr;
+  SearchResult result = SearchResult_New();
+
+  void SetUp() override {
+    spec.docs = DocTable_New(1);
+    qctx.totalResults = 100;
+    qctx.skippedResults = 7;
+  }
+
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    if (loader) loader->Free(loader);
+    RLookup_Cleanup(&lookup);
+    DocTable_Free(&spec.docs);
+    RMCK::flushdb(ctx);
+  }
+
+  RSDocumentMetadata *document(const char *name, const char *value) {
+    auto *dmd = DocTable_Put(&spec.docs, name, strlen(name), 1, Document_DefaultFlags, nullptr, 0,
+                             DocumentType_Hash);
+    DMD_Return(dmd);
+    if (value) EXPECT_TRUE(RMCK::hset(ctx, name, "field", value));
+    return dmd;
+  }
+
+  const RLookupKey *create(bool all = false, uint32_t flags = 0, bool force = false,
+                           bool cached = false) {
+    RLookupKey *mutableKey = all ? nullptr : RLookup_GetKey_Load(&lookup, "alias", "field", 0);
+    if (cached) mutableKey->flags |= RLOOKUP_F_VALAVAILABLE;
+    const RLookupKey *key = mutableKey;
+    uint32_t state = 0;
+    loader = RPLoader_New(&sctx, flags, &lookup, all ? nullptr : &key, all ? 0 : 1, force, &state);
+    loader->parent = &qctx;
+    loader->upstream = &source;
+    qctx.endProc = loader;
+    RLookup_Seal(&lookup);
+    return key;
+  }
+
+  void expectValue(const RLookupKey *key, const char *expected) {
+    const RSValue *value = RLookupRow_Get(key, SearchResult_GetRowData(&result));
+    ASSERT_NE(nullptr, value);
+    size_t length = 0;
+    const char *data = RSValue_StringPtrLen(value, &length);
+    ASSERT_NE(nullptr, data);
+    EXPECT_EQ(std::string(expected), std::string(data, length));
+  }
+};
+
+TEST_F(LoaderDrainTest, returnDrainsExplicitFieldsAfterNextUnwinds) {
+  auto *first = document("drain:1", "one");
+  source.documents = {first, document("drain:2", "two")};
+  const auto *key = create(false, QEXEC_F_PROFILE);
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &result));
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(key, "one");
+  EXPECT_EQ(2, first->ref_count);
+  SearchResult_Clear(&result);
+  EXPECT_EQ(1, first->ref_count);
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(key, "two");
+  EXPECT_EQ(1, source.nextCalls);
+  EXPECT_EQ(100, qctx.totalResults);
+  EXPECT_EQ(7, qctx.skippedResults);
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+}
+
+TEST_F(LoaderDrainTest, loadAllAppendsToSealedLookup) {
+  source.documents = {document("drain:all", "all")};
+  create(true);
+  // Supply one scan batch to exercise runtime key creation independently of the mock cursor.
+  auto scanKey = RedisModule_ScanKey;
+  RedisModule_ScanKey = [](RedisModuleKey *key, RedisModuleScanCursor *,
+                           RedisModuleScanKeyCB callback, void *data) {
+    RMCK::RString field("field"), value("all");
+    callback(key, field, value, data);
+    return 0;
+  };
+  const auto status = loader->Drain(loader, &result);
+  RedisModule_ScanKey = scanKey;
+  ASSERT_EQ(RP_DRAIN_OK, status);
+  const auto *key = RLookup_GetKey_Read(&lookup, "field", 0);
+  ASSERT_NE(nullptr, key);
+  expectValue(key, "all");
+}
+
+TEST_F(LoaderDrainTest, expiredRowsUseNormalSkippedResultAccounting) {
+  auto *missing = document("drain:missing", nullptr);
+  auto *deleted = document("drain:deleted", "deleted");
+  deleted->flags = static_cast<RSDocumentFlags>(deleted->flags | Document_Deleted);
+  source.documents = {missing, deleted, document("drain:live", "live")};
+  const auto *key = create();
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(key, "live");
+  EXPECT_EQ(9, qctx.skippedResults);
+  EXPECT_EQ(100, qctx.totalResults);
+  EXPECT_TRUE(missing->flags & Document_FailedToOpen);
+  EXPECT_EQ(1, missing->ref_count);
+  EXPECT_EQ(1, deleted->ref_count);
+}
+
+TEST_F(LoaderDrainTest, forwardsErrorAndEofWithoutCallingNext) {
+  create();
+  source.terminal = RP_DRAIN_ERROR;
+  EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(0, source.nextCalls);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
+}
+
+TEST_F(LoaderDrainTest, preservesPreviouslyLoadedValues) {
+  source.documents = {document("drain:cached", "document")};
+  const auto *key = create(false, 0, false, true);
+  RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(&result),
+                      RSValue_NewCopiedString("cached", 6));
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(key, "cached");
+}
+
+TEST_F(LoaderDrainTest, forceLoadReplacesPreviouslyLoadedValues) {
+  source.documents = {document("drain:forced", "document")};
+  const auto *key = create(false, 0, true, true);
+  RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(&result),
+                      RSValue_NewCopiedString("cached", 6));
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(key, "document");
+}
+
+TEST_F(LoaderDrainTest, promotionToSafeLoaderDoesNotEnableItsDrain) {
+  source.documents = {document("drain:safe", "safe")};
+  create();
+  SetLoadersForBG(&qctx);
+  loader = qctx.endProc;
+  EXPECT_EQ(RP_SAFE_LOADER, loader->type);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(0, source.position);
+}
+
+TEST_F(LoaderDrainTest, constructedSafeLoaderKeepsDefaultDrain) {
+  source.documents = {document("drain:safe", "safe")};
+  create(false, QEXEC_F_RUN_IN_BACKGROUND);
+  EXPECT_EQ(RP_SAFE_LOADER, loader->type);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(0, source.position);
+}
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
