@@ -63,9 +63,9 @@ extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 
-// Half-open [start, end) range of field indices awaiting an ALTER backfill, including earlier
-// pending additions. Immutable for the scan's lifetime. An empty range means a full scan
-// without the per-document presence shortcut.
+// Half-open [start, end) range of fields added by the ALTER that scheduled this scan.
+// Immutable for the scan's lifetime. An empty range means a full scan without the
+// per-document presence shortcut.
 typedef struct {
   t_fieldIndex start;
   t_fieldIndex end;
@@ -90,9 +90,6 @@ typedef struct IndexesScanner {
   // non-empty only for a scan scheduled through IndexSpec_ScanAndReindexForAlter (see
   // indexes_scan.h) that was able to stay selective.
   AddedFieldsRange addedFields;
-  // Schema size at construction, also for full scans. A completed RAM scan can only clear
-  // pending additions below this boundary; later SKIPINITIALSCAN ALTERs remain pending.
-  t_fieldIndex numFields;
 } IndexesScanner;
 
 // Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.

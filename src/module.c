@@ -1040,11 +1040,8 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  if (addFieldsOk) {
-    sp->numPendingAlterFields += sp->numFields - addedFieldsStart;
-    if (initialScan) {
-      IndexSpec_ScanAndReindexForAlter(ctx, ref);
-    }
+  if (addFieldsOk && initialScan) {
+    IndexSpec_ScanAndReindexForAlter(ctx, ref, addedFieldsStart);
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);

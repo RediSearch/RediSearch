@@ -352,10 +352,6 @@ typedef struct IndexSpec {
   // build is distinguishable from a completed one (which reports 1.0). Only meaningful
   // when scan_failed_OOM is set.
   size_t scan_failed_OOM_scanned_keys;
-  // ALTER appends fields, so additions awaiting a completed backfill form a suffix of fields.
-  // Includes skipped, active, and aborted ALTER backfills. Accessed under the GIL; not
-  // persisted, since loading a RAM index rebuilds it from the keyspace.
-  t_fieldIndex numPendingAlterFields;
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one

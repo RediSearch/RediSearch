@@ -402,17 +402,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%zu)",
                     scanner->scannedKeys);
   } else {
-    StrongRef ref = IndexSpecRef_Promote(scanner->spec_ref);
-    IndexSpec *sp = StrongRef_Get(ref);
-    if (sp && sp->scanner == scanner) {
-      RS_ASSERT(scanner->numFields <= sp->numFields);
-      RS_ASSERT(sp->numPendingAlterFields <= sp->numFields);
-      t_fieldIndex pendingStart = sp->numFields - sp->numPendingAlterFields;
-      if (pendingStart < scanner->numFields) {
-        sp->numPendingAlterFields = sp->numFields - scanner->numFields;
-      }
-    }
-    IndexSpecRef_Release(ref);
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%zu)",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
   }
@@ -491,24 +480,20 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
 // describes a case where a selective scan could skip a document that still needs the full
 // reindex path to converge. These must all be checked before IndexesScanner_New runs, since
 // that call cancels any active scanner and clears scan_failed_OOM out from under this check.
-void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref) {
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
+                                      t_fieldIndex addedFieldsStart) {
+  // DiskDisabledCmd rejects ALTER before it can schedule a disk backfill.
+  RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec *sp = StrongRef_Get(spec_ref);
   RS_LOG_ASSERT(sp, "caller must hold a strong ref to the spec being scanned");
-  RS_ASSERT(sp->numPendingAlterFields > 0 && sp->numPendingAlterFields <= sp->numFields);
+  RS_ASSERT(addedFieldsStart < sp->numFields);
 
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys == 0) {
-    sp->numPendingAlterFields = 0;
     return;
   }
 
-  const t_fieldIndex addedFieldsStart = sp->numFields - sp->numPendingAlterFields;
-
-  // FT.ALTER is registered behind DiskDisabledCmd, so a disk-backed spec does not reach this
-  // function today. The check is defensive: the disk backfill driver
-  // (Indexes_AsyncScanAndReindexTask) never consults the range and would silently ignore it.
-  bool canBeSelective = !SearchDisk_IsEnabled() && sp->scanner == NULL &&
-                        !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
+  bool canBeSelective = sp->scanner == NULL && !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM) &&
                         !(sp->flags & Index_SkipInitialScan);
   for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
