@@ -81,6 +81,45 @@ typedef struct {
   int nodeConns;
 } MRConnManager;
 
+/*
+ * A node's belief about whether its shard supports a given rolling-upgrade-gated
+ * capability (currently just the row-block reply format; see
+ * RediSearchCaps_HasRowBlock), learned from the `search` module version advertised
+ * in the connection's HELLO reply. Tracked per node/pool rather than per connection
+ * because the decision point (building a per-shard command at fan-out time) knows
+ * only the target node id, not which of its pool's connections will end up carrying
+ * the command - see MRConnPool_GetConn's round-robin selection.
+ *
+ * Fresh connection => Unknown. Resolved by the first parsed HELLO reply => No or
+ * Yes. Reset to Unknown whenever any connection in the pool leaves MRConn_Connected:
+ * a process cannot be replaced (rollback, restore, failover onto an older build)
+ * without dropping its connections first, so a stale Yes cannot survive one.
+ * Nothing here is persisted or survives a restart on either side.
+ */
+typedef enum {
+  MRNodeCap_Unknown,
+  MRNodeCap_No,
+  MRNodeCap_Yes,
+} MRNodeCapState;
+
+/* Get the row-block capability belief for the node's pool, and (for diagnostics
+ * only) the last `search` module version parsed from its HELLO reply in
+ * *outVersion, or -1 if none was ever parsed. outVersion may be NULL.
+ * Returns MRNodeCap_Unknown (with *outVersion == -1) if `id` is not in the pool.
+ * Must be called from the uv event loop thread that owns `mgr`, as mgr->map is
+ * not thread-safe. */
+MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id, int *outVersion);
+
+/* Defence in depth, on top of (not instead of) RediSearchCaps_HasRowBlock: force a
+ * node's row-block capability to No, sticky until its connection pool is rebuilt
+ * (i.e. its endpoint changes, see MRConnManager_Add), regardless of what any past
+ * or future HELLO reply says. Call this when a shard believed capable rejects
+ * `_ROW_BLOCK` with an unknown-argument error - evidence stronger than a version
+ * string, covering any hole in the version-to-capability mapping.
+ * No-op if `id` is not in the pool. Idempotent. Must be called from the uv event
+ * loop thread that owns `mgr`. */
+void MRConnManager_DemoteRowBlockCap(MRConnManager *mgr, const char *id);
+
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
 /*

@@ -22,16 +22,20 @@
 #include "hiredis/hiredis_ssl.h"
 #include "hiredis/read.h"
 #include "hiredis/sds.h"
+#include "redisearch_caps.h"
 #include "rmalloc.h"
 #include "rmr/command.h"
 #include "rmr/endpoint.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
+#include "version.h"
 
 // Hot path first: callbacks read conn+state+protocol on every entry, so
 // they share the head of the first cache line. ep/loop are warm (init and
 // connect paths). The libuv timer is last because it is large and only
 // touched while in Reconnecting / ReAuth.
+typedef struct MRConnPool MRConnPool;
+
 struct MRConn {
   redisAsyncContext *conn;
   MRConnState state;
@@ -39,6 +43,7 @@ struct MRConn {
   MREndpoint ep;
   uv_loop_t *loop;
   uv_timer_t timer;         // back-off timer for Reconnecting / ReAuth
+  MRConnPool *pool;         // owning pool; used to invalidate/update its capability belief
 };
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
@@ -46,8 +51,9 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Disconnect(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
+static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, MRConnPool *pool);
 static int MRConn_SendAuth(MRConn *conn);
+static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata);
 
 #define RECONNECT_MS_DELAY 250
 #define REAUTH_MS_DELAY 1000
@@ -78,11 +84,31 @@ static void detachRedisAsyncContext(MRConn *conn) {
   redisAsyncDisconnect(ac);
 }
 
-typedef struct {
+struct MRConnPool {
   uint32_t num;
   uint32_t rr;  // round robin counter
   MRConn **conns;
-} MRConnPool;
+  // Row-block capability belief for this node (see MRNodeCapState in conn.h),
+  // learned from HELLO and reset to Unknown whenever any connection in `conns`
+  // leaves MRConn_Connected (MRConn_SwitchState). `rowBlockCapVersion` is the last
+  // `search` module version parsed from a HELLO reply, kept for diagnostics even
+  // when the capability is No; -1 means no version was ever parsed.
+  MRNodeCapState rowBlockCap;
+  int rowBlockCapVersion;
+  // Sticky defence-in-depth demotion (MRConnManager_DemoteRowBlockCap): once set,
+  // rowBlockCap reads as No regardless of any past or future HELLO reply, until
+  // this pool struct itself is replaced by a new one (endpoint change).
+  bool rowBlockDemoted;
+};
+
+/* Reset the tri-state row-block belief to Unknown. Does not touch rowBlockDemoted:
+ * a sticky demotion must survive the same invalidation trigger that resets the
+ * ordinary belief, since it is evidence about a hole in the version mapping, not
+ * about the connection's current liveness. */
+static void MRConnPool_ResetRowBlockCap(MRConnPool *pool) {
+  pool->rowBlockCap = MRNodeCap_Unknown;
+  pool->rowBlockCapVersion = -1;
+}
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, uint32_t num, uv_loop_t *loop) {
   MRConnPool *pool = rm_malloc(sizeof(*pool));
@@ -90,11 +116,14 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, uint32_t num, uv_loop_t *loop
       .num = num,
       .rr = 0,
       .conns = rm_malloc(num * sizeof(MRConn *)),
+      .rowBlockCap = MRNodeCap_Unknown,
+      .rowBlockCapVersion = -1,
+      .rowBlockDemoted = false,
   };
 
   /* Create the connection */
   for (uint32_t i = 0; i < num; i++) {
-    pool->conns[i] = MR_NewConn(ep, loop);
+    pool->conns[i] = MR_NewConn(ep, loop, pool);
   }
   return pool;
 }
@@ -259,6 +288,105 @@ const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id) {
   return NULL;
 }
 
+MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id, int *outVersion) {
+  dictEntry *ptr = dictFind(mgr->map, id);
+  if (!ptr) {
+    if (outVersion) *outVersion = -1;
+    return MRNodeCap_Unknown;
+  }
+  MRConnPool *pool = dictGetVal(ptr);
+  if (outVersion) *outVersion = pool->rowBlockCapVersion;
+  return pool->rowBlockDemoted ? MRNodeCap_No : pool->rowBlockCap;
+}
+
+void MRConnManager_DemoteRowBlockCap(MRConnManager *mgr, const char *id) {
+  dictEntry *ptr = dictFind(mgr->map, id);
+  if (!ptr) return;
+  MRConnPool *pool = dictGetVal(ptr);
+  if (pool->rowBlockDemoted) return;  // already demoted; don't re-log every query
+  pool->rowBlockDemoted = true;
+  pool->rowBlockCap = MRNodeCap_No;
+  RedisModule_Log(RSDummyContext, "notice",
+                  "Shard %s rejected the internal row-block format after being believed "
+                  "capable of it; falling back to RESP for it until its connection pool "
+                  "is rebuilt", id);
+}
+
+/* Apply a parsed HELLO capability result to the connection's pool, logging the
+ * Unknown -> Yes/No transition once (not per query, since most reconnects resolve
+ * it identically to before). Skipped once the pool is sticky-demoted
+ * (MRConnManager_DemoteRowBlockCap) so a benign HELLO reply cannot undo evidence
+ * from an actual rejection. */
+static void MRConnPool_SetRowBlockCap(MRConn *conn, bool capable, int version) {
+  MRConnPool *pool = conn->pool;
+  if (pool->rowBlockDemoted) return;
+  if (pool->rowBlockCap == MRNodeCap_Unknown) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Shard %s:%d row-block capability resolved to %s (module version %d)",
+                    conn->ep.host, conn->ep.port, capable ? "supported" : "unsupported", version);
+  }
+  pool->rowBlockCap = capable ? MRNodeCap_Yes : MRNodeCap_No;
+  pool->rowBlockCapVersion = version;
+}
+
+/* Find the `search` module entry in a HELLO reply's `modules` list and return its
+ * advertised version, or -1 if there is no such entry (module missing, no `modules`
+ * field, or a malformed/non-integer `ver`). Handles both RESP2 (the reply and each
+ * module entry arrive as flat arrays) and RESP3 (both arrive as real maps) shapes,
+ * per the reply type already carried on each MRReply - see MRReply_ArrayToMap. */
+static int helloReply_GetSearchModuleVersion(MRReply *hello) {
+  if (MRReply_Type(hello) != MR_REPLY_ARRAY && MRReply_Type(hello) != MR_REPLY_MAP) return -1;
+  if (MRReply_Type(hello) == MR_REPLY_ARRAY) MRReply_ArrayToMap(hello);
+
+  MRReply *modules = MRReply_MapElement(hello, "modules");
+  if (!modules || MRReply_Type(modules) != MR_REPLY_ARRAY) return -1;
+
+  for (size_t i = 0; i < MRReply_Length(modules); i++) {
+    MRReply *entry = MRReply_ArrayElement(modules, i);
+    if (!entry) continue;
+    if (MRReply_Type(entry) == MR_REPLY_ARRAY) MRReply_ArrayToMap(entry);
+    if (MRReply_Type(entry) != MR_REPLY_MAP) continue;
+
+    MRReply *name = MRReply_MapElement(entry, "name");
+    if (!name || MRReply_Type(name) != MR_REPLY_STRING ||
+        !MRReply_StringEquals(name, REDISEARCH_MODULE_NAME, false)) {
+      continue;
+    }
+    MRReply *ver = MRReply_MapElement(entry, "ver");
+    if (!ver || MRReply_Type(ver) != MR_REPLY_INTEGER) return -1;
+    return (int)MRReply_Integer(ver);
+  }
+  return -1;
+}
+
+/* HELLO reply callback: parses the shard's per-module capability advertisement
+ * (piggybacked on the RESP protocol handshake every connection already performs,
+ * see MRConn_SendCommand) and updates the owning pool's row-block belief.
+ *
+ * Any content-level failure - no `modules` field, no `search` entry, a
+ * non-integer `ver`, or an error reply - resolves capability to No via
+ * RediSearchCaps_HasRowBlock(-1), per that predicate's fail-closed contract; it
+ * is not surfaced as a connection error, since a HELLO reply's only other job
+ * (protocol negotiation) already happened synchronously in MRConn_SendCommand.
+ *
+ * A NULL reply or a hiredis-level error on the async context means the
+ * connection is tearing down; the disconnect path (MRConn_SwitchState leaving
+ * Connected) already resets the pool to Unknown, so there is nothing to update
+ * here. */
+static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata) {
+  UNUSED(privdata);
+  MRConn *conn = c->data;
+  MRReply *rep = r;
+
+  if (conn && rep && !c->err) {
+    int version = helloReply_GetSearchModuleVersion(rep);
+    MRConnPool_SetRowBlockCap(conn, RediSearchCaps_HasRowBlock(version), version);
+  }
+
+  // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves.
+  MRReply_Free(rep);
+}
+
 /* Send a command to the connection */
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata) {
 
@@ -277,7 +405,12 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   MRConnProtocol requiredProtocol = (MRConnProtocol)cmd->protocol;
   if (requiredProtocol != MRConn_Protocol_Undetermined && c->protocol != requiredProtocol) {
     RS_ASSERT(requiredProtocol == MRConn_Protocol_RESP2 || requiredProtocol == MRConn_Protocol_RESP3);
-    if (redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", requiredProtocol) == REDIS_ERR) {
+    // Piggyback capability discovery on the protocol handshake every connection
+    // already performs: no extra command, no extra round trip. The reply lands
+    // after this dispatch's own command (see MRConn_HelloCallback's doc comment
+    // and RediSearchCaps_HasRowBlock's callers), so up to one command per
+    // connection runs without knowing the shard's capability yet.
+    if (redisAsyncCommand(c->conn, MRConn_HelloCallback, NULL, "HELLO %d", requiredProtocol) == REDIS_ERR) {
       return REDIS_ERR;
     }
     c->protocol = requiredProtocol;
@@ -356,7 +489,7 @@ void MRConnManager_Expand(MRConnManager *m, uint32_t num, uv_loop_t *loop) {
     // There should always be at least one connection in the pool
     MREndpoint *ep = &pool->conns[0]->ep;
     for (uint32_t i = pool->num; i < num; i++) {
-      pool->conns[i] = MR_NewConn(ep, loop);
+      pool->conns[i] = MR_NewConn(ep, loop, pool);
     }
     pool->num = num;
   }
@@ -409,7 +542,15 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   // We reach any other state linearly from the previous one, so no timer should be active on the transition.
   RS_ASSERT(!uv_is_active((uv_handle_t *)&conn->timer) || nextState == MRConn_Reconnecting || nextState == MRConn_Freeing);
 
+  // Any connection leaving Connected invalidates the whole pool's row-block belief,
+  // not just this connection's: capability is tracked per node (see MRNodeCapState),
+  // and a stale Yes cannot be trusted once any one of the node's connections has
+  // dropped, since the process behind it may have been replaced by an older build.
+  bool wasConnected = conn->state == MRConn_Connected;
   conn->state = nextState;
+  if (wasConnected && nextState != MRConn_Connected) {
+    MRConnPool_ResetRowBlockCap(conn->pool);
+  }
   switch (nextState) {
 
     case MRConn_Reconnecting:
@@ -700,13 +841,14 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
  * connection attempt via SwitchState(Connecting), which dispatches the async
  * connect and falls back to Reconnecting on synchronous failure. The initial
  * Reconnecting value is just a placeholder overwritten by SwitchState. */
-static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
+static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, MRConnPool *pool) {
   MRConn *conn = rm_new(MRConn);
   *conn = (MRConn){
     .state = MRConn_Connecting,
     .conn = NULL,
     .protocol = MRConn_Protocol_Undetermined,
     .loop = loop,
+    .pool = pool,
   };
   uv_timer_init(loop, &conn->timer);
   conn->timer.data = conn;
