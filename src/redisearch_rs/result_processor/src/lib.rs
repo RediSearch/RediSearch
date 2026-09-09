@@ -183,17 +183,15 @@ impl Context<'_> {
     ///
     /// No-op when the processor has no parent.
     pub fn subtract_total_results(&mut self, n: u32) {
-        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
-        // installed on this result processor; it outlives the processor, the chain runs on a single
-        // thread, and the C pipeline mutates this same field. Provenance comes from the raw pointer
-        // C provided, so writing through it is sound.
+        // SAFETY: the header is live for this context; the installed parent pointer
+        // remains valid for the processor's lifetime.
         let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
         if !parent.is_null() {
-            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
-            // the C pipeline installed on this processor; it outlives the processor and the chain
-            // runs on a single thread, so taking a transient `&mut` to update `totalResults` is sound.
-            let parent = unsafe { &mut *parent };
-            parent.totalResults = parent.totalResults.saturating_sub(n);
+            // SAFETY: only the Next executor accesses this live counter. Project the field
+            // before borrowing: concurrent Drain/reply state must not be covered by a
+            // mutable reference to the whole query context.
+            let total_results = unsafe { &mut *(&raw mut (*parent).totalResults) };
+            *total_results = total_results.saturating_sub(n);
         }
     }
 }
