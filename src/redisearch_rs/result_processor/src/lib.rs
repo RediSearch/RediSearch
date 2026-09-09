@@ -190,7 +190,9 @@ impl Context<'_> {
             // SAFETY: only the Next executor accesses this live counter. Project the field
             // before borrowing: concurrent Drain/reply state must not be covered by a
             // mutable reference to the whole query context.
-            let total_results = unsafe { &mut *(&raw mut (*parent).totalResults) };
+            let total_results_ptr = unsafe { &raw mut (*parent).totalResults };
+            // SAFETY: the projected counter is exclusively owned by this Next executor.
+            let total_results = unsafe { &mut *total_results_ptr };
             *total_results = total_results.saturating_sub(n);
         }
     }
