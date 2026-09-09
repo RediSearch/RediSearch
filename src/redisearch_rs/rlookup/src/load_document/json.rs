@@ -8,7 +8,7 @@
 */
 
 use crate::{
-    RLookup, RLookupKey, RLookupKeyFlags, RLookupRow,
+    RLookup, RLookupKey, RLookupRow,
     load_document::{
         DOCUMENT_OPEN_KEY_QUERY_FLAGS, DocumentFormat, FieldLoader, LoadAllError, LoadFieldError,
         UNDERSCORE_KEY,
@@ -106,7 +106,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 
     fn load_all(
         &self,
-        rlookup: &mut RLookup,
+        rlookup: &RLookup,
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError> {
@@ -121,13 +121,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         let value = json_iter_to_value(self.ctx, json_iter, self.api_version)?
             .ok_or(LoadAllError::JsonRootMissing)?;
 
-        let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
-            rlk.into_current().unwrap()
-        } else {
-            rlookup
-                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
-                .unwrap()
-        };
+        let rlk = rlookup.get_or_create_loaded_key(JSON_ROOT);
 
         dst_row.write_key(rlk, value);
 

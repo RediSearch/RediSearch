@@ -579,6 +579,9 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
+ * 5. The caller must hold the Redis lock. `dst_row` and `status` must be exclusively
+ *    accessible; `sctx` must remain immutable during the call. Concurrent access to
+ *    `lookup` may use shared reads and append-only runtime writes, not exclusive operations.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

@@ -290,14 +290,25 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn get_or_create(&self, name: &CStr, flags: RLookupKeyFlags) -> &RLookupKey<'a> {
+        self.get_or_create_with(name, true, || RLookupKey::new(name.to_owned(), flags))
+    }
+
+    /// Publish a fully initialized key, leaving existing keys immutable.
+    /// Only by-name row writes request name-index promotion; loading retains its existing policy.
+    pub(crate) fn get_or_create_with(
+        &self,
+        name: &CStr,
+        promote: bool,
+        create: impl FnOnce() -> RLookupKey<'a>,
+    ) -> &RLookupKey<'a> {
         let mut guard = self.store.lock();
         let store = guard.get_or_insert_with(|| Box::new(KeyStore::new()));
-        if store.live.len() >= NAME_INDEX_MIN_KEYS {
+        if promote && store.live.len() >= NAME_INDEX_MIN_KEYS {
             store.enable_name_index();
         }
         let slot = store.find_slot(name).unwrap_or_else(|| {
             let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
-            let mut key = RLookupKey::new(name.to_owned(), flags);
+            let mut key = create();
             key.dstidx = slot;
             store.live.push(OwnedKey::new(key));
             if store.by_name.is_some() {
