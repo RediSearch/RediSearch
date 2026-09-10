@@ -14,13 +14,18 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    boxed::{
+        ResumeSlotOutcome, assert_layout_compatible, resume_child_slot_in_place,
+        suspend_child_slot_in_place,
+    },
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use index_result::{RSIndexResult, RawIndexResult};
+use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
@@ -58,6 +63,92 @@ pub struct RawIntersection<'query, Rf: Ref, I> {
 /// Alias for an [`Active`] [`RawIntersection`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
 pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
+
+// Compile-time proof of invariant 1 on `RawIntersection`: for a representative
+// concrete child, the `Active` and `Suspended` instantiations are
+// layout-identical. The child elements' own compatibility is their invariant 1
+// (enforced generically by the slot helpers); `result` is layout-compatible
+// across `Rf` (proven in `index_result`); the remaining fields are `Rf`-free.
+const _: () = {
+    use crate::Wildcard;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawIntersection<'static, Active<'static>, AChild>;
+    type S = RawIntersection<'static, Suspended, SChild>;
+    assert!(offset_of!(A, children) == offset_of!(S, children));
+    assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
+    assert!(offset_of!(A, num_expected) == offset_of!(S, num_expected));
+    assert!(offset_of!(A, is_eof) == offset_of!(S, is_eof));
+    assert!(offset_of!(A, max_slop) == offset_of!(S, max_slop));
+    assert!(offset_of!(A, in_order) == offset_of!(S, in_order));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+/// Frees a suspended [`RawIntersection`]'s reused allocation after the in-place
+/// resume consumed the child at `consumed`: drops every other child in place —
+/// resumed forms before it, still-suspended ones after it — empties the `Vec` so
+/// it frees only its buffer, then drops the box (freeing the still-suspended
+/// `result` and the allocation).
+///
+/// A panic out of one of the element drops aborts nothing here: every element is
+/// either dropped exactly once before the unwind or leaked with the box, so no
+/// double-drop is possible.
+///
+/// # Safety
+///
+/// * `raw` must be exclusively owned and have come from `Box::into_raw`.
+/// * `children[..consumed]` must hold valid `S::Resumed<'a>` values,
+///   `children[consumed]` must be moved-from (it is not touched), and
+///   `children[consumed + 1..]` must hold valid `S` values — the exact state the
+///   in-place resume loop leaves behind when the helper reports
+///   `Aborted`/`Err` for element `consumed`.
+unsafe fn free_after_consumed_child<'query, 'a, S>(
+    raw: *mut RawIntersection<'query, Suspended, S>,
+    consumed: usize,
+) where
+    S: RQESuspendedIterator<'query>,
+    'query: 'a,
+{
+    // The prefix is dropped through `S::Resumed<'a>` while the `Vec`'s element
+    // type is still `S`, so that cast needs the same size/alignment guarantee
+    // `resume_child_slot_in_place` enforces for its own `ptr::write`. Assert it
+    // here too rather than inheriting it: a mismatched implementer must fail to
+    // compile at *this* cast, not only at the one that produced the slots.
+    const { assert_layout_compatible::<S, S::Resumed<'a>>() };
+
+    // SAFETY: `raw` is exclusively owned (caller contract); the borrow is used
+    // only to reach the buffer pointer, the length, and `set_len`.
+    let children: &mut Vec<S> = unsafe { &mut (*raw).children };
+    let len = children.len();
+    let base = children.as_mut_ptr();
+    for i in 0..len {
+        if i == consumed {
+            continue;
+        }
+        // SAFETY: `i` is in bounds of the children buffer.
+        let slot = unsafe { base.add(i) };
+        if i < consumed {
+            // SAFETY: the slot holds a valid resumed child; drop it through the
+            // resumed type (same size/alignment, enforced by the const guard at
+            // the top of this function).
+            unsafe { std::ptr::drop_in_place(slot.cast::<S::Resumed<'a>>()) };
+        } else {
+            // SAFETY: the slot still holds a valid suspended child.
+            unsafe { std::ptr::drop_in_place(slot) };
+        }
+    }
+    // SAFETY: every element was dropped (or consumed by the failed resume);
+    // zeroing the length keeps the `Vec` from dropping them again — it frees
+    // only its buffer.
+    unsafe { children.set_len(0) };
+    // SAFETY: `raw` is a well-formed suspended intersection again (empty
+    // children, still-suspended `result`, `Rf`-free scalars); reclaim the
+    // allocation and drop it.
+    drop(unsafe { Box::from_raw(raw) });
+}
 
 /// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {
@@ -579,6 +670,422 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0 / self.children.len().max(1) as f64
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawIntersection<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait so
+        // dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator),
+        // whose active and suspended forms carry different vtables) correctly
+        // transitions. For concrete-typed `I` this is the same whole-box cast
+        // that the outer composite would otherwise have done, just per-child
+        // instead of per-composite. Either way the inner concrete iterator's
+        // heap address is preserved; only the wrapper bytes (which nothing
+        // external points at) are re-typed.
+        //
+        // The buffer pointer and length are taken up front, mirroring `resume`:
+        // no typed `&mut Vec<I>` stays live across the loop that retypes the
+        // slots it would describe.
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+            // initialised, exclusively owned); the borrow is used only to reach
+            // the buffer pointer and length.
+            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+        for i in 0..len {
+            // SAFETY: `i` is in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it in
+            // a valid `I::Suspended` state.
+            unsafe { suspend_child_slot_in_place(slot) };
+        }
+        // SAFETY: every child slot now holds its suspended form at its original
+        // address, so the aggregate's entries — pointers into those slots'
+        // result objects — still refer to live objects; the remaining fields
+        // are `Rf`-free. Layout-identical to the active form by invariant 1 on
+        // `RawIntersection` (const proof above), whose child-slot half — the
+        // `I`/`I::Suspended` size and alignment match — is statically enforced
+        // by `suspend_child_slot_in_place`. `Box::from_raw` reuses the same
+        // allocation, so the box and every interior address survive the cycle.
+        unsafe { Box::from_raw(raw as *mut RawIntersection<'index, Suspended, I::Suspended>) }
+    }
+}
+
+/// Whether every child still backs the rebuilt aggregate.
+///
+/// An intersection publishes a document only when *all* of its children agree on
+/// it, so — unlike a union, which is content with one — anything short of a full
+/// house means the result no longer describes a consensus.
+///
+/// `#[must_use]` sits on the type so it covers every producer: an
+/// [`Incomplete`](Self::Incomplete) that nobody looks at is a consensus
+/// published without the children that were supposed to have reached it.
+#[must_use = "an incomplete aggregate no longer describes a consensus; the \
+              caller must rebuild it or abort the resume"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RebuildOutcome {
+    /// Every child answered, so the aggregate borrows all of them. The result
+    /// stands as a description of its document, and re-narrowing it is sound.
+    Complete,
+    /// At least one child no longer publishes a result on the intersection's
+    /// document, so the aggregate came out short. Re-narrowing it is still sound
+    /// — every entry it does hold was taken from a live child — but it no longer
+    /// describes a consensus, so the intersection must rebuild it before
+    /// publishing it or report [`ResumeOutcome::Aborted`] instead.
+    Incomplete,
+}
+
+/// Rebuild a suspended intersection's borrowed entries from its just-resumed
+/// children.
+///
+/// The aggregate borrows one entry per child, and each entry is a pointer
+/// derived from a borrow of that child's result. Transitioning a child hands its
+/// allocation through a by-value `Box<Self>`, whose retag invalidates that
+/// borrow even though nothing was dropped, moved or written — so every entry has
+/// to be written afresh before the intersection's own allocation is re-narrowed.
+/// This is that step, and it is not optional.
+///
+/// # Why rebuild rather than re-derive
+///
+/// The alternative is to keep the entry list and refresh each entry in place,
+/// matching entries to children by address. An intersection has no use for that
+/// machinery, because it already knows the answer: it publishes a document only
+/// once [`agree_on_doc_id`](RawIntersection::agree_on_doc_id) reports that
+/// *every* child sits on it, so
+/// [`build_aggregate_result`](RawIntersection::build_aggregate_result) pushes
+/// one entry per child, in slot order, and a child never leaves its slot — an
+/// aborting child aborts the whole intersection rather than being compacted
+/// over. Entry *i* is child *i*, by construction, for as long as the result
+/// lives.
+///
+/// Matching by address would therefore re-derive a mapping that is already
+/// positional, at a cost the shape of an intersection makes worst-case: every
+/// child is on the document, so a scan of the entries per live child is
+/// quadratic in the full fan-out on every resume, where pushing them back is
+/// linear.
+///
+/// # What is recomputed, and what is carried across
+///
+/// `freq` and `field_mask` are recomputed. They are copies of what each child
+/// holds, so they are functions of the same child set as the entries;
+/// recomputing them together is what keeps the two from disagreeing.
+///
+/// `metrics` are carried across untouched, because they are *not* a function of
+/// the children: [`RSIndexResult::push_borrowed`] **moves** a child's metrics
+/// into the intersection when the aggregate is first built, leaving the child
+/// with none. There is nothing to re-accumulate, so resetting them would discard
+/// them for good — a KNN child's `__vector_score` vanishing from the reply.
+///
+/// `doc_id` is likewise untouched: it is the document the rebuild is *for*, and
+/// the input to the per-child test rather than an output of it. It is read
+/// before anything is cleared, so the clearing step cannot quietly become the
+/// one that takes it away.
+///
+/// # Call it last
+///
+/// Not merely "before the cast": **after** the child walk, and with no `&mut`
+/// taken to a child afterwards. Each entry is derived from a shared reborrow of
+/// a `&mut` to its child, so any later mutable access to that child — a `read`,
+/// a `skip_to`, another `current`, an `iter_mut` over the children — pops the
+/// tag it carries. `&mut` to the intersection itself is fine; the entries point
+/// into the *children's* allocations.
+fn rebuild_borrowed_entries<'a, R>(
+    result: &mut RawIndexResult<'a, Suspended>,
+    children: &mut [R],
+) -> RebuildOutcome
+where
+    R: RQEIterator<'a>,
+{
+    let expected = children.len();
+    let doc_id = result.doc_id;
+    let Some(aggregate) = result
+        .as_aggregate_mut()
+        .and_then(|aggregate| aggregate.as_borrowed_mut())
+    else {
+        // Nothing borrowed here: not an aggregate at all, or an owned one whose
+        // children live in the result's own allocation. Either way there is
+        // nothing to rebuild
+        // and nothing for the caller to make good. `Incomplete` here would
+        // oblige it to abort a resume that never had entries at stake.
+        return RebuildOutcome::Complete;
+    };
+    if aggregate.is_empty() {
+        // Nothing borrowed, so again nothing to rebuild, and no reason to touch
+        // a single child. This is the intersection that was suspended before its
+        // first read: its result is an empty aggregate on document 0, which no
+        // child would answer for.
+        return RebuildOutcome::Complete;
+    }
+
+    // Drops the records and the kind mask; `push_borrowed_ptr_from_ref` rebuilds
+    // both, entry by entry. Deliberately not `reset_aggregate`, which would also
+    // take `doc_id` — read above, and what the loop below tests each child
+    // against — and the metrics, which cannot be put back. See
+    // `# What is recomputed` above.
+    aggregate.reset();
+    result.freq = 0;
+    result.field_mask = 0;
+
+    let mut backing = 0;
+    for child in children.iter_mut() {
+        // A child at EOF publishes no result, and one whose own resume carried
+        // it off the agreed document no longer backs the consensus. Either way
+        // the aggregate comes out short, which is what the caller is told.
+        let Some(current) = child.current() else {
+            continue;
+        };
+        if current.doc_id != doc_id {
+            continue;
+        }
+        // The entry is taken from a shared reborrow, so the tag it carries stays
+        // valid for as long as nothing takes `&mut` to this child again. The
+        // loop only ever moves on to a *different* child, and the intersection
+        // takes none after this call returns.
+        let current: &RSIndexResult<'a> = &*current;
+
+        result.freq += current.freq;
+        result.field_mask |= current.field_mask;
+        result
+            .as_aggregate_mut()
+            .and_then(|aggregate| aggregate.as_borrowed_mut())
+            .expect("the result borrowed an aggregate a handful of statements ago")
+            .push_borrowed_ptr_from_ref(current);
+        backing += 1;
+    }
+
+    if backing == expected {
+        RebuildOutcome::Complete
+    } else {
+        RebuildOutcome::Incomplete
+    }
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawIntersection<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = Intersection<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // `current()` hands the result out mutably, so "still the intersection's
+        // own aggregate" is a runtime invariant rather than an enforced one — a
+        // consumer could have replaced it with a result the intersection never
+        // built. Nothing below would notice: `rebuild_borrowed_entries` has
+        // nothing to rebuild for a payload that borrows no children, so it
+        // reports success, and the cast would then re-narrow whatever suspended
+        // pointers the substitute holds without re-validating them. An
+        // intersection has no way to re-validate a payload it did not build, so
+        // it refuses, on `&self`, before `Box::into_raw` opens the raw-pointer
+        // section — the same shape `Optional` and `NotOptimized` use for their
+        // virtual sentinels.
+        //
+        // The kind alone is not enough. An aggregate of kind `Intersection` can
+        // be the *owned* representation, whose children are boxed into the
+        // result's own allocation and are never transitioned. Safe code can
+        // build one — `to_owned()` on an intersection result, `push_boxed` an
+        // index-backed term into it, assign it through `current()` — and a boxed
+        // child's `data` can be index-backed and suspended, so re-narrowing it
+        // would promote pointers nothing re-validated. Demanding the borrowed
+        // representation is what closes that.
+        let is_borrowed_intersection = self.result.kind() == RSResultKind::Intersection
+            && self
+                .result
+                .as_aggregate()
+                .is_some_and(|aggregate| aggregate.as_borrowed().is_some());
+        if !is_borrowed_intersection {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        let raw = Box::into_raw(self);
+
+        // Resume every child *in place*, mirroring `Intersection::revalidate`'s
+        // walk: any child aborting aborts the whole intersection (an
+        // intersection missing a child yields nothing); otherwise track whether
+        // anything moved and the furthest live position.
+        //
+        // The children never leave their slots, so the suspended aggregate's
+        // weakened pointers still designate their result objects afterwards —
+        // but only the addresses survive a child's transition, so the entries are
+        // re-derived from the resumed children below before the box is
+        // reinterpreted; their *contents* can be stale too, and the
+        // revalidate-mirroring decisions further down re-derive those. A panic
+        // between slot transitions leaks the allocation (memory-safe); the slot
+        // helper guards its own moved-out window.
+        //
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+            // initialised, exclusively owned); the borrow is used only to reach
+            // the buffer pointer and length.
+            let children: &mut Vec<S> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+
+        let mut any_child_moved = false;
+        let mut max_child_doc_id: DocId = 0;
+        let mut moved_to_eof = false;
+        for i in 0..len {
+            // SAFETY: `i` is in bounds of the children buffer.
+            let elem = unsafe { base.add(i) };
+            // SAFETY: `elem` holds a valid, owned `S`; the helper rewrites it as
+            // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it
+            // on `Aborted`/`Err` (torn down below).
+            match unsafe { resume_child_slot_in_place(elem, guard) } {
+                Ok(ResumeSlotOutcome::Unchanged) => {}
+                Ok(ResumeSlotOutcome::Moved) => {
+                    any_child_moved = true;
+                    // `revalidate` reads the post-move position out of the
+                    // `RQEValidateStatus::Moved { current }` payload; the slot
+                    // helper hands back no result, so it is read off the resumed
+                    // child instead. The two are equivalent by the
+                    // `current()`/`at_eof()` contract: `current()` is `None`
+                    // exactly when the child is at EOF.
+                    //
+                    // Testing `at_eof()` *before* `last_doc_id()` is what makes
+                    // that equivalence hold. A child whose re-seek ran past the
+                    // end reports `last_doc_id() == 0`, so reading the position
+                    // first would fold it into `max_child_doc_id` as "moved
+                    // nowhere" instead of ending the intersection.
+                    //
+                    // SAFETY: the helper just rewrote the slot as a valid
+                    // `S::Resumed<'a>`.
+                    let resumed = unsafe { &*elem.cast::<S::Resumed<'a>>().cast_const() };
+                    if resumed.at_eof() {
+                        moved_to_eof = true;
+                    } else {
+                        max_child_doc_id = max_child_doc_id.max(resumed.last_doc_id());
+                    }
+                }
+                Ok(ResumeSlotOutcome::Aborted) => {
+                    // SAFETY: slots before `i` are resumed, slot `i` was
+                    // consumed, slots after it are still suspended — the exact
+                    // state the teardown documents; `raw` is exclusively owned.
+                    unsafe { free_after_consumed_child::<S>(raw, i) };
+                    return Ok(ResumeOutcome::Aborted);
+                }
+                Err(e) => {
+                    // SAFETY: as above.
+                    unsafe { free_after_consumed_child::<S>(raw, i) };
+                    return Err(e);
+                }
+            }
+        }
+
+        // Every child now sits in its slot in its resumed form, so the aggregate
+        // can be rebuilt from them — the step that makes its entries usable
+        // again, rather than merely re-narrowed, and the last one before the
+        // cast. Every child is offered and every child is expected to answer:
+        // an intersection publishes a document only once all of them agree on
+        // it, so anything short of a full house is a consensus it can no longer
+        // show.
+        let rebuilt = {
+            // SAFETY: `base` addresses `len` consecutive slots, each rewritten by
+            // the loop above as a valid `S::Resumed<'a>` — same size and
+            // alignment as the `S` the buffer was allocated for, statically
+            // enforced by `resume_child_slot_in_place` — and `raw` is
+            // exclusively owned, so the slice is unaliased.
+            let children =
+                unsafe { std::slice::from_raw_parts_mut(base.cast::<S::Resumed<'a>>(), len) };
+            // Viewed at `'a` rather than at `'query`. Narrowing a query lifetime
+            // is the safe direction — `'query: 'a` — but `&mut` is invariant, so
+            // the compiler will not do it for us and the pointer is re-cast
+            // instead. It is what lets the rebuild tie each entry to the same
+            // lifetime the children carry, rather than widening theirs to
+            // `'query`.
+            //
+            // SAFETY: `raw` is exclusively owned and `result` is a valid
+            // suspended result in a field disjoint from the children buffer; the
+            // borrow is confined to this block. `RawIndexResult` differs between
+            // the two lifetimes only in the query-pipeline pointers it claims,
+            // and `'query: 'a` makes every one of them valid for `'a`.
+            //
+            // SAFETY: `raw` is exclusively owned and non-null, so projecting to
+            // its `result` field is in bounds; no reference is created here.
+            let result_ptr = unsafe { &raw mut (*raw).result };
+            // SAFETY: the projection above is valid, aligned and initialised, and
+            // the two lifetimes differ only in the claim described above.
+            let result: &mut RawIndexResult<'a, Suspended> =
+                unsafe { &mut *result_ptr.cast::<RawIndexResult<'a, Suspended>>() };
+            rebuild_borrowed_entries(result, children)
+        };
+
+        // SAFETY: every child slot holds its resumed form at its original
+        // address, and the aggregate's entries have just been rebuilt from
+        // those resumed children, so re-narrowing them yields
+        // references that are both live and usable (contents re-derived below
+        // where they can have changed); the remaining fields are `Rf`-free.
+        // Layout-identical to the suspended form by invariant 1 on
+        // `RawIntersection` (const proof above). `Box::from_raw` reuses the same
+        // allocation, so the FFI's cached `header.current` and any parent's
+        // pointer into `result` stay valid across the cycle.
+        let mut active = unsafe { Box::from_raw(raw.cast::<Intersection<'a, S::Resumed<'a>>>()) };
+
+        // From here on, mirror `revalidate` decision for decision. Nothing moved
+        // (or the intersection had already ended): the children still sit on the
+        // positions the aggregate describes, so it stands as-is.
+        if !any_child_moved || active.is_eof {
+            // Unless it does not. An incomplete aggregate keeps the position but
+            // can no longer show every child behind it, and this is the one path
+            // that hands the result straight back — there is no re-seek below it
+            // to rebuild what came out short. An intersection that cannot
+            // account for one of its children could not have agreed on the
+            // document anyway, so it aborts rather than publish a consensus it
+            // can no longer show. (An intersection already at EOF publishes no
+            // `current`, so a short aggregate has no observer there and
+            // `revalidate`'s `Ok` is still the faithful answer.)
+            //
+            // Believed unreachable with conforming children on the non-EOF arm,
+            // and asserted rather than assumed: every child reported `Unchanged`
+            // and none can leave its slot, so each still sits on the document
+            // they had agreed on. Coming out short means a child broke
+            // `Unchanged`'s promise to hold its position.
+            debug_assert!(
+                active.is_eof || rebuilt == RebuildOutcome::Complete,
+                "an intersection whose children all resumed unchanged cannot lose one",
+            );
+            if rebuilt == RebuildOutcome::Incomplete && !active.is_eof {
+                return Ok(ResumeOutcome::Aborted);
+            }
+            return Ok(ResumeOutcome::Ok(active));
+        }
+
+        // At least one child moved past its end — the intersection can't continue.
+        // `is_eof` suppresses `current`, so a short aggregate stays unobserved.
+        if moved_to_eof {
+            active.is_eof = true;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+
+        // Some children moved forward. Advance to the furthest one and find the
+        // next common document from there; `skip_to` republishes the aggregate —
+        // which is also what makes an `Incomplete` harmless here — and an `Err`
+        // propagates exactly as it does out of `revalidate`.
+        active.skip_to(max_child_doc_id)?;
+        Ok(ResumeOutcome::Moved(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_expected
     }
 }
 
