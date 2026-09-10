@@ -15,7 +15,7 @@
 use ffi::IndexFlags_Index_StoreNumeric;
 use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore,
+    EntriesTrackingIndex, IndexReader, NumericIndexBackend, NumericReader, RawIndexReaderCore,
     debug::Summary,
     numeric::{Numeric, NumericEncoder, NumericFloatCompression, PreparedValue},
 };
@@ -101,12 +101,18 @@ impl NumericIndex {
         has_field_expiration: bool,
     ) -> inverted_index::AddRecordOutcome {
         let result = match self {
-            NumericIndex::Uncompressed(idx) => {
-                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
-            }
-            NumericIndex::Compressed(idx) => {
-                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
-            }
+            NumericIndex::Uncompressed(idx) => NumericIndexBackend::add_prepared_record(
+                idx,
+                doc_id,
+                prepared,
+                has_field_expiration,
+            ),
+            NumericIndex::Compressed(idx) => NumericIndexBackend::add_prepared_record(
+                idx,
+                doc_id,
+                prepared,
+                has_field_expiration,
+            ),
         };
         result.expect("in-memory inverted index write cannot fail")
     }

@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod backend;
 mod core;
 mod expiration_bits;
 pub mod opaque;
@@ -15,6 +16,7 @@ mod with_entries;
 mod with_mask;
 
 pub use self::core::*;
+pub use backend::{IndexBackend, NumericIndexBackend};
 pub(crate) use expiration_bits::ExpirationBits;
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;

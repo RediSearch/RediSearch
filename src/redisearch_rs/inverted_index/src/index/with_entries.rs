@@ -8,10 +8,10 @@
 */
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBackend, IndexBlock,
+    InvertedIndex, NumericIndexBackend,
     debug::{BlockSummary, Summary},
     numeric::{NumericEncoder, PreparedValue},
-    reader::IndexReaderCore,
 };
 use ffi::IndexFlags;
 use index_result::RSIndexResult;
@@ -129,8 +129,8 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// Create a new [`crate::reader::IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReaderCore<'_, E> {
-        self.index.reader()
+    pub fn reader(&self) -> <InvertedIndex<E> as IndexBackend>::Reader<'_> {
+        IndexBackend::reader(&self.index)
     }
 
     /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
@@ -146,13 +146,13 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
         doc_exist: impl Fn(DocId) -> bool,
         repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
-        self.index.scan_gc(doc_exist, repair)
+        IndexBackend::scan_gc(&self.index, doc_exist, repair)
     }
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
     /// by deleting or repairing blocks as needed.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
-        let info = self.index.apply_gc(delta);
+        let info = IndexBackend::apply_gc(&mut self.index, delta);
 
         self.number_of_entries -= info.entries_removed;
 
@@ -176,5 +176,71 @@ impl<E: NumericEncoder> EntriesTrackingIndex<E> {
         self.number_of_entries += 1;
 
         Ok(result)
+    }
+}
+
+impl<E: DecodedBy> IndexBackend for EntriesTrackingIndex<E> {
+    type Reader<'index>
+        = <InvertedIndex<E> as IndexBackend>::Reader<'index>
+    where
+        Self: 'index;
+
+    fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
+        self.add_record(record)
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.memory_usage()
+    }
+
+    fn flags(&self) -> IndexFlags {
+        self.flags()
+    }
+
+    fn unique_docs(&self) -> u32 {
+        self.unique_docs()
+    }
+
+    fn number_of_blocks(&self) -> usize {
+        self.number_of_blocks()
+    }
+
+    fn summary(&self) -> Summary {
+        self.summary()
+    }
+
+    fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.blocks_summary()
+    }
+
+    fn last_doc_id(&self) -> Option<DocId> {
+        self.last_doc_id()
+    }
+
+    fn reader(&self) -> Self::Reader<'_> {
+        IndexBackend::reader(&self.index)
+    }
+
+    fn scan_gc(
+        &self,
+        doc_exist: impl Fn(DocId) -> bool,
+        repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        self.scan_gc(doc_exist, repair)
+    }
+
+    fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.apply_gc(delta)
+    }
+}
+
+impl<E: NumericEncoder + DecodedBy> NumericIndexBackend for EntriesTrackingIndex<E> {
+    fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+        has_field_expiration: bool,
+    ) -> std::io::Result<AddRecordOutcome> {
+        self.add_prepared_record(doc_id, prepared, has_field_expiration)
     }
 }

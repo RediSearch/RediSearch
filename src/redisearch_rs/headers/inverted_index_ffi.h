@@ -377,26 +377,6 @@ struct InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(struct II_GCReader *rd);
 bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
 /**
- * Get the garbage collector marker of the inverted index. This is used by some C tests.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
- */
-uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
-
-/**
- * Increment the garbage collector marker of the inverted index. This is used by some C tests.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
- */
-void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
-
-/**
  * Get ID of the last document in the index. Returns 0 if the index is empty.
  * This is used by some C tests.
  *
