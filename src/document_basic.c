@@ -341,8 +341,7 @@ done:
   return rv;
 }
 
-// Hash half of Document_ProbeFieldsPresent. Mirrors the per-field resolution in
-// Document_LoadSchemaFieldHash's field loop: `v == NULL` means the field is absent.
+// Use the full loader's field paths, but avoid retrieving values just to check presence.
 static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
                                                         const FieldSpec *fields, t_fieldIndex start,
                                                         t_fieldIndex end) {
@@ -350,14 +349,15 @@ static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }
   for (t_fieldIndex i = start; i < end; ++i) {
-    RedisModuleString *v = NULL;
-    RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS,
-                        HiddenString_GetUnsafe(fields[i].fieldPath, NULL), &v, NULL);
-    if (v == NULL) {
-      continue;
+    int exists = 0;
+    if (RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXISTS,
+                            HiddenString_GetUnsafe(fields[i].fieldPath, NULL), &exists,
+                            NULL) != REDISMODULE_OK) {
+      return DOCUMENT_FIELDS_PROBE_FAILED;
     }
-    RedisModule_FreeString(RSDummyContext, v);
-    return DOCUMENT_FIELDS_PRESENT;
+    if (exists) {
+      return DOCUMENT_FIELDS_PRESENT;
+    }
   }
   return DOCUMENT_FIELDS_ABSENT;
 }

@@ -27,15 +27,18 @@ def testAlterSkipUnchangedDocsHash(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'hello world')
     conn.execute_command('HSET', 'doc:2', 'title', 'goodbye world', 'tags', 'premium')
+    conn.execute_command('HSET', 'doc:3', 'title', 'empty', 'tags', '')
 
     id1_before = get_internal_id(env, 'doc:1')
     id2_before = get_internal_id(env, 'doc:2')
+    id3_before = get_internal_id(env, 'doc:3')
 
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'tags', 'TAG').ok()
     waitForIndexFinishScan(env, 'idx')
 
     env.assertEqual(get_internal_id(env, 'doc:1'), id1_before)
     env.assertGreater(get_internal_id(env, 'doc:2'), id2_before)
+    env.assertGreater(get_internal_id(env, 'doc:3'), id3_before)
 
     # The optimization must not change query results: the pre-existing field stays
     # searchable on both documents, and doc:2's replace-path reindex must have preserved it
@@ -43,6 +46,7 @@ def testAlterSkipUnchangedDocsHash(env):
     env.expect('FT.SEARCH', 'idx', '@title:hello', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@title:goodbye', 'NOCONTENT').equal([1, 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@tags:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@title:empty', 'NOCONTENT').equal([1, 'doc:3'])
 
 
 @skip(cluster=True)

@@ -117,3 +117,12 @@ TEST_F(DocumentProbeFieldsPresentTest, hashProbeConfirmsAbsentField) {
             DOCUMENT_FIELDS_ABSENT);
   RedisModule_CloseKey(key);
 }
+
+TEST_F(DocumentProbeFieldsPresentTest, hashProbeFindsEmptyField) {
+  RMCK::hset(ctx, "doc:empty", "title", "");
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, RMCK::RString("doc:empty"), REDISMODULE_READ);
+  ASSERT_TRUE(key != nullptr);
+  EXPECT_EQ(Document_ProbeFieldsPresent(spec, key, DocumentType_Hash, 0, spec->numFields),
+            DOCUMENT_FIELDS_PRESENT);
+  RedisModule_CloseKey(key);
+}
