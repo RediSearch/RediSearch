@@ -13,8 +13,10 @@
 #include "redismock/redismock.h"
 #include "synonym_map.h"
 #include "trie/trie.h"
+#include <algorithm>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 #include <iterator>  // For std::size
+#include <string>
 #include <vector>
 
 extern "C" {
@@ -24,11 +26,170 @@ extern "C" {
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
+#include "alias.h"
+#include "info/info_command.h"
+#include "info/info_redis/info_redis.h"
+#include "search_disk.h"
+#include "triemap_ffi.h"
 
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
+extern int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+extern RedisSearchDiskAPI *disk;
 }
+
+
+namespace {
+
+struct FakeDiskState {
+  size_t perIndexBudgetBytes = 0;
+  size_t writeBufferOverrideBytes = 0;
+  size_t liveIndexes = 0;
+  size_t memoryUsageBytes = 0;
+  bool failDiskOpen = false;
+  bool failIndexOpen = false;
+};
+
+struct FakeDiskIndex {
+  size_t writeBearingCfCount;
+  size_t writeBufferSize;
+};
+
+FakeDiskState fakeDiskState;
+RedisSearchDiskAPI fakeDiskApi = {};
+
+RedisSearchDisk *fakeDiskOpen(RedisModuleCtx *, size_t budgetMb, size_t writeBufferSizeKb, bool,
+                              bool, bool, int) {
+  fakeDiskState.perIndexBudgetBytes = budgetMb * 1024 * 1024;
+  fakeDiskState.writeBufferOverrideBytes = writeBufferSizeKb * 1024;
+  if (fakeDiskState.failDiskOpen) {
+    return nullptr;
+  }
+  return reinterpret_cast<RedisSearchDisk *>(&fakeDiskState);
+}
+
+void fakeDiskClose(RedisModuleCtx *, RedisSearchDisk *) {
+}
+
+void fakeSetThrottleCallbacks(ThrottleCB, ThrottleCB) {
+}
+
+RedisSearchDiskIndexSpec *fakeOpenIndex(RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
+                                        const char *, size_t, DocumentType, bool,
+                                        size_t writeBearingCfCount,
+                                        const SearchDiskCompactionCallbacks *, void *) {
+  if (fakeDiskState.failIndexOpen) {
+    return nullptr;
+  }
+  size_t perCf = fakeDiskState.writeBufferOverrideBytes;
+  if (perCf == 0) {
+    perCf = fakeDiskState.perIndexBudgetBytes * 4 / 5 / writeBearingCfCount;
+    perCf -= perCf % (4 * 1024);
+    perCf = std::max<size_t>(64 * 1024, perCf);
+  }
+  fakeDiskState.liveIndexes++;
+  return reinterpret_cast<RedisSearchDiskIndexSpec *>(
+      new FakeDiskIndex{writeBearingCfCount, perCf});
+}
+
+RedisSearchDiskIndexSpec *fakeOpenIndexWithRdbState(
+    RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *name,
+    const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+    RedisSearchDiskRdbState *, size_t writeBearingCfCount,
+    const SearchDiskCompactionCallbacks *callbacks, void *privateData) {
+  return fakeOpenIndex(ctx, disk, name, obfuscatedName, obfuscatedNameLen, type, false,
+                       writeBearingCfCount, callbacks, privateData);
+}
+
+
+void fakeCloseIndex(RedisSearchDisk *, RedisSearchDiskIndexSpec *index) {
+  delete reinterpret_cast<FakeDiskIndex *>(index);
+  fakeDiskState.liveIndexes--;
+}
+
+void fakeCloseIndexOnMainThread(RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
+}
+
+void fakeMarkIndexForDeletion(RedisSearchDiskIndexSpec *) {
+}
+
+t_docId fakeGetMaxDocId(RedisSearchDiskIndexSpec *) {
+  return 0;
+}
+
+uint64_t fakeCollectIndexMetrics(RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
+  return 0;
+}
+
+uint64_t fakeZeroIndexMetric(RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
+  return 0;
+}
+
+uint64_t fakeZeroMetric(RedisSearchDiskIndexSpec *) {
+  return 0;
+}
+
+uint64_t fakeGetWriteBufferSize(RedisSearchDiskIndexSpec *index) {
+  return reinterpret_cast<FakeDiskIndex *>(index)->writeBufferSize;
+}
+
+PerFieldTextDiskMetrics fakeTextMetrics(const RedisSearchDiskIndexSpec *, t_fieldId) {
+  return {};
+}
+
+PerFieldCfDiskMetrics fakeCfMetrics(const RedisSearchDiskIndexSpec *, t_fieldIndex) {
+  return {};
+}
+
+PerFieldCfDiskMetrics fakeVectorMetrics(const RedisSearchDiskIndexSpec *, const char *, size_t) {
+  return {};
+}
+
+void fakeOutputResourceMetrics(RedisSearchDisk *, RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddFieldCString(ctx, "disk_wbm_live_index_count",
+                                  std::to_string(fakeDiskState.liveIndexes).c_str());
+  RedisModule_InfoAddFieldCString(
+      ctx, "disk_wbm_budget_bytes",
+      std::to_string(fakeDiskState.perIndexBudgetBytes * fakeDiskState.liveIndexes).c_str());
+  RedisModule_InfoAddFieldCString(ctx, "disk_wbm_memory_usage_bytes",
+                                  std::to_string(fakeDiskState.memoryUsageBytes).c_str());
+}
+
+const std::string *findInfoField(const RedisModuleInfoCtx &info, const char *name) {
+  for (const auto &field : info.fields) {
+    if (field.first == name) {
+      return &field.second;
+    }
+  }
+  return nullptr;
+}
+
+void initializeFakeDiskApi() {
+  fakeDiskApi = {};
+  fakeDiskApi.basic.open = fakeDiskOpen;
+  fakeDiskApi.basic.close = fakeDiskClose;
+  fakeDiskApi.basic.openIndexSpec = fakeOpenIndex;
+  fakeDiskApi.basic.openIndexSpecWithRdbState = fakeOpenIndexWithRdbState;
+  fakeDiskApi.basic.closeIndexSpec = fakeCloseIndex;
+  fakeDiskApi.basic.closeIndexOnMainThread = fakeCloseIndexOnMainThread;
+  fakeDiskApi.basic.setThrottleCallbacks = fakeSetThrottleCallbacks;
+  fakeDiskApi.index.markToBeDeleted = fakeMarkIndexForDeletion;
+  fakeDiskApi.index.getDiskUsage = fakeZeroMetric;
+  fakeDiskApi.docTable.getMaxDocId = fakeGetMaxDocId;
+  fakeDiskApi.metrics.collectIndexMetrics = fakeCollectIndexMetrics;
+  fakeDiskApi.metrics.getDocTableTotalMemory = fakeZeroIndexMetric;
+  fakeDiskApi.metrics.getInvertedIndexTotalMemory = fakeZeroIndexMetric;
+  fakeDiskApi.metrics.getNumRecords = fakeZeroMetric;
+  fakeDiskApi.metrics.getCfWriteBufferSize = fakeGetWriteBufferSize;
+  fakeDiskApi.metrics.getInvertedIndexTotalBlocks = fakeZeroMetric;
+  fakeDiskApi.metrics.getTextFieldMetrics = fakeTextMetrics;
+  fakeDiskApi.metrics.getCfFieldMetrics = fakeCfMetrics;
+  fakeDiskApi.metrics.getVectorFieldMetrics = fakeVectorMetrics;
+  fakeDiskApi.metrics.outputResourceInfoMetrics = fakeOutputResourceMetrics;
+}
+
+}  // namespace
 
 
 class RdbMockTest : public ::testing::Test {
@@ -41,6 +202,7 @@ protected:
 
     void TearDown() override {
         if (ctx) {
+            Indexes_Free(ctx, specDict_g, false);
             RedisModule_FreeThreadSafeContext(ctx);
             ctx = nullptr;
         }
@@ -48,6 +210,173 @@ protected:
 
     RedisModuleCtx *ctx = nullptr;
 };
+
+class FakeDiskRdbTest : public RdbMockTest {
+ protected:
+  void SetUp() override {
+    RdbMockTest::SetUp();
+    Indexes_Free(ctx, specDict_g, false);
+    ASSERT_EQ(0, Indexes_Count());
+    RMCK_EnableReplyCapture();
+    originalDisk = disk;
+    originalDiskDb = disk_db;
+    originalIsFlex = isFlex;
+    originalBudgetMb = RSGlobalConfig.diskWbmBudgetPerIndexMB;
+    originalWriteBufferKb = RSGlobalConfig.diskWriteBufferSizeKB;
+    fakeDiskState = {};
+    initializeFakeDiskApi();
+    originalInfoEmitOnZeroIndexes = RSGlobalConfig.infoEmitOnZeroIndexes;
+    RSGlobalConfig.infoEmitOnZeroIndexes = false;
+    disk = &fakeDiskApi;
+    disk_db = fakeDiskOpen(ctx, 24, 0, false, false, false, 1024);
+    RSGlobalConfig.diskWbmBudgetPerIndexMB = 24;
+    RSGlobalConfig.diskWriteBufferSizeKB = 0;
+    isFlex = true;
+  }
+
+  void TearDown() override {
+    EXPECT_EQ(0, fakeDiskState.liveIndexes);
+    Indexes_Free(ctx, specDict_g, false);
+    SearchDisk_Close(ctx);
+    disk = originalDisk;
+    disk_db = originalDiskDb;
+    isFlex = originalIsFlex;
+    RMCK_DisableReplyCapture();
+    RSGlobalConfig.diskWbmBudgetPerIndexMB = originalBudgetMb;
+    RSGlobalConfig.diskWriteBufferSizeKB = originalWriteBufferKb;
+    RSGlobalConfig.infoEmitOnZeroIndexes = originalInfoEmitOnZeroIndexes;
+    RdbMockTest::TearDown();
+  }
+
+  size_t originalBudgetMb = 0;
+  size_t originalWriteBufferKb = 0;
+  decltype(disk) originalDisk = nullptr;
+  decltype(disk_db) originalDiskDb = nullptr;
+  bool originalIsFlex = false;
+  bool originalInfoEmitOnZeroIndexes = false;
+};
+
+TEST_F(FakeDiskRdbTest, testFailedDiskInitializationLeavesZeroIndexInfoUsable) {
+  SearchDisk_Close(ctx);
+  ASSERT_FALSE(SearchDisk_IsInitialized());
+  fakeDiskState.failDiskOpen = true;
+  disk_db = disk->basic.open(ctx, 24, 0, false, false, false, 1024);
+  ASSERT_EQ(nullptr, disk_db);
+
+  RedisModuleInfoCtx info;
+  RS_moduleInfoFunc(&info, false);
+  ASSERT_NE(nullptr, findInfoField(info, "number_of_indexes"));
+  EXPECT_EQ("0", *findInfoField(info, "number_of_indexes"));
+  EXPECT_EQ(nullptr, findInfoField(info, "disk_wbm_live_index_count"));
+  EXPECT_EQ(nullptr, findInfoField(info, "disk_wbm_budget_bytes"));
+  EXPECT_EQ(nullptr, findInfoField(info, "disk_wbm_memory_usage_bytes"));
+}
+
+TEST_F(FakeDiskRdbTest, testDiskCreateRestoreInfoAndOpenFailureRollback) {
+  RMCK::ArgvList createArgs(
+      ctx, "FT.CREATE", "disk_mixed", "ON", "HASH", "PREFIX", "1", "disk:", "SKIPINITIALSCAN",
+      "SCHEMA", "text_a", "TEXT", "text_b", "TEXT", "tag", "TAG", "number", "NUMERIC", "geo", "GEO",
+      "vector", "VECTOR", "HNSW", "12", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2", "M",
+      "16", "EF_CONSTRUCTION", "100", "EF_RUNTIME", "10", "noindex_text", "TEXT", "NOINDEX",
+      "noindex_tag", "TAG", "NOINDEX", "noindex_number", "NUMERIC", "NOINDEX", "noindex_geo", "GEO",
+      "NOINDEX");
+  isFlex = false;
+  QueryError status = QueryError_Default();
+  IndexSpec *spec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &status);
+  ASSERT_NE(nullptr, spec) << QueryError_GetUserError(&status);
+  isFlex = true;
+  spec->diskSpec =
+      SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
+  ASSERT_NE(nullptr, spec->diskSpec);
+
+  auto *diskIndex = reinterpret_cast<FakeDiskIndex *>(spec->diskSpec);
+  EXPECT_EQ(6, diskIndex->writeBearingCfCount);
+  EXPECT_EQ(3354624, diskIndex->writeBufferSize);
+  EXPECT_EQ(1, fakeDiskState.liveIndexes);
+
+  RMCK_GetReplies(ctx).clear();
+  RMCK::ArgvList infoArgs(ctx, "FT.INFO", "disk_mixed");
+  ASSERT_EQ(REDISMODULE_OK, IndexInfoCommand(ctx, infoArgs, infoArgs.size()));
+  const auto &infoReply = RMCK_GetReplies(ctx);
+  auto writeBufferKey =
+      std::find(infoReply.begin(), infoReply.end(), "disk_cf_write_buffer_size_bytes");
+  ASSERT_NE(infoReply.end(), writeBufferKey);
+  ASSERT_NE(infoReply.end(), std::next(writeBufferKey));
+  EXPECT_EQ("3354624", *std::next(writeBufferKey));
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(nullptr, io);
+  IndexSpec_RdbSave(io, spec, 0);
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+
+  SearchDisk_CloseIndexOnMainThread(ctx, spec);
+  SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+  Indexes_RemoveSpecFromGlobals(spec->own_ref, false);
+  EXPECT_EQ(0, fakeDiskState.liveIndexes);
+
+  io->read_pos = 0;
+  QueryError loadStatus = QueryError_Default();
+  IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &loadStatus);
+  ASSERT_NE(nullptr, loaded) << QueryError_GetUserError(&loadStatus);
+  ASSERT_EQ(REDISMODULE_OK, IndexSpec_RdbLoadOpenDisk(ctx, loaded, false, &loadStatus))
+      << QueryError_GetUserError(&loadStatus);
+  ASSERT_EQ(INDEXES_STORE_SPEC_OK, Indexes_StoreSpecAfterRdbLoad(ctx, loaded));
+  auto *loadedDiskIndex = reinterpret_cast<FakeDiskIndex *>(loaded->diskSpec);
+  EXPECT_EQ(6, loadedDiskIndex->writeBearingCfCount);
+  EXPECT_EQ(3354624, loadedDiskIndex->writeBufferSize);
+
+  SearchDisk_CloseIndexOnMainThread(ctx, loaded);
+  SearchDisk_MarkIndexForDeletion(loaded->diskSpec);
+  Indexes_RemoveSpecFromGlobals(loaded->own_ref, false);
+  RMCK_FreeRdbIO(io);
+
+  ASSERT_EQ(0, Indexes_Count());
+  RedisModuleInfoCtx emptyInfo;
+  RS_moduleInfoFunc(&emptyInfo, false);
+  ASSERT_NE(nullptr, findInfoField(emptyInfo, "disk_wbm_live_index_count"));
+  ASSERT_NE(nullptr, findInfoField(emptyInfo, "disk_wbm_budget_bytes"));
+  ASSERT_NE(nullptr, findInfoField(emptyInfo, "disk_wbm_memory_usage_bytes"));
+  EXPECT_EQ("0", *findInfoField(emptyInfo, "disk_wbm_live_index_count"));
+  EXPECT_EQ("0", *findInfoField(emptyInfo, "disk_wbm_budget_bytes"));
+  EXPECT_EQ("0", *findInfoField(emptyInfo, "disk_wbm_memory_usage_bytes"));
+  RMCK_GetReplies(ctx).clear();
+  RMCK::ArgvList listArgs(ctx, "FT._LIST");
+  ASSERT_EQ(REDISMODULE_OK, IndexList(ctx, listArgs, listArgs.size()));
+  const auto listBeforeFailure = RMCK_GetReplies(ctx);
+
+  const size_t indexesBeforeFailure = Indexes_Count();
+  const size_t prefixesBeforeFailure = TrieMap_NUniqueKeys(SchemaPrefixes_g);
+  fakeDiskState.failIndexOpen = true;
+  RMCK::ArgvList failingArgs(ctx, "FT.CREATE", "disk_failure", "ON", "HASH", "PREFIX", "1",
+                             "failed:", "SKIPINITIALSCAN", "SCHEMA", "text", "TEXT");
+  QueryError createError = QueryError_Default();
+  EXPECT_EQ(nullptr, Indexes_CreateNewSpec(ctx, failingArgs, failingArgs.size(), &createError));
+  EXPECT_EQ(QUERY_ERROR_CODE_DISK_CREATION, QueryError_GetCode(&createError));
+  EXPECT_EQ(indexesBeforeFailure, Indexes_Count());
+  EXPECT_EQ(prefixesBeforeFailure, TrieMap_NUniqueKeys(SchemaPrefixes_g));
+  EXPECT_EQ(0, fakeDiskState.liveIndexes);
+  QueryError_ClearError(&createError);
+
+  RMCK_GetReplies(ctx).clear();
+  ASSERT_EQ(REDISMODULE_OK, IndexList(ctx, listArgs, listArgs.size()));
+  EXPECT_EQ(listBeforeFailure, RMCK_GetReplies(ctx));
+
+  RedisModuleInfoCtx afterFailureInfo;
+  SearchDisk_OutputResourceInfoMetrics(&afterFailureInfo);
+  EXPECT_EQ("0", *findInfoField(afterFailureInfo, "disk_wbm_live_index_count"));
+  EXPECT_EQ("0", *findInfoField(afterFailureInfo, "disk_wbm_budget_bytes"));
+  EXPECT_EQ("0", *findInfoField(afterFailureInfo, "disk_wbm_memory_usage_bytes"));
+
+  fakeDiskState.failIndexOpen = false;
+  IndexSpec *retry = Indexes_CreateNewSpec(ctx, failingArgs, failingArgs.size(), &createError);
+  ASSERT_NE(nullptr, retry) << QueryError_GetUserError(&createError);
+  EXPECT_EQ(indexesBeforeFailure + 1, Indexes_Count());
+  SearchDisk_CloseIndexOnMainThread(ctx, retry);
+  SearchDisk_MarkIndexForDeletion(retry->diskSpec);
+  Indexes_RemoveSpecFromGlobals(retry->own_ref, false);
+}
+
+
 
 TEST_F(RdbMockTest, testBasicRdbOperations) {
     // Test basic RDB save/load operations
@@ -149,7 +478,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
     ASSERT_TRUE(spec != nullptr);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
-        StrongRef_Release(spec->own_ref);
+        IndexSpec_Unlink(spec->own_ref, false);
     });
 
     // Verify original lock state
@@ -176,7 +505,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
     EXPECT_TRUE(loadedSpec != nullptr);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
-        StrongRef_Release(spec->own_ref);
+        IndexSpec_UnlinkLoaded(spec->own_ref);
     });
     EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
     EXPECT_EQ(0, RMCK_IsIOError(io));
@@ -353,7 +682,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
 
     // Deserialize
     IndexSpec *deserialized = IndexSpec_Deserialize(serialized, encver);
-    int res = Indexes_StoreSpecAfterRdbLoad(deserialized);
+    int res = Indexes_StoreSpecAfterRdbLoad(RSDummyContext, deserialized);
     ASSERT_EQ(REDISMODULE_OK, res);
     StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_rdb_idx");
     spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
@@ -1063,11 +1392,9 @@ static int findVectorField(const IndexSpec *spec) {
     return -1;
 }
 
-// Round-trip an HNSW field's diskCtx.rerank through IndexSpec_RdbSave +
-// IndexSpec_RdbLoad and check both possible values survive. Flow tests can't
-// reach this path because diskCtx.indexName is only set when isFlex==true
-// (Enterprise-only), so this is the only place we exercise the new
-// INDEX_VECTOR_RERANK_VERSION byte end-to-end in OSS CI.
+// Round-trip an HNSW field's canonical rerank policy through
+// IndexSpec_RdbSave + IndexSpec_RdbLoad and verify the derived disk context is
+// initialized before disk storage is opened.
 TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
     const char *args[] = {
         "SCHEMA", "v", "VECTOR", "HNSW", "6",
@@ -1081,14 +1408,12 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
         IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_ref);
         ASSERT_TRUE(spec != nullptr);
         std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
-            spec, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+            spec, [](IndexSpec *s) { IndexSpec_Unlink(s->own_ref, false); });
 
-        // FT.CREATE only stores rerank into diskCtx when sp->diskSpec is set
-        // (i.e. isFlex). isFlex is false here, so set the field directly so
-        // RdbSave has a known value to persist.
+        // Exercise both persisted values independently of the parser default.
         int vfIdx = findVectorField(spec);
         ASSERT_GE(vfIdx, 0) << "vector field not found in parsed spec";
-        spec->fields[vfIdx].vectorOpts.diskCtx.rerank = initialRerank;
+        spec->fields[vfIdx].vectorOpts.rerank = initialRerank;
 
         RedisModuleIO *io = RMCK_CreateRdbIO();
         std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
@@ -1105,15 +1430,112 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
             << "load failed for rerank=" << initialRerank
             << ": " << QueryError_GetUserError(&status);
         std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
-            loaded, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+            loaded, [](IndexSpec *s) { IndexSpec_UnlinkLoaded(s->own_ref); });
         EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
         EXPECT_EQ(0, RMCK_IsIOError(io));
 
         int loadedVfIdx = findVectorField(loaded);
         ASSERT_GE(loadedVfIdx, 0) << "vector field not found in loaded spec";
+        EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.rerank)
+            << "canonical rerank policy did not round-trip (expected " << initialRerank << ")";
         EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.diskCtx.rerank)
-            << "rerank did not round-trip (expected " << initialRerank << ")";
+            << "derived rerank policy was not initialized (expected " << initialRerank << ")";
     }
+}
+
+TEST_F(RdbMockTest, testLegacyHnswRerankDefaultsWithoutPersistedWord) {
+  const char *args[] = {
+      "SCHEMA",  "v",
+      "VECTOR",  "HNSW",
+      "6",       "TYPE",
+      "FLOAT32", "DIM",
+      "2",       "DISTANCE_METRIC",
+      "L2",      "tail_after_vector",
+      "TEXT",
+  };
+  QueryError err = QueryError_Default();
+  StrongRef originalRef =
+      IndexSpec_ParseC(nullptr, "legacy_rerank_idx", args, std::size(args), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  IndexSpec *original = static_cast<IndexSpec *>(StrongRef_Get(originalRef));
+  ASSERT_NE(nullptr, original);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> originalPtr(
+      original, [](IndexSpec *sp) { IndexSpec_Unlink(sp->own_ref, false); });
+  int vectorField = findVectorField(original);
+  ASSERT_GE(vectorField, 0);
+  original->fields[vectorField].vectorOpts.rerank = false;
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(nullptr, io);
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+  IndexSpec_RdbSave(io, original, 0);
+
+  const std::string followingField = "tail_after_vector";
+  auto namePosition = std::search(io->buffer.begin(), io->buffer.end(), followingField.begin(),
+                                  followingField.end());
+  ASSERT_NE(io->buffer.end(), namePosition);
+  ASSERT_EQ(io->buffer.end(), std::search(std::next(namePosition), io->buffer.end(),
+                                          followingField.begin(), followingField.end()));
+  const size_t nameOffset = std::distance(io->buffer.begin(), namePosition);
+  ASSERT_GE(nameOffset, 2 * sizeof(uint64_t));
+  const size_t rerankOffset = nameOffset - 2 * sizeof(uint64_t);
+  io->buffer.erase(io->buffer.begin() + rerankOffset,
+                   io->buffer.begin() + rerankOffset + sizeof(uint64_t));
+
+  io->read_pos = 0;
+  QueryError loadError = QueryError_Default();
+  IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_VECTOR_RERANK_VERSION - 1, false, &loadError);
+  ASSERT_NE(nullptr, loaded) << QueryError_GetUserError(&loadError);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+      loaded, [](IndexSpec *sp) { IndexSpec_UnlinkLoaded(sp->own_ref); });
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+  ASSERT_EQ(2, loaded->numFields);
+  int loadedVectorField = findVectorField(loaded);
+  ASSERT_GE(loadedVectorField, 0);
+  EXPECT_TRUE(loaded->fields[loadedVectorField].vectorOpts.rerank);
+  EXPECT_TRUE(loaded->fields[loadedVectorField].vectorOpts.diskCtx.rerank);
+  size_t tailNameLen = 0;
+  const char *tailName = HiddenString_GetUnsafe(loaded->fields[1].fieldName, &tailNameLen);
+  EXPECT_EQ(followingField, std::string(tailName, tailNameLen));
+  EXPECT_TRUE(FIELD_IS(&loaded->fields[1], INDEXFLD_T_FULLTEXT));
+}
+
+TEST_F(RdbMockTest, testDuplicateRdbLoadClearsOnlyAliasesOwnedByLoadedSpec) {
+  const char *args[] = {"SCHEMA", "title", "TEXT"};
+  QueryError err = QueryError_Default();
+  StrongRef originalRef =
+      IndexSpec_ParseC(nullptr, "duplicate_alias_idx", args, std::size(args), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  IndexSpec *original = static_cast<IndexSpec *>(StrongRef_Get(originalRef));
+  ASSERT_NE(nullptr, original);
+  Spec_AddToDict(originalRef.rm);
+
+  HiddenString *restoredAlias = NewHiddenString("restored_alias", 14, false);
+  HiddenString *liveAlias = NewHiddenString("live_alias", 10, false);
+  QueryError aliasError = QueryError_Default();
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(restoredAlias, originalRef, 0, &aliasError));
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(liveAlias, originalRef, 0, &aliasError));
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(nullptr, io);
+  IndexSpec_RdbSave(io, original, 0);
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Del(restoredAlias, originalRef, 0, &aliasError));
+
+  io->read_pos = 0;
+  QueryError loadError = QueryError_Default();
+  IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &loadError);
+  ASSERT_NE(nullptr, loaded) << QueryError_GetUserError(&loadError);
+  ASSERT_EQ(INDEXES_STORE_SPEC_OK, Indexes_StoreSpecAfterRdbLoad(ctx, loaded));
+
+  EXPECT_EQ(nullptr, StrongRef_Get(IndexAlias_Get(restoredAlias)));
+  EXPECT_TRUE(StrongRef_Equals(originalRef, IndexAlias_Get(liveAlias)));
+
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Del(liveAlias, originalRef, 0, &aliasError));
+  Indexes_RemoveSpecFromGlobals(originalRef, false);
+  HiddenString_Free(restoredAlias, false);
+  HiddenString_Free(liveAlias, false);
+  RMCK_FreeRdbIO(io);
 }
 
 // Legacy pre-2.0 module types (ft_invidx / numericdx / ft_tagidx) exist only so an old RDB can be read

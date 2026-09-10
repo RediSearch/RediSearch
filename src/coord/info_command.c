@@ -43,6 +43,7 @@ typedef struct {
 static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "num_docs", .type = InfoField_WholeSum},
     {.name = "max_doc_id", .type = InfoField_Max},
+    {.name = "disk_cf_write_buffer_size_bytes", .type = InfoField_Max},
     {.name = "num_terms", .type = InfoField_WholeSum},
     {.name = "num_records", .type = InfoField_WholeSum},
     {.name = "inverted_sz_mb", .type = InfoField_DoubleSum},
@@ -409,11 +410,10 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
   RedisModule_Reply_MapEnd(reply);
 }
 
-int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  // Summarize all aggregate replies
+int InfoReplyReducerCtx(RedisModuleCtx *ctx, int count, MRReply **replies) {
   InfoFields fields = { .indexError = IndexError_Init() };
   MRReply *firstError = NULL;
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
+
 
   if (count == 0) {
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_CLUSTER_NO_RESPONSES));
@@ -456,4 +456,8 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   cleanInfoReply(&fields);
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
+}
+
+int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
+  return InfoReplyReducerCtx(MRCtx_GetRedisCtx(mc), count, replies);
 }

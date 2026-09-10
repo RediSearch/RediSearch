@@ -119,12 +119,12 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params. diskCtx.indexName is non-NULL exactly when the
-      // field is disk-backed; diskCtx.storage is non-NULL only once the
-      // index spec is open and PopulateVectorDiskParams has run. During
-      // SST replication load, FieldSpec_RdbLoad populates indexName early
-      // (before sp->diskSpec exists) so the disk teardown path is selected
-      // even if the load aborts before storage is bound.
+      // Parsed/persisted HNSW rerank policy. Disk context is populated only
+      // after the backing index has opened.
+      bool rerank;
+      // diskCtx.indexName is non-NULL once a fresh disk-backed field is bound.
+      // During SST replication load, FieldSpec_RdbLoad sets indexName before
+      // storage is bound so an unbound vector index still uses disk teardown.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {

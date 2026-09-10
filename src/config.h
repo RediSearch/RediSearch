@@ -225,7 +225,6 @@ typedef struct {
   bool simulateInFlex;
   // If true, monitor document and field expiration for new indexes.
   bool monitorExpiration;
-  uint8_t diskBufferPercentage;
   // Binary MiB reserved in the shared disk write-buffer budget for each open index.
   size_t diskWbmBudgetPerIndexMB;
   // Per-column-family write-buffer override in KiB. Zero selects schema-based sizing.
@@ -419,7 +418,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
-#define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
+
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 24
 #define DEFAULT_DISK_WRITE_BUFFER_SIZE_KB 0
 #define DISK_WRITE_BUFFER_SIZE_MIN_KB 64
@@ -478,7 +477,6 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                                      \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,                               \
     .infoEmitOnZeroIndexes = false, .simulateInFlex = false, .monitorExpiration = true,            \
-    .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                                        \
     .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,                               \
     .diskWriteBufferSizeKB = DEFAULT_DISK_WRITE_BUFFER_SIZE_KB, .diskDropReadCache = false,        \
     .diskUseDirectReads = false, .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                  \

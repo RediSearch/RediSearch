@@ -310,8 +310,18 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     // Load one spec (parse + duplicate detection + disk open), then publish it
     // into the registry.
     IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
-    if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
-      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+    IndexesStoreSpecResult storeResult =
+        Indexes_StoreSpecAfterRdbLoad(RedisModule_GetContextFromIO(rdb), sp);
+    if (storeResult != INDEXES_STORE_SPEC_OK) {
+      if (storeResult == INDEXES_STORE_SPEC_LIMIT) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "RDB Load: Max number of indexes reached for Flex indexes: %zu",
+                               Indexes_Count());
+      } else {
+        RedisModule_LogIOError(
+            rdb, "warning", "RDB Load: %s",
+            QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      }
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
@@ -327,57 +337,52 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 // Finalize a spec loaded from RDB: detect a name collision against the registry,
 // then either discard the duplicate or publish the spec into specDict_g/
 // specIdDict_g and start its GC. Owns the registry writes for the load path.
-int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
+IndexesStoreSpecResult Indexes_StoreSpecAfterRdbLoad(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (!sp) {
     addPendingIndexDrop();
-    return REDISMODULE_ERR;
+    return INDEXES_STORE_SPEC_ERROR;
   }
 
   StrongRef spec_ref = sp->own_ref;
 
-  // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
   sp->activeCoordCursors = 0;
 
-  // setting isDuplicate to true will make sure index will not be removed from aliases container.
-  // It may have already been set.
   if (!sp->isDuplicate && dictFetchValue(specDict_g, sp->specName) != NULL) {
     sp->isDuplicate = true;
   }
 
   if (sp->isDuplicate) {
-    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
-    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
 
-    // spec already exists lets just free this one
-    // Remove the new spec from the global prefixes dictionary.
-    // This is the only global structure that we added the new spec to at this point
-    SchemaPrefixes_RemoveSpec(spec_ref);
-    addPendingIndexDrop();
-    StrongRef_Release(spec_ref);
-  } else {
-    // In the SST replication path diskSpec is still NULL here — it's opened
-    // later by Indexes_FinishSSTReplication, which also starts the Disk GC.
-    // Start GC eagerly only when the spec is fully ready: memory mode, or a
-    // disk spec whose diskSpec was opened during IndexSpec_RdbLoad (non-SST
-    // RDB path).
-    if (!SearchDisk_IsEnabled()) {
-      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
-    } else if (sp->diskSpec) {
-      RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
-      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
-    }
-    // See the call in the create path above.
-    quiesceSpecIfWindowOpen(sp);
-    dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm);
-    dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm);
-
-    for (int i = 0; i < sp->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
-    }
+    IndexSpec_UnlinkLoaded(spec_ref);
+    return INDEXES_STORE_SPEC_OK;
   }
-  return REDISMODULE_OK;
+
+  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
+    if (sp->diskSpec) {
+      SearchDisk_CloseIndexOnMainThread(ctx, sp);
+      SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+    }
+    IndexSpec_UnlinkLoaded(spec_ref);
+    return INDEXES_STORE_SPEC_LIMIT;
+  }
+
+  if (!SearchDisk_IsEnabled()) {
+    IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+  } else if (sp->diskSpec) {
+    RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
+    IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+  }
+  // See the call in the create path above.
+  quiesceSpecIfWindowOpen(sp);
+  dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm);
+  dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm);
+
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+  }
+  return INDEXES_STORE_SPEC_OK;
 }
 
 static void Indexes_RdbSave(RedisModuleIO *rdb, int when) {

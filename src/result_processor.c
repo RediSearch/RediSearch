@@ -283,8 +283,6 @@ typedef enum {
 static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
 
-  // For disk indexes, return immediately, since we don't need to acquire the
-  // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
     return REVALIDATE_CONTINUE;
   }
@@ -389,7 +387,8 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // return before revalidating at all. A moved iterator would need no special handling here anyway,
   // but the timeout is answered defensively, so that a disk spec which one day does revalidate
   // reports the timeout instead of reading past it as end-of-results.
-  if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
+  RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
+  if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
   }
 

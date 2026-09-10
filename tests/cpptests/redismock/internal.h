@@ -321,6 +321,7 @@ struct RedisModuleCtx {
   // when callers explicitly invoke RedisModule_ClusterFreeSlotRanges.
   std::set<RedisModuleSlotRangeArray *> alloc_slot_ranges;
   std::vector<std::vector<std::string>> propagated_commands;
+  std::vector<std::string> replies;
   KVDB *db = NULL;
   uint32_t dbid = 0;
   std::string last_error;  // Store the last error message from ReplyWithError

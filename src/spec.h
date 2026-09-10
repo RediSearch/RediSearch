@@ -440,6 +440,7 @@ typedef struct SpecOpIndexingCtx {
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
 
+
 static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
   __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
 }
@@ -774,6 +775,12 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
  * DocTable is freed, from the Redis command path using a valid command context.
  */
 void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp);
+
+/**
+ * Tears down a loaded-but-unpublished spec without decrementing field statistics,
+ * which are installed only when the spec enters the global registry.
+ */
+void IndexSpec_UnlinkLoaded(StrongRef spec_ref);
 
 /*
  * Free an indexSpec. For LLAPI

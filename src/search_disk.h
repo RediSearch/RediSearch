@@ -80,6 +80,7 @@ void SearchDisk_UpdateLogObfuscation();
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
+
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
  *
@@ -757,6 +758,18 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Get the effective per-column-family write-buffer size for a disk index
+ *
+ * Returns the size selected when the index was opened, after applying either
+ * the automatic schema fan-out policy or the configured override.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Effective per-column-family write-buffer size in bytes
+ */
+uint64_t SearchDisk_GetCfWriteBufferSize(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Get the absolute total number of inverted-index blocks for a disk index
  *
  * Returns the current absolute block count across the index's inverted-index storage
@@ -778,6 +791,11 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  * @param ctx Redis module info context
  */
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+
+/**
+ * Invokes the optional resource callback without requesting full metric aggregation.
+ */
+void SearchDisk_OutputResourceInfoMetrics(RedisModuleInfoCtx *ctx);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.
@@ -922,30 +940,6 @@ void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
  * @param reopenNumericGate Whether to reopen the numeric consistency gate
  */
 void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
-
-/**
- * @brief Update the buffer budget and WBM in response to RAM configuration changes
- *
- * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
- * and updates the WriteBufferManager with the new size. Should be called in response
- * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
- *
- * @param ctx Redis module context
- * @param percentage Percentage of available memory to request (0-100)
- */
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
-
-/**
- * @brief Reapply the max_open_files cap to all live disk databases.
- *
- * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
- * the configured value on the shared disk context (so newly created indexes use it)
- * and applies the resolved per-DB cap to every existing index's database at runtime.
- *
- * @param ctx Redis module context
- * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
- */
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
