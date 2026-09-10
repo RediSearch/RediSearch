@@ -16,6 +16,7 @@ from vecsim_utils import *
 from common import (
     getConnectionByEnv,
     skip,
+    skip_until,
     assertInfoField,
     index_info,
     to_dict,
@@ -402,6 +403,14 @@ def test_svs_shared_threadpool_memory_info():
 
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
+# (compression_type, data_type, workers) tuples that are flaky on the coverage lane and are
+# temporarily skipped via skip_until. Only applied when running under coverage; see MOD-18468.
+# The key deliberately excludes the metric: the async full-precision FLOAT16 variants time out
+# in wait_for_background_indexing under coverage regardless of metric, and which of COSINE/L2/IP
+# trips on a given nightly run varies.
+QUERIES_SANITY_SKIP_UNTIL = {
+    ('NO_COMPRESSION', 'FLOAT16', 4): ('2026-10-09', 'Flaky test under coverage, see MOD-18468'),
+} if CODE_COVERAGE else {}
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
     # Create SVS VAMANA index with all compression flavors
@@ -422,6 +431,10 @@ for workers in [0, 4]:
                 # In cluster mode, the same training work is multiplied across shards and can
                 # exceed the coverage job budget without adding meaningful distributed coverage.
                 test_func = skip(cluster=True)(test_func)
+                skip_spec = QUERIES_SANITY_SKIP_UNTIL.get((compression_type, data_type, workers))
+                if skip_spec is not None:
+                    skip_date, skip_reason = skip_spec
+                    test_func = skip_until(skip_date, reason=skip_reason)(test_func)
                 globals()[test_name] = test_func
 
 '''
