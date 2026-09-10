@@ -42,6 +42,14 @@ Logs in the checkout: `pr11330-build.log`, `pr11330-unit-final.log`,
 `pr11330-svs-tls-rerun.log`, and the cluster run is in `pr11330-cluster.log`.
 Source-update manifests record the tested file checksums.
 
+The final independent review of `e3a834ef7..fa81760a9` found no blocking code
+defects and corroborated the unit, focused, cluster, and corrected SVS/TLS results.
+One nonblocking suggestion remains open: exercise SQ8 field addition through
+`FT.ALTER` on a populated index, including backfill, training, reload, and unchanged
+schema after rejected options. The review also could not assess zero-worker pause
+latency at the default and maximum training thresholds because those measurements
+are absent. These are review limitations, not observed runtime failures.
+
 The earlier results below describe older snapshots and are retained as historical
 evidence, rather than results for this dependency revision.
 
