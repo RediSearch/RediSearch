@@ -77,12 +77,15 @@ the authenticated App bot identity, run URL, and a snapshot of pre-existing
 comment IDs, then replaces its body with the combined results. It never parses
 comment prose to decide which branches succeeded. If the action did not create
 a comment, the finalizer creates one. A hidden run-and-attempt marker makes
-repeating finalization idempotent.
+repeating finalization idempotent. The pinned action cannot suppress its own
+comments; after an unsuccessful classic attempt, the workflow immediately
+changes its comment to an in-progress message while triage and fallback run.
 
 Agent timeouts, invalid manifests, unresolved conflicts, publication failures,
 and omitted targets appear as failures alongside successful PR links. A target
 that advanced during resolution must be retried against its new revision. The
-job is unsuccessful while a requested backport remains unfinished. A final
+summary step succeeds when the comment is posted. A separate result-check step
+fails the job while a requested backport remains unfinished. A final
 GitHub outage leaves the report and results in the workflow artifact instead of
 silently treating a failed comment write as success.
 

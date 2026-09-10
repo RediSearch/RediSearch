@@ -189,11 +189,36 @@ class UnifiedTests(unittest.TestCase):
         return {"id": ident, "user": {"login": bot}, "body":
                 f"[Backport-action](https://github.com/korthout/backport-action) in [workflow run {run}](https://github.com/o/r/actions/runs/{run})."}
 
+    def test_progress_then_final_report_updates_same_comment(self):
+        comments = [self.comment(10), self.comment(20), self.comment(30, "alice")]
+        with patch.object(unified, "api_pages", return_value=comments), patch.object(common, "gh") as gh, patch.object(
+                unified, "existing_row", return_value=None):
+            unified.progress(self.ctx)
+            self.assertIn("repos/o/r/issues/comments/20", gh.call_args.args)
+            progress_body = gh.call_args.args[-1].removeprefix("body=")
+            self.assertIn("in progress", progress_body)
+            self.assertNotIn("failed", progress_body)
+            comments[1]["body"] = progress_body
+            self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "true")
+            self.assertIn("repos/o/r/issues/comments/20", gh.call_args.args)
+            self.assertEqual(gh.call_count, 2)
+
+    def test_reporting_api_failure_does_not_claim_success(self):
+        with patch.object(unified, "api_pages", return_value=[]), patch.object(
+                unified, "existing_row", return_value=None), patch.object(
+                common, "gh", side_effect=subprocess.CalledProcessError(1, "gh")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                unified.report(self.ctx)
+        self.assertNotIn("has_failures", self.outputs)
+        self.assertTrue(unified.saved("summary").with_suffix(".md").exists())
+
     def test_finalizer_updates_exact_action_comment_after_partial_failure(self):
         comments = [self.comment(10), self.comment(20), self.comment(30, "alice"), self.comment(40, run="456")]
         with patch.object(unified, "api_pages", return_value=comments), patch.object(common, "gh") as gh, patch.object(
                 unified, "existing_row", return_value=None):
-            self.assertEqual(unified.report(self.ctx), 1)
+            self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "true")
         gh.assert_called_once()
         self.assertIn("repos/o/r/issues/comments/20", gh.call_args.args)
         self.assertIn("PATCH", gh.call_args.args)
@@ -206,13 +231,15 @@ class UnifiedTests(unittest.TestCase):
         unified.saved("results").unlink()
         with patch.object(unified, "api_pages", return_value=[]), patch.object(common, "gh") as gh, patch.object(
                 unified, "existing_row", return_value=None):
-            self.assertEqual(unified.report(self.ctx), 1)
+            self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "true")
         self.assertIn("POST", gh.call_args.args)
 
     def test_finalizer_recovers_prs_created_before_collector_crash(self):
         with patch.object(unified, "api_pages", return_value=[self.comment()]), patch.object(common, "gh"), patch.object(
                 unified, "existing_row", side_effect=lambda c, t, *a: {"target": t, "status": "clean", "detail": "https://github.com/o/r/pull/3"}):
             self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "false")
 
     def test_closed_backport_is_not_reopened(self):
         pr = {"state": "closed", "merged_at": None, "number": 3, "html_url": "https://github.com/o/r/pull/3"}

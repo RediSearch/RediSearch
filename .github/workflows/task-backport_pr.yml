@@ -106,6 +106,16 @@ jobs:
           add_labels: auto-backport
           copy_labels_pattern: '^(?!backport ).*'
 
+      - name: Mark unfinished backports as in progress
+        if: >-
+          !cancelled() && steps.preflight.outcome == 'success' &&
+          (steps.classic.outputs.was_successful == 'false' || steps.classic.outcome == 'failure')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.action-token.outputs.token }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/unified.py progress
+
       - name: Revoke classic token and remove its checkout
         id: revoke
         if: always() && steps.action-token.outputs.token != ''
@@ -175,6 +185,7 @@ jobs:
         run: python3 scripts/auto_backport/unified.py apply
 
       - name: Finalize the single summary comment
+        id: report
         if: always() && steps.ctx.outputs.skip == 'false' && steps.publish-token.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.publish-token.outputs.token }}
@@ -182,6 +193,12 @@ jobs:
           CREATED_PULL_NUMBERS: ${{ steps.classic.outputs.created_pull_numbers }}
           BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         run: python3 scripts/auto_backport/unified.py report
+
+      - name: Check for unfinished backports
+        if: always() && steps.report.outputs.has_failures == 'true'
+        run: |
+          echo '::error::One or more backports remain unfinished. See the final summary comment or backport-results artifact for details.'
+          exit 1
 
       - name: Preserve results even if publication fails
         if: always() && steps.ctx.outputs.skip == 'false'
