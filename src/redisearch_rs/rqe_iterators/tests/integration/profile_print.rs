@@ -568,6 +568,7 @@ fn numeric_variant_geo() {
 
     let geo_filter = ffi::GeoFilter {
         fieldSpec: std::ptr::null(),
+        fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,
