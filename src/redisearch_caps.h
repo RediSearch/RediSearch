@@ -20,22 +20,37 @@ extern "C" {
 // whether to ask a shard for a feature) and, potentially, a shard-side consumer,
 // so the version-to-capability mapping cannot drift between the two sides.
 //
-// Every predicate here must fail closed: an unrecognized, unparseable, or absent
-// version resolves to `false`. Treating an incapable shard as capable is the only
-// failure mode that breaks a query outright (the shard hard-fails on an argument it
-// does not recognize); treating a capable shard as incapable only costs the
-// performance the feature would have bought.
+// The version-to-capability mapping is the only thing that varies per feature:
+// every capability is decided from the same single piece of state (the `search`
+// module version a node advertises over HELLO, see MRConnPool's moduleVersion in
+// conn.h), so the enum plus RediSearchCaps_Supports is the whole per-feature
+// surface. Everything else (learning the version, invalidating it, sticky
+// demotion) is generic and lives once in conn.c/conn.h.
+
+// One entry per internal coordinator<->shard protocol feature gated by rolling
+// upgrade. RS_CAP__COUNT is not a real capability; it is the table size and the
+// bound for `demoted` bitmask shifts (see MRConnPool in conn.h).
+typedef enum {
+  RS_CAP_ROW_BLOCK = 0,  // compact binary aggregation rows, RESP2 reply path
+  RS_CAP__COUNT
+} RSCapability;
+
+// Human-readable name for `cap`, used only for diagnostics (FT.DEBUG
+// SHARD_CONNECTION_STATES). Returns a placeholder for an out-of-range value so a
+// missing table entry shows up in the debug output instead of crashing it.
+const char *RSCapability_Name(RSCapability cap);
 
 // Returns whether a shard advertising `moduleVersion` — encoded the same way as
 // REDISEARCH_MODULE_VERSION in version.h (major*10000 + minor*100 + patch) — is
-// known to support the row-block reply format (src/aggregate/row_block.h) for
-// internal coordinator<->shard aggregation.
+// known to support `cap`.
 //
-// Ranges are expressed per minor line rather than as a single `>=` threshold: a
-// single threshold cannot express a later backport of the format to an older minor
-// line without wrongly excluding it, or without wrongly widening every version
-// above it. Add a new line's range instead of extending an existing one.
-bool RediSearchCaps_HasRowBlock(int moduleVersion);
+// Every capability must fail closed: an unrecognized, unparseable, or absent
+// version resolves to `false`, and so does a capability with no registered
+// predicate (see redisearch_caps.c). Treating an incapable shard as capable is the
+// only failure mode that breaks a query outright (the shard hard-fails on an
+// argument it does not recognize); treating a capable shard as incapable only
+// costs the performance the feature would have bought.
+bool RediSearchCaps_Supports(RSCapability cap, int moduleVersion);
 
 #ifdef __cplusplus
 }

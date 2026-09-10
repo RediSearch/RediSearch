@@ -58,6 +58,25 @@ static const char *on_oom_vals[3] = {
 };
 
 
+// Hidden coordinator-only test/ops override for MRConnManager_NodeSupports (see
+// RSConfig.forceShardCapsOverride and search-_force-shard-caps in config.c).
+// `Auto` is the real, HELLO/demotion-derived decision; `No` forces every shard
+// to read as supporting no capability, without consulting per-node state.
+typedef enum {
+  RSForceShardCaps_Auto,
+  RSForceShardCaps_No,
+  RSForceShardCaps_Invalid  // Not a real value
+} RSForceShardCaps;
+
+static const int force_shard_caps_enums[2] = {
+  RSForceShardCaps_Auto,
+  RSForceShardCaps_No
+};
+static const char *force_shard_caps_vals[2] = {
+  "auto",
+  "no"
+};
+
 typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
@@ -224,9 +243,18 @@ typedef struct {
   // regardless of what this shard's own build actually supports. RLTest starts every
   // shard in a cluster from the same modulePath, so a genuinely mixed-build fleet
   // cannot be started by the harness; this is the only way to exercise the
-  // coordinator's per-shard capability negotiation (see RediSearchCaps_HasRowBlock)
+  // coordinator's per-shard capability negotiation (see RediSearchCaps_Supports)
   // against a shard that truly rejects the token.
   bool simulateLegacyShard;
+  // Test/ops-only, coordinator-side: force MRConnManager_NodeSupports to treat
+  // every shard as supporting no RSCapability, regardless of what HELLO or
+  // demotion say (RSForceShardCaps_No). `auto` (the default, RSForceShardCaps_Auto)
+  // is a no-op - production always takes this branch. Unlike simulateLegacyShard,
+  // which fakes one shard's own argument parser, this fakes the coordinator's
+  // belief about every shard directly, without a HELLO round trip - the knob a
+  // test reaches for when it needs "the coordinator never asked" rather than
+  // "asked and was refused" (see MRConnManager_DemoteCapability for that path).
+  RSForceShardCaps forceShardCapsOverride;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
@@ -510,6 +538,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
     .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,                                                   \
+    .forceShardCapsOverride = RSForceShardCaps_Auto,                           \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
     .diskDropReadCache = false,                                                \

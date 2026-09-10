@@ -88,26 +88,26 @@ struct MRConnPool {
   uint32_t num;
   uint32_t rr;  // round robin counter
   MRConn **conns;
-  // Row-block capability belief for this node (see MRNodeCapState in conn.h),
-  // learned from HELLO and reset to Unknown whenever any connection in `conns`
-  // leaves MRConn_Connected (MRConn_SwitchState). `rowBlockCapVersion` is the last
-  // `search` module version parsed from a HELLO reply, kept for diagnostics even
-  // when the capability is No; -1 means no version was ever parsed.
-  MRNodeCapState rowBlockCap;
-  int rowBlockCapVersion;
-  // Sticky defence-in-depth demotion (MRConnManager_DemoteRowBlockCap): once set,
-  // rowBlockCap reads as No regardless of any past or future HELLO reply, until
-  // this pool struct itself is replaced by a new one (endpoint change).
-  bool rowBlockDemoted;
+  // The `search` module version this node advertised in its last parsed HELLO
+  // reply, or -1 if none has been parsed yet (see conn.h's doc comment on why
+  // this single field, not a per-capability tri-state, is the source of truth).
+  // Reset to -1 whenever any connection in `conns` leaves MRConn_Connected
+  // (MRConn_SwitchState).
+  int moduleVersion;
+  // Sticky defence-in-depth demotion (MRConnManager_DemoteCapability): bit
+  // `1u << cap` set means `cap` reads as unsupported for this node regardless of
+  // any past or future HELLO reply, until this pool struct itself is replaced by
+  // a new one (endpoint change). Per capability, unlike moduleVersion, because a
+  // shard rejecting one capability's token is not evidence about another.
+  uint32_t demoted;
 };
 
-/* Reset the tri-state row-block belief to Unknown. Does not touch rowBlockDemoted:
- * a sticky demotion must survive the same invalidation trigger that resets the
- * ordinary belief, since it is evidence about a hole in the version mapping, not
+/* Reset the module version to "unknown" (-1). Does not touch `demoted`: a sticky
+ * demotion must survive the same invalidation trigger that resets the version,
+ * since it is evidence about a hole in the version-to-capability mapping, not
  * about the connection's current liveness. */
-static void MRConnPool_ResetRowBlockCap(MRConnPool *pool) {
-  pool->rowBlockCap = MRNodeCap_Unknown;
-  pool->rowBlockCapVersion = -1;
+static void MRConnPool_ResetModuleVersion(MRConnPool *pool) {
+  pool->moduleVersion = -1;
 }
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, uint32_t num, uv_loop_t *loop) {
@@ -116,9 +116,8 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, uint32_t num, uv_loop_t *loop
       .num = num,
       .rr = 0,
       .conns = rm_malloc(num * sizeof(MRConn *)),
-      .rowBlockCap = MRNodeCap_Unknown,
-      .rowBlockCapVersion = -1,
-      .rowBlockDemoted = false,
+      .moduleVersion = -1,
+      .demoted = 0,
   };
 
   /* Create the connection */
@@ -255,13 +254,22 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
       array_append(stateList, rm_strdup(stateStr));
     }
 
-    // One row-block capability line per pool (not per connection - see
-    // MRNodeCapState in conn.h for why this is tracked per node).
+    // One capabilities line per pool (not per connection - see conn.h's doc
+    // comment on MRConnPool for why capability state is tracked per node).
+    // Prints the version once, then live/demoted for every registered
+    // RSCapability, so adding a capability needs no change to this format.
+    const char *nodeId = dictGetKey(entry);
     char *capStr;
-    MRNodeCapState cap = pool->rowBlockDemoted ? MRNodeCap_No : pool->rowBlockCap;
-    rm_asprintf(&capStr, "RowBlockCapability=%s(demoted=%s,version=%d)",
-               MRNodeCapState_Str(cap), pool->rowBlockDemoted ? "true" : "false",
-               pool->rowBlockCapVersion);
+    rm_asprintf(&capStr, "Capabilities(version=%d)", pool->moduleVersion);
+    for (int cap = 0; cap < RS_CAP__COUNT; cap++) {
+      bool demoted = (pool->demoted & (1u << cap)) != 0;
+      bool live = MRConnManager_NodeSupports(mgr, nodeId, (RSCapability)cap);
+      char *next;
+      rm_asprintf(&next, "%s;%s=%s(demoted=%s)", capStr, RSCapability_Name((RSCapability)cap),
+                 live ? "Yes" : "No", demoted ? "true" : "false");
+      rm_free(capStr);
+      capStr = next;
+    }
     array_append(stateList, capStr);
 
     dictSetVal(stateDict, target_entry, stateList); // Update the value in case it was reallocated
@@ -297,46 +305,46 @@ const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id) {
   return NULL;
 }
 
-MRNodeCapState MRConnManager_GetRowBlockCapability(MRConnManager *mgr, const char *id,
-                                                    int *outVersion) {
+bool MRConnManager_NodeSupports(MRConnManager *mgr, const char *id, RSCapability cap) {
+  // Forced-off test/ops override wins outright: see RSForceShardCaps in config.h.
+  // It has no per-node state to consult, so it is checked before even looking `id`
+  // up - a global "treat every shard as incapable" cannot be expressed any other
+  // way and must not depend on whether `id` happens to be in the pool.
+  if (RSGlobalConfig.forceShardCapsOverride == RSForceShardCaps_No) return false;
   dictEntry *ptr = dictFind(mgr->map, id);
-  if (!ptr) {
-    if (outVersion) *outVersion = -1;
-    return MRNodeCap_Unknown;
-  }
+  if (!ptr) return false;
   MRConnPool *pool = dictGetVal(ptr);
-  if (outVersion) *outVersion = pool->rowBlockCapVersion;
-  return pool->rowBlockDemoted ? MRNodeCap_No : pool->rowBlockCap;
+  if (pool->moduleVersion < 0) return false;
+  if (pool->demoted & (1u << cap)) return false;
+  return RediSearchCaps_Supports(cap, pool->moduleVersion);
 }
 
-void MRConnManager_DemoteRowBlockCap(MRConnManager *mgr, const char *id) {
+void MRConnManager_DemoteCapability(MRConnManager *mgr, const char *id, RSCapability cap) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (!ptr) return;
   MRConnPool *pool = dictGetVal(ptr);
-  if (pool->rowBlockDemoted) return;  // already demoted; don't re-log every query
-  pool->rowBlockDemoted = true;
-  pool->rowBlockCap = MRNodeCap_No;
+  uint32_t bit = 1u << cap;
+  if (pool->demoted & bit) return;  // already demoted; don't re-log every query
+  pool->demoted |= bit;
   RedisModule_Log(RSDummyContext, "notice",
-                  "Shard %s rejected the internal row-block format after being believed "
-                  "capable of it; falling back to RESP for it until its connection pool "
-                  "is rebuilt", id);
+                  "Shard %s rejected the internal %s format after being believed capable of "
+                  "it; falling back until its connection pool is rebuilt", id,
+                  RSCapability_Name(cap));
 }
 
-/* Apply a parsed HELLO capability result to the connection's pool, logging the
- * Unknown -> Yes/No transition once (not per query, since most reconnects resolve
- * it identically to before). Skipped once the pool is sticky-demoted
- * (MRConnManager_DemoteRowBlockCap) so a benign HELLO reply cannot undo evidence
- * from an actual rejection. */
-static void MRConnPool_SetRowBlockCap(MRConn *conn, bool capable, int version) {
+/* Apply a parsed HELLO module version to the connection's pool, logging the
+ * unknown -> known transition once (not per query, since most reconnects resolve
+ * it identically to before). Does not touch `demoted`: a HELLO reply is not
+ * evidence about any specific capability the way a wire rejection is (see
+ * MRConnManager_DemoteCapability), so it must not be able to undo one. */
+static void MRConnPool_SetModuleVersion(MRConn *conn, int version) {
   MRConnPool *pool = conn->pool;
-  if (pool->rowBlockDemoted) return;
-  if (pool->rowBlockCap == MRNodeCap_Unknown) {
+  if (pool->moduleVersion < 0 && version >= 0) {
     RedisModule_Log(RSDummyContext, "notice",
-                    "Shard %s:%d row-block capability resolved to %s (module version %d)",
-                    conn->ep.host, conn->ep.port, capable ? "supported" : "unsupported", version);
+                    "Shard %s:%d module version resolved to %d", conn->ep.host, conn->ep.port,
+                    version);
   }
-  pool->rowBlockCap = capable ? MRNodeCap_Yes : MRNodeCap_No;
-  pool->rowBlockCapVersion = version;
+  pool->moduleVersion = version;
 }
 
 /* Find the `search` module entry in a HELLO reply's `modules` list and return its
@@ -369,20 +377,21 @@ static int helloReply_GetSearchModuleVersion(MRReply *hello) {
   return -1;
 }
 
-/* HELLO reply callback: parses the shard's per-module capability advertisement
+/* HELLO reply callback: parses the shard's per-module version advertisement
  * (piggybacked on the RESP protocol handshake every connection already performs,
- * see MRConn_SendCommand) and updates the owning pool's row-block belief.
+ * see MRConn_SendCommand) and updates the owning pool's module version - the
+ * single source of truth every RSCapability is decided from (RediSearchCaps_Supports).
  *
  * Any content-level failure - no `modules` field, no `search` entry, a
- * non-integer `ver`, or an error reply - resolves capability to No via
- * RediSearchCaps_HasRowBlock(-1), per that predicate's fail-closed contract; it
- * is not surfaced as a connection error, since a HELLO reply's only other job
- * (protocol negotiation) already happened synchronously in MRConn_SendCommand.
+ * non-integer `ver`, or an error reply - resolves to -1 (unknown), which every
+ * capability's fail-closed contract already treats as unsupported; it is not
+ * surfaced as a connection error, since a HELLO reply's only other job (protocol
+ * negotiation) already happened synchronously in MRConn_SendCommand.
  *
  * A NULL reply or a hiredis-level error on the async context means the
  * connection is tearing down; the disconnect path (MRConn_SwitchState leaving
- * Connected) already resets the pool to Unknown, so there is nothing to update
- * here. */
+ * Connected) already resets the pool's version to unknown, so there is nothing
+ * to update here. */
 static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata) {
   UNUSED(privdata);
   MRConn *conn = c->data;
@@ -390,7 +399,7 @@ static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata) 
 
   if (conn && rep && !c->err) {
     int version = helloReply_GetSearchModuleVersion(rep);
-    MRConnPool_SetRowBlockCap(conn, RediSearchCaps_HasRowBlock(version), version);
+    MRConnPool_SetModuleVersion(conn, version);
   }
 
   // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves.
@@ -418,8 +427,8 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     // Piggyback capability discovery on the protocol handshake every connection
     // already performs: no extra command, no extra round trip. The reply lands
     // after this dispatch's own command (see MRConn_HelloCallback's doc comment
-    // and RediSearchCaps_HasRowBlock's callers), so up to one command per
-    // connection runs without knowing the shard's capability yet.
+    // and MRConnManager_NodeSupports's callers), so up to one command per
+    // connection runs without knowing the shard's capabilities yet.
     if (redisAsyncCommand(c->conn, MRConn_HelloCallback, NULL, "HELLO %d", requiredProtocol) ==
         REDIS_ERR) {
       return REDIS_ERR;
@@ -553,14 +562,15 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   // We reach any other state linearly from the previous one, so no timer should be active on the transition.
   RS_ASSERT(!uv_is_active((uv_handle_t *)&conn->timer) || nextState == MRConn_Reconnecting || nextState == MRConn_Freeing);
 
-  // Any connection leaving Connected invalidates the whole pool's row-block belief,
-  // not just this connection's: capability is tracked per node (see MRNodeCapState),
-  // and a stale Yes cannot be trusted once any one of the node's connections has
-  // dropped, since the process behind it may have been replaced by an older build.
+  // Any connection leaving Connected invalidates the whole pool's module version,
+  // not just this connection's: capability is tracked per node (see conn.h's doc
+  // comment on MRConnPool), and a stale known version cannot be trusted once any
+  // one of the node's connections has dropped, since the process behind it may
+  // have been replaced by an older build.
   bool wasConnected = conn->state == MRConn_Connected;
   conn->state = nextState;
   if (wasConnected && nextState != MRConn_Connected) {
-    MRConnPool_ResetRowBlockCap(conn->pool);
+    MRConnPool_ResetModuleVersion(conn->pool);
   }
   switch (nextState) {
 

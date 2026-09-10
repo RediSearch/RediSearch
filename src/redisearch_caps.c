@@ -26,6 +26,14 @@ typedef struct {
 #define MINOR_LINE_MIN(major, minor) ((major) * 10000 + (minor) * 100)
 #define MINOR_LINE_MAX(major, minor) (MINOR_LINE_MIN((major), (minor)) + 99)
 
+// A predicate's version ranges stay per-feature (not folded into one generic
+// `>=` threshold): a later backport lands in one release line and not another,
+// and expressing that as a single threshold would either wrongly exclude the
+// backport or wrongly widen every version above the threshold. Each predicate
+// below is independently unit-testable (tests/ctests/test_redisearch_caps.c)
+// with no cluster involved.
+typedef bool (*RSCapabilityPredicate)(int moduleVersion);
+
 // Minor lines known to decode the row-block reply format (src/aggregate/row_block.h).
 //
 // The format has not shipped in a numbered release yet, so the only version known
@@ -41,12 +49,7 @@ static const CapVersionRange kRowBlockCapableRanges[] = {
     {REDISEARCH_MODULE_VERSION, REDISEARCH_MODULE_VERSION},
 };
 
-bool RediSearchCaps_HasRowBlock(int moduleVersion) {
-  // Fail closed on zero (never parsed / explicitly absent) and any negative
-  // sentinel a caller might use for "unknown".
-  if (moduleVersion <= 0) {
-    return false;
-  }
+static bool rowBlockPredicate(int moduleVersion) {
   for (size_t i = 0; i < sizeof(kRowBlockCapableRanges) / sizeof(kRowBlockCapableRanges[0]); i++) {
     if (moduleVersion >= kRowBlockCapableRanges[i].minInclusive &&
         moduleVersion <= kRowBlockCapableRanges[i].maxInclusive) {
@@ -54,4 +57,36 @@ bool RediSearchCaps_HasRowBlock(int moduleVersion) {
     }
   }
   return false;
+}
+
+// Designated-initializer table indexed by RSCapability, so a capability added to
+// the enum without a matching entry here is a zero-initialized (NULL) slot rather
+// than a silently misaligned one - RediSearchCaps_Supports treats a NULL slot as
+// "fail closed", not a crash.
+static const RSCapabilityPredicate kPredicates[RS_CAP__COUNT] = {
+    [RS_CAP_ROW_BLOCK] = rowBlockPredicate,
+};
+
+static const char *kCapabilityNames[RS_CAP__COUNT] = {
+    [RS_CAP_ROW_BLOCK] = "ROW_BLOCK",
+};
+
+const char *RSCapability_Name(RSCapability cap) {
+  if (cap < 0 || cap >= RS_CAP__COUNT || !kCapabilityNames[cap]) {
+    return "<UNKNOWN CAPABILITY>";
+  }
+  return kCapabilityNames[cap];
+}
+
+bool RediSearchCaps_Supports(RSCapability cap, int moduleVersion) {
+  // Fail closed on zero (never parsed / explicitly absent) and any negative
+  // sentinel a caller might use for "unknown" - shared by every capability so
+  // each predicate only has to express its own version ranges.
+  if (moduleVersion <= 0) {
+    return false;
+  }
+  if (cap < 0 || cap >= RS_CAP__COUNT || !kPredicates[cap]) {
+    return false;
+  }
+  return kPredicates[cap](moduleVersion);
 }

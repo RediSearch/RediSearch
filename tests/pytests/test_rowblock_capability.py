@@ -20,9 +20,9 @@
 # every shard in this test fleet, simulated-legacy or not, still reports this build's
 # real (capable) version, and the coordinator's HELLO-derived belief always resolves
 # to Yes for it. That makes this knob, by construction, exercise
-# MRConnManager_DemoteRowBlockCap's defence-in-depth path (a shard believed capable
+# MRConnManager_DemoteCapability's defence-in-depth path (a shard believed capable
 # that rejects the token anyway - a hole in the version mapping) rather than the
-# primary version-based mechanism (RediSearchCaps_HasRowBlock correctly saying "no"
+# primary version-based mechanism (RediSearchCaps_Supports correctly saying "no"
 # for a genuinely old version) - that primary mechanism has no way to be driven end
 # to end without a real older binary.
 #
@@ -38,11 +38,19 @@
 # test_demotion_after_unrecognized_arg exists as its own test: it is the one
 # scenario where "the first query fails, then it stops happening" is the actual
 # documented behavior, not a test-harness workaround.
+#
+# That gap is closed by search-_force-shard-caps (RSConfig.forceShardCapsOverride),
+# a hidden coordinator-only config that forces MRConnManager_NodeSupports's decision
+# directly, without a HELLO round trip. test_hello_driven_capability_skips_the_ask
+# uses it to put every shard into "supports nothing" and observe the coordinator
+# skip asking them outright - the one path every other test in this file cannot
+# reach, by construction, as explained above.
 
 from common import *
 
 ROW_BLOCK_CONFIG = 'search-internal-row-block-format'
 LEGACY_SHARD_CONFIG = 'search-_simulate-legacy-shard'
+FORCE_SHARD_CAPS_CONFIG = 'search-_force-shard-caps'
 
 
 def _create_and_populate(env, n=30):
@@ -73,7 +81,7 @@ def _set_all_shards(env, config, value):
 def _warm_up_demotion(env):
     """Run the query until it stops erroring, so every shard with
     search-_simulate-legacy-shard on has been asked-and-rejected at least once and
-    demoted (MRConnManager_DemoteRowBlockCap) - see the module docstring for why
+    demoted (MRConnManager_DemoteCapability) - see the module docstring for why
     this bootstrap round is unavoidable in this harness. Bounded by shardsCount:
     each round can newly demote at most the shards that replied and errored in it,
     so at most one round per shard should ever be needed. The final call is made
@@ -116,7 +124,7 @@ def test_all_shards_capable():
     # Uses env's own (non-cluster-routing) connection: SHARD_CONNECTION_STATES is
     # keyless, and the cluster-aware client can't route a keyless command on its own.
     state = str(env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES'))
-    env.assertEqual(state.count('RowBlockCapability=Yes'), env.shardsCount,
+    env.assertEqual(state.count('ROW_BLOCK=Yes'), env.shardsCount,
                      message=f"debug state: {state}")
 
 
@@ -187,7 +195,7 @@ def test_demotion_after_unrecognized_arg():
     Unlike the other mixed-fleet tests, this one asserts the failing bootstrap
     query directly instead of hiding it in _warm_up_demotion: "the first query
     fails, then it stops happening" is the actual documented behavior for this
-    scenario (see MRConnManager_DemoteRowBlockCap's doc comment in conn.h), not a
+    scenario (see MRConnManager_DemoteCapability's doc comment in conn.h), not a
     test-harness workaround for an unfakeable HELLO version.
     """
     env = Env(shardsCount=2)
@@ -206,3 +214,64 @@ def test_demotion_after_unrecognized_arg():
     for _ in range(2):
         rows = _aggregate_grouped(env)
         env.assertEqual(rows, _expected_rows())
+
+
+@skip(cluster=False)
+def test_hello_driven_capability_skips_the_ask():
+    """Scenario (7): the coordinator's HELLO-derived belief - not just the
+    defence-in-depth demotion path exercised by every other test in this file - is
+    what decides whether to ask a shard for the row-block format at all.
+
+    Every "legacy" shard in the tests above still advertises this build's real,
+    capable version over HELLO (see the module docstring), so they can only prove
+    that a shard asked-and-rejected stops being asked again; none of them can show
+    the coordinator skipping a shard *without* asking it first.
+    search-_force-shard-caps (RSConfig.forceShardCapsOverride) closes that gap: it
+    forces the decision MRConnManager_NodeSupports makes directly, without a HELLO
+    round trip, so this test can put every genuinely capable shard into "supports
+    nothing" and observe the primary mechanism - not the fallback - decide not to
+    ask them.
+
+    The observable that tells "never asked" apart from "asked and rejected" is
+    FT.DEBUG SHARD_CONNECTION_STATES's `demoted` flag (see
+    MRConnManager_DemoteCapability): demoted is only ever set by an actual
+    asked-and-rejected round trip. ROW_BLOCK=No(demoted=false) is only reachable
+    via the config override tested here - MRConnManager_DemoteCapability always
+    sets demoted=true alongside its own No - so demoted=true anywhere in this
+    test's state would mean the override didn't stop the ask, and demoted=true
+    would mean the primary mechanism, not this test, is broken.
+    """
+    env = Env(shardsCount=3)
+    _create_and_populate(env)
+    _set_all_shards(env, ROW_BLOCK_CONFIG, 'yes')
+
+    # Resolve every shard's HELLO-derived belief first, so the override below is
+    # unambiguously *why* every shard reads No afterwards, not a coincidence with
+    # an unresolved (unknown module version) belief.
+    rows = _aggregate_grouped(env)
+    env.assertEqual(rows, _expected_rows())
+    state = str(env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES'))
+    env.assertEqual(state.count('ROW_BLOCK=Yes'), env.shardsCount,
+                     message=f"debug state: {state}")
+
+    _set_all_shards(env, FORCE_SHARD_CAPS_CONFIG, 'no')
+
+    # The coordinator must not ask any shard at all, so the query has to succeed
+    # entirely via RESP fan-out with no rejection anywhere.
+    rows = _aggregate_grouped(env)
+    env.assertEqual(rows, _expected_rows())
+
+    state = str(env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES'))
+    env.assertEqual(state.count('ROW_BLOCK=No(demoted=false)'), env.shardsCount,
+                     message=f"debug state: {state}")
+    env.assertNotContains('demoted=true', state, message=f"debug state: {state}")
+
+    # Clearing the override lets the real (capable) HELLO-derived belief show
+    # through again - the override does not permanently replace it.
+    _set_all_shards(env, FORCE_SHARD_CAPS_CONFIG, 'auto')
+    rows = _aggregate_grouped(env)
+    env.assertEqual(rows, _expected_rows())
+    state = str(env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES'))
+    env.assertEqual(state.count('ROW_BLOCK=Yes'), env.shardsCount,
+                     message=f"debug state: {state}")
+    env.assertNotContains('demoted=true', state, message=f"debug state: {state}")

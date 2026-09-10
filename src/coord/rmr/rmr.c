@@ -764,12 +764,12 @@ bool MRIterator_AllShardsConnected(const MRIterator *it) {
 
 // Ask a single shard for the compact row-block encoding (src/aggregate/row_block.h),
 // once `cmd` already has its final `targetShard` set. Per-shard, not per-request:
-// asking a shard we don't yet know is capable of decoding the token (or which is
-// known incapable, or sticky-demoted after previously rejecting it - see
-// MRConnManager_DemoteRowBlockCap) would hard-fail that shard's whole query
-// (parseAggPlan's terminal `else` on an unrecognized argument), so an incapable or
-// Unknown shard gets no token at all, not a placeholder: even an empty argument
-// would be just as unrecognized as `_ROW_BLOCK` itself to an older build.
+// asking a shard we don't yet know supports RS_CAP_ROW_BLOCK (or which is known
+// unsupporting, or sticky-demoted after previously rejecting it - see
+// MRConnManager_DemoteCapability) would hard-fail that shard's whole query
+// (parseAggPlan's terminal `else` on an unrecognized argument), so an unsupporting
+// or not-yet-known shard gets no token at all, not a placeholder: even an empty
+// argument would be just as unrecognized as `_ROW_BLOCK` itself to an older build.
 //
 // Inserts at cmd->rowBlockArgIndex rather than appending at the current tail:
 // commands built via the FT.DEBUG wrapper (dist_aggregate.c) have their
@@ -780,9 +780,7 @@ bool MRIterator_AllShardsConnected(const MRIterator *it) {
 // a hybrid or cursor-read command - is simply never asked.
 static inline void maybeAskRowBlock(IORuntimeCtx *io_runtime_ctx, MRCommand *cmd) {
   if (!RSGlobalConfig.internalRowBlockFormat || !cmd->rowBlockArgIndex) return;
-  MRNodeCapState cap =
-      MRConnManager_GetRowBlockCapability(&io_runtime_ctx->conn_mgr, cmd->targetShard, NULL);
-  if (cap == MRNodeCap_Yes) {
+  if (MRConnManager_NodeSupports(&io_runtime_ctx->conn_mgr, cmd->targetShard, RS_CAP_ROW_BLOCK)) {
     MRCommand_Insert(cmd, cmd->rowBlockArgIndex, "_ROW_BLOCK", sizeof("_ROW_BLOCK") - 1);
   }
 }
