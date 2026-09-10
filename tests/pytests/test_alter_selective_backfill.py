@@ -452,6 +452,37 @@ def testAlterSkipUnchangedDocsFallbackActiveScan(env):
 
 
 @skip(cluster=True)
+def testAlterPreservesActiveSynonymScan(env):
+    """Replacing a synonym scan must preserve its work outside the new ALTER field range.
+    Both matching documents lack category, so a selective replacement would lose the
+    requested synonym update."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'baby alpha')
+    conn.execute_command('HSET', 'doc:2', 'title', 'baby bravo')
+    conn.execute_command('HSET', 'doc:3', 'title', 'adult')
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    try:
+        env.expect('FT.SYNUPDATE', 'idx', 'g', 'baby', 'child').ok()
+        waitForIndexStatus(env, 'NEW', 'idx')
+        env.expect('FT.SEARCH', 'idx', '@title:child', 'NOCONTENT').equal([0])
+
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+        waitForIndexStatus(env, 'NEW', 'idx')
+    finally:
+        env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '@title:child', 'NOCONTENT')),
+                    toSortedFlatList([2, 'doc:1', 'doc:2']))
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@title:adult', 'NOCONTENT').equal([1, 'doc:3'])
+
+
+@skip(cluster=True)
 def testAlterSkipUnchangedDocsFallbackUnresolvedOOM(env):
     """An unresolved OOM forces a full scan, also indexing earlier skipped fields."""
     try:
