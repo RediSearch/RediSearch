@@ -50,6 +50,36 @@ def testAlterSkipUnchangedDocsHash(env):
 
 
 @skip(cluster=True)
+def testAlterSkipUnchangedDocsHashFilter(env):
+    """Selective ALTER preserves FILTER membership while skipping only unchanged documents."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', '@status == "active"',
+               'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'alpha', 'status', 'active')
+    conn.execute_command('HSET', 'doc:2', 'title', 'bravo', 'status', 'active',
+                         'category', 'premium')
+    conn.execute_command('HSET', 'doc:3', 'title', 'charlie', 'status', 'inactive',
+                         'category', 'premium')
+
+    expected_docs = toSortedFlatList([2, 'doc:1', 'doc:2'])
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')),
+                    expected_docs)
+    id1_before = get_internal_id(env, 'doc:1')
+    id2_before = get_internal_id(env, 'doc:2')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    env.assertEqual(get_internal_id(env, 'doc:1'), id1_before)
+    env.assertGreater(get_internal_id(env, 'doc:2'), id2_before)
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')),
+                    expected_docs)
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@category:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True)
 def testAlterSkipUnchangedDocsMultipleAddedFields(env):
     """FT.ALTER SCHEMA ADD with several fields in one command: a document is reindexed if it
     has ANY of them, and skipped only when it has NONE -- the range, not a single field, is

@@ -95,12 +95,11 @@ static void IndexScanner_QueuePendingScanKey(ScanProcCtx *scanCtx, RedisModuleSt
 }
 
 static void IndexScanner_FreePendingScanKeys(ScanProcCtx *scanCtx) {
+  RS_LOG_ASSERT(scanCtx->pendingKeys, "pending scan keys must be initialized");
   for (size_t i = 0; i < array_len(scanCtx->pendingKeys); ++i) {
     RedisModule_FreeString(RSDummyContext, scanCtx->pendingKeys[i]);
   }
-  if (scanCtx->pendingKeys) {
-    array_set_len(scanCtx->pendingKeys, 0);
-  }
+  array_set_len(scanCtx->pendingKeys, 0);
 }
 
 static bool IndexScanner_MarkOOMIfNeeded(RedisModuleCtx *ctx, IndexesScanner *scanner,

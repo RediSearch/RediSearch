@@ -368,9 +368,6 @@ static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
 static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
                                                         const FieldSpec *fields, t_fieldIndex start,
                                                         t_fieldIndex end) {
-  if (!japi) {
-    return DOCUMENT_FIELDS_PROBE_FAILED;
-  }
   RedisJSON jsonRoot = JSON_GetJsonFromHandleCompat(key);
   if (!jsonRoot) {
     return DOCUMENT_FIELDS_PROBE_FAILED;
