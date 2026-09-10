@@ -50,6 +50,10 @@ bool IsEnterprise();
 
 size_t GetNumShards_UnSafe();
 
+bool SearchCluster_Ready();
+bool cannotBlockCtx(RedisModuleCtx *ctx);
+int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd);
+
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
@@ -79,6 +83,7 @@ do {                                            \
 #define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
+#define INCONSISTENT_INDEX_STATE "Inconsistent index state"
 
 #define RM_TRY(expr)                                                   \
   if (expr == REDISMODULE_ERR) {                                       \

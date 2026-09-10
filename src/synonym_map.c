@@ -11,6 +11,8 @@
 
 #include "spec.h"
 #include "synonym_map.h"
+#include "buffer.h"
+#include "util/hash/hash.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "rdb.h"
@@ -309,6 +311,32 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value) {
     TermData_RdbSave(rdb, val);
   }
   dictReleaseIterator(iter);
+}
+
+uint64_t SynonymMap_Fingerprint(const SynonymMap* smap) {
+  uint64_t acc = 0;
+  Buffer buf;
+  Buffer_Init(&buf, 64);
+  dictIterator* iter = dictGetIterator(smap->h_table);
+  const dictEntry* entry = NULL;
+  while ((entry = dictNext(iter))) {
+    TermData* t_data = dictGetVal(entry);
+    const uint64_t termLen = strlen(t_data->term);
+    for (uint32_t i = 0; i < array_len(t_data->groupIds); ++i) {
+      const char* groupId = t_data->groupIds[i] + 1; /* skip the `~` marker */
+      const uint64_t groupIdLen = strlen(groupId);
+      buf.offset = 0;
+      BufferWriter bw = NewBufferWriter(&buf);
+      Buffer_Write(&bw, t_data->term, termLen + 1);
+      Buffer_Write(&bw, groupId, groupIdLen);
+      Sha1 sha;
+      Sha1_Compute(buf.data, buf.offset, &sha);
+      acc ^= Sha1_LeadingU64(&sha);
+    }
+  }
+  dictReleaseIterator(iter);
+  Buffer_Free(&buf);
+  return acc;
 }
 
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {

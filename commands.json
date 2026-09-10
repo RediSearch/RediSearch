@@ -834,6 +834,16 @@
   "FT._LIST": {
     "summary": "Returns a list of all existing indexes",
     "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "withclusterstate",
+        "type": "pure-token",
+        "token": "WITHCLUSTERSTATE",
+        "summary": "Reports each index's cross-shard consistency state",
+        "optional": true,
+        "since": "8.12.0"
+      }
+    ],
     "since": "2.0.0",
     "group": "search",
     "command_tips": [
