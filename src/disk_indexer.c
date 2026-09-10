@@ -333,10 +333,11 @@ static void stageMissingFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     fields[n++] = fs->index;
   }
   dictReleaseIterator(iter);
+  dictRelease(missing);
+
   bool staged = SearchDisk_IndexMissingFields(
       sctx->redisCtx, sctx->spec->diskSpec, aCtx->disk.batch, fields, numFields, aCtx->doc->docId);
   rm_free(fields);
-  dictRelease(missing);
 
   if (!staged) {
     QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
