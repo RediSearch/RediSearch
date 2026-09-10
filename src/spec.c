@@ -1135,6 +1135,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
   memset(&fs->vectorOpts.diskCtx, 0, sizeof(VecSimDiskContext));
+  fs->vectorOpts.rerank = false;
 
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
@@ -1193,22 +1194,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.multi = multi;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
-    bool rerank = false;
-    result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
-    // Build disk params if disk mode is enabled
-    if (result && sp->diskSpec) {
-      size_t nameLen;
-      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
-        .indexName = rm_strndup(namePtr, nameLen),
-        .indexNameLen = nameLen,
-        // The disk storage layer keys this field's data by the value it finds
-        // here, so it has to stay stable for the life of the index.
-        .userData = fs->index,
-        .rerank = rerank,
-      };
-    }
+    result = parseVectorField_hnsw(
+        sp, fs, params, ac, status, &fs->vectorOpts.rerank);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
     if (isSpecOnDiskForValidation(sp)) {
@@ -1624,14 +1611,19 @@ reset:
   return 0;
 }
 
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp);
+
 // Assumes the spec is locked for write. Adds the fields only; scheduling the
 // post-alter background scan is the caller's job (see CreateIndexAlterCommand in
 // module.c).
 int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status) {
   setMemoryInfo(ctx);
-
-  return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
+  const int result = IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
+  if (result && sp->diskSpec) {
+    IndexSpec_PopulateVectorDiskParams(sp);
+  }
+  return result;
 }
 
 bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
@@ -1665,6 +1657,7 @@ inline static bool isSpecOnDisk(const IndexSpec *sp) {
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
+
 
 void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
   if (isSpecOnDiskForValidation(spec)) {
@@ -1770,19 +1763,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskCtx).
-  spec->diskSpec = NULL;
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
-    if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
-      goto failure;
-    }
-  }
 
   if (AC_IsInitialized(&acStopwords)) {
     if (spec->stopwords) {
@@ -1805,6 +1785,19 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
+  // Open only after the schema is populated so the per-CF write-buffer policy
+  // can account for every write-bearing field.
+  spec->diskSpec = NULL;
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
+    if (!spec->diskSpec) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      goto failure;
+    }
+    IndexSpec_PopulateVectorDiskParams(spec);
+  }
+
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
@@ -2196,13 +2189,11 @@ void IndexSpec_Free(IndexSpec *spec) {
 // calls this after deleting the registry entries; the create/parse failure path
 // calls it directly (the spec was never registered there).
 // Assumes this is called from the main thread with no competing threads.
-void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
+static void IndexSpec_UnlinkInternal(StrongRef spec_ref, bool removeActive, bool removeFieldStats) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
 
-  if (!spec->isDuplicate) {
-    // Remove spec from global aliases list
-    IndexSpec_ClearAliases(spec_ref);
-  }
+  // Loaded duplicates may have installed aliases that were absent from the live spec.
+  IndexSpec_ClearAliases(spec_ref);
 
   SchemaPrefixes_RemoveSpec(spec_ref);
 
@@ -2218,11 +2209,12 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
     spec->isTimerSet = false;
   }
 
-  // Remove spec's fields from global statistics
-  for (size_t i = 0; i < spec->numFields; i++) {
-    FieldSpec *field = spec->fields + i;
-    FieldsGlobalStats_UpdateStats(field, -1);
-    FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
+  if (removeFieldStats) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      FieldSpec *field = spec->fields + i;
+      FieldsGlobalStats_UpdateStats(field, -1);
+      FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
+    }
   }
 
   // Mark there are pending index drops.
@@ -2242,7 +2234,13 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
   StrongRef_Release(spec_ref);
 }
 
+void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
+  IndexSpec_UnlinkInternal(spec_ref, removeActive, true);
+}
 
+void IndexSpec_UnlinkLoaded(StrongRef spec_ref) {
+  IndexSpec_UnlinkInternal(spec_ref, false, false);
+}
 
 //---------------------------------------- atomic updates ---------------------------------------
 
@@ -2584,7 +2582,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
     // mode so the config survives RDB save/load uniformly.
     if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
         f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-      RedisModule_SaveUnsigned(rdb, f->vectorOpts.diskCtx.rerank ? 1 : 0);
+      RedisModule_SaveUnsigned(rdb, f->vectorOpts.rerank ? 1 : 0);
     }
     // Disk-backed vector fields ride their in-memory state inline with the field's RDB encoding so the
     // load path can deserialize it directly into an unbound VecSimIndex and
@@ -2730,10 +2728,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     if (encver >= INDEX_VECTOR_RERANK_VERSION &&
         f->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
         f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-      f->vectorOpts.diskCtx.rerank = LoadUnsigned_IOError(rdb, goto fail) != 0;
+      f->vectorOpts.rerank = LoadUnsigned_IOError(rdb, goto fail) != 0;
     } else {
-      f->vectorOpts.diskCtx.rerank = true;
+      f->vectorOpts.rerank = true;
     }
+    // Keep the derived context coherent even before disk storage is opened.
+    f->vectorOpts.diskCtx.rerank = f->vectorOpts.rerank;
     // Disk-backed vector field's in-memory state rides inline with the
     // field's RDB encoding. We deserialize directly into a freshly-created
     // unbound VecSimIndex. The resulting handle is stored on
@@ -2746,10 +2746,10 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       const bool vecSimWithData = LoadUnsigned_IOError(rdb, goto fail) != 0;
       if (vecSimWithData) {
         // Populate diskCtx.indexName early so cleanup uses the disk free
-        // path. storage is NULL until IndexSpec_SSTRdbOpenAndApply runs
-        // PopulateVectorDiskParams (which frees and reallocates indexName
-        // before binding storage). diskCtx.rerank was already set above
-        // from the persisted byte.
+        // path. storage is NULL until IndexSpec_SSTRdbOpenAndApply binds it.
+        // The unbound VecSim index copies the persisted rerank policy at
+        // construction; PopulateVectorDiskParams refreshes the context after
+        // the backing index opens.
         size_t nameLen = 0;
         const char *namePtr = HiddenString_GetUnsafe(f->fieldName, &nameLen);
         f->vectorOpts.diskCtx.storage = NULL;
@@ -3037,15 +3037,12 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
-    // Preserve rerank loaded by FieldSpec_RdbLoad — runtime fields below
-    // are repopulated from the freshly opened disk handle.
-    const bool rerank = fs->vectorOpts.diskCtx.rerank;
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
       .userData = fs->index,
-      .rerank = rerank,
+      .rerank = fs->vectorOpts.rerank,
     };
   }
 }
@@ -3299,7 +3296,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
   narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
-    QueryError _status;
+    QueryError _status = QueryError_Default();
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     HiddenString* alias = NewHiddenString(s, strlen(s), false);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
@@ -3307,6 +3304,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
+      QueryError_ClearError(&_status);
     }
   }
 

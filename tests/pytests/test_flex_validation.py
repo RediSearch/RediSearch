@@ -32,19 +32,72 @@ def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False)
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_max_index_limit(env):
-    """Test that creating more than 10 indices fails when search-_simulate-in-flex is true"""
-    # Create 10 indices successfully (the maximum allowed)
-    for i in range(10):
-        index_name = f'idx{i}'
-        env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
+    env.expect(
+        'FT.CREATE', 'restore_candidate', 'ON', 'HASH', 'PREFIX', '1', 'candidate:',
+        'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT',
+    ).ok()
+    candidate_dump, candidate_encode = env.cmd(
+        debug_cmd(), 'DUMP_SCHEMA', 'restore_candidate', NEVER_DECODE=True,
+    )
+    env.expect('FT.DROPINDEX', 'restore_candidate').ok()
 
-    # Verify all 10 indices were created
-    info_result = env.cmd('FT._LIST')
-    env.assertEqual(len(info_result), 10)
+    for i in range(300):
+        env.expect(
+            'FT.CREATE', f'idx{i}', 'ON', 'HASH', 'PREFIX', '1', f'idx{i}:',
+            'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT',
+        ).ok()
 
-    # Try to create the 11th index - this should fail
-    env.expect('FT.CREATE', 'idx10', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Max number of indexes reached for Flex indexes: 10')
+    env.assertEqual(len(env.cmd('FT._LIST')), 300)
+    env.expect(
+        'FT.CREATE', 'idx300', 'ON', 'HASH', 'SKIPINITIALSCAN',
+        'SCHEMA', 'field', 'TEXT',
+    ).error().contains('Max number of indexes reached for Flex indexes: 300')
+
+    env.expect('HSET', 'idx0:existing', 'field', 'existing').equal(1)
+    env.expect('FT.SEARCH', 'idx0', 'existing', 'NOCONTENT').equal(
+        [1, 'idx0:existing']
+    )
+
+    env.expect('FT.ALIASADD', 'restored_alias', 'idx0').ok()
+    env.expect('FT.ALIASADD', 'live_alias', 'idx0').ok()
+
+    duplicate_dump, duplicate_encode = env.cmd(
+        debug_cmd(), 'DUMP_SCHEMA', 'idx0', NEVER_DECODE=True,
+    )
+    env.expect('FT.ALIASDEL', 'restored_alias').ok()
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    restore_cmd = 'FT._RESTOREIFNX' if RS_TEST_ENTERPRISE else '_FT._RESTOREIFNX'
+    env.expect(
+        restore_cmd, 'SCHEMA', duplicate_encode, duplicate_dump,
+    ).ok()
+    env.expect(
+        'FT.SEARCH', 'restored_alias', 'existing', 'NOCONTENT',
+    ).error()
+    env.expect('FT.SEARCH', 'live_alias', 'existing', 'NOCONTENT').equal(
+        [1, 'idx0:existing']
+    )
+    env.expect('FT.ALIASDEL', 'live_alias').ok()
+    env.expect('FT.SEARCH', 'idx0', 'existing', 'NOCONTENT').equal(
+        [1, 'idx0:existing']
+    )
+    env.expect(
+        restore_cmd, 'SCHEMA', candidate_encode, candidate_dump,
+    ).error().contains('Max number of indexes reached for Flex indexes: 300')
+    env.assertEqual(len(env.cmd('FT._LIST')), 300)
+    env.expect('HSET', 'candidate:before', 'field', 'value').equal(1)
+    env.expect('FT.DROPINDEX', 'idx299').ok()
+    env.expect(
+        restore_cmd, 'SCHEMA', candidate_encode, candidate_dump,
+    ).ok()
+    env.expect('HSET', 'candidate:after', 'field', 'value').equal(1)
+    env.expect('FT.SEARCH', 'restore_candidate', 'value', 'NOCONTENT').equal(
+        [1, 'candidate:after']
+    )
+
+    env.cmd('SAVE')
+    env.stop()
+    env.start()
+    env.assertEqual(len(env.cmd('FT._LIST')), 300)
 
 
 @skip(cluster=True)

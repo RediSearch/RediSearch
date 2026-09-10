@@ -492,12 +492,12 @@ void validateDebugMode(DebugCTX *debugCtx) {
 
 }
 
-#define GET_SEARCH_CTX(name)                                        \
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
-  if (!sctx) {                                                      \
-    RedisModule_ReplyWithError(ctx, "Can not create a search ctx"); \
-    return REDISMODULE_OK;                                          \
-  }
+#define GET_SEARCH_CTX(name)                                                       \
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);                            \
+  if (!sctx) {                                                                     \
+    RedisModule_ReplyWithError(ctx, "Can not create a search ctx");                \
+    return REDISMODULE_OK;                                                         \
+  }                                                                                \
 
 #define REPLY_WITH_LONG_LONG(name, val, len)                  \
   RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \

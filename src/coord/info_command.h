@@ -13,4 +13,13 @@
 #include "rmr/rmr.h"
 #include "rmr/reply.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies);
+int InfoReplyReducerCtx(RedisModuleCtx *ctx, int count, MRReply **replies);
+
+#ifdef __cplusplus
+}
+#endif

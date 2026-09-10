@@ -125,6 +125,7 @@ struct MRCtx;
 #include <unistd.h>  // for usleep in coordinator reduce pause
 #endif
 
+
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
     const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                                             \
@@ -1012,6 +1013,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
 
+
   CurrentThread_SetIndexSpec(ref);
 
   if (ifnx) {
@@ -1321,14 +1323,14 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
   }
 
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
-  }
-
   IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
-  int rc = Indexes_StoreSpecAfterRdbLoad(sp);
+  IndexesStoreSpecResult rc = Indexes_StoreSpecAfterRdbLoad(ctx, sp);
 
-  if (rc != REDISMODULE_OK) {
+  if (rc == INDEXES_STORE_SPEC_LIMIT) {
+    return RedisModule_ReplyWithErrorFormat(
+        ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+  }
+  if (rc != INDEXES_STORE_SPEC_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");
   }
 

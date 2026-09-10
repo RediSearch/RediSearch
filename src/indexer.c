@@ -503,6 +503,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     return;
   }
 
+
   Document *doc = aCtx->doc;
 
   /**

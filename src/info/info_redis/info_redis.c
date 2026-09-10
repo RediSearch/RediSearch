@@ -57,6 +57,7 @@ static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_DiskResources(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -83,6 +84,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     // why metrics are suppressed.
     AddToInfo_IndexesEmpty(ctx);
     AddToInfo_RSConfig(ctx);
+    if (SearchDisk_IsInitialized()) {
+      AddToInfo_DiskResources(ctx);
+    }
     return;
   }
 
@@ -513,4 +517,8 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
 void AddToInfo_Disk(RedisModuleInfoCtx *ctx) {
   // Delegate to the disk API which outputs aggregated metrics directly
   SearchDisk_OutputInfoMetrics(ctx);
+}
+
+static inline void AddToInfo_DiskResources(RedisModuleInfoCtx *ctx) {
+  SearchDisk_OutputResourceInfoMetrics(ctx);
 }

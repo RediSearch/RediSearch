@@ -30,6 +30,9 @@ struct RedisModuleInfoCtx {
 };
 
 std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
+std::vector<std::string> &RMCK_GetReplies(RedisModuleCtx *ctx);
+void RMCK_EnableReplyCapture();
+void RMCK_DisableReplyCapture();
 
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage();

@@ -19,7 +19,11 @@
 #include "gtest/gtest.h"
 
 #include "info/field_spec_info.h"
+#include "coord/info_command.h"
+#include "redismock/redismock.h"
 #include "hiredis/hiredis.h"
+#include <algorithm>
+#include <iterator>
 #include "hiredis/read.h"
 
 #include <string>
@@ -64,6 +68,13 @@ std::string fieldEntry(const char *identifier, const char *attribute, size_t ext
   return r.s;
 }
 
+std::string topLevelInteger(const char *name, long long value) {
+  Resp r;
+  r.arr(2);
+  r.str(name).integer(value);
+  return r.s;
+}
+
 MRReply *parseReply(const std::string &resp) {
   redisReader *reader = redisReaderCreate();
   EXPECT_NE(reader, nullptr);
@@ -94,6 +105,33 @@ class ShardEntry {
 };
 
 }  // namespace
+
+TEST(CoordinatorInfoReducerTest, UsesMaximumShardWriteBufferSize) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  ASSERT_NE(ctx, nullptr);
+  RMCK_EnableReplyCapture();
+  RMCK_GetReplies(ctx).clear();
+
+  MRReply *shards[] = {
+      parseReply(topLevelInteger("disk_cf_write_buffer_size_bytes", 1048576)),
+      parseReply(topLevelInteger("disk_cf_write_buffer_size_bytes", 6291456)),
+      parseReply(topLevelInteger("disk_cf_write_buffer_size_bytes", 3145728)),
+  };
+  ASSERT_EQ(REDISMODULE_OK,
+            InfoReplyReducerCtx(ctx, static_cast<int>(std::size(shards)), shards));
+
+  const auto &reply = RMCK_GetReplies(ctx);
+  auto field = std::find(reply.begin(), reply.end(), "disk_cf_write_buffer_size_bytes");
+  ASSERT_NE(reply.end(), field);
+  ASSERT_NE(reply.end(), std::next(field));
+  EXPECT_EQ("6291456", *std::next(field));
+
+  for (MRReply *shard : shards) {
+    freeReplyObject(shard);
+  }
+  RMCK_DisableReplyCapture();
+  RedisModule_FreeThreadSafeContext(ctx);
+}
 
 class FieldDiskMetricsTest : public ::testing::Test {};
 

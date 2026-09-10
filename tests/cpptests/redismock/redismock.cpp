@@ -769,6 +769,26 @@ void RMCK_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, .
   va_end(ap);
 }
 
+int RMCK_InfoAddSection(RedisModuleInfoCtx *, const char *) {
+  return REDISMODULE_OK;
+}
+
+int RMCK_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, const char *field, long long value) {
+  ctx->fields.emplace_back(field, std::to_string(value));
+  return REDISMODULE_OK;
+}
+
+int RMCK_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, const char *field,
+                               unsigned long long value) {
+  ctx->fields.emplace_back(field, std::to_string(value));
+  return REDISMODULE_OK;
+}
+
+int RMCK_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, const char *field, double value) {
+  ctx->fields.emplace_back(field, std::to_string(value));
+  return REDISMODULE_OK;
+}
+
 int RMCK_InfoAddFieldCString(RedisModuleInfoCtx *ctx, const char *field, const char *value) {
   ctx->fields.emplace_back(field, value);
   return REDISMODULE_OK;
@@ -1039,19 +1059,52 @@ void RMCK_ResetRdbIO(RedisModuleIO *io) {
   }
 }
 
-#define REPLY_FUNC(basename, ...)                           \
-  int RMCK_Reply##basename(RedisModuleCtx *, __VA_ARGS__) { \
-    return REDISMODULE_OK;                                  \
-  }
+static bool captureReplies = false;
+static decltype(RedisModule_ReplyWithLongLong) savedReplyWithLongLong = nullptr;
+static decltype(RedisModule_ReplyWithCString) savedReplyWithCString = nullptr;
+static decltype(RedisModule_ReplyWithArray) savedReplyWithArray = nullptr;
+static decltype(RedisModule_ReplyWithStringBuffer) savedReplyWithStringBuffer = nullptr;
+static decltype(RedisModule_ReplyWithDouble) savedReplyWithDouble = nullptr;
+static decltype(RedisModule_ReplyWithString) savedReplyWithString = nullptr;
+static decltype(RedisModule_ReplyWithNull) savedReplyWithNull = nullptr;
+static decltype(RedisModule_ReplySetArrayLength) savedReplySetArrayLength = nullptr;
 
-REPLY_FUNC(WithLongLong, long long)
-REPLY_FUNC(WithSimpleString, const char *)
-REPLY_FUNC(WithArray, size_t)
-REPLY_FUNC(WithStringBuffer, const char *, size_t)
-REPLY_FUNC(WithDouble, double)
-REPLY_FUNC(WithString, RedisModuleString)
+int RMCK_ReplyWithLongLong(RedisModuleCtx *ctx, long long value) {
+  if (captureReplies) ctx->replies.emplace_back(std::to_string(value));
+  return REDISMODULE_OK;
+}
 
-int RMCK_ReplyWithNull(RedisModuleCtx *) {
+int RMCK_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *value) {
+  if (captureReplies) ctx->replies.emplace_back(value);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithCString(RedisModuleCtx *ctx, const char *value) {
+  if (captureReplies) ctx->replies.emplace_back(value);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithArray(RedisModuleCtx *, long) {
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithStringBuffer(RedisModuleCtx *ctx, const char *value, size_t len) {
+  if (captureReplies) ctx->replies.emplace_back(value, len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithDouble(RedisModuleCtx *ctx, double value) {
+  if (captureReplies) ctx->replies.emplace_back(std::to_string(value));
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *value) {
+  if (captureReplies) ctx->replies.emplace_back(*value);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithNull(RedisModuleCtx *ctx) {
+  if (captureReplies) ctx->replies.emplace_back("(null)");
   return REDISMODULE_OK;
 }
 
@@ -1075,8 +1128,43 @@ int RMCK_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
   return REDISMODULE_OK;
 }
 
-int RMCK_ReplySetArrayLength(RedisModuleCtx *, size_t) {
-  return REDISMODULE_OK;
+void RMCK_ReplySetArrayLength(RedisModuleCtx *, long) {
+}
+
+std::vector<std::string> &RMCK_GetReplies(RedisModuleCtx *ctx) {
+  return ctx->replies;
+}
+
+void RMCK_EnableReplyCapture() {
+  savedReplyWithLongLong = RedisModule_ReplyWithLongLong;
+  savedReplyWithCString = RedisModule_ReplyWithCString;
+  savedReplyWithArray = RedisModule_ReplyWithArray;
+  savedReplyWithStringBuffer = RedisModule_ReplyWithStringBuffer;
+  savedReplyWithDouble = RedisModule_ReplyWithDouble;
+  savedReplyWithString = RedisModule_ReplyWithString;
+  savedReplyWithNull = RedisModule_ReplyWithNull;
+  savedReplySetArrayLength = RedisModule_ReplySetArrayLength;
+  RedisModule_ReplyWithLongLong = RMCK_ReplyWithLongLong;
+  RedisModule_ReplyWithCString = RMCK_ReplyWithCString;
+  RedisModule_ReplyWithArray = RMCK_ReplyWithArray;
+  RedisModule_ReplyWithStringBuffer = RMCK_ReplyWithStringBuffer;
+  RedisModule_ReplyWithDouble = RMCK_ReplyWithDouble;
+  RedisModule_ReplyWithString = RMCK_ReplyWithString;
+  RedisModule_ReplyWithNull = RMCK_ReplyWithNull;
+  RedisModule_ReplySetArrayLength = RMCK_ReplySetArrayLength;
+  captureReplies = true;
+}
+
+void RMCK_DisableReplyCapture() {
+  captureReplies = false;
+  RedisModule_ReplyWithLongLong = savedReplyWithLongLong;
+  RedisModule_ReplyWithCString = savedReplyWithCString;
+  RedisModule_ReplyWithArray = savedReplyWithArray;
+  RedisModule_ReplyWithStringBuffer = savedReplyWithStringBuffer;
+  RedisModule_ReplyWithDouble = savedReplyWithDouble;
+  RedisModule_ReplyWithString = savedReplyWithString;
+  RedisModule_ReplyWithNull = savedReplyWithNull;
+  RedisModule_ReplySetArrayLength = savedReplySetArrayLength;
 }
 
 void RMCK_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int) {
@@ -1895,6 +1983,10 @@ static void registerApis() {
   REGISTER_API(GetContextFromIO);
 
   // Info
+  REGISTER_API(InfoAddSection);
+  REGISTER_API(InfoAddFieldLongLong);
+  REGISTER_API(InfoAddFieldULongLong);
+  REGISTER_API(InfoAddFieldDouble);
   REGISTER_API(InfoAddFieldCString);
   // Serialization
   REGISTER_API(LoadDataTypeFromStringEncver);

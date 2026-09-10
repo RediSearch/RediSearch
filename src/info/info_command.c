@@ -315,6 +315,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
   REPLY_KVINT("num_records", num_records);
+  if (isDisk) {
+    REPLY_KVINT("disk_cf_write_buffer_size_bytes",
+                SearchDisk_GetCfWriteBufferSize(sp->diskSpec));
+  }
   REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);

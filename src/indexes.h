@@ -121,12 +121,16 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs);
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 
-// Finalize a spec just loaded from RDB by publishing it into the global registry
-// (specDict_g/specIdDict_g) and starting its GC, or discarding it if a spec with
-// the same name already exists. Consumes the spec's reference on the duplicate
-// path. Accepts NULL (returns REDISMODULE_ERR). Callers obtain the spec from the
-// IndexSpec core (e.g. IndexSpec_RdbLoad / IndexSpec_Deserialize) and pass it here.
-int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp);
+typedef enum {
+  INDEXES_STORE_SPEC_OK = REDISMODULE_OK,
+  INDEXES_STORE_SPEC_ERROR = REDISMODULE_ERR,
+  INDEXES_STORE_SPEC_LIMIT = 2,
+} IndexesStoreSpecResult;
+
+// Finalize a spec just loaded from RDB by publishing it into the global registry,
+// discarding a duplicate, or rejecting a new spec above the Flex index limit.
+// Consumes the spec's reference on duplicate and limit paths. Accepts NULL.
+IndexesStoreSpecResult Indexes_StoreSpecAfterRdbLoad(RedisModuleCtx *ctx, IndexSpec *sp);
 
 // This function is called in case the server starts RDB loading.
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);

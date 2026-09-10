@@ -225,19 +225,17 @@ typedef struct {
   bool simulateInFlex;
   // If true, monitor document and field expiration for new indexes.
   bool monitorExpiration;
-  // Percentage of available memory to use for disk write buffer (0-100).
-  uint8_t diskBufferPercentage;
+  // Binary MiB reserved in the shared disk write-buffer budget for each open index.
+  size_t diskWbmBudgetPerIndexMB;
+  // Per-column-family write-buffer override in KiB. Zero selects schema-based sizing.
+  size_t diskWriteBufferSizeKB;
   // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
   // Both default to false; users opt in via search-disk-drop-read-cache and
   // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
-  // Per-DB cap on the number of files kept open. Valid values: -1 (unlimited) or >= 11.
-  // The disk backend reserves ~10 descriptors for non-data files and uses (cap - 10) as its
-  // open-file cache size, so caps of 0..10 would underflow that to an effectively unbounded
-  // cache — silently disabling the limit — rather than bounding it. Values in that range are
-  // rejected (see set_search_disk_max_open_files_config).
+  // Per-DB cap on the number of files kept open.
   int diskMaxOpenFiles;
   // Concurrent async document-metadata reads a single query iterator keeps in flight.
   unsigned int diskAsyncReadPoolSize;
@@ -420,84 +418,71 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
-#define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
-#define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+
+#define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 24
+#define DEFAULT_DISK_WRITE_BUFFER_SIZE_KB 0
+#define DISK_WRITE_BUFFER_SIZE_MIN_KB 64
+#define DISK_WRITE_BUFFER_SIZE_MAX_KB (64 * 1024)
+#define DISK_WRITE_BUFFER_SIZE_ALIGNMENT_KB 4
+#define DEFAULT_DISK_MAX_OPEN_FILES 1024
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
 #define DISK_ASYNC_READ_QUEUE_FACTOR_MAX 16
 static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <= UINT16_MAX,
               "queue depth must fit IndexResultAsyncReadState's uint16_t queueSize");
-// Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
-// underflows to unbounded, so a positive cap must leave at least one cached reader.
-#define DISK_MAX_OPEN_FILES_MIN 11
+#define DISK_MAX_OPEN_FILES_MIN 20
 #define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
-#define RS_DEFAULT_CONFIG {                                                    \
-    .extLoad = NULL,                                                           \
-    .frisoIni = NULL,                                                          \
-    .defaultScorer = NULL,                                                     \
-    .gcConfigParams.enableGC = 1,                                              \
-    .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
-    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
-    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
-    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
-    .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
-    .cursorReadSize = 1000,                                                    \
-    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
-    .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
-    .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
-    .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
-    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
-    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
-    .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
-    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
-    .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
-    .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
-    .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
-    .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
-    .noMemPool = 0,                                                            \
-    .filterCommands = 0,                                                       \
-    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,              \
-    .maxAggregateGroups = DEFAULT_MAX_AGGREGATE_GROUPS,                        \
-    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,     \
-    .numericCompress = false,                                                  \
-    .numericTreeMaxDepthRange = 0,                                             \
-    .requestConfigParams.printProfileClock = 1,                                \
-    .invertedIndexRawDocidEncoding = false,                                    \
-    .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
-    .freeResourcesThread = true,                                               \
-    .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
-    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \
-    .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
-    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
-    .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
-    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
-    .hideUserDataFromLog = false,                                              \
-    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
-    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
-    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,\
-    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
-    .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
-    .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
-    .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                  \
-    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
-    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
-    .infoEmitOnZeroIndexes = false,                                            \
-    .simulateInFlex = false,                                                   \
-    .monitorExpiration = true,                                                 \
-    .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
-    .diskDropReadCache = false,                                                \
-    .diskUseDirectReads = false,                                               \
-    .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
-    .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
-    .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
-    .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
+#define RS_DEFAULT_CONFIG                                                                          \
+  {                                                                                                \
+    .extLoad = NULL, .frisoIni = NULL, .defaultScorer = NULL, .gcConfigParams.enableGC = 1,        \
+    .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,                                \
+    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                \
+    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,                    \
+    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,                                \
+    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,                                   \
+    .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,                        \
+    .cursorReadSize = 1000, .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                              \
+    .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                     \
+    .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */               \
+        .minOperationWorkers = MIN_OPERATION_WORKERS,                                              \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                            \
+    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                   \
+    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                                              \
+    .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN, .gcConfigParams.gcPolicy = GCPolicy_Fork, \
+    .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                \
+    .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                                          \
+    .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,               \
+    .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,             \
+    .noMemPool = 0, .filterCommands = 0, .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,   \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                  \
+    .maxAggregateGroups = DEFAULT_MAX_AGGREGATE_GROUPS,                                            \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                         \
+    .numericCompress = false, .numericTreeMaxDepthRange = 0,                                       \
+    .requestConfigParams.printProfileClock = 1, .invertedIndexRawDocidEncoding = false,            \
+    .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true,   \
+    .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                 \
+    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE, .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,       \
+    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                              \
+    .prioritizeIntersectUnionChildren = false, .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,     \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE, .hideUserDataFromLog = false,      \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                                          \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,                         \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,                    \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,                           \
+    .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US,                     \
+    .requestConfigParams.oomPolicy = OomPolicy_Return, .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,   \
+    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                                      \
+    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,                               \
+    .infoEmitOnZeroIndexes = false, .simulateInFlex = false, .monitorExpiration = true,            \
+    .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,                               \
+    .diskWriteBufferSizeKB = DEFAULT_DISK_WRITE_BUFFER_SIZE_KB, .diskDropReadCache = false,        \
+    .diskUseDirectReads = false, .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                  \
+    .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                                    \
+    .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,                              \
+    .fallbackToMainThreadWhenBlockClientUnavailable = true,                                        \
   }
 
 #define REDIS_ARRAY_LIMIT 7
