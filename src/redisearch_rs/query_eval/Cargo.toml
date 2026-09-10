@@ -22,6 +22,7 @@ index_result.workspace = true
 inverted_index.workspace = true
 query.workspace = true
 query_error.workspace = true
+query_flags.workspace = true
 query_term.workspace = true
 query_types.workspace = true
 redis-module.workspace = true
