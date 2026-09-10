@@ -88,6 +88,10 @@ static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTime
 // observe the abort after their channels are woken.
 void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
 
+// A parked MR pop may be blocked on the hybrid request's own channel or a
+// subquery's channel. Wake every possible reader after publishing cancellation.
+void HybridRequest_WakeAbortChannels(HybridRequest *req);
+
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
   return req->base.async.requiresAggregateResultsSync;
 }
