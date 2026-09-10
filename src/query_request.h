@@ -57,6 +57,12 @@ typedef struct {
   size_t limit;            // Original limit, used to calculate the RESP2 result length
 } ChunkReplyState;
 
+/** Synchronizes access to reply state when results cross threads. */
+typedef struct {
+  ChunkReplyState state;
+  pthread_mutex_t lock;
+} SafeChunkReplyState;
+
 typedef enum {
   QUERY_REQUEST_KIND_AREQ,
   QUERY_REQUEST_KIND_HYBRID,
@@ -274,14 +280,17 @@ bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout);
 
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.
- * TODO($$$): Remove this temporary state after MOD-17486 is merged.
+ * TRANSITIONAL: the completion wait remains while post-timeout draining can
+ * re-enter pipeline state that is not thread-safe. Reply-state access has its
+ * own synchronization and must not rely on this wait; remove the wait when the
+ * drain is made thread-safe.
  */
 typedef struct QueryRequestAsyncState {
   /* The CAS claim grants exclusive ownership of result production: the BG
    * winner runs the pipeline and stores results, while the timeout-callback
    * winner preempts BG and replies empty. The loser waits for completion.
-   * Gated by requiresAggregateResultsSync. MOD-17486 replaces this claim/wait
-   * protocol with a timeout callback that never waits on BG state. */
+   * Gated by requiresAggregateResultsSync. This claim/wait protocol can be
+   * removed after the post-timeout drain is made thread-safe. */
   bool requiresAggregateResultsSync;   // Enable CAS/Signal/Wait around result production
   RS_Atomic(bool) aggregatingResults;  // CAS claim shared by BG and timeout callback
   bool aggregateResultsClaimLost;      // BG lost the claim to the timeout callback
@@ -341,7 +350,7 @@ typedef struct QueryRequest {
   /* Stored results and errors written by BG before UnblockClient and consumed
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
-  ChunkReplyState reply;
+  SafeChunkReplyState reply;
   /* false: BG replies inline through a thread-safe context; true: BG stores
    * results and the Redis reply callback serializes them on the main thread. */
   bool useReplyCallback;
@@ -355,6 +364,62 @@ typedef struct QueryRequest {
    */
   ResultProcessor **endProcRef;
 } QueryRequest;
+
+/** True when reply state may be accessed concurrently during this cycle. */
+static inline bool QueryRequest_RequiresReplyStateSafeAccess(const QueryRequest *request) {
+  return request->async.requiresAggregateResultsSync;
+}
+
+/**
+ * Returns the reply state without synchronization.
+ *
+ * Use only when the caller has exclusive ownership of the request, or when a
+ * separate synchronization event guarantees that the background thread can no
+ * longer access the state.
+ */
+static inline ChunkReplyState *QueryRequest_GetReplyStateUnsafe(QueryRequest *request) {
+  return &request->reply.state;
+}
+
+/**
+ * Returns the reply state with the synchronization required by the request's
+ * policy held. The caller must pair this with QueryRequest_ReleaseReplyStateSafe
+ * after its final access through the returned pointer.
+ *
+ * Non-strict flows do not share the state concurrently, so this deliberately
+ * avoids mutex overhead for them.
+ */
+static inline ChunkReplyState *QueryRequest_GetReplyStateSafe(QueryRequest *request) {
+  // Only strict cross-thread cycles can race a background publisher with the main thread.
+  if (QueryRequest_RequiresReplyStateSafeAccess(request)) {
+    pthread_mutex_lock(&request->reply.lock);
+  }
+  return &request->reply.state;
+}
+
+/** Releases the synchronization acquired by QueryRequest_GetReplyStateSafe. */
+static inline void QueryRequest_ReleaseReplyStateSafe(QueryRequest *request) {
+  // The synchronization policy is stable from safe acquisition through release.
+  if (QueryRequest_RequiresReplyStateSafeAccess(request)) {
+    pthread_mutex_unlock(&request->reply.lock);
+  }
+}
+
+/** Publishes final reply metadata and any thread-local result array safely. */
+void QueryRequest_SetReplyResultsSafe(QueryRequest *request, SearchResult **results, int rc,
+                                      cachedVars cv, size_t limit, const QueryError *err);
+
+/** Replaces the stored error under the policy-dependent synchronization. */
+void QueryRequest_SetReplyErrorSafe(QueryRequest *request, const QueryError *err);
+
+/** Consumes `result` by appending it to the shared array under the reply-state lock. */
+void QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result);
+
+/**
+ * Transfers the complete reply state to the caller and resets the shared state
+ * under the policy-dependent synchronization.
+ */
+ChunkReplyState QueryRequest_TakeReplyStateSafe(QueryRequest *request);
 
 /* Destroy the concrete request selected by `kind`. Owner-only: never call it
  * on a borrowed request (see the ownership contract on QueryRequest). */
