@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 # The resolve modules live one directory up and import a sibling `common`.
@@ -435,6 +436,32 @@ class ReviewThreadTests(unittest.TestCase):
         self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
 
 
+class RepairCommandTests(unittest.TestCase):
+    def test_fix_commands_preserve_inline_context(self):
+        for command in ("/backport-fix", "/backport-agent-fix"):
+            for suffix, expected in (("", ""), (" use the release API", "use the release API"),
+                                     ("\tkeep this\nignore second line", "keep this")):
+                with self.subTest(command=command, suffix=suffix):
+                    body = command + suffix
+                    self.assertTrue(resolve_fix.is_fix_command(body))
+                    self.assertEqual(resolve_fix.strip_inline_context(body), expected)
+
+    def test_similar_commands_do_not_trigger_repairs(self):
+        for body in ("/backport-fixes", "/backport-agent-fixes", "/backport-context hint",
+                     "/backport", "text\n/backport-fix", ""):
+            with self.subTest(body=body):
+                self.assertFalse(resolve_fix.is_fix_command(body))
+
+    def test_context_commands_and_aliases(self):
+        bodies = ["/backport-context keep the API", "/backport-agent-context old hint",
+                  "/backport-contextual not a hint", "/backport-agent-contextual neither",
+                  "/backport-context", "/backport-context first\nsecond"]
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), patch.object(
+                common, "gh_paginated_array", return_value=bodies):
+            self.assertEqual(resolve_fix.fetch_trusted_context_comments(1),
+                             ["keep the API", "old hint", "", "first\nsecond"])
+
+
 class GeneralCommentTests(unittest.TestCase):
     def setUp(self):
         os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"
@@ -460,6 +487,9 @@ class GeneralCommentTests(unittest.TestCase):
             self._c(3, "bob", "/backport-agent-context extra hint"),
             self._c(4, "carol", "/backport-agent-fix"),
             self._c(5, "dave", "🤖 Re: as you noted, this still drops the guard"),
+            self._c(6, "alice", "/backport-fix"),
+            self._c(7, "alice", "/backport-context new hint"),
+            self._c(8, "alice", "/backport 8.6"),
         ])
         got = resolve_fix.fetch_general_pr_comments(1, {})
         self.assertEqual([c["id"] for c in got], [1, 5])

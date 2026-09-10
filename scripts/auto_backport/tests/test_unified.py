@@ -51,7 +51,8 @@ class UnifiedTests(unittest.TestCase):
                              ["8.8", "8.6"])
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command + " 8.2", labels),
                              ["8.2"])
-        for command in ("/backport-agent-fix", "/backport-agent-context x", "/backporting"):
+        for command in ("/backport-agent-fix", "/backport-agent-context x",
+                        "/backport-fix", "/backport-context x", "/backporting"):
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels), [])
 
     def test_legacy_labels_do_not_select_targets(self):
