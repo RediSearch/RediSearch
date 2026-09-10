@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include "redismodule.h"
+#include "rqe_core.h"
 #include "util/redis_mem_info.h"
 #include "util/references.h"
 
@@ -62,6 +63,14 @@ extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 
+// Half-open [start, end) range of fields added by the ALTER that scheduled this scan.
+// Immutable for the scan's lifetime. An empty range means a full scan without the
+// per-document presence shortcut.
+typedef struct {
+  t_fieldIndex start;
+  t_fieldIndex end;
+} AddedFieldsRange;
+
 typedef struct IndexesScanner {
   bool global;
   // Cancellation latch, read by scan workers that may not hold the GIL. Access ONLY through
@@ -77,6 +86,10 @@ typedef struct IndexesScanner {
   // Always NULL for the async strategy: it keeps indexing the key that observed the pressure, so
   // that key is not the one left out — the omitted documents are the ones its abort never reached.
   RedisModuleString *OOMkey;
+  // Recorded once, right after construction, by the private scheduler in indexes_scan.c;
+  // non-empty only for a scan scheduled through IndexSpec_ScanAndReindexForAlter (see
+  // indexes_scan.h) that was able to stay selective.
+  AddedFieldsRange addedFields;
 } IndexesScanner;
 
 // Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.
