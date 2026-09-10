@@ -192,6 +192,9 @@ def testAlterSkipUnchangedDocsFallbackIndexMissing(env):
 
     env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
     env.assertGreater(get_internal_id(env, 'doc:2'), id2_before)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@status)', 'NOCONTENT',
+               'DIALECT', '2').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@status:{active}', 'NOCONTENT').equal([1, 'doc:2'])
 
 
 @skip(cluster=True)
