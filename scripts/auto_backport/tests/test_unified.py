@@ -47,13 +47,13 @@ class UnifiedTests(unittest.TestCase):
     def test_both_commands_use_only_canonical_labels(self):
         labels = {"labels": [{"name": n} for n in ["backport 8.8", "backport-8.2-agent", "backport 8.6"]]}
         for command in ("/backport", "/backport-agent"):
-            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels),
+            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command, labels),
                              ["8.8", "8.6"])
-            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command + " 8.2", labels),
+            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command + " 8.2", labels),
                              ["8.2"])
         for command in ("/backport-agent-fix", "/backport-agent-context x",
                         "/backport-fix", "/backport-context x", "/backporting"):
-            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels), [])
+            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command, labels), [])
 
     def test_legacy_labels_do_not_select_targets(self):
         labels = {"labels": [{"name": "backport-8.6-agent"}]}
@@ -63,11 +63,11 @@ class UnifiedTests(unittest.TestCase):
             ("issue_comment", "created", "", "/backport"),
         ):
             with self.subTest(event=event, action=action):
-                self.assertEqual(resolve_create.resolve_targets(event, action, label, comment, labels), [])
+                self.assertEqual(resolve_create.resolve_targets(event, action, comment, labels), [])
 
     def test_invalid_explicit_target_is_reported_without_label_fallback(self):
         diagnostics = []
-        self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", "/backport bad", {
+        self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "/backport bad", {
             "labels": [{"name": "backport 8.6"}]}, diagnostics), [])
         self.assertEqual(diagnostics, ["Invalid target(s): bad"])
 
@@ -86,8 +86,30 @@ class UnifiedTests(unittest.TestCase):
         self.assertEqual(ctx["labels"], ["bug"])
         self.assertEqual(ctx["author"], "author")
 
+    def test_resolver_ignores_label_events_before_fetching_pr(self):
+        os.environ.update(EVENT_NAME="pull_request_target", EVENT_ACTION="labeled")
+        with patch.object(common, "fetch_pr") as fetch, self.assertRaises(SystemExit):
+            resolve_create.main()
+        fetch.assert_not_called()
+        self.assertEqual(self.outputs["skip"], "true")
+
+    def test_creation_skips_unmerged_prs(self):
+        for event, action, comment in (("pull_request_target", "closed", ""),
+                                       ("issue_comment", "created", "/backport >= 8.2")):
+            for state in ("OPEN", "CLOSED"):
+                with self.subTest(event=event, state=state), patch.dict(os.environ, {
+                    "EVENT_NAME": event, "EVENT_ACTION": action, "COMMENT_BODY": comment,
+                    "PR_NUMBER_FROM_PR": "1", "PR_NUMBER_FROM_ISSUE": "1", "GITHUB_ACTOR": "alice",
+                }), patch.object(common, "has_write_permission", return_value=True), patch.object(
+                        common, "fetch_pr", return_value={"state": state}), patch.object(
+                        common, "write_context") as write, self.assertRaises(SystemExit):
+                    resolve_create.main()
+                write.assert_not_called()
+                self.assertEqual(self.outputs["skip"], "true")
+
     def test_resolver_denies_read_only_comment_author_before_fetching_pr(self):
-        os.environ.update(EVENT_NAME="issue_comment", COMMENT_BODY="/backport", GITHUB_ACTOR="alice")
+        os.environ.update(EVENT_NAME="issue_comment", EVENT_ACTION="created",
+                          COMMENT_BODY="/backport", GITHUB_ACTOR="alice")
         with patch.object(common, "has_write_permission", return_value=False), patch.object(
                 common, "fetch_pr") as fetch, self.assertRaises(SystemExit) as stopped:
             resolve_create.main()

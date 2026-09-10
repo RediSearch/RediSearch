@@ -138,9 +138,11 @@ def parse_comment_args(comment_body: str) -> list[str]:
 
 
 def resolve_targets(event_name: str, event_action: str,
-                    label_name: str, comment_body: str,
+                    comment_body: str,
                     pr_data: dict, diagnostics: list[str] | None = None) -> list[str]:
     """Derive the deduplicated target-branch list from event + PR state."""
+    if (event_name, event_action) not in {("pull_request_target", "closed"), ("issue_comment", "created")}:
+        return []
     targets: list[str] = []
     diagnostics = diagnostics if diagnostics is not None else []
 
@@ -160,15 +162,6 @@ def resolve_targets(event_name: str, event_action: str,
     # carry args but whose `>=` floor expanded to nothing must stay empty rather
     # than silently inheriting the PR's labels.
     if not comment_args and not targets:
-        # 2) On a `labeled` event, seed the just-fired label
-        #    (`github.event.label.name`) first, as a guard against the
-        #    `gh pr view` label snapshot lagging the webhook event.
-        if event_name == "pull_request_target" and event_action == "labeled":
-            m = LABEL_RE.fullmatch(label_name or "")
-            if m:
-                targets.append(m.group(1))
-
-        # Scan the complete label set so adding several labels is idempotent.
         for label in pr_data.get("labels", []) or []:
             m = LABEL_RE.fullmatch(label.get("name", ""))
             if m:
@@ -198,14 +191,15 @@ def resolve_targets(event_name: str, event_action: str,
 def main() -> int:
     event_name = os.environ.get("EVENT_NAME", "")
     event_action = os.environ.get("EVENT_ACTION", "")
-    label_name = os.environ.get("LABEL_NAME", "")
     comment_body = os.environ.get("COMMENT_BODY", "")
 
     if event_name == "issue_comment" and not COMMENT_COMMAND_RE.match(comment_body):
         common.skip("Not a backport creation command")
-    if event_name == "issue_comment" or event_action == "labeled":
+    if (event_name, event_action) not in {("pull_request_target", "closed"), ("issue_comment", "created")}:
+        common.skip("Not a merge or comment event")
+    if event_name == "issue_comment":
         if not common.has_write_permission(os.environ.get("GITHUB_ACTOR", "")):
-            common.skip("Backport commands and labels require repository write permission")
+            common.skip("Backport commands require repository write permission")
 
     pr = resolve_pr_number(event_name)
     if not pr:
@@ -233,7 +227,7 @@ def main() -> int:
         )
 
     diagnostics: list[str] = []
-    targets = resolve_targets(event_name, event_action, label_name, comment_body, pr_data, diagnostics)
+    targets = resolve_targets(event_name, event_action, comment_body, pr_data, diagnostics)
     if not targets and not diagnostics:
         common.skip(f"No backport targets resolved for PR #{pr}; nothing to do.")
 

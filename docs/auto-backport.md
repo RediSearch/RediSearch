@@ -10,7 +10,7 @@ on the source PR, including when the action or agent fails.
 | Interaction on the source PR | Behavior |
 |---|---|
 | Merge with `backport 8.6` | Backport to `8.6`, with automatic conflict fallback. |
-| Add `backport 8.6` after merge | Process the PR's current backport labels. |
+| Add or remove a backport label, before or after merge | No workflow run. After merge, comment `/backport` to process the updated labels. |
 | `/backport` | Process targets from all current backport labels. |
 | `/backport 8.6 8.2` | Process exactly these targets, overriding labels for this run. |
 | `/backport >= 8.6` | Process every registered active release line at or above 8.6. |
@@ -24,8 +24,11 @@ release-shaped branch names can target branches outside the active registry.
 Malformed targets and empty version expansions are reported without silently
 falling back to labels. Valid sibling targets still run.
 
-Labels applied before merge take effect at merge. Creation commands only operate
-on merged PRs. Commands and post-merge label events require repository write,
+Labels applied before merge take effect at merge; a merge without backport
+labels does no backport work. A bare `/backport` without labels also does no work.
+Explicit comment targets work without labels and replace label-based selection;
+the union is only between ranges and named branches within that comment.
+Creation commands only operate on merged PRs. Commands require repository write,
 maintain, or admin permission; unrelated comments and bot comments do not invoke
 the agent. Removing a label does not cancel running work or close a backport PR.
 
