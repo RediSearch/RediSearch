@@ -1,0 +1,65 @@
+name: "search-groupby-heavy-dist-1M-enwiki_abstract-hashes-collect-k400"
+description: "
+             - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
+               English-language Wikipedia:Database page abstracts.
+             - total docs: 1 million
+             - fields per doc: 3 TEXT sortable fields
+             - Type (read/write/mixed): read
+             - Query type: FT.AGGREGATE high-cardinality GROUPBY with TOLIST
+
+             This case targets the coordinator, not the shards. A high-cardinality GROUPBY
+             cannot be reduced away on a shard: each shard ships one partial row per group it
+             saw and the coordinator merges them, so shard-to-coordinator reply volume and
+             per-row reply materialization at the coordinator dominate. Existing aggregate
+             benchmarks do not cover this regime - the SORTBY/LIMIT variants return few rows
+             per shard, and the groupby-collect family runs on 10K documents.
+
+             The term filter is deliberate and is what keeps this benchmark honest. Over the
+             whole keyspace this aggregation cannot finish inside the shipped search-timeout
+             of 500ms, and the default RETURN policy then answers with a partial reply
+             carrying the count and zero groups - the fan-in being measured never happens and
+             the run reports a meaningless number. The five-term union yields 32,308 groups,
+             which measured p50 266ms and p99 365ms on a 4-primary cluster: enough fan-in for
+             the coordinator to dominate, with headroom under the timeout so no reply is
+             silently truncated. That was verified by sampling the returned group count under
+             sustained load and confirming it stayed at 32,308.
+
+             Group count is a property of the fixed dataset rather than of a tuning knob, so
+             it does not drift if the benchmark is re-run. Cluster setups only, deliberately:
+             on a single shard the fan-in effect being measured does not exist.
+             oss-cluster-02-primaries is excluded on purpose - it requests 2 CPUs for 2 shards
+             plus the coordinator and I/O threads, so it saturates CPU before the coordinator
+             becomes the bottleneck.
+             "
+
+metadata:
+  component: "search"
+  query_type: "groupby-heavy-distributed"
+  backend: "hash"
+  window: "0-400"
+
+timeout_seconds: 1800
+
+setups:
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - dataset_load_timeout_secs: 1800
+  - init_commands:
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+    - '"CONFIG" "GET" "search-internal-row-block-format"'
+    - '"CONFIG" "GET" "search-timeout"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract @abstract:american|county|university|book|district LOAD 2 @title @url GROUPBY 1 @title REDUCE COUNT 0 AS n REDUCE TOLIST 1 @url AS urls SORTBY 2 @n DESC LIMIT 0 400'"
