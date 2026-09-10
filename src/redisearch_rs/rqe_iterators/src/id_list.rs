@@ -14,6 +14,7 @@ use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use std::cmp::Ordering;
+use std::ptr::NonNull;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -387,7 +388,7 @@ impl<'query, const SORTED: bool> SuspendedIdList<'query, SORTED> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `SuspendedIdList<'query, SORTED>`.
     /// 2. `slot` is unaliased for the duration of the call.
     ///
@@ -395,14 +396,14 @@ impl<'query, const SORTED: bool> SuspendedIdList<'query, SORTED> {
     /// at the active type for `'a`; in the `Err` case the slot is byte-for-byte
     /// unchanged and remains a valid `SuspendedIdList<'query, SORTED>`.
     pub(crate) unsafe fn resume_in_place<'a>(
-        slot: *mut Self,
-    ) -> Result<*mut IdList<'a, SORTED>, *mut Self>
+        slot: NonNull<Self>,
+    ) -> Result<NonNull<IdList<'a, SORTED>>, NonNull<Self>>
     where
         'query: 'a,
     {
-        // SAFETY: `slot` is non-null, aligned, initialized, and unaliased (caller
+        // SAFETY: `slot` is aligned, initialized, and unaliased (caller
         // contracts 1 & 2), so a shared read of the result kind is sound.
-        let kind = unsafe { (*slot).result.kind() };
+        let kind = unsafe { (*slot.as_ptr()).result.kind() };
         if kind != RSResultKind::Metric && kind != RSResultKind::Virtual {
             tracing::warn!(
                 "An internal invariant has been violated. A suspended id list is storing a {kind} \
@@ -412,11 +413,14 @@ impl<'query, const SORTED: bool> SuspendedIdList<'query, SORTED> {
             return Err(slot);
         }
 
-        // SAFETY: `slot` is non-null, aligned, and points to an initialized
+        // SAFETY: `slot` is aligned and points to an initialized
         // `RawIdList<'query, Suspended, SORTED>` (caller contract 1). `&raw mut` forms a
         // field pointer without creating a reference, leaving `slot`'s provenance
         // over the whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*slot).result };
+        let result_slot = unsafe { &raw mut (*slot.as_ptr()).result };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `slot`, so it is
+        // non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: all preconditions of `into_active_in_place` are met:
         // 1. `result_slot` points at an initialized `RawIndexResult<'query, Suspended>`.
         // 2. `result_slot` is not aliased (caller contract 2).
@@ -443,14 +447,19 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `IdList<'index, SORTED>`.
     /// 2. `slot` is unaliased for the duration of the call.
-    pub(crate) unsafe fn suspend_in_place(slot: *mut Self) -> *mut SuspendedIdList<'index, SORTED> {
-        // SAFETY: `slot` is non-null, aligned, and initialized (caller contract 1).
+    pub(crate) unsafe fn suspend_in_place(
+        slot: NonNull<Self>,
+    ) -> NonNull<SuspendedIdList<'index, SORTED>> {
+        // SAFETY: `slot` is aligned and initialized (caller contract 1).
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // `slot`'s provenance over the whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*slot).result };
+        let result_slot = unsafe { &raw mut (*slot.as_ptr()).result };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `slot`, so it is
+        // non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `into_suspended_in_place`'s contract is met — `result_slot` points at
         // an initialized `RSIndexResult<'index>` and is not aliased (caller contracts
         // 1 and 2). Suspending is a safe widening conversion with no further precondition.
@@ -464,15 +473,15 @@ impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SOR
     type Suspended = SuspendedIdList<'index, SORTED>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active: *mut Self = Box::into_raw(self);
+        let active = NonNull::from(Box::leak(self));
 
-        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
+        // SAFETY: `suspend_in_place`'s contract is met — `active` is aligned and
         // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
         let suspended_ptr = unsafe { IdList::<'index, SORTED>::suspend_in_place(active) };
 
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::leak` above, so the
         // address is unchanged and every field is now valid at the suspended type.
-        unsafe { Box::from_raw(suspended_ptr) }
+        unsafe { Box::from_raw(suspended_ptr.as_ptr()) }
     }
 }
 
@@ -489,22 +498,24 @@ impl<'query, const SORTED: bool> RQESuspendedIterator<'query> for SuspendedIdLis
     where
         'query: 'index,
     {
-        let suspended: *mut Self = Box::into_raw(self);
+        let suspended = NonNull::from(Box::leak(self));
 
         // SAFETY: `resume_in_place`'s contract is met:
-        // 1. `suspended` is non-null, aligned, and initialized — it just came from a `Box`.
+        // 1. `suspended` is aligned and initialized — it just came from a `Box`.
         // 2. `suspended` is not aliased, since this function has ownership of `self`.
         match unsafe { SuspendedIdList::<'query, SORTED>::resume_in_place::<'index>(suspended) } {
             Ok(active_ptr) => {
-                // SAFETY: `active_ptr` reuses the same allocation from `Box::into_raw` above, so
+                // SAFETY: `active_ptr` reuses the same allocation from `Box::leak` above, so
                 // the address is unchanged and every field is now valid at the active type for
                 // `'index`.
-                Ok(ResumeOutcome::Ok(unsafe { Box::from_raw(active_ptr) }))
+                Ok(ResumeOutcome::Ok(unsafe {
+                    Box::from_raw(active_ptr.as_ptr())
+                }))
             }
             Err(suspended_ptr) => {
                 // SAFETY: `suspended_ptr` is the same allocation, left untouched and still a valid
                 // `SuspendedIdList`. Reclaim ownership so it is dropped.
-                drop(unsafe { Box::from_raw(suspended_ptr) });
+                drop(unsafe { Box::from_raw(suspended_ptr.as_ptr()) });
                 Ok(ResumeOutcome::Aborted)
             }
         }

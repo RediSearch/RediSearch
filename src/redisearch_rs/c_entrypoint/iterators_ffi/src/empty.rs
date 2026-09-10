@@ -14,5 +14,5 @@ use rqe_iterators::interop::RQEIteratorWrapper;
 #[unsafe(no_mangle)]
 /// Creates a new empty iterator.
 pub extern "C" fn NewEmptyIterator() -> *mut QueryIterator {
-    RQEIteratorWrapper::boxed_new(Empty)
+    RQEIteratorWrapper::boxed_new(Empty).as_ptr()
 }

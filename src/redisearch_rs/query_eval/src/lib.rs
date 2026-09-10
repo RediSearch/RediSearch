@@ -133,10 +133,10 @@ impl<'index> Evaluated<'index> {
     /// [`RQEIteratorWrapper::boxed_new`]; an already-lowered handle
     /// ([`Evaluated::C`] or [`Evaluated::RustCompound`]) is returned as-is, so
     /// C-side introspection (optimizer, profiler) keeps seeing the same iterator.
-    pub fn into_c_iterator(self) -> *mut ffi::QueryIterator {
+    pub fn into_c_iterator(self) -> NonNull<ffi::QueryIterator> {
         match self {
             Evaluated::RustLeaf(it) => RQEIteratorWrapper::boxed_new(it),
-            Evaluated::C(it) | Evaluated::RustCompound(it) => it.as_ptr(),
+            Evaluated::C(it) | Evaluated::RustCompound(it) => it,
         }
     }
 
@@ -253,12 +253,9 @@ fn eval_child_iterator(
         Some(ev) => ev.into_c_iterator(),
         None => RQEIteratorWrapper::boxed_new(Empty),
     };
-    // `into_c_iterator` and `boxed_new` always return a valid, owning, non-null
-    // C `QueryIterator`.
-    let nn = NonNull::new(ptr).expect("evaluated child iterator must not be null");
-    // SAFETY: `nn` is a valid, owning C `QueryIterator` with all callbacks
+    // SAFETY: `ptr` is a valid, owning C `QueryIterator` with all callbacks
     // populated — exactly the precondition of `CRQEIterator::new`.
-    unsafe { CRQEIterator::new(nn) }
+    unsafe { CRQEIterator::new(ptr) }
 }
 
 /// Whether a term disk reader must carry term offsets: required when the node

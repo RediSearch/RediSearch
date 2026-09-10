@@ -83,8 +83,12 @@ impl<'query, Rf: Ref, E: DecodedBy, C, RA> RawMissing<'query, Rf, E, C, RA> {
 
     /// Get the field name tracked by this missing-field iterator.
     /// The field name is stored as an owned [`CString`].
-    pub fn field_name(&self) -> (*const c_char, usize) {
-        (self.field_name.as_ptr(), self.field_name.as_bytes().len())
+    pub fn field_name(&self) -> (NonNull<c_char>, usize) {
+        (
+            NonNull::new(self.field_name.as_ptr().cast_mut())
+                .expect("`CString::as_ptr` never returns null"),
+            self.field_name.as_bytes().len(),
+        )
     }
 }
 
