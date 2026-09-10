@@ -689,6 +689,26 @@ typedef struct IndexDiskAPI {
    */
   char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
 
+  /**
+   * Stage doc-ids-only postings for INDEXMISSING fields absent from a document.
+   * `fields` contains `numFields` global schema field indexes and is borrowed
+   * only for this call. No field-expiration state is passed to disk.
+   * `batch` must belong to `index`. On false, the caller must abort the batch,
+   * including any missing postings already staged. These postings must never
+   * increment num_records. `ctx` is used to register the shared missing CF.
+   */
+  bool (*indexMissingFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                             SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                             size_t numFields, t_docId docId);
+
+  /**
+   * Open the missing postings for a global schema field index using the query's
+   * snapshot (from createSnapshot(index), valid until the iterator is freed).
+   * An unwritten field produces an empty iterator. On failure, return NULL and
+   * populate status. The iterator reports InvIdxMissing / MISSING in profiles.
+   */
+  QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
+                                       RedisSearchDiskSnapshot *snapshot, QueryError *status);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

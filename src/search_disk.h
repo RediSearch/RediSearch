@@ -234,6 +234,17 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
+/** Stage absent INDEXMISSING fields in the document batch; false requires aborting it.
+ * The field-index array is borrowed only for the call. See IndexDiskAPI.indexMissingFields. */
+bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                   SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                                   size_t numFields, t_docId docId);
+
+/** Open missing postings using sctx's query snapshot. See IndexDiskAPI.newMissingIterator. */
+QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
+                                             const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                             QueryError *status);
+
 /**
  * @brief Stage a numeric value for a document on a write batch.
  *

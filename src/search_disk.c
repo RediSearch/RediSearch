@@ -332,6 +332,20 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
+bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                   SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                                   size_t numFields, t_docId docId) {
+  RS_ASSERT(disk && index && batch && (fields || numFields == 0));
+  return disk->index.indexMissingFields(ctx, index, batch, fields, numFields, docId);
+}
+
+QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
+                                             const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                             QueryError *status) {
+  RS_ASSERT(disk && index && sctx && sctx->diskSnapshot);
+  return disk->index.newMissingIterator(index, fieldIndex, sctx->diskSnapshot, status);
+}
+
 bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
     return disk->index.indexNumeric(ctx, index, batch, docId, value, fieldIndex);

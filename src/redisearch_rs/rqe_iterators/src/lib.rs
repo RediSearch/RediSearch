@@ -463,6 +463,18 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
+    /// Iterate over documents missing the given schema field at indexing time.
+    ///
+    /// An unwritten field returns an empty iterator, not an error. Nonempty
+    /// iterators report [`IteratorType::InvIdxMissing`] and `MISSING` in profiles.
+    /// Missing postings do not perform field-expiration checks on disk.
+    fn new_missing_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        field_index: FieldIndex,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+
     /// Iterate over the entries of the numeric index at the given field index whose value
     /// matches `filter`.
     fn new_numeric_on_disk<'index>(

@@ -31,6 +31,13 @@ extern "C" {
 #endif
 
 /**
+ * Return an owned dictionary of INDEXMISSING fields absent from the document,
+ * keyed by field name with FieldSpec values. Returns NULL when none are configured.
+ * The caller releases the dictionary. Field expiration is not considered.
+ */
+dict *Indexer_CollectMissingFields(const IndexSpec *spec, const Document *doc);
+
+/**
  * Drop the replaced document's VecSim and Geometry entries.
  *
  * These two index types live in memory in both memory mode and disk mode (the
