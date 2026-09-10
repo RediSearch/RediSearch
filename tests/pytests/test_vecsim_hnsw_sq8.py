@@ -546,3 +546,61 @@ def test_hnsw_sq8_reload_retrains_after_deletions():
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     assert_sq8_storage(env, 0, 4)
     assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'])
+
+
+@skip(cluster=False, min_shards=2)
+def test_hnsw_sq8_cluster_mixed_training_states():
+    """Merge flat and compressed shard results before and after rebuilding from RDB."""
+    env = Env(moduleArgs='WORKERS 2')
+    conn = getConnectionByEnv(env)
+    shard_tags = distinct_shard_tags(conn)
+    flat_tag, trained_tag = next(shard_tags), next(shard_tags)
+    documents = [
+        (f'{{{flat_tag}}}:near', 1, 'keep'),
+        (f'{{{flat_tag}}}:far', 6, 'keep'),
+        (f'{{{trained_tag}}}:nearest', 2, 'omit'),
+        (f'{{{trained_tag}}}:near', 4, 'keep'),
+        (f'{{{trained_tag}}}:far', 8, 'keep'),
+        (f'{{{trained_tag}}}:farthest', 10, 'keep'),
+    ]
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        params = hnsw_params(data_type, 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW',
+                   len(params), *params, 'tag', 'TAG').ok()
+        for key, value, tag in documents:
+            conn.execute_command('HSET', key, 'v', sq8_vector(value, data_type), 'tag', tag)
+
+        for reload in (False, True):
+            if reload:
+                env.dumpAndReload()
+                waitForIndex(env, 'idx')
+            verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+            states = []
+            for shard in env.getOSSMasterNodesConnectionList():
+                info = to_dict(shard.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))
+                states.append((to_dict(info['FRONTEND_INDEX'])['INDEX_SIZE'],
+                               to_dict(info['BACKEND_INDEX'])['INDEX_SIZE']))
+            env.assertEqual(sorted(states), [(0, 0)] * (env.shardsCount - 2) + [(0, 4), (2, 0)])
+            info = vector_field_info(env, 'idx')
+            env.assertEqual(info['compression'], 'SQ8', message=info)
+            env.assertEqual(info['training_threshold'], 4, message=info)
+
+            for query, selected in (
+                ('*=>[KNN 3 @v $q AS dist]', documents),
+                ('@tag:{keep}=>[KNN 3 @v $q HYBRID_POLICY ADHOC_BF AS dist]',
+                 [doc for doc in documents if doc[2] == 'keep']),
+                ('@tag:{keep}=>[KNN 3 @v $q HYBRID_POLICY BATCHES AS dist]',
+                 [doc for doc in documents if doc[2] == 'keep']),
+            ):
+                expected = sorted(((key, (value - 2.25) ** 2) for key, value, _ in selected),
+                                  key=lambda item: item[1])[:3]
+                result = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', 2,
+                                 'q', sq8_vector(2.25, data_type), 'SORTBY', 'dist',
+                                 'RETURN', 1, 'dist', 'DIALECT', 2)
+                env.assertEqual([result[0], *result[1::2]],
+                                [3, *[key for key, _ in expected]], message=result)
+                for fields, (_, distance) in zip(result[2::2], expected):
+                    env.assertEqual(fields[0], 'dist', message=result)
+                    env.assertTrue(np.isclose(float(fields[1]), distance, rtol=0.002,
+                                               atol=0.002), message=result)
+        env.expect('FT.DROPINDEX', 'idx', 'DD').ok()

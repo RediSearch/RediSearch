@@ -11,8 +11,8 @@
 - [x] Align with the final head of the #1034 → #1035 → #1029 stack and validate
       the build, units, and behavioral tests on `arm-r8g.xlarge`.
 - [x] Update the SVS GC fixture for the dependency's retained spare block.
-- [x] Resolve or account for the previous full-suite failures; the expiration
-      assertion remains unresolved, as recorded in [verification.md](verification.md).
+- [x] Resolve or account for the previous full-suite failures; the current results
+      and historical failures are recorded in [verification.md](verification.md).
 - [x] Obtain an independent review.
 - [x] Enforce the frontend resize limit during creation and RDB loading.
 - [x] Resolve workerless SQ8 migration in VecSim and verify it in RediSearch.
@@ -27,5 +27,7 @@
 - [x] Verify scores and ranking for KNN, both hybrid policies, range queries,
       and multi-value JSON through training and reload.
 - [x] Document the encoding-v28 boundary for replication and slot migration.
+- [x] Verify merged KNN and hybrid scores with mixed shard training states before
+      and after reload, including FLOAT32 and FLOAT16.
 - [ ] Replace the provisional dependency pin with the merged VecSim commit.
 - [ ] Obtain maintainer review and green CI before merge.

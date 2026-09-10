@@ -7,7 +7,7 @@ Validated on `dorer-intel` in `/mnt/nvme/rs-pr11330-qohhy4af`, from RediSearch
 contains the reviewed #1034 -> #1035 -> #1029 stack, which remains unmerged.
 
 - GCC 13.3, Rust 1.94.0, assertion-enabled Debug build with committed Rust headers
-  and SVS v0.3.2: passed. The build reports the existing C compilation warning
+  and SVS v0.3.2: passed. The build reports a C compilation warning
   about the C++-only `-fsized-deallocation` flag.
 - All 1,042 C/C++ unit cases passed: 17 C, 870 C++, 5 coordinator C, and 150
   coordinator C++.
@@ -22,12 +22,25 @@ contains the reviewed #1034 -> #1035 -> #1029 stack, which remains unmerged.
   invalid metric. The corrected loader rejects both, as well as compressed disk
   configurations with zero or positive training thresholds.
 - Changed-line C/C++ formatting, Python syntax, and whitespace checks passed.
-- The full standalone behavioral suite is running; its result will be recorded
-  before publishing this revision.
+- The full standalone behavioral suite completed in 410 seconds: RLTest reported
+  2,364 run, 2,362 passed (including skips), and two failures. The SVS metadata
+  test used fallback expectations because the test-only invocation omitted
+  `BUILD_INTEL_SVS_OPT=1`; the TLS test used a Redis binary without TLS support.
+  With the test flag matching the module build and a TLS-enabled Redis binary
+  built from the same Redis commit, all 106 cases in the complete SVS file plus
+  the TLS test passed. No production changes were needed for these failures.
+- The cluster regression passed on three shards with FLOAT32 and FLOAT16, before
+  and after reload: one shard has two vectors in FLAT, another has four in
+  compressed HNSW, and the third is empty. It checks merged KNN and both hybrid
+  policies' rankings and scores, plus `FT.INFO` configuration.
+- The source manifest verifies all 2,755 checked files and all five dependency
+  revisions against the tested remote checkout; validation documents are excluded.
 
 Logs in the checkout: `pr11330-build.log`, `pr11330-unit-final.log`,
 `pr11330-focused-final.log`, `pr11330-rdb-validation-before.log`, and
-`pr11330-full.log`. Source-update manifests record the tested file checksums.
+`pr11330-full.log`. The environment-corrected rerun is in
+`pr11330-svs-tls-rerun.log`, and the cluster run is in `pr11330-cluster.log`.
+Source-update manifests record the tested file checksums.
 
 The earlier results below describe older snapshots and are retained as historical
 evidence, rather than results for this dependency revision.
