@@ -666,13 +666,7 @@ def testTagQueryWithStopwords_V2():
     conn.execute_command('HSET', 'doc2', 'tag', 'as,is,the,with,by')
     env.expect('FT.EXPLAIN', 'idx', '@tag:{as is the with by}').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    as
-    is
-    the
-    with
-    by
-  }
+  as is the with by
 }
 '''[1:])
     env.expect('FT.SEARCH', 'idx', '@tag:{as is the with by}', 'NOCONTENT').equal([1, 'doc1'])
@@ -681,11 +675,7 @@ TAG:@tag {
     conn.execute_command('HSET', 'doc4', 'tag', 'cat with dog')
     env.expect('FT.EXPLAIN', 'idx', '@tag:{cat with dog}').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    cat
-    with
-    dog
-  }
+  cat with dog
 }
 '''[1:])
     env.expect('FT.SEARCH', 'idx', '@tag:{cat with dog}', 'NOCONTENT').equal([1, 'doc4'])
@@ -695,14 +685,44 @@ TAG:@tag {
     conn.execute_command('HSET', 'doc7', 'tag', 'cat foo dog')
     env.expect('FT.EXPLAIN', 'custom_idx', '@tag:{foo bar}').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    foo
-    bar
-  }
+  foo bar
 }
 '''[1:])
     env.expect('FT.SEARCH', 'custom_idx', '@tag:{foo bar}', 'NOCONTENT').equal([1, 'doc5'])
     env.expect('FT.SEARCH', 'idx', '@tag:{cat foo dog}', 'NOCONTENT').equal([1, 'doc7'])
+
+@skip(cluster=True)
+def testTagExplainPhrase_MOD8666():
+    """A tag phrase such as {bar foo} is a single tag value made of two words, not an
+    intersection of two values; FT.EXPLAIN must match how the query is actually evaluated."""
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'bar')
+    conn.execute_command('HSET', 'doc:2', 't', 'foo')
+    conn.execute_command('HSET', 'doc:3', 't', 'bar,foo')
+    conn.execute_command('HSET', 'doc:4', 't', 'bar foo')
+
+    expected = r'''
+TAG:@t {
+  bar foo
+}
+'''[1:]
+    env.expect('FT.EXPLAIN', 'idx', '@t:{bar foo}').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '@t:{"bar foo"}').equal(expected)
+    env.expect('FT.SEARCH', 'idx', '@t:{bar foo}', 'NOCONTENT').equal([1, 'doc:4'])
+    env.expect('FT.EXPLAIN', 'idx', '@t:{$a $b}', 'PARAMS', 4, 'a', 'bar', 'b', 'foo').equal(expected)
+
+    env.expect('FT.EXPLAIN', 'idx', '@t:{bar foo} | @t:{foo}').equal(r'''
+UNION {
+  TAG:@t {
+    bar foo
+  }
+  TAG:@t {
+    foo
+  }
+}
+'''[1:])
 
 def testTagQueryWithOR_V2():
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -715,10 +735,7 @@ def testTagQueryWithOR_V2():
  # tag_list ::= taglist OR affix (affix is suffix)
   env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *ple }').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
+  x y
   SUFFIX{*ple}
 }
 '''[1:])
@@ -727,10 +744,7 @@ TAG:@tag {
   # tag_list ::= taglist OR affix (affix is prefix)
   env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | ba* }').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
+  x y
   PREFIX{ba*}
 }
 '''[1:])
@@ -739,10 +753,7 @@ TAG:@tag {
  # tag_list ::= taglist OR affix (affix is contains)
   env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *pl* }').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
+  x y
   INFIX{*pl*}
 }
 '''[1:])
@@ -751,10 +762,7 @@ TAG:@tag {
 # taglist OR param_term_case
   env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | banana }').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
+  x y
   banana
 }
 '''[1:])
@@ -768,10 +776,7 @@ def testTagQueryWithStopwords_V1():
     conn.execute_command('HSET', 'doc2', 'tag', 'dog')
     env.expect('FT.EXPLAIN', 'idx', '@tag:{cat dog}').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    cat
-    dog
-  }
+  cat dog
 }
 '''[1:])
     env.expect('FT.SEARCH', 'idx', '@tag:{cat dog}', 'NOCONTENT').equal([0])
