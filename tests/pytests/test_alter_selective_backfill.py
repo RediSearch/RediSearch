@@ -361,6 +361,61 @@ def testAlterSkippedFieldsAddedDuringScan(env):
 
 
 @skip(cluster=True)
+def testAlterSelectiveScanWithDocumentChanges(env):
+    """A selective scan must reflect writes and deletions made while it is paused.
+    Adding, removing, and changing the new field must preserve current query membership;
+    deleted documents and replaced values must stay excluded when scanning resumes."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+
+    # One key is processed before the pause. Duplicate each case so at least one key in
+    # every group still awaits the scanner, regardless of keyspace iteration order.
+    keys_by_action = {action: [f'doc:{action}:{i}' for i in range(2)]
+                      for action in ('add', 'remove', 'change', 'delete', 'stable')}
+    for action, keys in keys_by_action.items():
+        for key in keys:
+            fields = ['title', 'original']
+            if action != 'add':
+                fields += ['category', 'stable' if action == 'stable' else 'old']
+            conn.execute_command('HSET', key, *fields)
+    conn.execute_command('HSET', 'doc:untouched', 'title', 'original')
+    untouched_id = get_internal_id(env, 'doc:untouched')
+
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 1).ok()
+    try:
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+        waitForIndexStatus(env, 'PAUSED', 'idx')
+
+        for key in keys_by_action['add']:
+            conn.execute_command('HSET', key, 'category', 'added', 'title', 'updated')
+        for key in keys_by_action['remove']:
+            conn.execute_command('HDEL', key, 'category')
+        for key in keys_by_action['change']:
+            conn.execute_command('HSET', key, 'category', 'changed')
+        conn.execute_command('DEL', *keys_by_action['delete'])
+    finally:
+        env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+        env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    original_keys = (keys_by_action['remove'] + keys_by_action['change'] +
+                     keys_by_action['stable'] + ['doc:untouched'])
+    for query, expected_keys in [
+        ('*', original_keys + keys_by_action['add']),
+        ('@category:{added}', keys_by_action['add']),
+        ('@category:{changed}', keys_by_action['change']),
+        ('@category:{stable}', keys_by_action['stable']),
+        ('@category:{old}', []),
+        ('@title:updated', keys_by_action['add']),
+        ('@title:original', original_keys),
+    ]:
+        result = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(result),
+                        toSortedFlatList([len(expected_keys), *expected_keys]), message=query)
+    env.assertEqual(get_internal_id(env, 'doc:untouched'), untouched_id)
+
+
+@skip(cluster=True)
 def testAlterSkippedFieldsIndexedOnReload(env):
     """RAM reload indexes skipped fields; a later ALTER can still skip unaffected documents."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
