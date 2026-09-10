@@ -13,7 +13,9 @@ use std::ptr::NonNull;
 
 use dict::{Dict, MissingFieldDictType};
 use hidden_string::HiddenString;
+use query_error::QueryErrorCode;
 use rqe_iterators::inverted_index::new_missing_iterator;
+use search_disk::SearchDiskHandle;
 
 use crate::{EvalResult, QueryEvalContext};
 
@@ -22,6 +24,24 @@ pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     fs: &ffi::FieldSpec,
 ) -> Option<EvalResult<'index>> {
+    // SAFETY: the context owns a live spec whose disk handle, when non-null,
+    // remains valid for the query's lifetime (QueryEvalContext invariants 1/2).
+    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+            .expect("query.sctx.diskSnapshot is null for a disk-backed missing query");
+        // SAFETY: the spec and its query snapshot remain valid for `'index`,
+        // enterprise iterators are registered for disk specs, and query
+        // evaluation has exclusive access to the disk handle.
+        return match unsafe { disk.new_missing_iterator(fs.index, snapshot) } {
+            Ok(it) => Some(it),
+            Err(err) => {
+                ctx.status()
+                    .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
+                None
+            }
+        };
+    }
+
     let spec = ctx.spec();
 
     // SAFETY: the query's spec owns a live missing-field dictionary created

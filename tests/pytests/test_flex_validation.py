@@ -159,11 +159,6 @@ def test_unsupported_schema_options(env):
     env.expect('FT.CREATE', 'idx2', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'NOINDEX') \
         .error().contains('Disk index does not support NOINDEX fields')
 
-    # Test INDEXMISSING is not supported
-    env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
-        .error().contains('Disk index does not support INDEXMISSING fields')
-
-
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
