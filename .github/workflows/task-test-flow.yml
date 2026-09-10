@@ -174,7 +174,7 @@ jobs:
         run: eval "$POST_SETUP_SCRIPT"
 
       - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
@@ -228,7 +228,7 @@ jobs:
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
       - name: Download build artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.artifact-name }}
           # bin.tar.gz lands in the working directory; unpacked in the next step.
@@ -247,7 +247,7 @@ jobs:
           find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
 
       - name: Download Redis artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.redis-artifact-name }}
           # redis-install.tar.gz lands in the working directory; unpacked next.
@@ -285,7 +285,7 @@ jobs:
 
       - name: Download RedisJSON artifact
         if: ${{ inputs.rejson }}
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.rejson-artifact-name }}
           # rejson.tar.gz lands in the working directory; unpacked next.
@@ -363,7 +363,7 @@ jobs:
         # GitHub Actions and workflows should be pinned to a commit hash" rule is
         # a hard gate on any line a PR touches, so these do not get the moving-tag
         # exemption that .github/zizmor.yml grants redislabsdev/*.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1.0.2
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@a5066bafe44157595168f719b976c39fc2e392d5 # v1.0.3
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           tests: ${{ steps.enumerate.outputs.specs }}
@@ -462,7 +462,7 @@ jobs:
         # Pinned to the commit SHA that `v1` points to — see the flaky-filter step
         # above for why these two keep the hash while other redislabsdev/* refs
         # stay on the tag.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1.0.2
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@a5066bafe44157595168f719b976c39fc2e392d5 # v1.0.3
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}

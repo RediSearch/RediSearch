@@ -38,7 +38,7 @@ jobs:
        !startsWith(github.event.comment.body, '/backport-agent-'))
     steps:
       - name: Checkout trusted automation
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           fetch-depth: 0
@@ -134,7 +134,7 @@ jobs:
         if: steps.collect.outputs.run_agent == 'true' && steps.revoke.outcome == 'success'
         timeout-minutes: 35
         continue-on-error: true
-        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         env:
           BACKPORT_CONTEXT_FILE: ${{ steps.collect.outputs.agent_context }}
         with:
