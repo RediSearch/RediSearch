@@ -20,5 +20,12 @@
       VecSim pin to `0e71fad4`.
 - [x] Reproduce and fix legacy HNSW save/reload rejection after pre-tiered RDB conversion.
 - [x] Confirm SQ8 byte-sum overflow and reject unsupported dimensions on creation and reload.
+- [x] Refresh the provisional VecSim pin to the reviewed stack head `fb2c5b04`.
+- [x] Enable FLOAT16 L2 training and expect an empty backend during accumulation.
+- [x] Reject SQ8 disk fields during creation and RDB loading.
+- [x] Reject zero dimensions and invalid metrics in SQ8 RDB parameters.
+- [x] Verify scores and ranking for KNN, both hybrid policies, range queries,
+      and multi-value JSON through training and reload.
+- [x] Document the encoding-v28 boundary for replication and slot migration.
 - [ ] Replace the provisional dependency pin with the merged VecSim commit.
 - [ ] Obtain maintainer review and green CI before merge.

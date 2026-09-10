@@ -613,6 +613,11 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
                                     ? params->algoParams.tieredParams.primaryIndexParams
                                     : params;
   HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+  if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "COMPRESSION is not supported for disk-based vector indexes");
+    return 0;
+  }
   if (hnswParams->quantType == VecSimQuant_SQ8 && hnswParams->dim > HNSW_SQ8_MAX_DIM) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SQ8 DIM cannot exceed", " %u",
                                   HNSW_SQ8_MAX_DIM);
@@ -877,16 +882,6 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, TieredIndexParams
     tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize =
         HNSW_SQ8_DEFAULT_TRAINING_THRESHOLD;
   }
-  size_t trainingThreshold =
-      tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
-  if (hnswParams->quantType == VecSimQuant_SQ8 && hnswParams->type == VecSimType_FLOAT16 &&
-      hnswParams->metric == VecSimMetric_L2 && trainingThreshold > 0) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        "Mean normalization is not supported for FLOAT16 L2 compression; set "
-                        "TRAINING_THRESHOLD to 0");
-    return 0;
-  }
-
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
     if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&

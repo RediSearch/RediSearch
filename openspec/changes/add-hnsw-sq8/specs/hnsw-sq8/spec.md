@@ -2,7 +2,10 @@
 
 ## Creation and reporting
 
-- HNSW accepts case-insensitive `COMPRESSION SQ8` for FLOAT32 and FLOAT16.
+- In-memory HNSW accepts case-insensitive `COMPRESSION SQ8` for FLOAT32 and
+  FLOAT16, with L2, IP, and cosine metrics. Disk fields reject `COMPRESSION` and
+  `TRAINING_THRESHOLD`; compressed disk configurations are also rejected during
+  RDB loading. Flex continues to reject `FT.ALTER` entirely.
 - Without compression, `FT.INFO` reports `compression: NO_COMPRESSION` and omits
   `training_threshold`.
 - With compression, `FT.INFO` reports `compression: SQ8` and the configured
@@ -12,8 +15,8 @@
 - The threshold may appear before compression. A threshold without compression,
   an unsupported compression/type, a negative or non-integer threshold, or a value
   above the maximum is rejected.
-- FLOAT16 L2 requires an explicit zero threshold until VecSim supports mean
-  normalization for that combination.
+- Every supported type/metric combination accepts both zero and positive
+  training thresholds, including FLOAT16 L2.
 - SQ8 accepts dimensions up to 16,843,009, inclusive. Larger dimensions are
   rejected during creation and RDB loading.
 - The resize limit bounds the shared block size using both full-precision

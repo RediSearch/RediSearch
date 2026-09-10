@@ -8,6 +8,7 @@
 from includes import *
 from common import *
 from redis.exceptions import ResponseError
+import json
 
 
 DEFAULT_TRAINING_THRESHOLD = 10 * 1024
@@ -41,8 +42,6 @@ def test_hnsw_sq8_dimension_limit(env):
     for data_type in ('FLOAT32', 'FLOAT16'):
         for metric in ('L2', 'IP', 'COSINE'):
             for threshold in (0, 4):
-                if (data_type, metric, threshold) == ('FLOAT16', 'L2', 4):
-                    continue
                 params = [
                     'TYPE', data_type, 'DIM', MAX_SQ8_DIM + 1,
                     'DISTANCE_METRIC', metric, 'COMPRESSION', 'SQ8',
@@ -86,14 +85,10 @@ def test_hnsw_sq8_create_validation_and_info(env):
     env.assertEqual(no_normalization_info['compression'], 'SQ8')
     env.assertEqual(no_normalization_info['training_threshold'], 0)
 
-    float16_l2_with_normalization = hnsw_params('FLOAT16', 'COMPRESSION', 'SQ8')
-    env.expect(
-        'FT.CREATE', 'float16_l2_with_normalization',
-        'SCHEMA', 'v', 'VECTOR', 'HNSW',
-        len(float16_l2_with_normalization), *float16_l2_with_normalization,
-    ).error().contains(
-        'Mean normalization is not supported for FLOAT16 L2 compression'
-    )
+    create_hnsw(env, 'float16_l2_with_normalization',
+                hnsw_params('FLOAT16', 'COMPRESSION', 'SQ8'))
+    env.assertEqual(vector_field_info(env, 'float16_l2_with_normalization')['training_threshold'],
+                    DEFAULT_TRAINING_THRESHOLD)
 
     create_hnsw(
         env,
@@ -175,8 +170,6 @@ def test_hnsw_sq8_resize_limit_rejects_full_precision_vectors():
     for data_type in ('FLOAT32', 'FLOAT16'):
         for metric in ('L2', 'IP', 'COSINE'):
             for threshold in (0, 4):
-                if (data_type, metric, threshold) == ('FLOAT16', 'L2', 4):
-                    continue
                 params = [
                     'TYPE', data_type, 'DIM', 1024, 'DISTANCE_METRIC', metric,
                     'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', threshold,
@@ -296,21 +289,108 @@ def assert_sq8_documents(env, ids, data_type='FLOAT32'):
     env.assertEqual([result[0], *sorted(result[1:])], [len(ids), *sorted(ids)])
 
 
-def assert_sq8_storage(env, frontend_size, backend_size=None):
+def assert_sq8_storage(env, frontend_size, backend_size=0):
     info = get_vecsim_debug_dict(env, 'idx', 'v')
     env.assertEqual(to_dict(info['FRONTEND_INDEX'])['INDEX_SIZE'], frontend_size,
                     message=info)
-    if backend_size is None:
-        env.assertFalse('BACKEND_INDEX' in info, message=info)
-    else:
-        env.assertEqual(to_dict(info['BACKEND_INDEX'])['INDEX_SIZE'], backend_size,
-                        message=info)
+    env.assertEqual(to_dict(info['BACKEND_INDEX'])['INDEX_SIZE'], backend_size,
+                    message=info)
 
 
 def assert_sq8_no_worker_jobs(env):
     stats = getWorkersThpoolStats(env)
     for field in ('totalPendingJobs', 'numJobsInProgress', 'numThreadsAlive'):
         env.assertEqual(stats[field], 0, message=stats)
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_query_scores_across_training_and_reload():
+    """Check ranking and metric distances through flat, compressed, and rebuilt queries."""
+    env = Env(moduleArgs='WORKERS 2')
+    conn = getConnectionByEnv(env)
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        for metric in ('L2', 'IP', 'COSINE'):
+            for threshold in (0, 4):
+                params = ['TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', metric,
+                          'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', threshold]
+                env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG',
+                           'v', 'VECTOR', 'HNSW', len(params), *params).ok()
+                query = create_np_array_typed([2.5] + [1] * 63, data_type)
+                query64 = query.astype(np.float64)
+                distances = {}
+
+                def check_queries():
+                    ranked = sorted(distances, key=distances.get)
+                    queries = [('*=>[KNN 2 @v $q AS dist]', ranked[:2])]
+                    filtered = [key for key in ranked if key in ('doc0', 'doc2')]
+                    for policy in ('ADHOC_BF', 'BATCHES'):
+                        queries.append((
+                            f'@tag:{{keep}}=>[KNN 2 @v $q HYBRID_POLICY {policy} AS dist]',
+                            filtered[:2]))
+                    if metric != 'IP':
+                        radius = (distances[ranked[1]] + distances[ranked[2]]) / 2
+                        queries.append((
+                            f'@v:[VECTOR_RANGE {radius} $q]=>{{$yield_distance_as:dist}}',
+                            ranked[:2]))
+                    for text, expected in queries:
+                        result = env.cmd('FT.SEARCH', 'idx', text, 'PARAMS', 2,
+                                         'q', query.tobytes(), 'SORTBY', 'dist',
+                                         'RETURN', 1, 'dist', 'DIALECT', 2)
+                        env.assertEqual([result[0], *result[1::2]],
+                                        [len(expected), *expected], message=result)
+                        for key, fields in zip(result[1::2], result[2::2]):
+                            env.assertEqual(fields[0], 'dist', message=result)
+                            actual = float(fields[1])
+                            env.assertTrue(np.isclose(actual, distances[key], rtol=0.002,
+                                                       atol=0.002),
+                                           message=(data_type, metric, threshold, text,
+                                                    key, distances[key], result))
+
+                for i, value in enumerate((-2, -1, 1, 3)):
+                    vector = create_np_array_typed([value] + [1] * 63, data_type)
+                    vector64 = vector.astype(np.float64)
+                    if metric == 'L2':
+                        distance = np.sum((query64 - vector64) ** 2)
+                    elif metric == 'IP':
+                        distance = 1 - np.dot(query64, vector64)
+                    else:
+                        distance = 1 - np.dot(query64, vector64) / (
+                            np.linalg.norm(query64) * np.linalg.norm(vector64))
+                    distances[f'doc{i}'] = distance
+                    conn.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(),
+                                         'tag', 'keep' if i % 2 == 0 else 'omit')
+                    if i == 2:
+                        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+                        check_queries()
+                for _ in env.reloadingIterator():
+                    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+                    check_queries()
+                env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_json_multi_value_training_and_reload():
+    """Train across values of one JSON document and rank each label by its closest value."""
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    conn = getConnectionByEnv(env)
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        params = hnsw_params(data_type, 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4)
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.vectors[*]', 'AS',
+                   'v', 'VECTOR', 'HNSW', len(params), *params).ok()
+        conn.execute_command('JSON.SET', 'doc0', '$', json.dumps({
+            'vectors': [[-2] + [1] * 63, [1] + [1] * 63]}))
+        assert_sq8_storage(env, 2)
+        conn.execute_command('JSON.SET', 'doc1', '$', json.dumps({
+            'vectors': [[-1] + [1] * 63, [3] + [1] * 63]}))
+        for _ in env.reloadingIterator():
+            assert_sq8_storage(env, 0, 4)
+            result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $q AS dist]',
+                             'PARAMS', 2, 'q', sq8_vector(2.5, data_type),
+                             'SORTBY', 'dist', 'RETURN', 1, 'dist', 'DIALECT', 2)
+            env.assertEqual([result[0], *result[1::2]], [2, 'doc1', 'doc0'], message=result)
+            env.assertTrue(np.allclose([float(fields[1]) for fields in result[2::2]],
+                                        [0.25, 2.25], rtol=0.002, atol=0.002), message=result)
+        env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
 
 
 @skip(cluster=True)
@@ -426,8 +506,7 @@ def test_hnsw_sq8_reload_after_training():
     conn = getConnectionByEnv(env)
     for data_type in ('FLOAT32', 'FLOAT16'):
         for metric in ('L2', 'IP', 'COSINE'):
-            # VecSim supports FLOAT16 L2 only without mean normalization.
-            threshold = 0 if (data_type, metric) == ('FLOAT16', 'L2') else 4
+            threshold = 4
             create_hnsw(env, 'idx', [
                 'TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', metric,
                 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', threshold,

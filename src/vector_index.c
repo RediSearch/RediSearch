@@ -557,13 +557,12 @@ static bool VecSimHnswSq8Params_AreValid(const HNSWParams *params, size_t traini
   if (params->quantType == VecSimQuant_NONE) {
     return trainingThreshold == 0;
   }
-  if (params->quantType != VecSimQuant_SQ8 ||
-      (params->type != VecSimType_FLOAT32 && params->type != VecSimType_FLOAT16) ||
-      trainingThreshold > HNSW_SQ8_MAX_TRAINING_THRESHOLD) {
-    return false;
-  }
-  return params->type != VecSimType_FLOAT16 || params->metric != VecSimMetric_L2 ||
-         trainingThreshold == 0;
+  return params->quantType == VecSimQuant_SQ8 &&
+         (params->type == VecSimType_FLOAT32 || params->type == VecSimType_FLOAT16) &&
+         params->dim > 0 &&
+         (params->metric == VecSimMetric_L2 || params->metric == VecSimMetric_IP ||
+          params->metric == VecSimMetric_Cosine) &&
+         trainingThreshold <= HNSW_SQ8_MAX_TRAINING_THRESHOLD;
 }
 
 static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,

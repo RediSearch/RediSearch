@@ -1,6 +1,38 @@
-# Verification and review, 2026-09-07
+# Verification and review
 
-## PR follow-ups
+## Integration refresh, 2026-09-10
+
+Validated on `dorer-intel` in `/mnt/nvme/rs-pr11330-qohhy4af`, from RediSearch
+`08142cdc7` plus the integration follow-ups and VecSim `fb2c5b04`. The VecSim pin
+contains the reviewed #1034 -> #1035 -> #1029 stack, which remains unmerged.
+
+- GCC 13.3, Rust 1.94.0, assertion-enabled Debug build with committed Rust headers
+  and SVS v0.3.2: passed. The build reports the existing C compilation warning
+  about the C++-only `-fsized-deallocation` flag.
+- All 1,042 C/C++ unit cases passed: 17 C, 870 C++, 5 coordinator C, and 150
+  coordinator C++.
+- All 18 focused behavioral cases passed with Redis 8.10.1, RedisJSON, and the
+  quick 20-second timeout. These include the entire SQ8 file, both legacy RDB
+  compatibility tests, and disk-option rejection.
+- Score and ranking assertions cover FLOAT32/FLOAT16 with all three metrics,
+  zero/positive thresholds, both hybrid policies, L2/cosine range queries, and
+  JSON multi-value labels. Checks run before training, after migration, and
+  after reload. FLOAT16 L2 now also trains successfully.
+- The RDB regression first demonstrated acceptance of dimension zero and an
+  invalid metric. The corrected loader rejects both, as well as compressed disk
+  configurations with zero or positive training thresholds.
+- Changed-line C/C++ formatting, Python syntax, and whitespace checks passed.
+- The full standalone behavioral suite is running; its result will be recorded
+  before publishing this revision.
+
+Logs in the checkout: `pr11330-build.log`, `pr11330-unit-final.log`,
+`pr11330-focused-final.log`, `pr11330-rdb-validation-before.log`, and
+`pr11330-full.log`. Source-update manifests record the tested file checksums.
+
+The earlier results below describe older snapshots and are retained as historical
+evidence, rather than results for this dependency revision.
+
+## PR follow-ups, 2026-09-07
 
 Validated locally on x86-64 after merging `master` at `e3a834ef7` and updating
 VectorSimilarity to `0e71fad4`. The dependency includes the VecSim commit pinned

@@ -385,6 +385,27 @@ def test_flex_blocks_dict_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rejects_compression_and_training(env):
+    """Reject in-memory SQ8 options before creating a disk-backed vector field."""
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        base = ['TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'L2',
+                'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+        for extra, error in (
+            (['COMPRESSION', 'SQ8'], 'COMPRESSION is not supported for disk-based vector indexes'),
+            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 0],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 4, 'COMPRESSION', 'SQ8'],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 0],
+             'TRAINING_THRESHOLD is irrelevant when compression was not requested'),
+        ):
+            params = [*base, *extra]
+            env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                       'v', 'VECTOR', 'HNSW', len(params), *params).error().contains(error)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_disk_hnsw_rerank_value(env):
     env.expect(
         'FT.CREATE', 'idx_ok', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',

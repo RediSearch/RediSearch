@@ -1145,6 +1145,8 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     VecSimType type;
     size_t truncatedBytes;
     size_t dim = 64;
+    VecSimMetric metric = VecSimMetric_L2;
+    bool disk = false;
   };
   const InvalidParams cases[] = {
       {2, 0, VecSimType_FLOAT32, 0},
@@ -1153,17 +1155,20 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
       {VecSimQuant_SQ8, uint64_t{1} << 32, VecSimType_FLOAT32, 0},
       {VecSimQuant_NONE, 1, VecSimType_FLOAT32, 0},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT64, 0},
-      {VecSimQuant_SQ8, 1, VecSimType_FLOAT16, 0},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, sizeof(uint64_t)},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 2 * sizeof(uint64_t)},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, size_t{UINT32_MAX} / UINT8_MAX + 1},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT16, 0, size_t{UINT32_MAX} / UINT8_MAX + 1},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 0},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
   };
   for (const auto &test : cases) {
     SCOPED_TRACE(::testing::Message()
                  << "compression=" << test.compression << " threshold=" << test.threshold
                  << " type=" << test.type << " truncated=" << test.truncatedBytes
-                 << " dim=" << test.dim);
+                 << " dim=" << test.dim << " metric=" << test.metric << " disk=" << test.disk);
     RedisModuleIO *io = RMCK_CreateRdbIO();
     ASSERT_NE(io, nullptr);
     std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
@@ -1171,6 +1176,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     VecSimParams *params = &spec->fields[0].vectorOpts.vecSimParams;
     params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type = test.type;
     params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim = test.dim;
+    params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.metric = test.metric;
     VecSim_RdbSave(io, params);
     // Replace the two new fields with wire values, including values wider than the enum.
     io->buffer.resize(io->buffer.size() - 2 * sizeof(uint64_t));
@@ -1179,7 +1185,11 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     io->buffer.resize(io->buffer.size() - test.truncatedBytes);
 
     VecSimParams loaded = {};
-    EXPECT_EQ(REDISMODULE_ERR, VecSim_RdbLoad_v5(io, &loaded, specRef, "v"));
+    const bool previousFlex = RSGlobalConfig.simulateInFlex;
+    RSGlobalConfig.simulateInFlex = test.disk;
+    const int result = VecSim_RdbLoad_v5(io, &loaded, specRef, "v");
+    RSGlobalConfig.simulateInFlex = previousFlex;
+    EXPECT_EQ(REDISMODULE_ERR, result);
     VecSimParams_Cleanup(&loaded);
   }
 }
