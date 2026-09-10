@@ -44,14 +44,14 @@ class UnifiedTests(unittest.TestCase):
                       "bot": "app[bot]", "comment_ids": [10]}
         unified.write("results", self.state)
 
-    def test_both_commands_use_only_canonical_labels(self):
+    def test_creation_uses_only_canonical_command_and_labels(self):
         labels = {"labels": [{"name": n} for n in ["backport 8.8", "backport-8.2-agent", "backport 8.6"]]}
-        for command in ("/backport", "/backport-agent"):
+        for command in ("/backport",):
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command, labels),
                              ["8.8", "8.6"])
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command + " 8.2", labels),
                              ["8.2"])
-        for command in ("/backport-agent-fix", "/backport-agent-context x",
+        for command in ("/backport-agent", "/backport-agent 8.6", "/backport-agent-fix", "/backport-agent-context x",
                         "/backport-fix", "/backport-context x", "/backporting"):
             self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command, labels), [])
 

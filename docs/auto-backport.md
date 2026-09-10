@@ -15,7 +15,6 @@ on the source PR, including when the action or agent fails.
 | `/backport 8.6 8.2` | Process exactly these targets, overriding labels for this run. |
 | `/backport >= 8.6` | Process every registered active release line at or above 8.6. |
 | `/backport >= 8.6 2.10` | Union the version expansion and explicit targets. |
-| `/backport-agent …` | Compatibility alias for `/backport …`, including action-first execution. |
 
 Lists accept spaces or commas. Only the first comment line contains targets.
 Version floors use numeric ordering and include registered variants such as
@@ -46,7 +45,8 @@ same follow-up commands work regardless of which engine created the PR:
   failed CI and addressing relevant reviewer feedback.
 - `/backport-context <text>` supplies context for that CI repair flow.
 
-`/backport-agent-fix` and `/backport-agent-context` remain compatibility aliases.
+Only `/backport-fix` and `/backport-context` are accepted; the former
+agent-prefixed commands are no longer supported.
 
 CI repair remains opt-in. Creation never starts a model merely because a newly
 created PR later fails CI.
@@ -102,7 +102,7 @@ beyond GitHub's queue limit are cancelled and need to be retriggered.
 `task-backport_pr.yml` is the only creation event entry point. The separate
 agent-create workflow has been removed. Only `backport <branch>` labels select
 targets; legacy `backport-<branch>-agent` labels are ignored and can be deleted.
-The `/backport-agent` command remains an alias for `/backport`.
+The former `/backport-agent` command is no longer supported; use `/backport`.
 The source of truth for active release lines is `.github/release-branches.json`.
 
 `resolve_create.py` authorizes requests. `unified.py` owns deduplication,

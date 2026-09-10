@@ -71,12 +71,12 @@ ADDRESSED_MARKER_RE = re.compile(
 
 # The first line must be exactly `/backport-fix`, optionally followed by
 # whitespace and inline context. Anchored so longer words don't match.
-FIX_COMMAND_RE = re.compile(r"^/backport(?:-agent)?-fix(\s|$)")
-CONTEXT_COMMAND_RE = re.compile(r"^/backport(?:-agent)?-context(?:\s|$)")
+FIX_COMMAND_RE = re.compile(r"^/backport-fix(\s|$)")
+CONTEXT_COMMAND_RE = re.compile(r"^/backport-context(?:\s|$)")
 
 
 def is_fix_command(comment_body: str) -> bool:
-    """Accept `/backport-fix` and its legacy `/backport-agent-fix` alias.
+    """Accept the exact `/backport-fix` command token.
 
     The workflow's `if:` gate uses `startsWith(body, '/backport-fix')`,
     which also matches longer words like `/backport-fixes`. Those are not
@@ -94,7 +94,7 @@ def strip_inline_context(comment_body: str) -> str:
     if not comment_body:
         return ""
     first_line = comment_body.splitlines()[0]
-    return re.sub(r"^/backport(?:-agent)?-fix\s*", "", first_line)
+    return re.sub(r"^/backport-fix\s*", "", first_line)
 
 
 def parse_canonical_backport_refs(body: str) -> tuple[int | None, str]:
@@ -201,7 +201,7 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
         "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
         "--jq",
         "[ .[] "
-        '| select(.body | startswith("/backport-context") or startswith("/backport-agent-context")) '
+        '| select(.body | startswith("/backport-context")) '
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
@@ -214,7 +214,7 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
 
 
 # A general comment starting with this is a slash-command, not reviewer
-# feedback: `/backport-agent` / `/backport-fix` are triggers, and
+# feedback: `/backport` / `/backport-fix` are triggers, and
 # `/backport-context` is already collected into `context[]`. The bot's own
 # output (summaries, `🤖 Re:` replies) is filtered by AUTHOR (== BOT_LOGIN), not
 # by body prefix — a `🤖`/`Re:` content check would also drop a maintainer's
@@ -432,14 +432,14 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
 
 def fetch_general_pr_comments(pr: int, acked: dict[str, str]) -> list[dict]:
     """Write-level general (issue-style) PR comments, excluding the bot's own
-    output and `/backport-agent*` command comments.
+    output and `/backport*` command comments.
 
     Same author-association trust gate as the review-thread / context
     collectors, plus `.user.type != "Bot"`: a machine account carrying
     MEMBER/COLLABORATOR must not have its text treated as actionable human
     feedback. The bot's own comments are also dropped by AUTHOR
     (`== BOT_LOGIN`), not by body prefix, so a maintainer's comment that quotes
-    the bot's `🤖 …` heading is still surfaced. `/backport-agent*` command comments are
+    the bot's `🤖 …` heading is still surfaced. `/backport*` command comments are
     skipped by prefix (they're triggers, and `/backport-context` is
     already collected into `context[]`). Each entry keeps its `id` and `kind`
     ("comment") so the agent can stamp the acknowledgement marker when it

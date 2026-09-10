@@ -8,7 +8,7 @@
 
 """Resolve authorized requests for task-backport_pr.yml.
 
-Backport labels and both create commands share this resolver. Explicit
+Backport labels and the create command share this resolver. Explicit
 comment targets override labels; version floors expand through the release
 registry. The context is stored in RUNNER_TEMP, outside the agent's writable
 checkout, and remains the publication allow-list throughout the run.
@@ -29,7 +29,7 @@ import common  # noqa: E402
 LABEL_RE = re.compile(r"^backport ([^ ]+)$")
 # Bound version digits to avoid pathological int conversions from comment text.
 TARGET_RE = re.compile(r"^[0-9]{1,4}\.[0-9]{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
-COMMENT_COMMAND_RE = re.compile(r"^/backport(?:-agent)?(\s|$)")
+COMMENT_COMMAND_RE = re.compile(r"^/backport(\s|$)")
 
 # A `>=<version>` token in the comment args: backport to that release line and
 # every newer one. `>= 2.10` is normalized to `>=2.10` before splitting (see
@@ -111,16 +111,16 @@ def resolve_pr_number(event_name: str) -> str | None:
 
 
 def parse_comment_args(comment_body: str) -> list[str]:
-    """`/backport-agent 8.6, 8.2` -> ["8.6", "8.2"].
+    """`/backport 8.6, 8.2` -> ["8.6", "8.2"].
 
     Only the first line of the comment is considered. Anything after the
     command (whitespace- or comma-separated) becomes a target. Returns
-    [] when the first line isn't exactly the `/backport-agent` command
-    (e.g. a typo like `/backport-agentcontext`), when there are no args
-    (plain `/backport-agent`), or for separator-only args
-    (`/backport-agent ,`). An empty result falls back to the PR's labels.
+    [] when the first line isn't exactly the `/backport` command
+    (e.g. a typo like `/backportcontext`), when there are no args
+    (plain `/backport`), or for separator-only args
+    (`/backport ,`). An empty result falls back to the PR's labels.
 
-    A `>=<version>` token survives as a single arg -- `/backport-agent >= 2.10`
+    A `>=<version>` token survives as a single arg -- `/backport >= 2.10`
     yields [">=2.10"] -- which resolve_targets expands over the active release
     branches. The whitespace after `>=` is folded first so the natural
     `>= 2.10` spelling doesn't split into two args.
@@ -130,7 +130,7 @@ def parse_comment_args(comment_body: str) -> list[str]:
     first_line = comment_body.splitlines()[0]
     if not COMMENT_COMMAND_RE.match(first_line):
         return []
-    stripped = re.sub(r"^/backport(?:-agent)?\s*", "", first_line)
+    stripped = re.sub(r"^/backport\s*", "", first_line)
     if not stripped.strip():
         return []
     stripped = re.sub(r">=\s+", ">=", stripped)

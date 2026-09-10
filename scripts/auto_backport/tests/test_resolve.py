@@ -43,7 +43,7 @@ def _labels(*names: str) -> dict:
 class ResolveTargetsTests(unittest.TestCase):
     def test_comment_args_override_labels(self):
         targets = resolve_create.resolve_targets(
-            "issue_comment", "created", "/backport-agent 8.6 8.2",
+            "issue_comment", "created", "/backport 8.6 8.2",
             _labels("backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.2"])
@@ -96,17 +96,17 @@ class ResolveTargetsTests(unittest.TestCase):
         self.assertEqual(targets, [])
 
     def test_plain_comment_falls_back_to_labels(self):
-        # Plain `/backport-agent` (no args) must still backport to every label
+        # Plain `/backport` (no args) must still backport to every label
         # on the PR — not silently resolve nothing.
         targets = resolve_create.resolve_targets(
-            "issue_comment", "created", "/backport-agent",
+            "issue_comment", "created", "/backport",
             _labels("backport 8.6", "backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.4"])
 
     def test_malformed_comment_targets_are_dropped(self):
         targets = resolve_create.resolve_targets(
-            "issue_comment", "created", "/backport-agent 8.6 foo 8.4x 8.2",
+            "issue_comment", "created", "/backport 8.6 foo 8.4x 8.2",
             _labels(),
         )
         self.assertEqual(targets, ["8.6", "8.2"])
@@ -121,7 +121,7 @@ class ResolveTargetsTests(unittest.TestCase):
 
 
 class VersionFloorTests(unittest.TestCase):
-    """`/backport-agent >= <version>` expansion over the release-branch registry.
+    """`/backport >= <version>` expansion over the release-branch registry.
 
     The registry is stubbed so these assertions stay stable as release lines come
     and go; RegistryFileTests covers the real file.
@@ -140,62 +140,62 @@ class VersionFloorTests(unittest.TestCase):
         )
 
     def test_floor_expands_to_every_newer_line(self):
-        self.assertEqual(self._targets("/backport-agent >= 2.10"), self.REGISTRY)
+        self.assertEqual(self._targets("/backport >= 2.10"), self.REGISTRY)
 
     def test_floor_without_space_is_equivalent(self):
-        self.assertEqual(self._targets("/backport-agent >=2.10"), self.REGISTRY)
+        self.assertEqual(self._targets("/backport >=2.10"), self.REGISTRY)
 
     def test_floor_excludes_older_lines_and_keeps_variants(self):
         # 8.4 and below drop out; `-rse` variants of included lines come along.
         self.assertEqual(
-            self._targets("/backport-agent >= 8.6"),
+            self._targets("/backport >= 8.6"),
             ["8.6", "8.6-rse", "8.8", "8.8-rse", "8.10"],
         )
 
     def test_floor_compares_numerically_not_lexically(self):
         # Lexically "8.10" < "8.9", which would wrongly exclude 8.10 here.
-        self.assertEqual(self._targets("/backport-agent >= 8.9"), ["8.10"])
+        self.assertEqual(self._targets("/backport >= 8.9"), ["8.10"])
 
     def test_floor_matches_variant_of_the_floor_line(self):
         self.assertEqual(
-            self._targets("/backport-agent >= 8.8-rse"), ["8.8", "8.8-rse", "8.10"],
+            self._targets("/backport >= 8.8-rse"), ["8.8", "8.8-rse", "8.10"],
         )
 
     def test_floor_unions_with_explicit_targets_and_dedups(self):
         self.assertEqual(
-            self._targets("/backport-agent >= 8.8, 2.10, 8.8"),
+            self._targets("/backport >= 8.8, 2.10, 8.8"),
             ["8.8", "8.8-rse", "8.10", "2.10"],
         )
 
     def test_floor_above_every_line_resolves_nothing_and_ignores_labels(self):
         # An explicit floor that matches nothing must NOT quietly fall back to
         # the PR's labels — main() then skips the run.
-        self.assertEqual(self._targets("/backport-agent >= 99.0", "backport 8.6"), [])
+        self.assertEqual(self._targets("/backport >= 99.0", "backport 8.6"), [])
 
     def test_malformed_floor_is_dropped_without_label_fallback(self):
-        for comment in ("/backport-agent >=", "/backport-agent >= foo",
-                        "/backport-agent >= 8", "/backport-agent >=8.6x"):
+        for comment in ("/backport >=", "/backport >= foo",
+                        "/backport >= 8", "/backport >=8.6x"):
             with self.subTest(comment=comment):
                 self.assertEqual(self._targets(comment, "backport 8.4"), [])
 
     def test_malformed_floor_does_not_drop_valid_siblings(self):
-        self.assertEqual(self._targets("/backport-agent >= foo 8.4"), ["8.4"])
+        self.assertEqual(self._targets("/backport >= foo 8.4"), ["8.4"])
 
     def test_oversized_floor_is_dropped_without_crashing(self):
         # A floor with a giant component would trip int()'s digit limit in
         # version_key; it must be rejected as malformed, not abort the run, and
         # valid siblings must survive.
         huge = "9" * 5000
-        self.assertEqual(self._targets(f"/backport-agent >= {huge}.1 8.4"), ["8.4"])
+        self.assertEqual(self._targets(f"/backport >= {huge}.1 8.4"), ["8.4"])
 
     def test_unavailable_registry_drops_the_floor_only(self):
         resolve_create.load_release_branches = lambda: []
-        self.assertEqual(self._targets("/backport-agent >= 2.10 8.4"), ["8.4"])
+        self.assertEqual(self._targets("/backport >= 2.10 8.4"), ["8.4"])
 
     def test_registry_entries_are_validated(self):
         # A typo'd registry entry is dropped like any other malformed target.
         resolve_create.load_release_branches = lambda: ["8.6", "8.7x", "8.10"]
-        self.assertEqual(self._targets("/backport-agent >= 8.6"), ["8.6", "8.10"])
+        self.assertEqual(self._targets("/backport >= 8.6"), ["8.6", "8.10"])
 
     def test_floor_only_applies_to_comment_args(self):
         # A label can never carry a floor (`backport >=2.10` is not a valid
@@ -442,7 +442,7 @@ class ReviewThreadTests(unittest.TestCase):
 
 class RepairCommandTests(unittest.TestCase):
     def test_fix_commands_preserve_inline_context(self):
-        for command in ("/backport-fix", "/backport-agent-fix"):
+        for command in ("/backport-fix",):
             for suffix, expected in (("", ""), (" use the release API", "use the release API"),
                                      ("\tkeep this\nignore second line", "keep this")):
                 with self.subTest(command=command, suffix=suffix):
@@ -451,19 +451,19 @@ class RepairCommandTests(unittest.TestCase):
                     self.assertEqual(resolve_fix.strip_inline_context(body), expected)
 
     def test_similar_commands_do_not_trigger_repairs(self):
-        for body in ("/backport-fixes", "/backport-agent-fixes", "/backport-context hint",
+        for body in ("/backport-fixes", "/backport-agent-fix", "/backport-context hint",
                      "/backport", "text\n/backport-fix", ""):
             with self.subTest(body=body):
                 self.assertFalse(resolve_fix.is_fix_command(body))
 
-    def test_context_commands_and_aliases(self):
+    def test_context_command_rejects_legacy_alias(self):
         bodies = ["/backport-context keep the API", "/backport-agent-context old hint",
                   "/backport-contextual not a hint", "/backport-agent-contextual neither",
                   "/backport-context", "/backport-context first\nsecond"]
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), patch.object(
                 common, "gh_paginated_array", return_value=bodies):
             self.assertEqual(resolve_fix.fetch_trusted_context_comments(1),
-                             ["keep the API", "old hint", "", "first\nsecond"])
+                             ["keep the API", "", "first\nsecond"])
 
 
 class GeneralCommentTests(unittest.TestCase):
@@ -481,15 +481,15 @@ class GeneralCommentTests(unittest.TestCase):
         return {"id": id, "author": author, "body": body, "updated_at": updated_at}
 
     def test_excludes_bot_by_author_not_prose(self):
-        # The bot (id=2) is dropped by AUTHOR; the `/backport-agent*` commands
+        # The bot (id=2) is dropped by AUTHOR; the `/backport*` commands
         # (3,4) by prefix. dave (5) quotes the bot's `🤖 Re:` heading but is a
         # maintainer — it must be KEPT (content-based bot filtering would wrongly
         # drop it).
         self._stub([
             self._c(1, "alice", "needs the header include"),
             self._c(2, "redis-pr-app[bot]", "🤖 Auto-backport summary\n..."),
-            self._c(3, "bob", "/backport-agent-context extra hint"),
-            self._c(4, "carol", "/backport-agent-fix"),
+            self._c(3, "bob", "/backport-context extra hint"),
+            self._c(4, "carol", "/backport-fix"),
             self._c(5, "dave", "🤖 Re: as you noted, this still drops the guard"),
             self._c(6, "alice", "/backport-fix"),
             self._c(7, "alice", "/backport-context new hint"),
