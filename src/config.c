@@ -2763,5 +2763,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  // Deliberately has no FT.CONFIG alias and no legacy module-ARGS entry: it is reachable
+  // through `CONFIG` only, so there is a single spelling to document and support.
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_enable-next-major-breaking-changes", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.enableNextMajorBreakingChanges)
+    )
+  )
+
   return REDISMODULE_OK;
 }
