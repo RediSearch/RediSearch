@@ -446,6 +446,16 @@ bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
   return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
 }
 
+const char *VecSimHnswCompression_ToString(VecSimQuantType quantType) {
+  switch (quantType) {
+    case VecSimQuant_NONE:
+      return VECSIM_NO_COMPRESSION;
+    case VecSimQuant_SQ8:
+      return VECSIM_SQ8;
+  }
+  return NULL;
+}
+
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
   // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
   // need to fall back to scalar quantization.
@@ -504,6 +514,9 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->efConstruction);
       RedisModule_SaveUnsigned(rdb, primaryParams->efRuntime);
       RedisModule_SaveDouble(rdb, primaryParams->epsilon);
+      RedisModule_SaveUnsigned(rdb, primaryParams->quantType);
+      RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.specificParams
+                                        .tieredHnswParams.QuantNormalizationSetSize);
     } else if (vecsimParams->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_SVS) {
       RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
       SVSParams *primaryParams = &vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.svsParams;
@@ -540,8 +553,20 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
-int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
-                      const char *field_name) {
+static bool VecSimHnswSq8Params_AreValid(const HNSWParams *params, size_t trainingThreshold) {
+  if (params->quantType == VecSimQuant_NONE) {
+    return trainingThreshold == 0;
+  }
+  return params->quantType == VecSimQuant_SQ8 &&
+         (params->type == VecSimType_FLOAT32 || params->type == VecSimType_FLOAT16) &&
+         params->dim > 0 &&
+         (params->metric == VecSimMetric_L2 || params->metric == VecSimMetric_IP ||
+          params->metric == VecSimMetric_Cosine) &&
+         trainingThreshold <= HNSW_SQ8_MAX_TRAINING_THRESHOLD;
+}
+
+static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                                const char *field_name, bool hasHnswSq8Params) {
   VecSimLogCtx *logCtx = NULL;
   VecSimParams *primaryParams = NULL;
 
@@ -574,6 +599,22 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.epsilon = LoadDouble_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.quantParams = NULL;
+      if (hasHnswSq8Params) {
+        uint64_t quantType = LoadUnsigned_IOError(rdb, goto fail);
+        uint64_t trainingThreshold = LoadUnsigned_IOError(rdb, goto fail);
+        if ((quantType != VecSimQuant_NONE && quantType != VecSimQuant_SQ8) ||
+            trainingThreshold > HNSW_SQ8_MAX_TRAINING_THRESHOLD) {
+          goto invalidSq8Params;
+        }
+        primaryParams->algoParams.hnswParams.quantType = quantType;
+        vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams
+            .QuantNormalizationSetSize = trainingThreshold;
+      } else {
+        primaryParams->algoParams.hnswParams.quantType = VecSimQuant_NONE;
+        vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams
+            .QuantNormalizationSetSize = 0;
+      }
     } else if (primaryParams->algo == VecSimAlgo_SVS) {
       vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -596,10 +637,32 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     goto fail; // We dont expect to see an HNSW/SVS index without a tiered index
   }
 
+  if (primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB) {
+    const HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+    size_t trainingThreshold = vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams
+                                   .QuantNormalizationSetSize;
+    if (!VecSimHnswSq8Params_AreValid(hnswParams, trainingThreshold)) {
+      goto invalidSq8Params;
+    }
+  }
+
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
 
+invalidSq8Params:
+  RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING,
+                         "ERROR: loading vector index failed! Invalid HNSW SQ8 parameters");
 fail:
   return REDISMODULE_ERR;
+}
+
+int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
+  return VecSim_RdbLoad_v4_v5(rdb, vecsimParams, sp_ref, field_name, false);
+}
+
+int VecSim_RdbLoad_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
+  return VecSim_RdbLoad_v4_v5(rdb, vecsimParams, sp_ref, field_name, true);
 }
 
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
@@ -788,6 +851,8 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 }
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
+  // Legacy RDB conversion reuses the non-tiered HNSW union storage.
+  *params = (TieredIndexParams){0};
   params->primaryIndexParams = rm_calloc(1, sizeof(VecSimParams));
   // We expect the thread pool to be initialized from the module init function, and to stay constant
   // throughout the lifetime of the module. It can be initialized to NULL.

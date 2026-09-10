@@ -564,6 +564,21 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   return AC_OK;
 }
 
+static int parseVectorField_GetHnswQuantType(ArgsCursor *ac, VecSimQuantType *quantType) {
+  const char *quantTypeStr;
+  size_t len;
+  int rc;
+  if ((rc = AC_GetString(ac, &quantTypeStr, &len, 0)) != AC_OK) {
+    return rc;
+  }
+  if (STR_EQCASE(quantTypeStr, len, VECSIM_SQ8)) {
+    *quantType = VecSimQuant_SQ8;
+  } else {
+    return AC_ERR_ENOENT;
+  }
+  return AC_OK;
+}
+
 // Parsing for Quantization parameter in SVS algorithm
 static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *quantBits) {
   const char *quantBitsStr;
@@ -594,22 +609,54 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
 #define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : ACTUAL_MEMORY_LIMIT / 10)
 
 static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
-  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
-  size_t elementSize = VecSimIndex_EstimateElementSize(params);
-  // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
-  params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  if (params->algoParams.hnswParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
-      " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
+  VecSimParams *primaryParams = params->algo == VecSimAlgo_TIERED
+                                    ? params->algoParams.tieredParams.primaryIndexParams
+                                    : params;
+  HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+  if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "COMPRESSION is not supported for disk-based vector indexes");
     return 0;
   }
-  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  index_size_estimation += elementSize * params->algoParams.hnswParams.blockSize;
+  if (hnswParams->quantType == VecSimQuant_SQ8 && hnswParams->dim > HNSW_SQ8_MAX_DIM) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SQ8 DIM cannot exceed", " %u",
+                                  HNSW_SQ8_MAX_DIM);
+    return 0;
+  }
+  VecSimParams *estimateParams = primaryParams;
+  if (hnswParams->quantType == VecSimQuant_SQ8) {
+    estimateParams = params;
+  }
+  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
+  size_t elementSize = VecSimIndex_EstimateElementSize(estimateParams);
+  if (params->algo == VecSimAlgo_TIERED && hnswParams->quantType == VecSimQuant_SQ8) {
+    // Both tiers share a block size, but the frontend retains full-precision vectors even when
+    // training is disabled. The tiered estimator accounts only for the compressed backend.
+    VecSimParams frontendParams = {
+        .algo = VecSimAlgo_BF,
+        .algoParams.bfParams = {.type = hnswParams->type,
+                                .dim = hnswParams->dim,
+                                .metric = hnswParams->metric,
+                                .multi = hnswParams->multi},
+    };
+    elementSize = MAX(elementSize, VecSimIndex_EstimateElementSize(&frontendParams));
+  }
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  hnswParams->blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (hnswParams->blockSize == 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
+                                  " %zu exceeded maximum size allowed by server limit which is %zu",
+                                  elementSize, BLOCK_MEMORY_LIMIT);
+    return 0;
+  }
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(estimateParams);
+  index_size_estimation += elementSize * hnswParams->blockSize;
 
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
-    "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
-    params->algoParams.hnswParams.blockSize,  index_size_estimation);
+  RedisModule_Log(
+      RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
+      "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
+      hnswParams->blockSize, index_size_estimation);
   return 1;
 }
 
@@ -665,15 +712,22 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
   } else if (VecSimAlgo_SVS == params->algo) {
     valid = parseVectorField_validate_svs(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
-    return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
+    if (params->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+      valid = parseVectorField_validate_hnsw(params, status);
+    } else {
+      return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams,
+                                         status);
+    }
   }
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 #define VECSIM_ALGO_PARAM_MSG(algo, param) "vector similarity " algo " index `" param "`"
 
-static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status, bool *rerank) {
+static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, TieredIndexParams *tieredParams,
+                                 ArgsCursor *ac, QueryError *status, bool *rerank) {
   int rc;
+  VecSimParams *params = tieredParams->primaryIndexParams;
 
   // HNSW mandatory params.
   bool mandtype = false;
@@ -684,6 +738,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   bool mandEfConstruction = false;
   bool mandEfRuntime = false;
   bool rerank_seen = false;
+  bool trainingThresholdSet = false;
 
   // Get number of parameters and create a sub-cursor for them
   size_t expNumParam;
@@ -745,6 +800,27 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_COMPRESSION)) {
+      if ((rc = parseVectorField_GetHnswQuantType(
+               &subAc, &params->algoParams.hnswParams.quantType)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_COMPRESSION),
+                          rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_TRAINING_THRESHOLD)) {
+      size_t *threshold = &tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
+      if ((rc = AC_GetSize(&subAc, threshold, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(
+            status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TRAINING_THRESHOLD), rc);
+        return 0;
+      }
+      if (*threshold > HNSW_SQ8_MAX_TRAINING_THRESHOLD) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                         "TRAINING_THRESHOLD cannot exceed %d",
+                                         HNSW_SQ8_MAX_TRAINING_THRESHOLD);
+        return 0;
+      }
+      trainingThresholdSet = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
       if (!isSpecOnDiskForValidation(sp)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -790,6 +866,22 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
     return 0;
   }
 
+  HNSWParams *hnswParams = &params->algoParams.hnswParams;
+  if (hnswParams->quantType != VecSimQuant_NONE && hnswParams->type != VecSimType_FLOAT32 &&
+      hnswParams->type != VecSimType_FLOAT16) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "COMPRESSION is only supported for FLOAT32 and FLOAT16 vector types");
+    return 0;
+  }
+  if (hnswParams->quantType == VecSimQuant_NONE && trainingThresholdSet) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "TRAINING_THRESHOLD is irrelevant when compression was not requested");
+    return 0;
+  }
+  if (hnswParams->quantType != VecSimQuant_NONE && !trainingThresholdSet) {
+    tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize =
+        HNSW_SQ8_DEFAULT_TRAINING_THRESHOLD;
+  }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
     if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&
@@ -829,7 +921,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
 
-  return parseVectorField_validate_hnsw(params, status);
+  return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
 }
 
 static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
@@ -1191,10 +1283,15 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     params->algoParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     params->algoParams.hnswParams.multi = multi;
+    params->algoParams.hnswParams.quantType = VecSimQuant_NONE;
+    params->algoParams.hnswParams.quantParams = NULL;
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams
+        .QuantNormalizationSetSize = 0;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     bool rerank = false;
-    result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
+    result = parseVectorField_hnsw(sp, fs, &fs->vectorOpts.vecSimParams.algoParams.tieredParams, ac,
+                                   status, &rerank);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
@@ -2673,7 +2770,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
+    if (encver >= INDEX_HNSW_SQ8_VERSION) {
+      if (VecSim_RdbLoad_v5(rdb, &f->vectorOpts.vecSimParams, sp_ref,
+                            HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
       if (VecSim_RdbLoad_v4(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;
       }
