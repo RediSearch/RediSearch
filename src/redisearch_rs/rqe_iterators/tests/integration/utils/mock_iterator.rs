@@ -143,6 +143,7 @@ impl MockData {
             force_read_none: false,
             resume_reseeks_past_end: false,
             revalidate_reseeks_to: None,
+            drop_count: 0,
         })))
     }
 
@@ -261,6 +262,21 @@ impl MockData {
         self.0.borrow().validation_count
     }
 
+    /// Number of [`Mock`] values that have been dropped.
+    ///
+    /// The handle outlives the iterator (the state is reference counted), so a test can assert on
+    /// disposal after the fact: `1` for a mock freed exactly once, `0` for one that leaked, and
+    /// more than `1` for a double free. This is what makes the paths that *consume* an iterator —
+    /// [`RQESuspendedIterator::resume`](rqe_iterators::RQESuspendedIterator::resume) reporting
+    /// `Aborted` or an error, or a C `Free` callback — checkable.
+    ///
+    /// Only the active [`Mock`] is counted: `suspend` relabels the allocation as
+    /// [`MockSuspended`], whose drop glue is a different one, so a mock dropped while suspended
+    /// does not register here.
+    pub fn drop_count(&self) -> usize {
+        self.0.borrow().drop_count
+    }
+
     /// Force the next call to `read()` to return `None` even if not at EOF.
     ///
     /// This simulates an iterator that reports `None` from `read()` while it still
@@ -305,6 +321,8 @@ struct MockDataInternal {
     /// Document `revalidate` rewinds and re-seeks onto — see
     /// [`MockData::set_revalidate_reseeks_to`].
     revalidate_reseeks_to: Option<DocId>,
+    /// Number of [`Mock`] values dropped — see [`MockData::drop_count`].
+    drop_count: usize,
 }
 
 impl MockDataInternal {
@@ -386,10 +404,11 @@ impl<'index, const N: usize> Mock<'index, N> {
             positions.iter().all(|&p| (1..=127).contains(&p)),
             "positions must be in 1..=127 (single-byte varint range)"
         );
-        Self {
-            positions: Some(positions),
-            ..Self::new(doc_ids)
-        }
+        // Written as a mutation rather than `..Self::new(doc_ids)`: struct update syntax moves the
+        // remaining fields out of the base value, which `Drop for Mock` forbids.
+        let mut mock = Self::new(doc_ids);
+        mock.positions = Some(positions);
+        mock
     }
 
     /// Return a handle to the shared [`MockData`] of this iterator.
@@ -435,6 +454,12 @@ impl<'index, const N: usize> Mock<'index, N> {
     /// from [`Self::past_end`].
     fn no_more_docs(&self) -> bool {
         self.next_index >= N
+    }
+}
+
+impl<const N: usize> Drop for Mock<'_, N> {
+    fn drop(&mut self) {
+        self.data.0.borrow_mut().drop_count += 1;
     }
 }
 

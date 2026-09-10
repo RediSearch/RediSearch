@@ -17,9 +17,9 @@ use ffi::{
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
-    profile_print::ProfilePrint,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, interop::RQEIteratorWrapper,
+    intersection::Intersection, profile_print, profile_print::ProfilePrint,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -52,7 +52,13 @@ use std::{
 /// It is not a given that the underlying iterator is written in C!
 /// It might be a Rust iterator, wrapped to obey the C API, being passed into
 /// a Rust composite iterator.
-#[repr(transparent)]
+///
+/// It was `#[repr(transparent)]` over [`header`](Self::header) until
+/// [`num_estimated_snapshot`](Self::num_estimated_snapshot) gave it a second field. `#[repr(C)]`
+/// keeps the layout fixed, in line with the crate's other suspendable iterators, but nothing
+/// depends on the field *order*: no code reaches a field through a cast of the struct, so fields
+/// may be added or reordered freely.
+#[repr(C)]
 pub struct CRQEIterator {
     /// # Safety invariants
     ///
@@ -65,6 +71,19 @@ pub struct CRQEIterator {
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
+    /// The estimate this iterator reported when it was last suspended, and the answer
+    /// [`RQESuspendedIterator::num_estimated`] serves.
+    ///
+    /// A suspended iterator is consulted with the spec read lock released, whereas the C
+    /// `NumEstimated` callbacks read index-owned memory that GC may have freed by then:
+    /// [`RQEIteratorWrapper`]'s forwards to the *active* Rust iterator underneath (e.g.
+    /// `InvIndIterator::num_estimated`, a deref of the `InvertedIndex`), and
+    /// `HR_NumEstimated`/`OPT_NumEstimated` recurse into their children the same way. The estimate
+    /// is display-only, so a value snapshotted while the lock was still held is enough.
+    ///
+    /// Meaningless until [`RQEIteratorBoxed::suspend`] fills it in — the active
+    /// [`num_estimated`](RQEIterator::num_estimated) asks the C side directly.
+    num_estimated_snapshot: usize,
 }
 
 impl AsRef<QueryIterator> for CRQEIterator {
@@ -143,7 +162,10 @@ impl CRQEIterator {
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
-        let self_ = Self { header };
+        let self_ = Self {
+            header,
+            num_estimated_snapshot: 0,
+        };
         debug_assert!(
             self_.Free.is_some(),
             "The `Free` callback is a NULL function pointer"
@@ -518,5 +540,81 @@ impl profile_print::ProfilePrint for CRQEIterator {
         // entry was set at construction time by RQEIteratorWrapper::boxed_new
         // or by the C iterator constructor.
         unsafe { call_print_profile(ptr, map, ctx) };
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
+    /// `CRQEIterator` wraps an opaque C handle that owns its own validity
+    /// state, so the suspended counterpart is the same type: there is no set of
+    /// index references to weaken, and hence nothing to flip between modes.
+    ///
+    /// It has to stay the same type, in fact. A composite over concrete `CRQEIterator` children
+    /// re-types each child slot of its `Vec` in place, which
+    /// [`suspend_child_slot_in_place`](crate::boxed::suspend_child_slot_in_place) only permits
+    /// between representations of identical size and alignment — a separate suspended struct would
+    /// fail to compile the moment such a composite is suspended.
+    type Suspended = CRQEIterator;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // Ask the C side for its estimate now, while the caller still holds the read lock — see
+        // the field.
+        self.num_estimated_snapshot = <Self as RQEIterator<'index>>::num_estimated(&self);
+        self
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for CRQEIterator {
+    type Resumed<'a>
+        = CRQEIterator
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Delegate validity recovery to the C-side `Revalidate` vtable
+        // entry. Whatever convention the C iterator uses to refresh stale
+        // pointers, restart cursors, etc. is its own concern — we just
+        // call its callback under the held read lock.
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null.
+        let callback = unsafe { self.Revalidate.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `self`),
+        // the C-side callback is safe to call per invariant 4., and
+        // `spec.as_mut_ptr()` is valid for the duration of the call.
+        let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
+        // On `ABORTED`, and on a timeout, the C `Revalidate` reports the status and leaves disposal
+        // to the owner: `Free` is a separate vtable entry the owner calls (see `iterator_api.h`),
+        // and `RQESuspendedIterator::resume` promises the same — neither outcome hands back an
+        // active iterator. `self` is not moved into either, so it drops here and its `Free`
+        // callback runs exactly once.
+        #[expect(non_upper_case_globals)]
+        Ok(match status {
+            // Reported as an error, exactly as the `revalidate` impl above reports it: a Rust
+            // parent propagates it to the root of the tree, where it makes the result set partial
+            // instead of ending the query as if the index were exhausted. Returning early rather
+            // than producing an outcome is what drops `self`.
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
+            ValidateStatus_VALIDATE_ABORTED => ResumeOutcome::Aborted,
+            ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(self),
+            ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(self),
+            _ => unreachable!("`Revalidate` returned an unexpected status, {status}"),
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // `lastDocId` is a plain field of the `QueryIterator` allocation this handle owns, so
+        // reading it touches no index memory and needs no lock.
+        self.lastDocId
+    }
+
+    fn num_estimated(&self) -> usize {
+        // The snapshot `suspend` took, rather than a fresh call into the C `NumEstimated`
+        // callback — see the field for why calling it here would be a use-after-free.
+        self.num_estimated_snapshot
     }
 }
