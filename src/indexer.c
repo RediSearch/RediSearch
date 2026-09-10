@@ -421,7 +421,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   // go over all the potentially missing fields and index the document in the matching inverted index
   dictIterator* iter = dictGetIterator(df_fields_dict);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
-    const FieldSpec *fs = dictGetVal(entry);
+    FieldSpec *fs = dictGetVal(entry);
+    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
@@ -445,6 +446,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
     AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
     aCtx->spec->stats.invertedSize += r.mem_growth;
     IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
+    FieldSpec_AddIndexingTime(fs, FIELD_INDEXING_INDEX, rs_wall_clock_now_ns() - start);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
