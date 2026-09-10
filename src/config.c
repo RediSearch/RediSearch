@@ -1528,6 +1528,21 @@ static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
+
+// search-_force-shard-caps: see RSConfig.forceShardCapsOverride and
+// MRConnManager_NodeSupports for what this actually forces.
+static int set_force_shard_caps(const char *name, int val, void *privdata,
+                                 RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *((RSForceShardCaps *)privdata) = (RSForceShardCaps)val;
+  return REDISMODULE_OK;
+}
+
+static int get_force_shard_caps(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return *((RSForceShardCaps *)privdata);
+}
 // Legacy module-ARGS setter for search-disk-drop-read-cache.
 // Handles yes/no/true/false (case-insensitive).
 // TODO: remove once RLTest can emit `--<config-name> <value>` directly (see RLTest
@@ -2591,6 +2606,20 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(
+    RedisModule_RegisterEnumConfig(
+      // Hidden test/ops-only, coordinator-side: "no" forces
+      // MRConnManager_NodeSupports to treat every shard as supporting no
+      // RSCapability, without a HELLO round trip - see RSConfig.forceShardCapsOverride.
+      // "auto" (the default) is a no-op in production.
+      ctx, "search-_force-shard-caps", RSForceShardCaps_Auto,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      force_shard_caps_vals, force_shard_caps_enums, 2,
+      get_force_shard_caps, set_force_shard_caps, NULL,
+      (void*)&RSGlobalConfig.forceShardCapsOverride
+    )
+  )
+
   // Boolean parameters
   RM_TRY(
     RedisModule_RegisterBoolConfig(
@@ -2686,6 +2715,17 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.internalRowBlockFormat)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      // Test-only: simulates an old shard that rejects `_ROW_BLOCK`, for exercising
+      // rolling-upgrade capability negotiation. See RSConfig.simulateLegacyShard.
+      ctx, "search-_simulate-legacy-shard", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.simulateLegacyShard)
     )
   )
 

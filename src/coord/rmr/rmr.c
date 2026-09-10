@@ -762,6 +762,29 @@ bool MRIterator_AllShardsConnected(const MRIterator *it) {
   return true;
 }
 
+// Ask a single shard for the compact row-block encoding (src/aggregate/row_block.h),
+// once `cmd` already has its final `targetShard` set. Per-shard, not per-request:
+// asking a shard we don't yet know supports RS_CAP_ROW_BLOCK (or which is known
+// unsupporting, or sticky-demoted after previously rejecting it - see
+// MRConnManager_DemoteCapability) would hard-fail that shard's whole query
+// (parseAggPlan's terminal `else` on an unrecognized argument), so an unsupporting
+// or not-yet-known shard gets no token at all, not a placeholder: even an empty
+// argument would be just as unrecognized as `_ROW_BLOCK` itself to an older build.
+//
+// Inserts at cmd->rowBlockArgIndex rather than appending at the current tail:
+// commands built via the FT.DEBUG wrapper (dist_aggregate.c) have their
+// DEBUG_PARAMS_COUNT block appended *after* this command was built but *before*
+// fan-out, and the shard parses that block by position from the end of the
+// command, so a tail append here would silently displace it. A command that never
+// reserved a position (rowBlockArgIndex == 0) - not built via buildMRCommand, e.g.
+// a hybrid or cursor-read command - is simply never asked.
+static inline void maybeAskRowBlock(IORuntimeCtx *io_runtime_ctx, MRCommand *cmd) {
+  if (!RSGlobalConfig.internalRowBlockFormat || !cmd->rowBlockArgIndex) return;
+  if (MRConnManager_NodeSupports(&io_runtime_ctx->conn_mgr, cmd->targetShard, RS_CAP_ROW_BLOCK)) {
+    MRCommand_Insert(cmd, cmd->rowBlockArgIndex, "_ROW_BLOCK", sizeof("_ROW_BLOCK") - 1);
+  }
+}
+
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
   MRIterator *it = (MRIterator *)p;
@@ -801,6 +824,7 @@ void iterStartCb(void *p) {
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
+    maybeAskRowBlock(io_runtime_ctx, &it->cbxs[targetShardIdx].cmd);
 
     it->cbxs[targetShardIdx].privateData = MRIterator_GetPrivateData(it);
   }
@@ -808,6 +832,7 @@ void iterStartCb(void *p) {
   // Set the first command to target the first shard (while not having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
+  maybeAskRowBlock(io_runtime_ctx, cmd);
 
   // Send commands to all shards
   for (size_t i = 0; i < numShards; i++) {

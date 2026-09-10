@@ -402,9 +402,13 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
-  } else if (AC_AdvanceIfMatch(ac, "_ROW_BLOCK")) {
+  } else if (!RSGlobalConfig.simulateLegacyShard && AC_AdvanceIfMatch(ac, "_ROW_BLOCK")) {
     // Recorded on the request rather than as a QEFlag: that bitfield is a full u32
     // (QEFlag_Debug holds 0x80000000), so a new flag would mean widening it everywhere.
+    // Guarded on search-_simulate-legacy-shard (RSConfig.simulateLegacyShard) so tests can
+    // make this shard reject the token exactly as a pre-row-block build would: short-circuit
+    // leaves the argument unconsumed, so it falls through to the terminal `else` below like
+    // any other argument an old shard has never heard of.
     papCtx->reqConfig->internalRowBlock = true;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);

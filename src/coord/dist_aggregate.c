@@ -539,12 +539,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   APPEND_LITERAL("_NUM_SSTRING");
-  // Ask for the compact row-block encoding only when this coordinator can decode it.
-  // Older shards reject the unknown argument, so the config must stay off until the whole
-  // fleet is upgraded; see RSGlobalConfig.internalRowBlockFormat.
-  if (RSGlobalConfig.internalRowBlockFormat) {
-    APPEND_LITERAL("_ROW_BLOCK");
-  }
+  // The `_ROW_BLOCK` token, when asked for, is filled in per shard at fan-out time
+  // (see maybeAskRowBlock in rmr.c) rather than here: whether to ask depends on each
+  // shard's rolling-upgrade capability, which this build step cannot know yet. Remember
+  // *where* to insert it, though: an insertion here must not land after anything appended
+  // post-build (notably FT.DEBUG's DEBUG_PARAMS_COUNT block in dist_aggregate.c's debug
+  // wrapper, which the shard parses from the end of the command).
+  uint32_t rowBlockPos = array_len(tmparr);
 
   int argOffset = 0;
   // Preserve WITHCOUNT flag from the original command
@@ -607,6 +608,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 #undef APPEND_ARG
 
   *xcmd = MR_NewCommandArgvLen(array_len(tmparr), tmparr, tmplens);
+  xcmd->rowBlockArgIndex = rowBlockPos;
 
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
