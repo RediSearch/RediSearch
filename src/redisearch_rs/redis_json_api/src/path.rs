@@ -42,7 +42,7 @@ impl<'a> JsonPath<'a> {
     /// 1. `ctx` must be a valid Redis module context
     pub unsafe fn parse(
         path: &CStr,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         api: &'a RedisJsonApi,
     ) -> Result<Self, RedisString> {
         let path_parse = vtable_fn!(api, pathParse);
@@ -50,7 +50,7 @@ impl<'a> JsonPath<'a> {
         let mut err_msg: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { path_parse(path.as_ptr(), ctx, &raw mut err_msg) };
+        let ptr = unsafe { path_parse(path.as_ptr(), ctx.as_ptr(), &raw mut err_msg) };
 
         if let Some(ptr) = NonNull::new(ptr as *mut c_void) {
             let path_free = vtable_fn!(api, pathFree);
@@ -62,7 +62,7 @@ impl<'a> JsonPath<'a> {
             })
         } else {
             Err(RedisString::from_redis_module_string(
-                ctx.cast(),
+                ctx.as_ptr().cast(),
                 err_msg.cast(),
             ))
         }

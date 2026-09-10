@@ -8,6 +8,7 @@
 */
 
 use std::ffi::CStr;
+use std::ptr::NonNull;
 
 use redis_module::{
     REDISMODULE_POSTPONED_ARRAY_LEN, REDISMODULE_POSTPONED_LEN, RedisModule_ReplyWithArray,
@@ -25,7 +26,7 @@ use crate::map::MapBuilder;
 /// Validates the context once at construction and provides ergonomic
 /// methods for building Redis protocol replies.
 pub struct Replier {
-    pub(crate) ctx: *mut RedisModuleCtx,
+    pub(crate) ctx: NonNull<RedisModuleCtx>,
 }
 
 impl Replier {
@@ -34,8 +35,7 @@ impl Replier {
     /// # Safety
     ///
     /// - `ctx` must be a valid Redis module context for the lifetime of this Replier.
-    pub const unsafe fn new(ctx: *mut RedisModuleCtx) -> Self {
-        debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    pub const unsafe fn new(ctx: NonNull<RedisModuleCtx>) -> Self {
         Self { ctx }
     }
 
@@ -43,7 +43,10 @@ impl Replier {
     pub fn long_long(&mut self, value: i64) {
         // SAFETY: ctx is validated at construction
         unsafe {
-            RedisModule_ReplyWithLongLong.expect("RedisModule_ReplyWithLongLong")(self.ctx, value);
+            RedisModule_ReplyWithLongLong.expect("RedisModule_ReplyWithLongLong")(
+                self.ctx.as_ptr(),
+                value,
+            );
         }
     }
 
@@ -51,7 +54,10 @@ impl Replier {
     pub fn double(&mut self, value: f64) {
         // SAFETY: ctx is validated at construction
         unsafe {
-            RedisModule_ReplyWithDouble.expect("RedisModule_ReplyWithDouble")(self.ctx, value);
+            RedisModule_ReplyWithDouble.expect("RedisModule_ReplyWithDouble")(
+                self.ctx.as_ptr(),
+                value,
+            );
         }
     }
 
@@ -60,7 +66,7 @@ impl Replier {
         // SAFETY: ctx is validated at construction
         unsafe {
             RedisModule_ReplyWithSimpleString.expect("RedisModule_ReplyWithSimpleString")(
-                self.ctx,
+                self.ctx.as_ptr(),
                 s.as_ptr(),
             );
         }
@@ -71,7 +77,7 @@ impl Replier {
         // SAFETY: ctx is validated at construction
         unsafe {
             RedisModule_ReplyWithStringBuffer.expect("RedisModule_ReplyWithStringBuffer")(
-                self.ctx,
+                self.ctx.as_ptr(),
                 buf.as_ptr().cast(),
                 buf.len(),
             );
@@ -82,7 +88,9 @@ impl Replier {
     pub fn empty_array(&mut self) {
         // SAFETY: ctx is validated at construction
         unsafe {
-            RedisModule_ReplyWithEmptyArray.expect("RedisModule_ReplyWithEmptyArray")(self.ctx);
+            RedisModule_ReplyWithEmptyArray.expect("RedisModule_ReplyWithEmptyArray")(
+                self.ctx.as_ptr(),
+            );
         }
     }
 
@@ -90,7 +98,7 @@ impl Replier {
     pub fn empty_map(&mut self) {
         // SAFETY: ctx is validated at construction
         unsafe {
-            RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(self.ctx, 0);
+            RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(self.ctx.as_ptr(), 0);
         }
     }
 
@@ -101,7 +109,7 @@ impl Replier {
         // SAFETY: ctx is validated at construction
         unsafe {
             RedisModule_ReplyWithArray.expect("RedisModule_ReplyWithArray")(
-                self.ctx,
+                self.ctx.as_ptr(),
                 REDISMODULE_POSTPONED_ARRAY_LEN as i64,
             );
         }
@@ -120,7 +128,7 @@ impl Replier {
         // SAFETY: ctx is validated at construction
         unsafe {
             RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(
-                self.ctx,
+                self.ctx.as_ptr(),
                 REDISMODULE_POSTPONED_LEN as i64,
             );
         }
@@ -139,7 +147,7 @@ impl Replier {
         // SAFETY: ctx is validated at construction
         unsafe {
             RedisModule_ReplyWithArray.expect("RedisModule_ReplyWithArray")(
-                self.ctx,
+                self.ctx.as_ptr(),
                 i64::from(len),
             );
         }
@@ -157,7 +165,10 @@ impl Replier {
     pub fn fixed_map(&mut self, len: u32) -> MapBuilder<'_> {
         // SAFETY: ctx is validated at construction
         unsafe {
-            RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(self.ctx, i64::from(len));
+            RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(
+                self.ctx.as_ptr(),
+                i64::from(len),
+            );
         }
         MapBuilder {
             replier: self,

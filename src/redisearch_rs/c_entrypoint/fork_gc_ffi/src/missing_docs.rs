@@ -13,6 +13,7 @@ use fork_gc::{
     missing_docs::{collect_missing_docs, handle_missing_docs},
 };
 use index_spec::IndexSpecReadGuard;
+use std::ptr::NonNull;
 
 use crate::{FGCError, util::into_fgc_error};
 
@@ -40,7 +41,7 @@ pub unsafe extern "C" fn FGC_childCollectMissingDocs(
     sctx: *mut ffi::RedisSearchCtx,
 ) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
     // SAFETY: caller guarantees (2).
     let spec_ptr = unsafe { (*sctx).spec };
     // SAFETY: caller guarantees (3).
@@ -70,7 +71,7 @@ pub unsafe extern "C" fn FGC_childCollectMissingDocs(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleMissingDocs(gc: *mut ffi::ForkGC) -> FGCError {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
 
     into_fgc_error(handle_missing_docs(fgc), "missing docs")
 }
