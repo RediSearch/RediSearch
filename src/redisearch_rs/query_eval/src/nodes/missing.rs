@@ -11,6 +11,8 @@
 
 use std::ptr::NonNull;
 
+use dict::{Dict, MissingFieldDictType};
+use hidden_string::HiddenString;
 use rqe_iterators::inverted_index::new_missing_iterator;
 
 use crate::{EvalResult, QueryEvalContext};
@@ -22,21 +24,14 @@ pub(crate) fn eval<'index>(
 ) -> Option<EvalResult<'index>> {
     let spec = ctx.spec();
 
-    // SAFETY: `spec` is valid (`QueryEvalContext::new` invariant 2), and any
-    // queryable spec has its `missing.indexes` initialised by
-    // `IndexSpec_MakeKeyless`, so the pointer is a valid dict; `fs.fieldName`
-    // is a valid `HiddenString` key, matching the C `Query_EvalMissingNode`.
-    let ii_ptr = unsafe { ffi::RS_dictFetchValue(spec.missing.indexes, fs.fieldName as *mut _) };
-
-    if ii_ptr.is_null() {
-        // There are no missing values for this field.
-        return None;
-    }
-
-    let ii_ptr: *const inverted_index::opaque::InvertedIndex = ii_ptr.cast();
-    // SAFETY: `ii_ptr` is a valid `InvertedIndex` obtained from the
-    // missing-field dict (non-null checked above).
-    let ii_ref = unsafe { &*ii_ptr };
+    // SAFETY: the query's spec owns a live missing-field dictionary created
+    // with MissingFieldDictType. Indexing finishes its rehashing before readers
+    // can access it, and query evaluation holds the spec lock.
+    let missing = unsafe { Dict::<MissingFieldDictType>::from_raw(spec.missing.indexes) };
+    // SAFETY: the query node references a schema field whose name remains valid
+    // for the lookup; HiddenString is the dictionary's key type.
+    let field_name = unsafe { HiddenString::from_raw(fs.fieldName) };
+    let ii_ref = missing.fetch(field_name)?;
 
     // `ctx.sctx()` is a live reference, so the resulting pointer is never null.
     let sctx_nn = NonNull::from(ctx.sctx());
@@ -49,7 +44,7 @@ pub(crate) fn eval<'index>(
     //    bounds (mirrors the C `Query_EvalMissingNode` using `fs->index`).
     // 3. `spec.missing.indexes` is a non-null, valid dict — initialised by
     //    `IndexSpec_MakeKeyless` for every queryable spec; it is also the dict
-    //    we just fetched `ii_ptr` from above.
+    //    we just fetched `ii_ref` from above.
     // 4. `ii_ref` uses `DocIdsOnly`/`RawDocIdsOnly` encoding: the indexer only
     //    ever stores doc-ids-only inverted indexes in `missing.indexes`.
     Some(unsafe { new_missing_iterator(ii_ref, sctx_nn, fs.index) })
