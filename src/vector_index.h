@@ -113,7 +113,14 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  const FieldSpec *field;             // the vector field
+  const FieldSpec *field;             // the vector field, as it existed when the query was parsed.
+                                       // Only safe to dereference at parse time: under `WORKERS>0`,
+                                       // evaluation can run on a worker thread well after parsing,
+                                       // and a concurrent `FT.ALTER` may have since reallocated the
+                                       // spec's field array, leaving this pointer dangling. At
+                                       // evaluation time, re-derive the field via `fieldIndex` instead.
+  t_fieldIndex fieldIndex;            // stable index of `field` into IndexSpec.fields, safe to use
+                                       // for a fresh lookup after re-acquiring the spec lock
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
@@ -157,6 +164,8 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq);
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen);
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
+// Sets both `field` and `fieldIndex`; keeps them from drifting out of sync.
+void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                                             VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status);
