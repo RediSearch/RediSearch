@@ -576,21 +576,9 @@ def testAlterBackfillReplacementCountSparseVsDense(env):
 
 @skip(cluster=True)
 def testAlterSkipUnchangedDocsFallbackSortable(env):
-    """An added SORTABLE field disables the shortcut for the whole scan, because only the full
-    reindex path rebuilds a document's sorting vector.
-
-    A skipped document would keep a vector sized for the old schema while the schema has grown
-    a sorting slot, and AddDocumentCtx_UpdateNoIndex reallocates a sorting vector only when it
-    is zero-length -- so a write reaching that path with a short vector would panic inside
-    RSSortingVector_Put*.
-
-    What this test pins is the fallback, not that panic: doc:1 lacks 'rank' and is exactly what
-    the shortcut would skip, so the id assertion fails against a build without the gate
-    (verified: it reports "1 > 1"). The panic itself is not reproduced here. The HSET below
-    takes the full-reindex path, which rebuilds the vector at the new width, so it stays as a
-    guard that the retained document is still writable and searchable afterwards. Reaching
-    AddDocumentCtx_UpdateNoIndex needs a sortables-only update such as
-    FT.ADD ... REPLACE PARTIAL, which no test here exercises."""
+    """An added SORTABLE field forces reindexing, including documents missing it.
+    The replacement check verifies the fallback; sort keys and result order verify the new
+    sorting slot before and after a normal document update."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'alpha')
@@ -602,10 +590,12 @@ def testAlterSkipUnchangedDocsFallbackSortable(env):
     waitForIndexFinishScan(env, 'idx')
 
     env.assertGreater(get_internal_id(env, 'doc:1'), id1_before)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'rank', 'DESC',
+               'WITHSORTKEYS').equal([2, 'doc:2', '#1', 'doc:1', None])
 
-    # Writes only the NOINDEX sortable field, so this takes the sortables-only update path that
-    # writes straight into the retained vector at the new field's sortIdx.
     conn.execute_command('HSET', 'doc:1', 'rank', '7')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'rank', 'DESC',
+               'WITHSORTKEYS').equal([2, 'doc:1', '#7', 'doc:2', '#1'])
     env.assertEqual(env.cmd('PING'), True)
     env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT')),
                     toSortedFlatList([1, 'doc:1']))
