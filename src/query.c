@@ -324,6 +324,10 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   ret->nn.nf = p->nf;
   ret->params = p->params;
   ret->nn.nf->fieldSpec = fs;
+  // See `fieldSpec`'s own doc (numeric_filter.h / the generated inverted_index.h):
+  // only `fieldSpec` captured here is safe to dereference at parse time; evaluation
+  // re-derives the field via `fieldIndex` instead (MOD-18361).
+  ret->nn.nf->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -1375,8 +1379,12 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
+      // Re-derived via fieldIndex when possible, not `f->fieldSpec` directly - see
+      // NewNumericFilter (MOD-18361).
+      RS_ASSERT(!spec || f->fieldIndex < spec->numFields);
+      const FieldSpec *nfFs = spec ? spec->fields + f->fieldIndex : f->fieldSpec;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
-                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+                       HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");

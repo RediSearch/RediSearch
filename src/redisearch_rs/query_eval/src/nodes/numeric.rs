@@ -14,6 +14,7 @@ use std::ptr::NonNull;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
+use rqe_core::RS_INVALID_FIELD_INDEX;
 use rqe_iterators::build_numeric_filter_iterator;
 use search_disk::SearchDiskHandle;
 
@@ -32,15 +33,17 @@ pub(crate) fn eval<'index>(
     nf: &NumericFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    // The numeric node always carries a field spec; the filter targets that
-    // single field by index.
-    assert!(
-        !nf.field_spec.is_null(),
-        "numeric node must have a non-null field spec"
+    // The numeric node always carries a field index; the filter targets that
+    // single field by index. Read directly from `nf.field_index` rather than via
+    // `nf.field_spec`: under WORKERS>0, evaluation can run on a worker thread well
+    // after the filter was built, and a concurrent FT.ALTER may have since
+    // reallocated the spec's field array, leaving `field_spec` a dangling pointer
+    // (MOD-18361).
+    assert_ne!(
+        nf.field_index, RS_INVALID_FIELD_INDEX,
+        "numeric node must have a resolved field index"
     );
-    // SAFETY: a well-formed numeric node has a valid, non-null `field_spec`,
-    // so reading its `index` is sound.
-    let field_index = unsafe { (*nf.field_spec).index };
+    let field_index = nf.field_index;
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range
@@ -79,8 +82,8 @@ pub(crate) fn eval<'index>(
     // SAFETY: `build_numeric_filter_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
-    // 2. `nf.field_spec` is a valid, non-null `FieldSpec` for a numeric field
-    //    (well-formed numeric node).
+    // 2. `nf.field_index` is within `sctx.spec`'s current field count (asserted
+    //    above).
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
     let iter = unsafe {
         build_numeric_filter_iterator(
