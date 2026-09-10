@@ -44,15 +44,16 @@ class UnifiedTests(unittest.TestCase):
                       "bot": "app[bot]", "comment_ids": [10]}
         unified.write("results", self.state)
 
-    def test_both_commands_use_only_canonical_labels(self):
+    def test_creation_uses_only_canonical_command_and_labels(self):
         labels = {"labels": [{"name": n} for n in ["backport 8.8", "backport-8.2-agent", "backport 8.6"]]}
-        for command in ("/backport", "/backport-agent"):
-            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels),
+        for command in ("/backport",):
+            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command, labels),
                              ["8.8", "8.6"])
-            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command + " 8.2", labels),
+            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command + " 8.2", labels),
                              ["8.2"])
-        for command in ("/backport-agent-fix", "/backport-agent-context x", "/backporting"):
-            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", command, labels), [])
+        for command in ("/backport-agent", "/backport-agent 8.6", "/backport-agent-fix", "/backport-agent-context x",
+                        "/backport-fix", "/backport-context x", "/backporting"):
+            self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", command, labels), [])
 
     def test_legacy_labels_do_not_select_targets(self):
         labels = {"labels": [{"name": "backport-8.6-agent"}]}
@@ -62,11 +63,11 @@ class UnifiedTests(unittest.TestCase):
             ("issue_comment", "created", "", "/backport"),
         ):
             with self.subTest(event=event, action=action):
-                self.assertEqual(resolve_create.resolve_targets(event, action, label, comment, labels), [])
+                self.assertEqual(resolve_create.resolve_targets(event, action, comment, labels), [])
 
     def test_invalid_explicit_target_is_reported_without_label_fallback(self):
         diagnostics = []
-        self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "", "/backport bad", {
+        self.assertEqual(resolve_create.resolve_targets("issue_comment", "created", "/backport bad", {
             "labels": [{"name": "backport 8.6"}]}, diagnostics), [])
         self.assertEqual(diagnostics, ["Invalid target(s): bad"])
 
@@ -85,8 +86,30 @@ class UnifiedTests(unittest.TestCase):
         self.assertEqual(ctx["labels"], ["bug"])
         self.assertEqual(ctx["author"], "author")
 
+    def test_resolver_ignores_label_events_before_fetching_pr(self):
+        os.environ.update(EVENT_NAME="pull_request_target", EVENT_ACTION="labeled")
+        with patch.object(common, "fetch_pr") as fetch, self.assertRaises(SystemExit):
+            resolve_create.main()
+        fetch.assert_not_called()
+        self.assertEqual(self.outputs["skip"], "true")
+
+    def test_creation_skips_unmerged_prs(self):
+        for event, action, comment in (("pull_request_target", "closed", ""),
+                                       ("issue_comment", "created", "/backport >= 8.2")):
+            for state in ("OPEN", "CLOSED"):
+                with self.subTest(event=event, state=state), patch.dict(os.environ, {
+                    "EVENT_NAME": event, "EVENT_ACTION": action, "COMMENT_BODY": comment,
+                    "PR_NUMBER_FROM_PR": "1", "PR_NUMBER_FROM_ISSUE": "1", "GITHUB_ACTOR": "alice",
+                }), patch.object(common, "has_write_permission", return_value=True), patch.object(
+                        common, "fetch_pr", return_value={"state": state}), patch.object(
+                        common, "write_context") as write, self.assertRaises(SystemExit):
+                    resolve_create.main()
+                write.assert_not_called()
+                self.assertEqual(self.outputs["skip"], "true")
+
     def test_resolver_denies_read_only_comment_author_before_fetching_pr(self):
-        os.environ.update(EVENT_NAME="issue_comment", COMMENT_BODY="/backport", GITHUB_ACTOR="alice")
+        os.environ.update(EVENT_NAME="issue_comment", EVENT_ACTION="created",
+                          COMMENT_BODY="/backport", GITHUB_ACTOR="alice")
         with patch.object(common, "has_write_permission", return_value=False), patch.object(
                 common, "fetch_pr") as fetch, self.assertRaises(SystemExit) as stopped:
             resolve_create.main()
@@ -188,11 +211,36 @@ class UnifiedTests(unittest.TestCase):
         return {"id": ident, "user": {"login": bot}, "body":
                 f"[Backport-action](https://github.com/korthout/backport-action) in [workflow run {run}](https://github.com/o/r/actions/runs/{run})."}
 
+    def test_progress_then_final_report_updates_same_comment(self):
+        comments = [self.comment(10), self.comment(20), self.comment(30, "alice")]
+        with patch.object(unified, "api_pages", return_value=comments), patch.object(common, "gh") as gh, patch.object(
+                unified, "existing_row", return_value=None):
+            unified.progress(self.ctx)
+            self.assertIn("repos/o/r/issues/comments/20", gh.call_args.args)
+            progress_body = gh.call_args.args[-1].removeprefix("body=")
+            self.assertIn("in progress", progress_body)
+            self.assertNotIn("failed", progress_body)
+            comments[1]["body"] = progress_body
+            self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "true")
+            self.assertIn("repos/o/r/issues/comments/20", gh.call_args.args)
+            self.assertEqual(gh.call_count, 2)
+
+    def test_reporting_api_failure_does_not_claim_success(self):
+        with patch.object(unified, "api_pages", return_value=[]), patch.object(
+                unified, "existing_row", return_value=None), patch.object(
+                common, "gh", side_effect=subprocess.CalledProcessError(1, "gh")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                unified.report(self.ctx)
+        self.assertNotIn("has_failures", self.outputs)
+        self.assertTrue(unified.saved("summary").with_suffix(".md").exists())
+
     def test_finalizer_updates_exact_action_comment_after_partial_failure(self):
         comments = [self.comment(10), self.comment(20), self.comment(30, "alice"), self.comment(40, run="456")]
         with patch.object(unified, "api_pages", return_value=comments), patch.object(common, "gh") as gh, patch.object(
                 unified, "existing_row", return_value=None):
-            self.assertEqual(unified.report(self.ctx), 1)
+            self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "true")
         gh.assert_called_once()
         self.assertIn("repos/o/r/issues/comments/20", gh.call_args.args)
         self.assertIn("PATCH", gh.call_args.args)
@@ -205,13 +253,15 @@ class UnifiedTests(unittest.TestCase):
         unified.saved("results").unlink()
         with patch.object(unified, "api_pages", return_value=[]), patch.object(common, "gh") as gh, patch.object(
                 unified, "existing_row", return_value=None):
-            self.assertEqual(unified.report(self.ctx), 1)
+            self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "true")
         self.assertIn("POST", gh.call_args.args)
 
     def test_finalizer_recovers_prs_created_before_collector_crash(self):
         with patch.object(unified, "api_pages", return_value=[self.comment()]), patch.object(common, "gh"), patch.object(
                 unified, "existing_row", side_effect=lambda c, t, *a: {"target": t, "status": "clean", "detail": "https://github.com/o/r/pull/3"}):
             self.assertEqual(unified.report(self.ctx), 0)
+            self.assertEqual(self.outputs["has_failures"], "false")
 
     def test_closed_backport_is_not_reopened(self):
         pr = {"state": "closed", "merged_at": None, "number": 3, "html_url": "https://github.com/o/r/pull/3"}

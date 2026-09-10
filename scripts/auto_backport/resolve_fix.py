@@ -14,7 +14,7 @@ this lives in `scripts/` — the file has to exist on the working tree).
 Verifies the trigger comment landed on an actual auto-backport PR,
 pulls the most recent failed `Pull Request Flow` run on the current
 HEAD, tails the failed-step logs, and gathers human-supplied
-`/backport-agent-context` hints. Writes a context JSON file to
+`/backport-context` hints. Writes a context JSON file to
 $RUNNER_TEMP that the Codex agent consumes via
 `BACKPORT_FIX_CONTEXT_FILE`.
 
@@ -22,7 +22,7 @@ Env contract (set by the workflow):
 - GH_TOKEN, GH_REPO, GITHUB_REPOSITORY -- consumed by `gh` / api paths.
 - RUNNER_TEMP, GITHUB_OUTPUT -- GitHub Actions standard.
 - PR_NUMBER_FROM_ISSUE -- the backport PR number.
-- COMMENT_BODY -- the `/backport-agent-fix [<inline context>]` comment.
+- COMMENT_BODY -- the `/backport-fix [<inline context>]` comment.
 
 Exit codes mirror resolve_create: 0 with skip=true on every "nothing to
 do" outcome, 0 with skip=false on success, non-zero only for genuine
@@ -69,18 +69,19 @@ ADDRESSED_MARKER_RE = re.compile(
 # ---- helpers -----------------------------------------------------------------
 
 
-# The first line must be exactly `/backport-agent-fix`, optionally followed by
+# The first line must be exactly `/backport-fix`, optionally followed by
 # whitespace and inline context. Anchored so longer words don't match.
-FIX_COMMAND_RE = re.compile(r"^/backport-agent-fix(\s|$)")
+FIX_COMMAND_RE = re.compile(r"^/backport-fix(\s|$)")
+CONTEXT_COMMAND_RE = re.compile(r"^/backport-context(?:\s|$)")
 
 
 def is_fix_command(comment_body: str) -> bool:
-    """True iff the first line's command token is exactly `/backport-agent-fix`.
+    """Accept the exact `/backport-fix` command token.
 
-    The workflow's `if:` gate uses `startsWith(body, '/backport-agent-fix')`,
-    which also matches longer words like `/backport-agent-fixes`. Those are not
+    The workflow's `if:` gate uses `startsWith(body, '/backport-fix')`,
+    which also matches longer words like `/backport-fixes`. Those are not
     our command; without this check `strip_inline_context` would strip the
-    `/backport-agent-fix` prefix and feed the mangled remainder (`es ...`) to
+    `/backport-fix` prefix and feed the mangled remainder (`es ...`) to
     the agent as inline context. Require an exact command token instead.
     """
     if not comment_body:
@@ -89,11 +90,11 @@ def is_fix_command(comment_body: str) -> bool:
 
 
 def strip_inline_context(comment_body: str) -> str:
-    """Return everything after `/backport-agent-fix` on the first line."""
+    """Return everything after `/backport-fix` on the first line."""
     if not comment_body:
         return ""
     first_line = comment_body.splitlines()[0]
-    return re.sub(r"^/backport-agent-fix\s*", "", first_line)
+    return re.sub(r"^/backport-fix\s*", "", first_line)
 
 
 def parse_canonical_backport_refs(body: str) -> tuple[int | None, str]:
@@ -162,7 +163,7 @@ def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
     failures on later pages are dropped from both `failed_jobs` and
     `log_excerpts`, which would silently hide the actual failing job.
     Use `gh_paginated_array` (the same helper we use for
-    /backport-agent-context comments) to stitch pages.
+    /backport-context comments) to stitch pages.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     jobs = common.gh_paginated_array(
@@ -187,7 +188,7 @@ def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
 
 
 def fetch_trusted_context_comments(pr: int) -> list[str]:
-    """All `/backport-agent-context <text>` bodies authored by write-level
+    """All `/backport-context <text>` bodies authored by write-level
     commenters, stripped of the command prefix.
 
     The author-association filter (OWNER/MEMBER/COLLABORATOR) is the
@@ -200,25 +201,25 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
         "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
         "--jq",
         "[ .[] "
-        '| select(.body | startswith("/backport-agent-context")) '
+        '| select(.body | startswith("/backport-context")) '
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
         "| .body ]",
     )
     return [
-        re.sub(r"^/backport-agent-context\s*", "", b, count=1)
-        for b in bodies if b
+        CONTEXT_COMMAND_RE.sub("", b, count=1).lstrip()
+        for b in bodies if b and CONTEXT_COMMAND_RE.match(b)
     ]
 
 
 # A general comment starting with this is a slash-command, not reviewer
-# feedback: `/backport-agent` / `/backport-agent-fix` are triggers, and
-# `/backport-agent-context` is already collected into `context[]`. The bot's own
+# feedback: `/backport` / `/backport-fix` are triggers, and
+# `/backport-context` is already collected into `context[]`. The bot's own
 # output (summaries, `🤖 Re:` replies) is filtered by AUTHOR (== BOT_LOGIN), not
 # by body prefix — a `🤖`/`Re:` content check would also drop a maintainer's
 # comment that happens to quote the bot's heading.
-_COMMAND_PREFIX = "/backport-agent"
+_COMMAND_PREFIX = "/backport"
 
 # Bound the reviewer feedback handed to the agent so a PR with many or very
 # large trusted comments (e.g. a pasted CI log in a review comment) can't bloat
@@ -319,7 +320,7 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
     Returns one entry per thread: its GraphQL node id (needed by the agent to
     call `resolveReviewThread`), the `path`/`line` it anchors to, and the
     write-level comment bodies in the thread. The author-association filter is
-    the same prompt-injection gate used for `/backport-agent-context` — threads
+    the same prompt-injection gate used for `/backport-context` — threads
     started by non-write-level users are dropped here and reach the agent only
     (if at all) as untrusted evidence, never as actionable input.
 
@@ -431,15 +432,15 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
 
 def fetch_general_pr_comments(pr: int, acked: dict[str, str]) -> list[dict]:
     """Write-level general (issue-style) PR comments, excluding the bot's own
-    output and `/backport-agent*` command comments.
+    output and `/backport*` command comments.
 
     Same author-association trust gate as the review-thread / context
     collectors, plus `.user.type != "Bot"`: a machine account carrying
     MEMBER/COLLABORATOR must not have its text treated as actionable human
     feedback. The bot's own comments are also dropped by AUTHOR
     (`== BOT_LOGIN`), not by body prefix, so a maintainer's comment that quotes
-    the bot's `🤖 …` heading is still surfaced. `/backport-agent*` command comments are
-    skipped by prefix (they're triggers, and `/backport-agent-context` is
+    the bot's `🤖 …` heading is still surfaced. `/backport*` command comments are
+    skipped by prefix (they're triggers, and `/backport-context` is
     already collected into `context[]`). Each entry keeps its `id` and `kind`
     ("comment") so the agent can stamp the acknowledgement marker when it
     replies.
@@ -560,10 +561,10 @@ def main() -> int:
     comment_body = os.environ.get("COMMENT_BODY", "")
     if not is_fix_command(comment_body):
         # The workflow `if:` gate is a cheap `startsWith` pre-filter that also
-        # admits siblings like `/backport-agent-fixes`. Reject anything whose
-        # command token isn't exactly `/backport-agent-fix` so we never spin up
+        # admits siblings like `/backport-fixes`. Reject anything whose
+        # command token isn't exactly `/backport-fix` so we never spin up
         # Codex on a mistyped/unrelated command.
-        common.skip("Comment is not exactly the /backport-agent-fix command; skipping.")
+        common.skip("Comment is not exactly the /backport-fix command; skipping.")
 
     inline_context = strip_inline_context(comment_body)
 
@@ -600,7 +601,7 @@ def main() -> int:
     # provisioned out-of-band and a create run may legitimately fail to attach
     # it (e.g. the label definition is missing from the repo). Gating on a label
     # the create flow couldn't apply would lock a human out of
-    # `/backport-agent-fix` on an otherwise-valid backport PR, which is exactly
+    # `/backport-fix` on an otherwise-valid backport PR, which is exactly
     # the case where the fix flow is most useful.
     if not branch.startswith(BRANCH_PREFIX):
         common.skip(

@@ -8,7 +8,7 @@
 
 """Resolve authorized requests for task-backport_pr.yml.
 
-Backport labels and both create commands share this resolver. Explicit
+Backport labels and the create command share this resolver. Explicit
 comment targets override labels; version floors expand through the release
 registry. The context is stored in RUNNER_TEMP, outside the agent's writable
 checkout, and remains the publication allow-list throughout the run.
@@ -29,7 +29,7 @@ import common  # noqa: E402
 LABEL_RE = re.compile(r"^backport ([^ ]+)$")
 # Bound version digits to avoid pathological int conversions from comment text.
 TARGET_RE = re.compile(r"^[0-9]{1,4}\.[0-9]{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
-COMMENT_COMMAND_RE = re.compile(r"^/backport(?:-agent)?(\s|$)")
+COMMENT_COMMAND_RE = re.compile(r"^/backport(\s|$)")
 
 # A `>=<version>` token in the comment args: backport to that release line and
 # every newer one. `>= 2.10` is normalized to `>=2.10` before splitting (see
@@ -111,16 +111,16 @@ def resolve_pr_number(event_name: str) -> str | None:
 
 
 def parse_comment_args(comment_body: str) -> list[str]:
-    """`/backport-agent 8.6, 8.2` -> ["8.6", "8.2"].
+    """`/backport 8.6, 8.2` -> ["8.6", "8.2"].
 
     Only the first line of the comment is considered. Anything after the
     command (whitespace- or comma-separated) becomes a target. Returns
-    [] when the first line isn't exactly the `/backport-agent` command
-    (e.g. a typo like `/backport-agentcontext`), when there are no args
-    (plain `/backport-agent`), or for separator-only args
-    (`/backport-agent ,`). An empty result falls back to the PR's labels.
+    [] when the first line isn't exactly the `/backport` command
+    (e.g. a typo like `/backportcontext`), when there are no args
+    (plain `/backport`), or for separator-only args
+    (`/backport ,`). An empty result falls back to the PR's labels.
 
-    A `>=<version>` token survives as a single arg -- `/backport-agent >= 2.10`
+    A `>=<version>` token survives as a single arg -- `/backport >= 2.10`
     yields [">=2.10"] -- which resolve_targets expands over the active release
     branches. The whitespace after `>=` is folded first so the natural
     `>= 2.10` spelling doesn't split into two args.
@@ -130,7 +130,7 @@ def parse_comment_args(comment_body: str) -> list[str]:
     first_line = comment_body.splitlines()[0]
     if not COMMENT_COMMAND_RE.match(first_line):
         return []
-    stripped = re.sub(r"^/backport(?:-agent)?\s*", "", first_line)
+    stripped = re.sub(r"^/backport\s*", "", first_line)
     if not stripped.strip():
         return []
     stripped = re.sub(r">=\s+", ">=", stripped)
@@ -138,9 +138,11 @@ def parse_comment_args(comment_body: str) -> list[str]:
 
 
 def resolve_targets(event_name: str, event_action: str,
-                    label_name: str, comment_body: str,
+                    comment_body: str,
                     pr_data: dict, diagnostics: list[str] | None = None) -> list[str]:
     """Derive the deduplicated target-branch list from event + PR state."""
+    if (event_name, event_action) not in {("pull_request_target", "closed"), ("issue_comment", "created")}:
+        return []
     targets: list[str] = []
     diagnostics = diagnostics if diagnostics is not None else []
 
@@ -160,15 +162,6 @@ def resolve_targets(event_name: str, event_action: str,
     # carry args but whose `>=` floor expanded to nothing must stay empty rather
     # than silently inheriting the PR's labels.
     if not comment_args and not targets:
-        # 2) On a `labeled` event, seed the just-fired label
-        #    (`github.event.label.name`) first, as a guard against the
-        #    `gh pr view` label snapshot lagging the webhook event.
-        if event_name == "pull_request_target" and event_action == "labeled":
-            m = LABEL_RE.fullmatch(label_name or "")
-            if m:
-                targets.append(m.group(1))
-
-        # Scan the complete label set so adding several labels is idempotent.
         for label in pr_data.get("labels", []) or []:
             m = LABEL_RE.fullmatch(label.get("name", ""))
             if m:
@@ -198,14 +191,15 @@ def resolve_targets(event_name: str, event_action: str,
 def main() -> int:
     event_name = os.environ.get("EVENT_NAME", "")
     event_action = os.environ.get("EVENT_ACTION", "")
-    label_name = os.environ.get("LABEL_NAME", "")
     comment_body = os.environ.get("COMMENT_BODY", "")
 
     if event_name == "issue_comment" and not COMMENT_COMMAND_RE.match(comment_body):
         common.skip("Not a backport creation command")
-    if event_name == "issue_comment" or event_action == "labeled":
+    if (event_name, event_action) not in {("pull_request_target", "closed"), ("issue_comment", "created")}:
+        common.skip("Not a merge or comment event")
+    if event_name == "issue_comment":
         if not common.has_write_permission(os.environ.get("GITHUB_ACTOR", "")):
-            common.skip("Backport commands and labels require repository write permission")
+            common.skip("Backport commands require repository write permission")
 
     pr = resolve_pr_number(event_name)
     if not pr:
@@ -233,7 +227,7 @@ def main() -> int:
         )
 
     diagnostics: list[str] = []
-    targets = resolve_targets(event_name, event_action, label_name, comment_body, pr_data, diagnostics)
+    targets = resolve_targets(event_name, event_action, comment_body, pr_data, diagnostics)
     if not targets and not diagnostics:
         common.skip(f"No backport targets resolved for PR #{pr}; nothing to do.")
 

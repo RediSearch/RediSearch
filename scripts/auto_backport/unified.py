@@ -321,6 +321,33 @@ def validate_branch(ctx: dict, git: common.PrivilegedGit, entry: dict) -> None:
         raise ValueError("target advanced during conflict resolution; retry against the new base")
 
 
+def summary_location(ctx: dict, state: dict) -> tuple[str, str, str]:
+    run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    marker = f"<!-- unified-backport:{os.environ['GITHUB_RUN_ID']}:{os.environ['GITHUB_RUN_ATTEMPT']} -->"
+    repo = os.environ["GITHUB_REPOSITORY"]
+    comments = api_pages(f"repos/{repo}/issues/{ctx['pr']}/comments?per_page=100")
+    candidates = [c for c in comments if c["user"]["login"] == state["bot"] and (
+        marker in c["body"] or (c["id"] not in state["comment_ids"] and
+        f"]({run_url})" in c["body"] and c["body"].startswith("[Backport-action]")))]
+    if len(candidates) > 1:
+        raise ValueError("ambiguous summary comment; refusing to create a duplicate")
+    endpoint = (f"repos/{repo}/issues/comments/{candidates[0]['id']}" if candidates
+                else f"repos/{repo}/issues/{ctx['pr']}/comments")
+    return endpoint, marker, run_url
+
+
+def progress(ctx: dict) -> None:
+    state = read(saved("results"))
+    endpoint, marker, run_url = summary_location(ctx, state)
+    body = ("🤖 Auto-backport in progress\n\n"
+            "The classic backport attempt has finished. Checking unfinished targets and "
+            "attempting automatic conflict resolution where possible. "
+            "Final results will replace this comment.\n\n"
+            f"[Workflow run]({run_url})\n{marker}")
+    common.gh("api", endpoint, "--method", "PATCH" if "/issues/comments/" in endpoint else "POST",
+              "-f", f"body={body}")
+
+
 def report(ctx: dict) -> int:
     state = read(saved("results")) if saved("results").exists() else {
         "rows": {}, "comment_ids": [], "bot": os.environ["BACKPORT_BOT_LOGIN"]}
@@ -342,18 +369,13 @@ def report(ctx: dict) -> int:
     if ctx.get("diagnostics"):
         body += "\n\n" + "\n".join(apply_create.summary_cell(d) for d in ctx["diagnostics"])
     saved("summary").with_suffix(".md").write_text(body)
-    repo = os.environ["GITHUB_REPOSITORY"]
-    comments = api_pages(f"repos/{repo}/issues/{ctx['pr']}/comments?per_page=100")
-    candidates = [c for c in comments if c["user"]["login"] == state["bot"] and (
-        marker in c["body"] or (c["id"] not in state["comment_ids"] and
-        f"]({run_url})" in c["body"] and c["body"].startswith("[Backport-action]")))]
-    if len(candidates) > 1:
-        raise ValueError("ambiguous summary comment; refusing to create a duplicate")
-    endpoint = (f"repos/{repo}/issues/comments/{candidates[0]['id']}" if candidates
-                else f"repos/{repo}/issues/{ctx['pr']}/comments")
-    common.gh("api", endpoint, "--method", "PATCH" if candidates else "POST", "-f", f"body={body}")
-    return int(bool(ctx.get("diagnostics")) or any(
-        r["status"] == "error" or r["status"].startswith("closed") for r in rows))
+    endpoint, _, _ = summary_location(ctx, state)
+    common.gh("api", endpoint, "--method", "PATCH" if "/issues/comments/" in endpoint else "POST",
+              "-f", f"body={body}")
+    has_failures = bool(ctx.get("diagnostics")) or any(
+        r["status"] == "error" or r["status"].startswith("closed") for r in rows)
+    common.set_output("has_failures", "true" if has_failures else "false")
+    return 0
 
 
 def main() -> int:
@@ -361,7 +383,7 @@ def main() -> int:
     command = sys.argv[1]
     if command == "report":
         return report(ctx)
-    {"preflight": preflight, "collect": collect, "apply": apply}[command](ctx)
+    {"preflight": preflight, "progress": progress, "collect": collect, "apply": apply}[command](ctx)
     return 0
 
 
