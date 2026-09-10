@@ -57,13 +57,14 @@ sanitizer_check() {
 
 sanitizer_summary() {
 	local logdir="$ROOT/tests/$DIR/logs"
-	if ! TYPE="leaks" sanitizer_check "Direct leak"; then
-		TYPE="leaks" sanitizer_check "detected memory leaks"
-	fi
-	TYPE="buffer overflow" sanitizer_check "dynamic-stack-buffer-overflow"
-	TYPE="memory errors" sanitizer_check "memcpy-param-overlap"
-	TYPE="stack use after scope" sanitizer_check "stack-use-after-scope"
-	TYPE="use after free" sanitizer_check "heap-use-after-free"
+	# Every leak report opens with "ERROR: LeakSanitizer", whether the leaks are
+	# direct or only indirect — one grep covers both.
+	TYPE="leaks" sanitizer_check "ERROR: LeakSanitizer"
+	# Every ASan report opens with an "ERROR: AddressSanitizer" header line,
+	# whatever the report type — matching that catches all of them
+	# (heap-buffer-overflow, use-after-free, SEGV, ...) instead of a per-type
+	# whitelist that goes stale.
+	TYPE="memory errors" sanitizer_check "ERROR: AddressSanitizer"
 	TYPE="signal 11" sanitizer_check "caught signal 11"
 }
 
