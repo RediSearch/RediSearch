@@ -48,10 +48,6 @@ pub use crate::union_trimmed::UnionTrimmed;
 /// while `ResumeOutcome` carries the iterator itself and lets the caller ask.
 ///
 /// [`RQEIterator::revalidate`]: crate::RQEIterator::revalidate
-#[expect(
-    dead_code,
-    reason = "The variants that funnel through it land in later revisions"
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettleOutcome {
     /// The union is still on the document it was on, and that document is still backed
@@ -64,10 +60,6 @@ pub(crate) enum SettleOutcome {
     Eof,
 }
 
-#[expect(
-    dead_code,
-    reason = "The variants that funnel through it land in later revisions"
-)]
 impl SettleOutcome {
     /// Map onto the legacy [`RQEIterator::revalidate`] outcome, publishing
     /// `result` as the new current where there is one.
