@@ -783,9 +783,56 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
+binary_commands = None
+def binary_has_command(name):
+    """True if `Defaults.binary` provides command `name`.
+
+    Version alone cannot answer this: a server may report a version that carries a
+    command and still be built without it, which is how the guarded test then fails.
+
+    Asks the binary the same way `server_version_is_at_least` asks it for a version,
+    so a @skip can be decided before any test env exists. `--version` cannot answer
+    this one, so this starts a throwaway server on a private unix socket — no port to
+    collide over — and asks it, caching the answer for the rest of the session.
+
+    Only the binary's own commands are visible; no module is loaded, so this cannot
+    speak for `FT.*`.
+    """
+    global binary_commands
+    if binary_commands is None:
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = os.path.join(directory, 'command-probe.sock')
+            server = subprocess.Popen(
+                [Defaults.binary, '--port', '0', '--unixsocket', socket_path,
+                 '--save', '', '--appendonly', 'no'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                conn = redis.Redis(unix_socket_path=socket_path, decode_responses=True)
+                # `COMMAND LIST` is a flat array of names, but redis-py parses every
+                # `COMMAND` reply as though it were `COMMAND INFO` and mangles it. This
+                # client is private to the probe, so the callback can just be dropped.
+                conn.set_response_callback('COMMAND', lambda reply: reply)
+                deadline = time.time() + 10
+                while True:
+                    try:
+                        conn.ping()
+                        break
+                    except redis.exceptions.RedisError:
+                        if time.time() > deadline or server.poll() is not None:
+                            raise
+                        time.sleep(0.05)
+                binary_commands = {str(c).lower()
+                                   for c in conn.execute_command('COMMAND', 'LIST')}
+            finally:
+                server.terminate()
+                server.wait()
+    return name.lower() in binary_commands
+
+
 def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than,
                             redis_greater_equal, min_shards, arch, gc_no_fork,
-                            no_json, enterprise):
+                            no_json, enterprise, missing_redis_command):
     """True if the caller provided at least one skip condition.
 
     With no conditions, @skip's legacy behaviour is to always skip — used as a
@@ -793,10 +840,12 @@ def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than
     """
     return ((cluster is not None) or macos or musl or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
-            or gc_no_fork or no_json or (enterprise is not None))
+            or gc_no_fork or no_json or (enterprise is not None)
+            or (missing_redis_command is not None))
 
 
-def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch, no_json, enterprise):
+def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch, no_json, enterprise,
+                           missing_redis_command):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
     Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
@@ -820,6 +869,8 @@ def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch
         return True
     if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
         return True
+    if missing_redis_command and not binary_has_command(missing_redis_command):
+        return True
     return False
 
 
@@ -838,9 +889,10 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
     return False
 
 
-def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None):
+def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None, missing_redis_command=None):
     static_kwargs = dict(cluster=cluster, macos=macos, musl=musl, asan=asan, msan=msan,
-                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise)
+                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise,
+                         missing_redis_command=missing_redis_command)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
                           redis_greater_equal=redis_greater_equal,
                           gc_no_fork=gc_no_fork)

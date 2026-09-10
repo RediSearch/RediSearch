@@ -46,7 +46,8 @@ def assert_document(env, index, key, title, category, price, extra):
         [1, ['title', title, 'extra', extra]])
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_himport_indexing_and_loading(env):
     """HIMPORT notifications and module hash reads support both template encodings."""
     create_index(env)
@@ -62,7 +63,8 @@ def test_himport_indexing_and_loading(env):
             assert_document(env, 'idx', key, title, 'books', 12, extra)
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_himport_replacement(env):
     """Replacing a hash removes old postings, including fields absent from the new fieldset."""
     create_index(env)
@@ -86,7 +88,8 @@ def test_himport_replacement(env):
             conn.execute_command('DEL', key)
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_himport_replacement_clears_ttl(env):
     """Replacing an expiring hash clears its key TTL and replaces its search postings."""
     create_index(env)
@@ -110,7 +113,8 @@ def test_himport_replacement_clears_ttl(env):
             conn.execute_command('DEL', key)
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_himport_hash_mutations(env):
     """Ordinary hash writes and deletions reindex template-backed documents."""
     create_index(env)
@@ -132,7 +136,8 @@ def test_himport_hash_mutations(env):
             env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_himport_backfill_and_reload(env):
     """Background indexing and RDB loading can read persisted template hashes."""
     cases = template_cases(env)
@@ -154,7 +159,8 @@ def test_himport_backfill_and_reload(env):
                             'books', 12, extra)
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_hash_auto_template_conversion(env):
     """HSET's opt-in conversion preserves indexing and field loading without HIMPORT."""
     create_index(env)
@@ -180,7 +186,8 @@ def test_hash_auto_template_conversion(env):
         env.cmd('CONFIG SET', *[arg for item in config.items() for arg in item])
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_himport_restore(env):
     """RESTORE, also used by HIMPORT replication, indexes template hashes and replacements."""
     create_index(env)
@@ -197,7 +204,8 @@ def test_himport_restore(env):
             conn.execute_command('DEL', 'doc:restored')
 
 
-@skip(cluster=True, redis_less_than='8.10.0')
+@skip(cluster=True, redis_less_than='8.10.0',
+      missing_redis_command='HIMPORT')
 def test_hash_template_conversion_on_rdb_load(env):
     """Converting plain hashes while loading an RDB preserves Search results."""
     create_index(env)
