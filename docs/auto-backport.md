@@ -39,9 +39,11 @@ replace its history.
 All new backport branches use `backport-agent/pr-<source PR>-to-<target>` so the
 same follow-up commands work regardless of which engine created the PR:
 
-- `/backport-agent-fix [context]` on the **backport PR** opts into diagnosing its
+- `/backport-fix [context]` on the **backport PR** opts into diagnosing its
   failed CI and addressing relevant reviewer feedback.
-- `/backport-agent-context <text>` supplies context for that CI repair flow.
+- `/backport-context <text>` supplies context for that CI repair flow.
+
+`/backport-agent-fix` and `/backport-agent-context` remain compatibility aliases.
 
 CI repair remains opt-in. Creation never starts a model merely because a newly
 created PR later fails CI.
