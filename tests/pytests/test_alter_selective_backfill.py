@@ -262,6 +262,36 @@ def testAlterSkipUnchangedDocsAfterSkipInitialScanAlter(env):
 
 
 @skip(cluster=True)
+def testAlterSelectiveScanAfterSkippedSynonymUpdate(env):
+    """A selective ALTER applies skipped synonyms only to documents it reindexes;
+    a later write must apply them to an untouched document too."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'baby alpha')
+    conn.execute_command('HSET', 'doc:2', 'title', 'baby bravo', 'category', 'premium')
+    id1_before = get_internal_id(env, 'doc:1')
+    id2_before = get_internal_id(env, 'doc:2')
+
+    env.expect('FT.SYNUPDATE', 'idx', 'g', 'SKIPINITIALSCAN', 'baby', 'child').ok()
+    env.expect('FT.SEARCH', 'idx', '@title:child', 'NOCONTENT').equal([0])
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'category', 'TAG').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    env.assertEqual(get_internal_id(env, 'doc:1'), id1_before)
+    env.assertGreater(get_internal_id(env, 'doc:2'), id2_before)
+    env.expect('FT.SEARCH', 'idx', '@title:child', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@category:{premium}', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@title:alpha', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@title:bravo', 'NOCONTENT').equal([1, 'doc:2'])
+
+    conn.execute_command('HSET', 'doc:1', 'title', 'baby updated')
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH', 'idx', '@title:child', 'NOCONTENT')),
+                    toSortedFlatList([2, 'doc:1', 'doc:2']))
+    env.expect('FT.SEARCH', 'idx', '@title:updated', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True)
 def testAlterSkippedFieldsAcrossIndexes(env):
     """A selective scan on either index leaves documents lacking its new field untouched."""
     for idx in ['idx', 'other']:
