@@ -63,6 +63,9 @@ on:
       image:
         type: string
         default: ''
+      image-is-mirror:
+        type: string
+        default: 'false'
       image-built:
         description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
         type: string
@@ -89,35 +92,33 @@ env:
     [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
-  common-flow:
-    name: Unit tests on ${{ inputs.name }}
+  common-flow-ghcr:
+    if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
+    name: Unit ghcr
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
-    container: ${{
-      inputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
-            inputs.image-built == 'true' && inputs.image || inputs.container,
-            startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
-            startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
-        )
-      || null }}
+    container:
+      image: ${{ inputs.image }}
+      options: &common_flow_container_options >-
+        --user root
+        ${{ startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '' }}
+        ${{ startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '' }}
 
-    permissions:
+    permissions: &common_flow_permissions
       contents: read
       id-token: write
       packages: read
       actions: read   # download artifact from the build job
 
-    env:
+    env: &common_flow_env
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
-    defaults:
+    defaults: &common_flow_defaults
       run:
         shell: bash -l -eo pipefail {0}
-    steps:
+    steps: &common_flow_steps
       - name: Install bash
         if: startsWith(inputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
@@ -138,6 +139,7 @@ jobs:
       - name: Full checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           submodules: recursive
 
       - name: Free up disk space
@@ -341,3 +343,41 @@ jobs:
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  common-flow-mirror:
+    if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
+    name: Unit mirror
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ inputs.image }}
+      options: >-
+        --user root
+        ${{ startsWith(inputs.container, 'alpine:') && '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro' || '' }}
+      credentials:
+        username: ${{ vars.GHCR_MIRROR_USERNAME }}
+        password: ${{ secrets.GHCR_MIRROR_PASSWORD }}
+    permissions: *common_flow_permissions
+    env: *common_flow_env
+    defaults: *common_flow_defaults
+    steps: *common_flow_steps
+
+  common-flow-raw:
+    if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
+    name: Unit raw
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ inputs.container }}
+      options: *common_flow_container_options
+    permissions: *common_flow_permissions
+    env: *common_flow_env
+    defaults: *common_flow_defaults
+    steps: *common_flow_steps
+
+  common-flow-host:
+    if: ${{ inputs.container == '' }}
+    name: Unit host
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *common_flow_permissions
+    env: *common_flow_env
+    defaults: *common_flow_defaults
+    steps: *common_flow_steps

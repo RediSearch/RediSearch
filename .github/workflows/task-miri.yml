@@ -66,44 +66,46 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets:
+      GHCR_MIRROR_PASSWORD: ${{ secrets.GHCR_MIRROR_PASSWORD }}
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env }}
       san: 'none'
 
-  common-flow:
+  common-flow-ghcr:
     needs: [get-config, build-image]
-    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    name: MIRI ghcr
     if: |
       !cancelled() &&
-      needs.get-config.result == 'success'
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container != '' &&
+      needs.build-image.outputs.succeeded == 'true' &&
+      needs.build-image.outputs.image-is-mirror != 'true'
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
-    container: ${{
-      needs.get-config.outputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
-            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
-            startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
-        )
-      || null }}
+    container:
+      image: ${{ needs.build-image.outputs.image }}
+      options: &common_flow_container_options >-
+        --user root
+        ${{ startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '' }}
+        ${{ startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '' }}
 
-    permissions:
+    permissions: &common_flow_permissions
       contents: read
       id-token: write
       packages: read
       actions: write   # Swatinem/rust-cache read/write of GH cache
 
-    env:
+    env: &common_flow_env
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
-    defaults:
+    defaults: &common_flow_defaults
       run:
         shell: bash -l -eo pipefail {0}
-    steps:
+    steps: &common_flow_steps
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
@@ -124,6 +126,7 @@ jobs:
       - name: Full checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           submodules: recursive
 
       - name: Free up disk space
@@ -209,3 +212,56 @@ jobs:
         run: |
           echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
+
+  common-flow-mirror:
+    needs: [get-config, build-image]
+    name: MIRI mirror
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container != '' &&
+      needs.build-image.outputs.succeeded == 'true' &&
+      needs.build-image.outputs.image-is-mirror == 'true'
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ needs.build-image.outputs.image }}
+      options: >-
+        --user root
+        ${{ startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro' || '' }}
+      credentials:
+        username: ${{ vars.GHCR_MIRROR_USERNAME }}
+        password: ${{ secrets.GHCR_MIRROR_PASSWORD }}
+    permissions: *common_flow_permissions
+    env: *common_flow_env
+    defaults: *common_flow_defaults
+    steps: *common_flow_steps
+
+  common-flow-raw:
+    needs: [get-config, build-image]
+    name: MIRI raw
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container != '' &&
+      needs.build-image.outputs.succeeded != 'true'
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ needs.get-config.outputs.container }}
+      options: *common_flow_container_options
+    permissions: *common_flow_permissions
+    env: *common_flow_env
+    defaults: *common_flow_defaults
+    steps: *common_flow_steps
+
+  common-flow-host:
+    needs: [get-config, build-image]
+    name: MIRI host
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container == ''
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *common_flow_permissions
+    env: *common_flow_env
+    defaults: *common_flow_defaults
+    steps: *common_flow_steps
