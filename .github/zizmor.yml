@@ -31,7 +31,7 @@ rules:
     # `pull_request_target` and `workflow_run` are dangerous because they run with
     # a writable token against a *base-branch* checkout while being triggered by
     # untrusted PRs — so the hazard is checking out or executing PR head code.
-    # None of the three below do that: each checkout either takes the default ref
+    # None of the workflows below do that: each checkout either takes the default ref
     # or is explicitly the base branch, and none passes `ref:` from the event
     # payload. Each also needs its trigger for a reason no other event provides.
     ignore:
@@ -44,9 +44,6 @@ rules:
       # `pull_request` does not fire for merges from forks. Cherry-picks commits
       # onto the release branch without executing them.
       - task-backport_pr.yml
-      # Same trigger for the same reason; its checkout is explicitly the PR's base
-      # branch (see the comment at that step).
-      - task-backport_pr-agent.yml
   github-app:
     ignore:
       # task-take-shift.yml runs `gh variable set`, which needs GitHub's

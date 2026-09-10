@@ -567,6 +567,9 @@ def main() -> int:
 
     inline_context = strip_inline_context(comment_body)
 
+    if not common.has_write_permission(os.environ.get("GITHUB_ACTOR", "")):
+        common.skip("Backport fixes require repository write permission")
+
     pr_data = common.fetch_pr(pr, [
         "number", "headRefName", "baseRefName", "state",
         "title", "body", "headRefOid", "isCrossRepository",
