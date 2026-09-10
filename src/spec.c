@@ -3580,8 +3580,51 @@ int CompareVersions(Version v1, Version v2) {
 }
 
 
+/**
+ * Mark each VECTOR field whose value this update may not have touched, so the
+ * indexer moves its existing entry onto the new doc-id instead of deleting and
+ * re-adding the blob.
+ */
+static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
+                                           RedisModuleString **changedFields,
+                                           size_t numChangedFields) {
+  if (!RSGlobalConfig.optimizePartialUpdate) {
+    return;
+  }
+  if (!(spec->flags & Index_HasVecSim)) {
+    return;
+  }
+  if (spec->diskSpec) {
+    // not supported for disk until MOD-18101 is done.
+    return;
+  }
+
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (!fs->fieldName || !FieldSpec_IsIndexable(fs) ||
+        !(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) {
+      continue;
+    }
+    ChangedFieldInd mark = ChangedFieldInd_Unverified;
+    if (changedFields) {
+      mark = FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)
+                 ? ChangedFieldInd_VerifiedYes  // named in the change set: the value was written
+                 : ChangedFieldInd_VerifiedNo;
+    }
+    if (mark == ChangedFieldInd_VerifiedYes) {
+      continue;  // nothing to record: an unmarked field already reads this way
+    }
+    if (!aCtx->fieldChanges) {
+      aCtx->fieldChanges = rm_calloc(spec->numFields, sizeof(*aCtx->fieldChanges));
+    }
+    aCtx->fieldChanges[fs->index] = mark;
+  }
+}
+
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey) {
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3641,6 +3684,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   // Reuse the caller's open key handle for the DocIdMeta update, if provided.
   aCtx->disk.openKey = openKey;
+  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields);
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);

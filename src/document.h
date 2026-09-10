@@ -128,6 +128,17 @@ typedef struct Document {
 #define UNDERSCORE_PAYLOAD "__payload"
 #define UNDERSCORE_LANGUAGE "__language"
 
+// What this update knows about whether a field's value was changed.
+typedef enum {
+  // Changed. Must stay zero: the per-field array is `rm_calloc`'d, so this is also what a field
+  // nothing was recorded for reads as.
+  ChangedFieldInd_VerifiedYes = 0,
+  // Not known either way.
+  ChangedFieldInd_Unverified,
+  // Unchanged.
+  ChangedFieldInd_VerifiedNo,
+} ChangedFieldInd;
+
 struct RSAddDocumentCtx;
 
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
@@ -319,6 +330,18 @@ typedef struct RSAddDocumentCtx {
 
   // Scratch space used by per-type field preprocessors (see the source)
   struct FieldIndexerData *fdatas;
+
+  /** Whether each VECTOR field's value was changed by this update.
+   *  Schema-indexed rather than living in `fdatas` because
+   *  `Indexer_HandleReplacedDocVectorAndGeometry` walks the schema, not the document: a
+   *  vector field absent from this version of the document still has an old entry to
+   *  drop, and would not be reachable through a document-field-indexed array.
+   */
+  ChangedFieldInd *fieldChanges;
+
+  /** The doc-id this key mapped to before this update, or 0 if it was not
+   *  indexed. */
+  t_docId oldDocId;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
   uint32_t specFlags;    // Cached index flags
@@ -331,7 +354,6 @@ typedef struct RSAddDocumentCtx {
   // are unused there.
   struct {
     SearchDiskWriteBatchHandle *batch;
-    t_docId oldDocId;
     uint32_t oldDocLen;
     // Optional already-open key handle for the document, supplied by the caller
     // (e.g. the async scan key callback, where the engine hands us an open,
@@ -342,6 +364,20 @@ typedef struct RSAddDocumentCtx {
   } disk;
 } RSAddDocumentCtx;
 
+// Whether schema field `f_idx`'s value was changed by this update. A NULL aCtx or an unmarked
+// update reads as `ChangedFieldInd_VerifiedYes`: no mark means no basis for a move.
+static inline ChangedFieldInd AddDocumentCtx_FieldChange(const RSAddDocumentCtx *aCtx,
+                                                      t_fieldIndex f_idx) {
+  if (!aCtx || !aCtx->fieldChanges) return ChangedFieldInd_VerifiedYes;
+  return aCtx->fieldChanges[f_idx];
+}
+
+/**
+ * Whether field `f_idx`'s existing vector entry is to be moved onto this update's new doc-id,
+ * rather than re-added.
+ */
+bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx);
+
 /**
  * Creates a new context used for adding documents. Once created, call
  * Document_AddToIndexes on it.
@@ -349,7 +385,7 @@ typedef struct RSAddDocumentCtx {
  * - client is a blocked client which will be used as the context for this
  *   operation.
  * - sp is the index that this document will be added to
- * - base is the document to be index. The context will take ownership of the
+ * - base is the document to be indexed. The context will take ownership of the
  *   document's contents (but not the structure itself). Thus, you should not
  *   call Document_Free on the document after a successful return of this
  *   function.

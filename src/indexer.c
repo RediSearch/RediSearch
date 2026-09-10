@@ -16,6 +16,7 @@
 #include "inverted_index_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "vector_index.h"
+#include "vector_compare/vector_compare.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
@@ -175,18 +176,75 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
-// Contract documented on the declaration in indexer_internal.h.
-void Indexer_RemoveReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId) {
-  if (spec->flags & Index_HasVecSim) {
-    for (int i = 0; i < spec->numFields; ++i) {
-      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        // ctx is NULL because we don't create the index here
-        VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
-        if (!vecsim) continue;
-        VecSimIndex_DeleteVector(vecsim, oldDocId);
-        // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
-      }
+/**
+ * This update's value for schema field `f_idx`, or NULL when this version of the document
+ * carries none.
+ *
+ * `VectorIndex_RemoveOrKeepId` walks the schema while the preprocessed values are indexed by
+ * document field, so the mapping is resolved here.
+ */
+static const FieldIndexerData *fieldValue(const RSAddDocumentCtx *aCtx,
+                                                  const t_fieldIndex f_idx) {
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (!fs->fieldName || fs->index != f_idx) continue;
+    const FieldIndexerData *fdata = aCtx->fdatas + ii;
+    return fdata->isNull ? NULL : fdata;
+  }
+  return NULL;
+}
+
+/**
+ * Checks verification indicator or compare the actual data.
+ * An unverified mark (no change set: JSON, a background scan, a server without subkey
+ * notifications) is resolved by asking the index whether it already holds the value about to
+ * be written.
+ */
+static bool checkVectorChanged(const RSAddDocumentCtx *aCtx, const FieldSpec *fs, VecSimIndex *vecsim,
+                                t_docId oldDocId) {
+  const ChangedFieldInd mark = AddDocumentCtx_FieldChange(aCtx, fs->index);
+  if (mark == ChangedFieldInd_VerifiedYes) {
+    return false;
+  }
+
+  const FieldIndexerData *fdata = fieldValue(aCtx, fs->index);
+  if (fdata &&
+      (mark == ChangedFieldInd_VerifiedNo ||
+       VectorIndex_HoldsVectors(vecsim, oldDocId, fdata->vector, fdata->numVec))) {
+    aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedNo;
+    return true;
+  }
+  aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+  return false;
+}
+
+/**
+ * Either Drop the replaced document's entry from every VECTOR field of `spec`, or keep it
+ * to be moved onto the document's new doc-id — only to be relabled
+ */
+static void VectorIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
+                                      const RSAddDocumentCtx *aCtx) {
+  for (int i = 0; i < spec->numFields; ++i) {
+    FieldSpec *fs = &spec->fields[i];
+    if (fs->types != INDEXFLD_T_VECTOR) continue;
+    // ctx is NULL because we don't create the index here
+    VecSimIndex *vecsim = openVectorIndex(NULL, fs, DONT_CREATE_INDEX);
+    if (!vecsim) {
+      // No index yet, so continue as usual (i.e. "changed" )
+      if (aCtx && aCtx->fieldChanges) aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+      continue;
     }
+    if (checkVectorChanged(aCtx, fs, vecsim, oldDocId)) continue;
+    VecSimIndex_DeleteVector(vecsim, oldDocId);
+  }
+}
+
+// Contract documented on the declaration in indexer_internal.h.
+void Indexer_HandleReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId,
+                                                const RSAddDocumentCtx *aCtx) {
+  if (spec->flags & Index_HasVecSim) {
+    VectorIndex_RemoveOrKeepId(spec, oldDocId, aCtx);
   }
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(spec, oldDocId);
@@ -228,7 +286,7 @@ static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_
 /** Assigns a document ID to a single document. Handles only the RAM index.
  *  The key -> docId mapping is stored on the Redis key via DocIdMeta (unified
  *  with disk mode); the in-memory DocTable only maps docId -> DMD. */
-static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
+static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
                                           int replace, bool *updated) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
@@ -238,22 +296,23 @@ static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx
   // lookup in doAssignIds).
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, sctx, &oldDocId);
+  aCtx->oldDocId = oldDocId;
 
   if (oldDocId) {
     if (replace) {
       // Drop the previous version + its stats/aux indexes; the mapping is
       // overwritten by the actxDocIdMetaSet below.
-      RSDocumentMetadata *old = DocTable_DeleteById(table, (t_docId)oldDocId);
+      RSDocumentMetadata *old = DocTable_DeleteById(table, oldDocId);
       if (old) {
         Indexer_RemoveOldDocStats(spec, old->docLen);
-        Indexer_RemoveReplacedDocVectorAndGeometry(spec, old->id);
+        Indexer_HandleReplacedDocVectorAndGeometry(spec, old->id, aCtx);
         *updated = true;
         DMD_Return(old);
       }
     } else {
       // Already indexed, not a REPLACE: return the existing DMD (former
       // DocTable_Put dedup). Fall through only if the mapping is stale.
-      RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, (t_docId)oldDocId);
+      RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, oldDocId);
       if (existing) {
         doc->docId = existing->id;
         return existing;
@@ -298,7 +357,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       bool updated = false;
-      RSDocumentMetadata *md = makeDocumentId(ctx, cur,
+      RSDocumentMetadata *md = newDocumentId(ctx, cur,
                                               cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
         cur->stateFlags |= ACTX_F_ERRORED;
@@ -327,14 +386,32 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
       DMD_Return(md);
 
-      if (spec->gc) {
-        if (updated) {
-          GCContext_OnUpdate(spec->gc);
-        } else {
-          GCContext_OnWrite(spec->gc);
-        }
-      }
+      handle_gc(spec, updated);
     }
+  }
+}
+
+/**
+ * Delete the old-doc VecSim entry of every VECTOR field, from `fromField` onward, that
+ * was marked to keep for the relabel. Called when that applier is not going to run this
+ * pass due to error path
+ */
+static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
+                                         size_t fromField) {
+  if (!aCtx->fieldChanges || !aCtx->oldDocId) return;
+  const Document *doc = aCtx->doc;
+  for (size_t ii = fromField; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (fs->types != INDEXFLD_T_VECTOR ||
+        aCtx->fieldChanges[fs->index] != ChangedFieldInd_VerifiedNo) {
+      continue;
+    }
+    // ctx is NULL because we don't create the index here, matching `VectorIndex_RemoveOrKeepId`.
+    VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[fs->index], DONT_CREATE_INDEX);
+    if (vecsim) {
+      VecSimIndex_DeleteVector(vecsim, aCtx->oldDocId);
+    }
+    aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
   }
 }
 
@@ -345,10 +422,16 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
  * that a later field's failure cannot orphan earlier fields' bookkeeping.
  *
  * On the first add failure, marks `ACTX_F_ERRORED` and bails. Earlier fields
- * stay fully applied; later fields are skipped entirely.
+ * stay fully applied; later fields are skipped entirely -- including their
+ * appliers, so any pending vector relabel from `ii` onward is abandoned
+ * instead of left stranded
  */
 static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_ERRORED)) return;
+  if (aCtx->stateFlags & ACTX_F_OTHERINDEXED) return;
+  if (aCtx->stateFlags & ACTX_F_ERRORED) {
+    revertPendingRelabels(aCtx, sctx->spec, 0);
+    return;
+  }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
@@ -362,6 +445,7 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
       QueryError_ClearError(&aCtx->status);
       aCtx->stateFlags |= ACTX_F_ERRORED;
+      revertPendingRelabels(aCtx, sctx->spec, ii);
       return;
     }
     IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);

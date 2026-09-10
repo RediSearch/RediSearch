@@ -185,6 +185,12 @@ static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, s
   return HiddenString_CompareC(fs->fieldPath, name, len) == 0;
 }
 
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields);
+
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */

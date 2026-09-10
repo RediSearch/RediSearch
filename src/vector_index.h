@@ -150,6 +150,18 @@ typedef struct VecSimLogCtx {
 
 VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fs, bool create_if_missing);
 
+/**
+ * Move the vector(s) stored under `oldDocId` onto `newDocId`, for a field whose value this
+ * update did not change — see `AddDocumentCtx_ShouldRelabelField`, which is what the
+ * vector-insert sites check before calling this.
+ *
+ * Returns whether the entry was moved, i.e. whether the caller should skip its insert. On a
+ * refusal the old entry is dropped here, so the caller can insert into a clean label: VecSim
+ * refuses when the index type does not implement relabeling (SVS), when the old label holds
+ * nothing, and when the new label is already taken.
+ */
+bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId);
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
