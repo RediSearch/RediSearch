@@ -16,6 +16,7 @@ on the source PR, including when the action or agent fails.
 | `/backport >= 8.6` | Process every registered active release line at or above 8.6. |
 | `/backport >= 8.6 2.10` | Union the version expansion and explicit targets. |
 
+Use exactly `/backport`, or follow it with a normal space before arguments.
 Lists accept spaces or commas. Only the first comment line contains targets.
 Version floors use numeric ordering and include registered variants such as
 `8.6-rse`; they do not discover arbitrary branches from the remote. Explicit
