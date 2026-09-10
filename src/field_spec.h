@@ -203,7 +203,13 @@ static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *quer
 
 // Indexing worker threads call this concurrently with each other and with FT.INFO's
 // unlocked read of the same counters (see `FieldSpec_GetIndexingStats`), so every
-// field is updated atomically rather than with plain ++/+=.
+// field is updated atomically rather than with plain ++/+=. The three fields are
+// updated as independent atomics rather than under one lock: a concurrent reader
+// can therefore observe a torn combination of a phase's sample (e.g. a `count`
+// bump not yet paired with its `totalTimeNs`), including transiently seeing
+// `maxTimeNs` exceed `totalTimeNs`. These are informational stats on a per-entry
+// indexing hot path, so this is an accepted trade-off rather than a lock: it
+// self-corrects on the next read once all writers finish.
 static inline void FieldSpec_AddIndexingTime(FieldSpec *fs, FieldIndexingPhase phase,
                                              rs_wall_clock_ns_t duration) {
   FieldIndexingPhaseStats *stats = &fs->indexingStats.phases[phase];
