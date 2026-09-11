@@ -158,25 +158,43 @@ def test_timeout_reply_policies_resp3():
     _exercise_timeout_reply_policies(3)
 
 
-def _exercise_interrupted_serialization(protocol, coordinator):
+def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
+    """Interrupt an open row, then check reply framing and blocked-client cleanup."""
     import redis
+    import struct
     import threading
 
     env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 60000')
     skipIfNoEnableAssert(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    schema = ['n', 'NUMERIC', 'SORTABLE']
+    if hybrid:
+        schema += ['v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+                   'DISTANCE_METRIC', 'L2']
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
     conn = getConnectionByEnv(env)
     for n in range(5):
-        conn.execute_command('HSET', f'{{doc}}:{n}', 'n', n)
-    if coordinator:
+        conn.execute_command('HSET', f'{{doc}}:{n}', 'n', n,
+                             'v', struct.pack('ff', n, n))
+    if hybrid:
+        hook = 'DuringHybridRowSerialization'
+        query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
+                 'SORTBY', 2, '@n', 'ASC', 'LOAD', 1, '@n',
+                 'PARAMS', 2, 'BLOB', struct.pack('ff', 0, 0)]
+    elif coordinator:
         hook = 'DuringCoordRowSerialization'
         query = ['FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', 'RETURN', 1, 'n']
     else:
         hook = 'DuringRowSerialization'
         query = ['FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'ASC', 'LOAD', 1, '@n']
 
-    def assert_rows(result):
-        if coordinator:
+    def assert_rows(result, timed_out=False):
+        if hybrid:
+            rows = (result if protocol == 3 else to_dict(result))['results']
+            fields = rows if protocol == 3 else [to_dict(row) for row in rows]
+            # HYBRID stops at the completed row; its tail cannot be drained by the callback.
+            env.assertEqual([int(row['n']) for row in fields],
+                            [0] if timed_out else list(range(5)))
+        elif coordinator:
             ids = ([row['id'] for row in result['results']] if protocol == 3
                    else result[1::3])
             env.assertEqual(sorted(ids), [f'{{doc}}:{n}' for n in range(5)])
@@ -223,10 +241,13 @@ def _exercise_interrupted_serialization(protocol, coordinator):
                     env.assertIsInstance(outcome[0], redis.ResponseError)
                     env.assertContains('Timeout limit was reached', str(outcome[0]))
                 else:
-                    assert_rows(outcome[0])
+                    assert_rows(outcome[0], timed_out=True)
                 if action == 'timeout':
                     client.send_command('PING')
                     env.assertEqual(client.read_response(), 'PONG')
+                    if coordinator and not hybrid:
+                        env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', hook),
+                                        1 if policy == 'FAIL' else 5)
                 if not coordinator:
                     wait_for_condition(
                         lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
@@ -259,6 +280,14 @@ def test_interrupted_coordinator_serialization_resp2():
 @skip(cluster=False)
 def test_interrupted_coordinator_serialization_resp3():
     _exercise_interrupted_serialization(3, True)
+
+
+def test_interrupted_hybrid_serialization_resp2():
+    _exercise_interrupted_serialization(2, False, hybrid=True)
+
+
+def test_interrupted_hybrid_serialization_resp3():
+    _exercise_interrupted_serialization(3, False, hybrid=True)
 
 
 def test_reply_buffer_cursor_protocol_changes():

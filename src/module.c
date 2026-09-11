@@ -3228,6 +3228,9 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
                                 struct MRCtx *mc) {
   UNUSED(mc);  // Used by the assertion-build serialization hook.
   searchRequestCtx *req = rCtx->searchCtx;
+  if (RS_AtomicIntLoadRelaxed(&req->discardReply)) {
+    return;
+  }
 
   // Number of results to actually return
   size_t num = req->offset + req->limit;
@@ -3246,6 +3249,9 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
 
   if (reply->resp3) {
     for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
+      if (RS_AtomicIntLoadRelaxed(&req->discardReply)) {
+        break;
+      }
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 
@@ -3292,6 +3298,9 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
 
   } else {
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
+      if (RS_AtomicIntLoadRelaxed(&req->discardReply)) {
+        break;
+      }
       searchResult *res = results[pos];
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
@@ -4569,6 +4578,8 @@ static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlocked
   UNUSED(ctx);
   struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
   RS_ASSERT(mrctx);
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  RS_AtomicIntStoreRelaxed(&req->discardReply, 1);
   MRCtx_SetTimedOut(mrctx);
 }
 
@@ -4622,6 +4633,8 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
+    searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+    RS_AtomicIntStoreRelaxed(&req->discardReply, 1);
     MRCtx_SetTimedOut(mrctx);
     // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
     // marker advances), like the other blocked-client timeout callbacks.

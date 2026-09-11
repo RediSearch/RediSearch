@@ -49,12 +49,18 @@ worker can finish cleanup because Redis retains the buffer until the blocked
 handle's final cleanup. Normal completion moves the rows once, and discarded
 buffers are released by Redis.
 
+Coordinator SEARCH stops serializing discarded replies between complete rows after
+a FAIL timeout or disconnect, so the reducer completion wait does not serialize the
+remaining payloads. RETURN_STRICT still serializes the retained ranked results.
+
 RETURN_STRICT retains the existing claim/completion handshake. After the worker
 finishes, eligible pipeline suffixes are drained directly into the same serialized
 buffer, preserving prefix order and the remaining result budget. This change does
 not implement the concurrent drain protocol or remove timeout-callback waits;
 that dependency remains tracked by MOD-17486. It introduces no per-row lock or
 separate allocation ownership protocol.
+HYBRID keeps its existing completed-row prefix on timeout; its tail is not drained
+by the timeout callback.
 
 ## Validation
 
