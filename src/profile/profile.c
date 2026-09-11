@@ -80,7 +80,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     double deltaTime = totalRPTime - upstreamTime;
     printProfileTime(deltaTime);
   }
-  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  printProfileRPCounter(RPProfile_GetCount(rp));
   // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
   // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
   if (printProfileClock && rp->upstream &&
