@@ -16,6 +16,7 @@ mod with_mask;
 
 pub use self::core::*;
 pub(crate) use expiration_bits::ExpirationBits;
+pub use unique_id::IndexUniqueId;
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;
 
