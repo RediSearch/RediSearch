@@ -2436,7 +2436,7 @@ static YYACTIONTYPE yy_reduce(
   } else if (yymsp[-3].minor.yy0.len == strlen("KNN") && !strncasecmp("KNN", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
-    yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
+    VectorQuery_SetField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.fs);
     VectorQuery_SetDefaultScoreField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.tok.s, yymsp[-1].minor.yy150.tok.len);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
@@ -2484,7 +2484,7 @@ static YYACTIONTYPE yy_reduce(
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_VECTOR_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
-    yymsp[-1].minor.yy3->vn.vq->field = yymsp[-4].minor.yy150.fs;
+    VectorQuery_SetField(yymsp[-1].minor.yy3->vn.vq, yymsp[-4].minor.yy150.fs);
     yylhsminor.yy3 = yymsp[-1].minor.yy3;
   }
 }

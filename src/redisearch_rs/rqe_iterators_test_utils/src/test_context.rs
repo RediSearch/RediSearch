@@ -957,6 +957,61 @@ impl TestContext {
         }
     }
 
+    /// Adds a second field to this context's spec, named by the exact bytes in `name`
+    /// (which need not be valid UTF-8, NUL-free, or NUL-terminated - unlike
+    /// `IndexSpec_CreateField`'s own `name` parameter, sized by `strlen`). Growing the
+    /// spec's field array can relocate it (see MOD-18356), so this also refreshes this
+    /// context's own cached field-spec pointer - the field it already held, always at
+    /// index 0 since fields are only ever appended - before returning the newly added
+    /// one. Callers still need to set any type-specific fields (e.g. vector params) on
+    /// the returned `FieldSpec` themselves.
+    pub fn add_field(&mut self, name: &[u8]) -> ptr::NonNull<ffi::FieldSpec> {
+        // A short, valid placeholder: `IndexSpec_CreateField` needs a NUL-terminated C
+        // name to size its own internal `HiddenString`. Everything that name produces is
+        // overwritten below with `name`'s exact bytes via an explicit length instead of
+        // `strlen` - the two cases (an embedded NUL, or a name that isn't NUL-terminated
+        // at all) this method exists to support.
+        let placeholder = c"placeholder_field_name";
+        // SAFETY: `self.spec` is a valid, exclusively-owned `IndexSpec` with a rule (every
+        // `TestContext` constructor sets one via `IndexSpec_ParseC`); `placeholder` is a
+        // valid, NUL-terminated C string; a null `path` gives the field no separate path.
+        let fs =
+            unsafe { ffi::IndexSpec_CreateField(self.spec, placeholder.as_ptr(), ptr::null()) };
+        let fs = ptr::NonNull::new(fs).expect("IndexSpec_CreateField should not return null");
+
+        // SAFETY: `IndexSpec_CreateField` always sets `fieldName` (and `fieldPath`, to the
+        // same pointer, since `path` was null above) to a fresh `HiddenString` it derived
+        // from `placeholder`; nothing else has observed or cloned it yet, so freeing it
+        // here is exclusive to this call.
+        unsafe { ffi::HiddenString_Free((*fs.as_ptr()).fieldName, true) };
+
+        // SAFETY: `name` is valid for `name.len()` bytes for the duration of this call.
+        // `takeOwnership = true` makes the `HiddenString` copy those bytes rather than
+        // borrow them, so it stays valid independent of `name`'s lifetime.
+        let hidden = unsafe { ffi::NewHiddenString(name.as_ptr().cast(), name.len(), true) };
+        // SAFETY: `fs` is the field this call just created and returns; nothing else can
+        // have taken a reference to it yet.
+        unsafe {
+            (*fs.as_ptr()).fieldName = hidden;
+            (*fs.as_ptr()).fieldPath = hidden;
+        }
+
+        // SAFETY: `self.spec` is valid, and just grew by one field via
+        // `IndexSpec_CreateField` above, which always keeps `fields` non-null.
+        let refreshed_first_field = unsafe { ptr::NonNull::new((*self.spec).fields).unwrap() };
+        match &mut self.inner {
+            TestContextInner::Numeric { field_spec, .. }
+            | TestContextInner::Term { field_spec, .. }
+            | TestContextInner::Missing { field_spec, .. }
+            | TestContextInner::Tag { field_spec, .. }
+            | TestContextInner::Geometry { field_spec, .. }
+            | TestContextInner::Prefix { field_spec, .. } => *field_spec = refreshed_first_field,
+            TestContextInner::Wildcard { .. } => {}
+        }
+
+        fs
+    }
+
     /// Get the term inverted index for this context (non-wide schema).
     /// Panics if this is not a term context or if it uses wide schema.
     pub fn term_inverted_index(
