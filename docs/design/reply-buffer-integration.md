@@ -35,7 +35,7 @@ counts together.
 
 The API is unreleased. Search rejects loading when either API is absent, and the
 shared CI dependency builds upstream commit `52d8aad57586b0d5072c23ff2980c2739a42155c`,
-including PR, merge-queue, and periodic validation.
+including PR, merge-queue, and periodic validation, manual tests, and benchmarks.
 There is no fallback for older cores. Upstream approval, merge, and a supported
 packaged core version remain prerequisites for landing this change.
 
