@@ -14,3 +14,9 @@ redis-module.workspace = true
 trie_rs = { workspace = true }
 trie_rdb = { workspace = true }
 workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+
+[target.'cfg(miri)'.dependencies]
+redis_mock.workspace = true

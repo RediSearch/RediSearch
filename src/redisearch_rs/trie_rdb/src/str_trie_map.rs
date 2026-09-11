@@ -14,8 +14,16 @@
 //! is validated with [`String::from_utf8`], so non-UTF-8 input surfaces as
 //! [`RdbError::InvalidUtf8`] rather than silently materializing as an
 //! ill-formed `String`.
+//!
+//! That makes this wrapper fit only for tries whose keys are UTF-8 by
+//! construction — the lexicographic dictionaries. C's trie keys are `rune`
+//! arrays that libnu produces from arbitrary bytes without ever validating
+//! them, so a trie fed from user input directly (`FT.SUGADD`'s) can hold keys
+//! that re-encode to byte sequences no UTF-8 decoder accepts. Serializing one
+//! of those needs a rune-keyed flavor alongside [`crate::trie_map`], not this
+//! wrapper.
 
-use super::{RdbError, RdbOpts, read_entries, trie_map};
+use super::{RdbError, RdbOpts, SaveError, read_entries, trie_map};
 use crate::{TrieEntry, WireFields};
 use rdb_io::RdbIO;
 use trie_rs::str_trie_map::StrTrieMap;
@@ -25,22 +33,28 @@ use trie_rs::str_trie_map::StrTrieMap;
 ///
 /// `fields` produces the wire fields for each entry's payload, as in
 /// [`crate::trie_map::save_with`]. Delegates to it on the inner byte-keyed
-/// [`trie_rs::TrieMap`].
+/// [`trie_rs::TrieMap`], and so enforces the same
+/// [key domain](crate#key-domain): a `String` key is UTF-8, but that alone
+/// does not put it in range of the C trie.
 pub fn save_with<P, IO: RdbIO>(
     map: &StrTrieMap<P>,
     writer: &mut IO,
     opts: RdbOpts,
     fields: impl for<'a> FnMut(&'a P) -> WireFields<'a>,
-) {
-    trie_map::save_with(map.byte_trie(), writer, opts, fields);
+) -> Result<(), SaveError> {
+    trie_map::save_with(map.byte_trie(), writer, opts, fields)
 }
 
 /// Serialize a [`StrTrieMap<TrieEntry>`] to `writer` in the trie RDB wire
 /// format.
 ///
 /// Shorthand for [`save_with`] with the identity field mapping.
-pub fn save<IO: RdbIO>(map: &StrTrieMap<TrieEntry>, writer: &mut IO, opts: RdbOpts) {
-    trie_map::save(map.byte_trie(), writer, opts);
+pub fn save<IO: RdbIO>(
+    map: &StrTrieMap<TrieEntry>,
+    writer: &mut IO,
+    opts: RdbOpts,
+) -> Result<(), SaveError> {
+    trie_map::save(map.byte_trie(), writer, opts)
 }
 
 /// Stream the entries of a serialized trie from `reader`, in stream order,
