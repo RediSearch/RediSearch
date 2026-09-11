@@ -137,7 +137,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
                                 const cachedVars *cv, int *rc) {
    const QueryRequestTimeout *timeout = ctx->timeout;
    const bool streamingReturn =
-       timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy == OomPolicy_Return;
+       timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy != OomPolicy_Fail;
    // RETURN must prime the pipeline even when its row budget is zero: a count-only
    // query still runs RPCounter to completion on that first read.
    bool firstRead = streamingReturn;
