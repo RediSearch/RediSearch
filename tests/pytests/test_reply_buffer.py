@@ -98,6 +98,17 @@ def _exercise_return_reply_compatibility(protocol):
         conn.execute_command('HSET', '{doc}:0', 'val', 'oops')
         env.expect(*expression).error().contains('Invalid numeric value')
         conn.execute_command('HSET', '{doc}:0', 'val', '10')
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-max-aggregate-results', 0)
+    expected_count = None
+    for workers in (0, 2):
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-workers', workers)
+        result = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 0)
+        if expected_count is None:
+            expected_count = result
+        env.assertEqual(result, expected_count)
+        if not env.isCluster():
+            env.assertEqual(result if protocol == 2 else result['total_results'],
+                            [3] if protocol == 2 else 3)
 
 
 def test_return_reply_compatibility_resp2():
