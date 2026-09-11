@@ -19,3 +19,13 @@ mod dereference;
 mod hash;
 mod shared;
 mod string;
+
+/// Skips backtrace symbolication for an expected panic, only under
+/// `cargo nextest run`: the [panic hook](std::panic::set_hook) is process-global
+/// and never restored, which is harmless under nextest's one-process-per-test
+/// model but would silence unrelated tests' panics under plain `cargo test`.
+pub(crate) fn suppress_panic_backtrace() {
+    if std::env::var_os("NEXTEST").is_some() {
+        std::panic::set_hook(Box::new(|_| {}));
+    }
+}
