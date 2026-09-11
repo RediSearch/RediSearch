@@ -58,7 +58,8 @@ separate allocation ownership protocol.
 
 ## Validation
 
-Search adds value-reuse and protocol-changing cursor tests. Existing timeout,
+Search adds value-reuse, protocol-changing cursor, and timeout/disconnect tests
+inside open reply collections. Existing timeout,
 profile, cursor, hybrid, disconnect, and index-drop suites exercise the shared
 paths. PR CI must include standalone, coordinator, and sanitizer lanes against the
 pinned Redis revision. Performance comparisons and flamegraph evidence required

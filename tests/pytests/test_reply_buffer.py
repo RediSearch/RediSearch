@@ -7,7 +7,7 @@
 
 from RLTest import Env
 from common import (debug_cmd, getConnectionByEnv, run_command_on_all_shards,
-                    skip, skipIfNoEnableAssert, to_dict)
+                    skip, skipIfNoEnableAssert, to_dict, wait_for_condition)
 
 
 def _exercise_reply_buffers(protocol):
@@ -156,6 +156,109 @@ def test_timeout_reply_policies_resp2():
 @skip(cluster=True)
 def test_timeout_reply_policies_resp3():
     _exercise_timeout_reply_policies(3)
+
+
+def _exercise_interrupted_serialization(protocol, coordinator):
+    import redis
+    import threading
+
+    env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 60000')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for n in range(5):
+        conn.execute_command('HSET', f'{{doc}}:{n}', 'n', n)
+    if coordinator:
+        hook = 'DuringCoordRowSerialization'
+        query = ['FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', 'RETURN', 1, 'n']
+    else:
+        hook = 'DuringRowSerialization'
+        query = ['FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'ASC', 'LOAD', 1, '@n']
+
+    def assert_rows(result):
+        if coordinator:
+            ids = ([row['id'] for row in result['results']] if protocol == 3
+                   else result[1::3])
+            env.assertEqual(sorted(ids), [f'{{doc}}:{n}' for n in range(5)])
+        else:
+            fields = ([row['extra_attributes'] for row in result['results']]
+                      if protocol == 3 else [to_dict(row) for row in result[1:]])
+            env.assertEqual([int(row['n']) for row in fields], list(range(5)))
+
+    for policy in ('FAIL', 'RETURN-STRICT'):
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', policy)
+        for action in ('timeout', 'disconnect'):
+            pool = env.getConnection().connection_pool
+            # A raw connection prevents redis-py from retrying the killed query.
+            client = pool.get_connection()
+            client.send_command('CLIENT', 'ID')
+            client_id = client.read_response()
+            free_before = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
+            outcome = []
+
+            def run_query():
+                try:
+                    client.send_command(*query)
+                    outcome.append(client.read_response())
+                except redis.RedisError as error:
+                    outcome.append(error)
+
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', hook).ok()
+            worker = threading.Thread(target=run_query, daemon=True)
+            worker.start()
+            try:
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', hook) == 1, {}),
+                    'Row serialization did not reach its open collection', timeout=10)
+                if action == 'timeout':
+                    env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+                else:
+                    env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+                worker.join(timeout=10)
+                env.assertFalse(worker.is_alive())
+                env.assertEqual(len(outcome), 1)
+                if action == 'disconnect':
+                    env.assertIsInstance(outcome[0], redis.ConnectionError)
+                elif policy == 'FAIL':
+                    env.assertIsInstance(outcome[0], redis.ResponseError)
+                    env.assertContains('Timeout limit was reached', str(outcome[0]))
+                else:
+                    assert_rows(outcome[0])
+                if action == 'timeout':
+                    client.send_command('PING')
+                    env.assertEqual(client.read_response(), 'PONG')
+                if not coordinator:
+                    wait_for_condition(
+                        lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
+                                          'GET_BLOCKED_REQUEST_ONFREE_COUNT') > free_before, {}),
+                        'Blocked reply buffer owner was not freed', timeout=10)
+            finally:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', hook)
+                worker.join(timeout=10)
+                client.disconnect()
+                pool.release(client)
+            env.assertEqual(env.cmd('INFO', 'clients')['blocked_clients'], 0)
+            assert_rows(env.cmd(*query))
+
+
+@skip(cluster=True)
+def test_interrupted_worker_serialization_resp2():
+    _exercise_interrupted_serialization(2, False)
+
+
+@skip(cluster=True)
+def test_interrupted_worker_serialization_resp3():
+    _exercise_interrupted_serialization(3, False)
+
+
+@skip(cluster=False)
+def test_interrupted_coordinator_serialization_resp2():
+    _exercise_interrupted_serialization(2, True)
+
+
+@skip(cluster=False)
+def test_interrupted_coordinator_serialization_resp3():
+    _exercise_interrupted_serialization(3, True)
 
 
 def test_reply_buffer_cursor_protocol_changes():

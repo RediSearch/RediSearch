@@ -3218,7 +3218,15 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
   QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
 }
 
-static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
+#ifdef ENABLE_ASSERT
+static bool coordSerializationTimedOut(void *arg) {
+  return MRCtx_IsTimedOut(arg);
+}
+#endif
+
+static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx,
+                                struct MRCtx *mc) {
+  UNUSED(mc);  // Used by the assertion-build serialization hook.
   searchRequestCtx *req = rCtx->searchCtx;
 
   // Number of results to actually return
@@ -3248,8 +3256,12 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
 
           if (req->withExplainScores) {
             RedisModule_Reply_Array(reply);
-              RedisModule_Reply_Double(reply, res->score);
-              MR_ReplyWithMRReply(reply, res->explainScores);
+#ifdef ENABLE_ASSERT
+            SyncPoint_WaitUntil(SYNC_POINT_DURING_COORD_ROW_SERIALIZATION,
+                                coordSerializationTimedOut, mc);
+#endif
+            RedisModule_Reply_Double(reply, res->score);
+            MR_ReplyWithMRReply(reply, res->explainScores);
             RedisModule_Reply_ArrayEnd(reply);
           } else {
             RedisModule_Reply_Double(reply, res->score);
@@ -3285,8 +3297,12 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
       if (req->withScores) {
         if (req->withExplainScores) {
           RedisModule_Reply_Array(reply);
-            RedisModule_Reply_Double(reply, res->score);
-            MR_ReplyWithMRReply(reply, res->explainScores);
+#ifdef ENABLE_ASSERT
+          SyncPoint_WaitUntil(SYNC_POINT_DURING_COORD_ROW_SERIALIZATION, coordSerializationTimedOut,
+                              mc);
+#endif
+          RedisModule_Reply_Double(reply, res->score);
+          MR_ReplyWithMRReply(reply, res->explainScores);
           RedisModule_Reply_ArrayEnd(reply);
         } else {
           RedisModule_Reply_Double(reply, res->score);
@@ -3664,7 +3680,7 @@ cleanup:
     rm_free(rCtx->cachedResult);
     rCtx->cachedResult = NULL;
     if (rCtx->pq && !QueryError_HasError(MRCtx_GetStatus(mc))) {
-      serializeSearchRows(&req->rows, rCtx);
+      serializeSearchRows(&req->rows, rCtx, mc);
     }
   }
 
