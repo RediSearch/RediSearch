@@ -146,20 +146,33 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    if (streamingReturn && *rc == RS_RESULT_OK && rp->parent->resultLimit) {
      prepare(request);
    }
-   if (timeout) {
+   if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+     RS_Atomic(bool) *timedOut = QueryRequestTimeout_GetBlockedClientFlag(&ctx->request->timeout);
+     QueryRequestAsyncState *async = &ctx->request->async;
      while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
        rp->parent->resultLimit--;
+       if (!RS_AtomicBoolLoadRelaxed(timedOut)) {
+         QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
+       }
        serialize(request, rows, &row, cv);
        SearchResult_Clear(&row);
+       if (!RS_AtomicBoolLoadRelaxed(timedOut)) {
+         QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
+       }
        debugCheckAndPauseAfterAggregateResult(ctx->areq);
-       if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+       if (RS_AtomicBoolLoadRelaxed(timedOut)) {
          *rc = RS_RESULT_TIMEDOUT;
          break;
        }
        if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
-     if (!streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
+   } else if (timeout) {
+     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
+       rp->parent->resultLimit--;
+       serialize(request, rows, &row, cv);
+       SearchResult_Clear(&row);
+       debugCheckAndPauseAfterAggregateResult(ctx->areq);
+       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
    } else {
      // The timeout callback already owns a stopped pipeline and only drains its buffered tail.
@@ -169,6 +182,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
        SearchResult_Clear(&row);
        if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
+   }
+   if (timeout && !streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+     *rc = RS_RESULT_TIMEDOUT;
    }
    SearchResult_Destroy(&row);
  }
