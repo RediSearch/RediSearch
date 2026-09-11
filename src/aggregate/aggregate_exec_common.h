@@ -51,7 +51,7 @@ typedef void (*SerializeResult)(void *request, RedisModule_Reply *reply, const S
 // A NULL ctx->timeout drains an already-stopped pipeline under the caller's ownership.
 void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
                                RedisModule_Reply *rows, SerializeResult serialize, void *request,
-                               const cachedVars *cv, int *rc);
+                               const cachedVars *cv, void (*prepare)(void *request), int *rc);
 
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a

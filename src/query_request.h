@@ -39,6 +39,10 @@ struct MRChannel;
 typedef struct {
   RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
+  uint32_t options;
+  uint32_t requiredFlags;
+  SendReplyFlags replyFlags;
+  int apiVersion;
 } cachedVars;
 
 /**
@@ -47,7 +51,7 @@ typedef struct {
 typedef struct {
   // The context is borrowed from Redis; the wrapper owns its reusable scratch.
   RedisModule_Reply rows;
-  // RETURN commits its envelope after the first successful row, before draining.
+  // Preserve RETURN count and late-error semantics after the first successful row.
   bool returnReplyStarted;
   uint32_t initialTotal;
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
