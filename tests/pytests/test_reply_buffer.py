@@ -231,6 +231,8 @@ def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', hook) == 1, {}),
                     'Row serialization did not reach its open collection', timeout=10)
                 if action == 'timeout':
+                    if coordinator:
+                        stats_before = env.cmd('INFO', 'MODULES')
                     env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
                 else:
                     env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
@@ -250,6 +252,13 @@ def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
                     if coordinator and not hybrid:
                         env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', hook),
                                         1 if policy == 'FAIL' else 5)
+                        stats_after = env.cmd('INFO', 'MODULES')
+                        kind = 'errors' if policy == 'FAIL' else 'warnings'
+                        prefix = f'search_coord_total_query_{kind}_timeout_while_'
+                        env.assertEqual(stats_after[prefix + 'replying'],
+                                        stats_before[prefix + 'replying'] + 1)
+                        env.assertEqual(stats_after[prefix + 'executing'],
+                                        stats_before[prefix + 'executing'])
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter) > free_before, {}),
                     'Blocked reply buffer owner was not freed', timeout=10)

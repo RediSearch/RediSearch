@@ -3690,16 +3690,14 @@ cleanup:
     }
     rm_free(rCtx->cachedResult);
     rCtx->cachedResult = NULL;
-    if (rCtx->pq && !QueryError_HasError(MRCtx_GetStatus(mc))) {
-      serializeSearchRows(&req->rows, rCtx, mc);
-    }
   }
 
-  // Reduction/post-processing done, about to hand off the reply: advance the marker
-  // so a timeout from here on is attributed to REPLY (frozen once already timed out).
-  searchRequestCtx *doneReq = MRCtx_GetPrivData(mc);
-  if (doneReq && !MRCtx_IsTimedOut(mc)) {
-    searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
+  // Freeze the stage of an existing timeout before serializing the completed heap.
+  if (req && !MRCtx_IsTimedOut(mc)) {
+    searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+  }
+  if (rCtx && rCtx->pq && !QueryError_HasError(MRCtx_GetStatus(mc))) {
+    serializeSearchRows(&req->rows, rCtx, mc);
   }
 
   if (ctx) {
