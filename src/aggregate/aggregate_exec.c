@@ -324,7 +324,8 @@ static void serializeBackgroundResult(void *request, RedisModule_Reply *reply,
 
 void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
   int rc = RS_RESULT_EOF;
-  Pipeline_SerializeResults(AREQ_QueryProcessingCtx(req)->endProc, req, NULL, &req->base.reply.rows,
+  CommonPipelineCtx ctx = {.areq = req};
+  Pipeline_SerializeResults(&ctx, AREQ_QueryProcessingCtx(req)->endProc, &req->base.reply.rows,
                             serializeBackgroundResult, req, &req->base.reply.cv, &rc);
 }
 
@@ -447,12 +448,8 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   }
 
   if (req->base.blockedClientCycleActive) {
-    Pipeline_SerializeResults(rp, req, &req->base.timeout, &req->base.reply.rows,
-                              serializeBackgroundResult, req, cv, rc);
-    if ((ctx.timeout->policy != TimeoutPolicy_Return || ctx.oomPolicy == OomPolicy_Fail) &&
-        QueryRequestTimeout_IsTimedOutExact(ctx.timeout)) {
-      *rc = RS_RESULT_TIMEDOUT;
-    }
+    Pipeline_SerializeResults(&ctx, rp, &req->base.reply.rows, serializeBackgroundResult, req, cv,
+                              rc);
   } else {
     startPipelineCommon(&ctx, rp, results, r, rc);
   }

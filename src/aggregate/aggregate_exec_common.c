@@ -132,16 +132,24 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    }
  }
 
- void Pipeline_SerializeResults(ResultProcessor *rp, AREQ *areq, const QueryRequestTimeout *timeout,
+ void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
                                 RedisModule_Reply *rows, SerializeResult serialize, void *request,
                                 const cachedVars *cv, int *rc) {
+   const QueryRequestTimeout *timeout = ctx->timeout;
+   const bool streamingReturn =
+       timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy == OomPolicy_Return;
+   // RETURN must prime the pipeline even when its row budget is zero: a count-only
+   // query still runs RPCounter to completion on that first read.
+   bool firstRead = streamingReturn;
    SearchResult row = SearchResult_New();
-   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
+   while ((rp->parent->resultLimit || firstRead) && (*rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
+     firstRead = false;
+     if (!rp->parent->resultLimit) break;
      rp->parent->resultLimit--;
      serialize(request, rows, &row, cv);
      SearchResult_Clear(&row);
      if (timeout) {
-       debugCheckAndPauseAfterAggregateResult(areq);
+       debugCheckAndPauseAfterAggregateResult(ctx->areq);
        if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
          *rc = RS_RESULT_TIMEDOUT;
          break;
@@ -149,6 +157,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      }
    }
    SearchResult_Destroy(&row);
+   if (timeout && !streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+     *rc = RS_RESULT_TIMEDOUT;
+   }
  }
 
  /**

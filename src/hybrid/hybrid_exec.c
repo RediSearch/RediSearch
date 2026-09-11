@@ -293,13 +293,8 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   }
 
   if (hreq->base.blockedClientCycleActive) {
-    Pipeline_SerializeResults(rp, hreq->requests[SEARCH_INDEX], &hreq->base.timeout,
-                              &hreq->base.reply.rows, serializeBackgroundResult_hybrid, hreq, cv,
-                              rc);
-    if ((ctx.timeout->policy != TimeoutPolicy_Return || ctx.oomPolicy == OomPolicy_Fail) &&
-        QueryRequestTimeout_IsTimedOutExact(ctx.timeout)) {
-      *rc = RS_RESULT_TIMEDOUT;
-    }
+    Pipeline_SerializeResults(&ctx, rp, &hreq->base.reply.rows, serializeBackgroundResult_hybrid,
+                              hreq, cv, rc);
   } else {
     startPipelineCommon(&ctx, rp, results, r, rc);
   }
