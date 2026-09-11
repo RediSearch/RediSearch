@@ -155,6 +155,13 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   RedisModule_Reply_PrefixedStringBuffer(reply, '$', s, n);
 }
 
+#ifdef ENABLE_ASSERT
+static bool serializationTimedOut(void *arg) {
+  AREQ *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+}
+#endif
+
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = AREQ_RequestFlags(req);
@@ -290,6 +297,11 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
       RedisModule_Reply_Map(reply);
+#ifdef ENABLE_ASSERT
+      if (req->base.blockedClientCycleActive) {
+        SyncPoint_WaitUntil(SYNC_POINT_DURING_ROW_SERIALIZATION, serializationTimedOut, req);
+      }
+#endif
       RedisModule_Reply_RLookupRow(reply, lk, SearchResult_GetRowData(r), requiredFlags,
                                    RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
       RedisModule_Reply_MapEnd(reply);

@@ -145,6 +145,8 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_DURING_ROW_SERIALIZATION "DuringRowSerialization"
+#define SYNC_POINT_DURING_COORD_ROW_SERIALIZATION "DuringCoordRowSerialization"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK          "BeforeSafeLoaderGILLock"
 #define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
