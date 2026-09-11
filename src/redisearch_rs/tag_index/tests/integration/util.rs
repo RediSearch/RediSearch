@@ -12,7 +12,7 @@
 use ffi::timespec;
 use index_result::RSIndexResult;
 use inverted_index::{DocId, GcApplyInfo, GcScanDelta, IndexUniqueId, RepairContext};
-use tag_index::{InMemoryMode, MemTagIndexIterator, Tag, TagIndex, WritePostingsDelta};
+use tag_index::{InMemoryMode, MemTagIndexIterator, OnDiskMode, Tag, TagIndex, WritePostingsDelta};
 
 /// Wrap a NUL-free test literal into a [`Tag`].
 pub fn as_tag(bytes: &[u8]) -> Tag<'_> {
@@ -48,6 +48,11 @@ pub fn index_mem(
 
 /// Run the post-indexing commit phase for `tags` on a memory-mode index.
 pub fn commit_mem(idx: &mut TagIndex<InMemoryMode>, tags: &[&[u8]]) -> u32 {
+    idx.commit(&tag_values(tags))
+}
+
+/// Run the post-indexing commit phase for `tags` on a disk-mode index.
+pub fn commit_disk(idx: &mut TagIndex<OnDiskMode>, tags: &[&[u8]]) -> u32 {
     idx.commit(&tag_values(tags))
 }
 

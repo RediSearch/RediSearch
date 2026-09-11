@@ -65,6 +65,29 @@ fn tag_term_layout(size: usize) -> Layout {
         .expect("a tag term is one byte longer than a tag, far below Layout's size limit")
 }
 
+/// Return the length of the holding string, terminator included.
+///
+/// # Safety
+///
+/// `ptr` must meet [`CStr::from_ptr`]'s whole contract, not just the
+/// NUL terminator part of it:
+///
+/// 1. `ptr` is non-null;
+/// 2. every byte from `ptr` up to and including the terminator is initialized,
+///    readable, and belongs to one single live allocation;
+/// 3. that allocation is not mutated for the duration of the call;
+/// 4. the distance from `ptr` to the terminator is at most [`isize::MAX`].
+///
+/// [`CStr::from_ptr`]: std::ffi::CStr::from_ptr
+const unsafe fn get_length(ptr: *const u8) -> usize {
+    // This cast doesn't change size, we care about only the NULL
+    let ptr = ptr.cast::<std::ffi::c_char>();
+    // SAFETY: the caller's contract is `CStr::from_ptr`'s, verbatim.
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_bytes_with_nul()
+        .len()
+}
+
 /// Owning handle to a tag term allocation.
 ///
 /// Dropping it frees the allocation.
@@ -102,12 +125,11 @@ impl OwnedTerm {
 
     /// Full allocation size in bytes (term bytes + the trailing NUL).
     const fn alloc_size(&self) -> usize {
-        // This cast doesn't change size, we care about only the NULL
-        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation.
-        unsafe { std::ffi::CStr::from_ptr(ptr) }
-            .to_bytes_with_nul()
-            .len()
+        // SAFETY: `Self::new` allocated `self.0` as one block of `term.len() + 1`
+        // initialized bytes whose last one is the NUL it wrote, `&self` keeps that
+        // block alive and unmutated for the call, and its size came from a `Layout`,
+        // so it is at most `isize::MAX`.
+        unsafe { get_length(self.0.as_ptr()) }
     }
 
     /// Build [`TermPtr`] from the current [`OwnedTerm`]
@@ -137,22 +159,20 @@ impl TermPtr {
         self.0 == owned.0
     }
 
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+
     /// Full allocation size in bytes (term bytes + the trailing NUL).
     ///
     /// # Safety
     /// The [`OwnedTerm`] this pointer was taken from must still be alive.
+    #[cfg(test)]
     pub const unsafe fn alloc_size(&self) -> usize {
-        // This cast doesn't change size, we care about only the NULL
-        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: the pointee is a live allocation from [`OwnedTerm::new`], which
-        // NUL-terminates it.
-        unsafe { std::ffi::CStr::from_ptr(ptr) }
-            .to_bytes_with_nul()
-            .len()
-    }
-
-    pub const fn as_ptr(&self) -> *const u8 {
-        self.0.as_ptr()
+        // SAFETY: `self.0` is the pointer of the `OwnedTerm` this was taken from,
+        // which the caller's contract keeps alive; it therefore satisfies
+        // `get_length` for the same reasons `OwnedTerm::alloc_size` does.
+        unsafe { get_length(self.0.as_ptr()) }
     }
 }
 
