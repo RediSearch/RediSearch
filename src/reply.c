@@ -8,6 +8,7 @@
 */
 #include "reply.h"
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <sys/types.h> // for ssize_t
@@ -180,20 +181,24 @@ int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix
   return rc;
 }
 
+static int *replyElementCount(RedisModule_Reply *reply) {
+  return reply->stack && array_len(reply->stack) ? &array_tail(reply->stack).count : &reply->count;
+}
+
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
-  StackEntry *e = 0;
-  int *count;
-  if (reply->stack) {
-    if (!array_len(reply->stack)) {
-      e = array_ensure_tail(&reply->stack, StackEntry);
-    } else {
-      e = &array_tail(reply->stack);
-    }
-    count = &e->count;
-  } else {
-    count = &reply->count;
+  ++*replyElementCount(reply);
+}
+
+int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer) {
+  RS_ASSERT(!buffer->stack || !array_len(buffer->stack));
+  int *count = replyElementCount(reply);
+  RS_ASSERT(buffer->count >= 0 && *count <= INT_MAX - buffer->count);
+  int rc = RedisModule_ReplyWithBufferedReply(reply->ctx, buffer->ctx);
+  if (rc == REDISMODULE_OK) {
+    *count += buffer->count;
+    buffer->count = 0;
   }
-  ++*count;
+  return rc;
 }
 
 void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply) {

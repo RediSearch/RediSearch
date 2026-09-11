@@ -432,9 +432,16 @@ def _set_one_shard_unreachable(env: Env):
 
 def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str):
     """Test that FT.SEARCH, FT.AGGREGATE, and FT.HYBRID all return an error."""
+    free_counter = 'GET_COORD_SEARCH_ONFREE_COUNT'
+    free_before = (env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter)
+                   if isEnableAssertEnabled(env) else None)
     # FT.SEARCH returns an error (does not hang)
     with TimeLimit(5, f'FT.SEARCH hung ({scenario})'):
         env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+    if free_before is not None:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter) > free_before, {}),
+            'Coordinator request leaked after zero-command fanout')
 
     # FT.AGGREGATE returns an error (does not hang)
     with TimeLimit(5, f'FT.AGGREGATE hung ({scenario})'):

@@ -124,12 +124,16 @@ typedef struct {
   int profileLimited;
   rs_wall_clock profileClock;
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
+  rs_wall_clock_ns_t rowSerializationTime;
   void *reducer;
   bool queryOOM;
   bool timedOut;
   // QueryTimeoutStage marker for the FT.SEARCH MR coordinator path.
   RS_Atomic(int) execPhase;
 
+  RedisModule_Reply rows;
+  // FAIL timeout or disconnect cancels serialization at the next complete-row boundary.
+  RS_Atomic(int) discardReply;
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 

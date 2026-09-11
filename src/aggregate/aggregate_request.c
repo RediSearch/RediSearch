@@ -1808,18 +1808,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 void ChunkReplyState_Destroy(ChunkReplyState *state) {
-  // Free any stored results that weren't consumed
-  // (e.g., if timeout occurred before reply_callback ran)
-  if (state->results) {
-    for (size_t i = 0; i < array_len(state->results); i++) {
-      SearchResult_Destroy(state->results[i]);
-      rm_free(state->results[i]);
-    }
-    array_free(state->results);
-    state->results = NULL;
-  }
-
-  // Clear stored error state
+  RedisModule_EndReply(&state->rows);
+  state->rows.ctx = NULL;
+  state->returnReplyStarted = false;
   QueryError_ClearError(&state->err);
 }
 

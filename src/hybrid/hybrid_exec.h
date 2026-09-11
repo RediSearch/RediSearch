@@ -58,7 +58,6 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
  * Store pipeline results for reply_callback path (FAIL policy with workers).
  * Called after pipeline execution to store results for serialization on the main thread.
  */
-void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
 
 /**
  * Helper for error handling in coordinator HREQ execution.
