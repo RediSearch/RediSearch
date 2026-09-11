@@ -132,6 +132,8 @@ typedef struct {
   RS_Atomic(int) execPhase;
 
   RedisModule_Reply rows;
+  // FAIL timeout or disconnect cancels serialization at the next complete-row boundary.
+  RS_Atomic(int) discardReply;
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 

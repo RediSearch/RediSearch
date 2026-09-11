@@ -170,6 +170,13 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
 
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
+#ifdef ENABLE_ASSERT
+static bool hybridSerializationTimedOut(void *arg) {
+  HybridRequest *hreq = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout);
+}
+#endif
+
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
@@ -180,6 +187,13 @@ static void serializeResult_hybrid(void *request, RedisModule_Reply *reply, cons
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   RedisModule_Reply_Map(reply); // >result
+
+#ifdef ENABLE_ASSERT
+  if (hreq->base.blockedClientCycleActive) {
+    SyncPoint_WaitUntil(SYNC_POINT_DURING_HYBRID_ROW_SERIALIZATION, hybridSerializationTimedOut,
+                        hreq);
+  }
+#endif
 
   // Reply should have the same structure of an FT.AGGREGATE reply
 
