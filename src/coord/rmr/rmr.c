@@ -96,6 +96,8 @@ typedef struct MRCtx {
    * send commands and base on the response send more commands
    * and do more aggregations. Only the last command/commands sent
    * needs to unblock the client.
+   * Coordinator SEARCH also ends timing in its main-thread callbacks, since
+   * Redis reads that non-atomic duration after a timeout callback returns.
    */
   MRReduceFunc fn;
 
