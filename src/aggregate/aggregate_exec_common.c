@@ -134,32 +134,43 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 
  void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
                                 RedisModule_Reply *rows, SerializeResult serialize, void *request,
-                                const cachedVars *cv, int *rc) {
+                                const cachedVars *cv, void (*prepare)(void *request), int *rc) {
    const QueryRequestTimeout *timeout = ctx->timeout;
    const bool streamingReturn =
        timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy != OomPolicy_Fail;
-   // RETURN must prime the pipeline even when its row budget is zero: a count-only
-   // query still runs RPCounter to completion on that first read.
-   bool firstRead = streamingReturn;
    SearchResult row = SearchResult_New();
-   while ((rp->parent->resultLimit || firstRead) && (*rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
-     firstRead = false;
-     if (!rp->parent->resultLimit) break;
-     rp->parent->resultLimit--;
-     serialize(request, rows, &row, cv);
-     SearchResult_Clear(&row);
-     if (timeout) {
+   // RETURN primes count-only pipelines even when their row budget is zero.
+   if (rp->parent->resultLimit || streamingReturn) {
+     *rc = rp->Next(rp, &row);
+   }
+   if (streamingReturn && *rc == RS_RESULT_OK && rp->parent->resultLimit) {
+     prepare(request);
+   }
+   if (timeout) {
+     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
+       rp->parent->resultLimit--;
+       serialize(request, rows, &row, cv);
+       SearchResult_Clear(&row);
        debugCheckAndPauseAfterAggregateResult(ctx->areq);
        if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
          *rc = RS_RESULT_TIMEDOUT;
          break;
        }
+       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
+     }
+     if (!streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+       *rc = RS_RESULT_TIMEDOUT;
+     }
+   } else {
+     // The timeout callback already owns a stopped pipeline and only drains its buffered tail.
+     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
+       rp->parent->resultLimit--;
+       serialize(request, rows, &row, cv);
+       SearchResult_Clear(&row);
+       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
    }
    SearchResult_Destroy(&row);
-   if (timeout && !streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
-     *rc = RS_RESULT_TIMEDOUT;
-   }
  }
 
  /**
