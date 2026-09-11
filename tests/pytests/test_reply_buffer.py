@@ -129,6 +129,54 @@ def test_ignore_oom_reply_compatibility_resp3():
     _exercise_return_reply_compatibility(3, 'IGNORE')
 
 
+def _exercise_hybrid_late_error(protocol):
+    import struct
+
+    env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 0 ON_TIMEOUT RETURN')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ord', 'NUMERIC', 'SORTABLE',
+               'val', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', 6,
+               'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for n, value in enumerate(('10', 'oops', '20')):
+        conn.execute_command('HSET', f'{{doc}}:{n}', 'ord', n, 'val', value,
+                             'v', struct.pack('ff', n, n))
+    query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
+             'SORTBY', 2, '@ord', 'ASC', 'LOAD', 2, '@ord', '@val',
+             'APPLY', '@val + 0', 'AS', 'computed',
+             'PARAMS', 2, 'BLOB', struct.pack('ff', 0, 0)]
+    for oom_policy in ('RETURN', 'IGNORE', 'FAIL'):
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-oom', oom_policy)
+        expected = None
+        for workers in (0, 2):
+            run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-workers', workers)
+            if oom_policy == 'FAIL':
+                env.expect(*query).error().contains('Invalid numeric value')
+                continue
+            result = env.cmd(*query)
+            if protocol == 2:
+                result = to_dict(result)
+            result.pop('execution_time')
+            if expected is None:
+                expected = result
+            env.assertEqual(result, expected)
+            env.assertEqual(result['total_results'], 3)
+            env.assertEqual(len(result['results']), 1)
+            row = result['results'][0]
+            if protocol == 2:
+                row = to_dict(row)
+            env.assertEqual(float(row['computed']), 10)
+            env.assertEqual(int(row['ord']), 0)
+            env.assertContains('Invalid numeric value', str(result['warnings']))
+
+
+def test_hybrid_late_error_resp2():
+    _exercise_hybrid_late_error(2)
+
+
+def test_hybrid_late_error_resp3():
+    _exercise_hybrid_late_error(3)
+
+
 def _exercise_timeout_reply_policies(protocol):
     env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 1000 ON_TIMEOUT RETURN')
     skipIfNoEnableAssert(env)
