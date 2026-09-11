@@ -130,6 +130,7 @@ typedef struct {
   // QueryTimeoutStage marker for the FT.SEARCH MR coordinator path.
   RS_Atomic(int) execPhase;
 
+  RedisModule_Reply rows;
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
