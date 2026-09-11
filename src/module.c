@@ -3428,13 +3428,17 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 struct PrintCoordProfile_ctx {
   rs_wall_clock *totalTime;
   rs_wall_clock_ns_t postProcessTime;
+  rs_wall_clock_ns_t rowSerializationTime;
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
+  RedisModule_ReplyKV_Double(
+      reply, "Post Processing time",
+      rs_wall_clock_convert_ns_to_ms_d(pCtx->rowSerializationTime + rs_wall_clock_now_ns() -
+                                       pCtx->postProcessTime));
   RedisModule_ReplyKV_Double(reply, "Coordinator queue time", rs_wall_clock_convert_ns_to_ms_d(pCtx->coordQueueTime));
   RedisModule_Reply_MapEnd(reply);
 }
@@ -3459,6 +3463,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     struct PrintCoordProfile_ctx coordCtx = {
         .totalTime = totalTime,
         .postProcessTime = postProcessTime,
+        .rowSerializationTime = rCtx->searchCtx->rowSerializationTime,
         .coordQueueTime = rCtx->searchCtx->coordQueueTime,
     };
     Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
@@ -3697,7 +3702,12 @@ cleanup:
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
   if (rCtx && rCtx->pq && !QueryError_HasError(MRCtx_GetStatus(mc))) {
+    const bool profile = req->profileArgs > 0;
+    rs_wall_clock_ns_t serializationStart = profile ? rs_wall_clock_now_ns() : 0;
     serializeSearchRows(&req->rows, rCtx, mc);
+    if (profile) {
+      req->rowSerializationTime = rs_wall_clock_now_ns() - serializationStart;
+    }
   }
 
   if (ctx) {
