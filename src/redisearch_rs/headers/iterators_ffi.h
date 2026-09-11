@@ -86,14 +86,6 @@ typedef struct NumericFilter NumericFilter;
  */
 typedef struct NumericRangeTree NumericRangeTree;
 
-typedef struct RLookupKey RLookupKey;
-
-/**
- * Smart pointer handle for [`RLookupKey`] that can be
- * invalidated when the iterator that owns the key is freed.
- */
-typedef struct RLookupKeyHandle RLookupKeyHandle;
-
 /**
  * A single term being evaluated at query time.
  *
@@ -586,8 +578,8 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
  *
  * This call can reduce to an `Empty` iterator, whose `type_` is
- * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
- * accessors below must not be called on such a handle.
+ * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The accessors in
+ * [`vector_score_source::interop`] must not be called on such a handle.
  *
  * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
  * for a hybrid (filtered) query.
@@ -615,6 +607,8 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
+ * [`IteratorType::Hybrid`]: rqe_iterators::IteratorType::Hybrid
  */
 QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
@@ -739,32 +733,6 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
-
-/**
- * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
- *
- * The key is initially `NULL`; the metrics-loader result processor writes
- * through this pointer to set the iterator's score-output key.
- *
- * # Safety
- *
- * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
- *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
- */
-RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
-
-/**
- * Set the [`RLookupKeyHandle`] back-reference on this iterator.
- *
- * The handle is used to invalidate the key pointer when the iterator is freed.
- *
- * # Safety
- *
- * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
- *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
- * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
- */
-void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
 
 /**
  *
