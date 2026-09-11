@@ -272,12 +272,12 @@ def test_interrupted_worker_serialization_resp3():
     _exercise_interrupted_serialization(3, False)
 
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_interrupted_coordinator_serialization_resp2():
     _exercise_interrupted_serialization(2, True)
 
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_interrupted_coordinator_serialization_resp3():
     _exercise_interrupted_serialization(3, True)
 
@@ -288,6 +288,109 @@ def test_interrupted_hybrid_serialization_resp2():
 
 def test_interrupted_hybrid_serialization_resp3():
     _exercise_interrupted_serialization(3, False, hybrid=True)
+
+
+def _exercise_coordinator_early_cleanup(phase):
+    """Verify handle cleanup when execution terminates before the reducer runs."""
+    import redis
+    import threading
+
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 60000 ON_TIMEOUT FAIL')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:0', 'n', 0)
+    free_counter = 'GET_COORD_SEARCH_ONFREE_COUNT'
+
+    for action in (('drop',) if phase == 'prepare' else ('timeout', 'disconnect')):
+        pool = env.getConnection().connection_pool
+        client = pool.get_connection()
+        client.send_command('CLIENT', 'ID')
+        client_id = client.read_response()
+        free_before = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter)
+        stats_before = env.cmd('INFO', 'COMMANDSTATS').get('cmdstat_FT.SEARCH',
+                                                         {'calls': 0, 'usec': 0})
+        stats_at_timeout = None
+        outcome = []
+
+        def run_query():
+            try:
+                client.send_command('FT.SEARCH', 'idx', '*')
+                outcome.append(client.read_response())
+            except redis.RedisError as error:
+                outcome.append(error)
+
+        if phase == 'fanout':
+            run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
+        else:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+                'Coordinator pool did not pause')
+        worker = threading.Thread(target=run_query, daemon=True)
+        worker.start()
+        try:
+            wait_for_condition(
+                lambda: (any(c['id'] == str(client_id) and 'b' in c['flags']
+                             for c in env.getConnection().client_list()), {}),
+                'Coordinator client did not block')
+            if phase == 'fanout':
+                wait_for_condition(
+                    lambda: (all(any(c['cmd'].lower() == '_ft.search' and 'b' in c['flags']
+                                     for c in shard.client_list())
+                                 for shard in env.getOSSMasterNodesConnectionList()), {}),
+                    'Fanout did not reach the paused shard workers')
+            if action == 'timeout':
+                # Measure a known blocked interval; the timeout itself is explicitly triggered.
+                env.cmd('DEBUG', 'SLEEP', 0.05)
+                env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+                stats_at_timeout = env.cmd('INFO', 'COMMANDSTATS')['cmdstat_FT.SEARCH']
+                env.assertEqual(stats_at_timeout['calls'], stats_before['calls'] + 1)
+                env.assertGreaterEqual(stats_at_timeout['usec'], stats_before['usec'] + 40000,
+                                       message=stats_at_timeout)
+            elif action == 'disconnect':
+                env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+            else:
+                # Remove the local spec so preparation cannot promote the queued weak ref.
+                env.expect('FLUSHDB').equal(True)
+        finally:
+            if phase == 'fanout':
+                run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
+            else:
+                env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+            worker.join(timeout=10)
+            client.disconnect()
+            pool.release(client)
+
+        env.assertFalse(worker.is_alive())
+        env.assertEqual(len(outcome), 1)
+        if action == 'disconnect':
+            env.assertIsInstance(outcome[0], redis.ConnectionError)
+        else:
+            env.assertIsInstance(outcome[0], redis.ResponseError)
+            env.assertContains('dropped' if action == 'drop' else 'Timeout limit was reached',
+                               str(outcome[0]))
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter) > free_before, {}),
+            f'Coordinator request leaked during {phase}/{action}')
+        if stats_at_timeout is not None:
+            stats_after = env.cmd('INFO', 'COMMANDSTATS')['cmdstat_FT.SEARCH']
+            env.assertEqual((stats_after['calls'], stats_after['usec']),
+                            (stats_at_timeout['calls'], stats_at_timeout['usec']))
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_cleanup_before_pickup():
+    _exercise_coordinator_early_cleanup('queued')
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_cleanup_during_fanout():
+    _exercise_coordinator_early_cleanup('fanout')
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_cleanup_after_preparation_failure():
+    _exercise_coordinator_early_cleanup('prepare')
 
 
 def test_reply_buffer_cursor_protocol_changes():

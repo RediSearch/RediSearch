@@ -3493,7 +3493,6 @@ static void searchResultReducer_wrapper(void *mc_v) {
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
   // Redis still needs an unblock to release the handle after timeout or disconnect.
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, mc);
   MRCtx_DecrRef(mc);
 }
@@ -3552,9 +3551,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   }
 #endif
 
-  // Timeout may have fired after the reducer was queued but before it started.
-  // In that case the timeout callback owns the blocked-client lifetime, so the
-  // background reducer must exit before touching `bc`.
+  // The timeout callback may have reduced the replies before this worker started.
+  // The wrapper still releases the blocked handle when the worker exits.
   if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
     goto cleanup;
   }
@@ -3708,7 +3706,7 @@ cleanup:
     RedisModule_FreeThreadSafeContext(ctx);
   }
 
-  // Signal reducer complete only after all blocked-client usage is finished.
+  // Publish completed reply rows before the timeout callback consumes them.
   if (ownsReducing) {
     MRCtx_SignalReducerComplete(mc);
   }
@@ -4337,7 +4335,6 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, mrctx);
 }
 
@@ -4438,7 +4435,6 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
 
   // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
@@ -4501,6 +4497,7 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   UNUSED(argc);
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
+    RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
 
     // Check if we have an error and return it
     if (QueryError_HasError(MRCtx_GetStatus(mrctx))) {
@@ -4579,6 +4576,7 @@ static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlocked
   UNUSED(ctx);
   struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
   RS_ASSERT(mrctx);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
   RS_AtomicIntStoreRelaxed(&req->discardReply, 1);
   MRCtx_SetTimedOut(mrctx);
@@ -4634,6 +4632,7 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
+    RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
     searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
     RS_AtomicIntStoreRelaxed(&req->discardReply, 1);
     MRCtx_SetTimedOut(mrctx);
@@ -4667,6 +4666,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
     // This shouldn't happen but handle gracefully
     return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
   }
+  RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
 
   // Signal timeout to stop accepting new replies in fanoutCallback
   MRCtx_SetTimedOut(mrctx);
@@ -5271,7 +5271,6 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
 
   // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }

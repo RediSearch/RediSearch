@@ -94,6 +94,8 @@ typedef struct MRCtx {
    * send commands and base on the response send more commands
    * and do more aggregations. Only the last command/commands sent
    * needs to unblock the client.
+   * Coordinator SEARCH also ends timing in its main-thread callbacks, since
+   * Redis reads that non-atomic duration after a timeout callback returns.
    */
   MRReduceFunc fn;
 
@@ -310,7 +312,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
+      if (!ctx->fn) RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
     MRCtx_DecrRef(ctx);
@@ -335,7 +337,7 @@ static void uvFanoutRequest(void *p) {
     IORuntimeCtx_RequestCompleted(ioRuntime);
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    if (!mrctx->fn) RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
     MRCtx_DecrRef(mrctx);
   }
