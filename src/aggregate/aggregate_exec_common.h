@@ -35,6 +35,7 @@ SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc)
 typedef struct CommonPipelineCtx {
   const struct QueryRequestTimeout *timeout;
   RSOomPolicy oomPolicy;
+  QueryRequest *request;
 
   // AREQ for the request being executed; consulted by AggregateResults (and
   // its debug pause loop) to observe the request timeout. NULL on paths without

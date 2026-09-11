@@ -430,9 +430,10 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r,
                           int *rc, const cachedVars *cv) {
   CommonPipelineCtx ctx = {
-    .timeout = &req->base.timeout,
-    .oomPolicy = req->reqConfig.oomPolicy,
-    .areq = req,
+      .timeout = &req->base.timeout,
+      .oomPolicy = req->reqConfig.oomPolicy,
+      .request = &req->base,
+      .areq = req,
   };
 
 #ifdef ENABLE_ASSERT
