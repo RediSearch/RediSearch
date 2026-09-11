@@ -338,6 +338,53 @@ def test_interrupted_coordinator_serialization_resp3():
     _exercise_interrupted_serialization(3, True)
 
 
+def _exercise_coordinator_profile_serialization(protocol):
+    import threading
+
+    env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 60000')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:0', 'text', 'hello')
+    hook = 'DuringCoordRowSerialization'
+    outcome, errors = [], []
+
+    def run_profile():
+        try:
+            outcome.append(env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                                   'WITHSCORES', 'EXPLAINSCORE'))
+        except Exception as error:
+            errors.append(error)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', hook).ok()
+    worker = threading.Thread(target=run_profile, daemon=True)
+    worker.start()
+    try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', hook) == 1, {}),
+            'Profile did not reach row serialization', timeout=10)
+        # A known interval inside serialization must be included in post-processing time.
+        env.cmd('DEBUG', 'SLEEP', 0.05)
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', hook)
+        worker.join(timeout=10)
+    env.assertFalse(worker.is_alive())
+    env.assertEqual(errors, [])
+    env.assertEqual(len(outcome), 1)
+    profile = (outcome[0]['Profile']['Coordinator'] if protocol == 3
+               else to_dict(outcome[0][-1][-1]))
+    env.assertGreaterEqual(float(profile['Post Processing time']), 40)
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_profile_serialization_resp2():
+    _exercise_coordinator_profile_serialization(2)
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_profile_serialization_resp3():
+    _exercise_coordinator_profile_serialization(3)
+
+
 def test_interrupted_hybrid_serialization_resp2():
     _exercise_interrupted_serialization(2, False, hybrid=True)
 
