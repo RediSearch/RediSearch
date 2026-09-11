@@ -272,6 +272,8 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 // blocking the main thread inside the callback.
 void QueryRequestOnFreeDebug_Increment(void);
 uint64_t QueryRequestOnFreeDebug_GetCount(void);
+void CoordSearchOnFreeDebug_Increment(void);
+uint64_t CoordSearchOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the

@@ -3711,9 +3711,6 @@ cleanup:
     searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-  }
   if (ctx) {
     RedisModule_FreeThreadSafeContext(ctx);
   }
@@ -4381,9 +4378,6 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
-  if (!MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-  }
   RedisModule_UnblockClient(bc, mrctx);
 }
 
@@ -4606,6 +4600,9 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
   }
 
   searchRequestCtx_Free(req);
+#ifdef ENABLE_ASSERT
+  CoordSearchOnFreeDebug_Increment();
+#endif
 }
 
 // Free privdata callback for distributed search.

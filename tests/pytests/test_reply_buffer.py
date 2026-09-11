@@ -186,6 +186,8 @@ def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
     else:
         hook = 'DuringRowSerialization'
         query = ['FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'ASC', 'LOAD', 1, '@n']
+    free_counter = ('GET_COORD_SEARCH_ONFREE_COUNT' if coordinator
+                    else 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
 
     def assert_rows(result, timed_out=False):
         if hybrid:
@@ -211,7 +213,7 @@ def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
             client = pool.get_connection()
             client.send_command('CLIENT', 'ID')
             client_id = client.read_response()
-            free_before = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
+            free_before = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter)
             outcome = []
 
             def run_query():
@@ -248,11 +250,9 @@ def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
                     if coordinator and not hybrid:
                         env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', hook),
                                         1 if policy == 'FAIL' else 5)
-                if not coordinator:
-                    wait_for_condition(
-                        lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
-                                          'GET_BLOCKED_REQUEST_ONFREE_COUNT') > free_before, {}),
-                        'Blocked reply buffer owner was not freed', timeout=10)
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter) > free_before, {}),
+                    'Blocked reply buffer owner was not freed', timeout=10)
             finally:
                 env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', hook)
                 worker.join(timeout=10)

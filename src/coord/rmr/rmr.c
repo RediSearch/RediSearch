@@ -316,9 +316,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
-      if (!timedOut) {
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
-      }
+      if (!ctx->fn) RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
     MRCtx_DecrRef(ctx);
@@ -350,9 +348,7 @@ static void uvFanoutRequest(void *p) {
     IORuntimeCtx_RequestCompleted(ioRuntime);
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
-    if (!MRCtx_IsTimedOut(mrctx)) {
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
-    }
+    if (!mrctx->fn) RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
     MRCtx_DecrRef(mrctx);
   }
