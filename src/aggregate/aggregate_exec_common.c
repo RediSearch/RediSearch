@@ -132,6 +132,25 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    }
  }
 
+ void Pipeline_SerializeResults(ResultProcessor *rp, AREQ *areq, const QueryRequestTimeout *timeout,
+                                RedisModule_Reply *rows, SerializeResult serialize, void *request,
+                                const cachedVars *cv, int *rc) {
+   SearchResult row = SearchResult_New();
+   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
+     rp->parent->resultLimit--;
+     serialize(request, rows, &row, cv);
+     SearchResult_Clear(&row);
+     if (timeout) {
+       debugCheckAndPauseAfterAggregateResult(areq);
+       if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+         *rc = RS_RESULT_TIMEDOUT;
+         break;
+       }
+     }
+   }
+   SearchResult_Destroy(&row);
+ }
+
  /**
   * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
   * valid (possibly empty) partial answer for the request's pipeline.
@@ -160,7 +179,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * Any other root type returns false.
   *
   * Note that even when this returns false, partial results that BG already
-  * accumulated in `state.results` *before* the timeout fired (e.g. for a
+  * serialized into `base.reply.rows` *before* the timeout fired (e.g. for a
   * trivial RPIndex -> RPPager pipeline) are still emitted via the buffered
   * results path in `serializeAndReplyResults_*`; that path is independent
   * of this classifier.
@@ -198,39 +217,4 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      default:
        return false;
    }
- }
-
- /**
-  * Drain results buffered post-timeout into `req->base.reply.results`.
-  * Only safe for pipelines classified as yielding partial results -- caller
-  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
-  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
-  * coordinator) before invoking this function.
-  *
-  * Caller must also have already flipped the request's timeout flag and
-  * waited for the BG worker to exit the pipeline (e.g. via
-  * AREQ_WaitForAggregateResultsComplete).
-  *
-  * The pager's internal `remaining` and `qctx->resultLimit` reflect the
-  * post-abort budget, so this loop naturally respects the user's LIMIT and
-  * terminates at EOF.
-  */
- void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored) {
-   ResultProcessor *endProc = qctx->endProc;
-   if (!stored->results) {
-     stored->results = array_new(SearchResult *, 8);
-   }
-
-   SearchResult r = SearchResult_New();
-   while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
-     qctx->resultLimit--;
-     array_append(stored->results, SearchResult_AllocateMove(&r));
-     r = SearchResult_New();
-   }
-   SearchResult_Destroy(&r);
- }
-
- void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->base.reply);
  }
