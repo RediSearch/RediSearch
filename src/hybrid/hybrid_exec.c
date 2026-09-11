@@ -223,7 +223,7 @@ static void serializeBackgroundResult_hybrid(void *request, RedisModule_Reply *r
   ChunkReplyState *stored = &hreq->base.reply;
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   if (!stored->returnReplyStarted && hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
-      hreq->reqConfig.oomPolicy == OomPolicy_Return &&
+      hreq->reqConfig.oomPolicy != OomPolicy_Fail &&
       !ShouldReplyWithError(QueryError_GetCode(qctx->err), hreq->reqConfig.timeoutPolicy,
                             IsProfile(hreq))) {
     stored->initialTotal = QITR_ReportedTotal(qctx);

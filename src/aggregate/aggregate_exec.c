@@ -312,7 +312,7 @@ static void serializeBackgroundResult(void *request, RedisModule_Reply *reply,
   AREQ *req = request;
   ChunkReplyState *stored = &req->base.reply;
   if (!stored->returnReplyStarted && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
-      req->reqConfig.oomPolicy == OomPolicy_Return &&
+      req->reqConfig.oomPolicy != OomPolicy_Fail &&
       !ShouldReplyWithError(QueryError_GetCode(AREQ_QueryProcessingCtx(req)->err),
                             req->reqConfig.timeoutPolicy, IsProfile(req))) {
     if (IsOptimized(req)) QOptimizer_UpdateTotalResults(req);
@@ -564,6 +564,14 @@ typedef struct {
   bool cursor_done;         // Whether the cursor is done
 } ChunkSerializeState;
 
+static bool shouldReplyWithRows(const AREQ *req, const ChunkSerializeState *state, int rc) {
+  const bool partial = req->base.reply.returnReplyStarted ||
+                       (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
+                        (req->base.blockedClientCycleActive || state->results != NULL));
+  return !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
+         (partial || rc == RS_RESULT_OK || rc == RS_RESULT_EOF);
+}
+
 /* Record this request's blocked-client timeout into the per-stage breakdown, at
  * the stage its execution-phase marker had reached when the deadline fired. Must be
  * called exactly once per blocked-client timeout callback, right after
@@ -743,14 +751,12 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     state->resultsLen = prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
     state->nelem++;
 
+    if (!shouldReplyWithRows(req, state, rc)) goto done_2;
+
     if (req->base.blockedClientCycleActive) {
       state->nelem += req->base.reply.rows.count;
       int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
       RS_ASSERT(moved == REDISMODULE_OK);
-      goto done_2;
-    }
-
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
     }
 
@@ -978,13 +984,11 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 
     prepareSendChunkReply_Resp3(req, reply);
 
+    if (!shouldReplyWithRows(req, state, rc)) goto done_3;
+
     if (req->base.blockedClientCycleActive) {
       int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
       RS_ASSERT(moved == REDISMODULE_OK);
-      goto done_3;
-    }
-
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
     }
 

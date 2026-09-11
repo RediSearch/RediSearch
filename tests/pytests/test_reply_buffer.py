@@ -6,7 +6,8 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from RLTest import Env
-from common import getConnectionByEnv, run_command_on_all_shards, to_dict
+from common import (debug_cmd, getConnectionByEnv, run_command_on_all_shards,
+                    skip, skipIfNoEnableAssert, to_dict)
 
 
 def _exercise_reply_buffers(protocol):
@@ -70,8 +71,9 @@ def test_reply_buffers_resp3():
     _exercise_reply_buffers(3)
 
 
-def _exercise_return_reply_compatibility(protocol):
-    env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 1000 ON_TIMEOUT RETURN ON_OOM RETURN')
+def _exercise_return_reply_compatibility(protocol, oom_policy='RETURN'):
+    env = Env(protocol=protocol,
+              moduleArgs=f'WORKERS 2 TIMEOUT 1000 ON_TIMEOUT RETURN ON_OOM {oom_policy}')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ord', 'NUMERIC', 'SORTABLE',
                'val', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -117,6 +119,43 @@ def test_return_reply_compatibility_resp2():
 
 def test_return_reply_compatibility_resp3():
     _exercise_return_reply_compatibility(3)
+
+
+def test_ignore_oom_reply_compatibility_resp2():
+    _exercise_return_reply_compatibility(2, 'IGNORE')
+
+
+def test_ignore_oom_reply_compatibility_resp3():
+    _exercise_return_reply_compatibility(3, 'IGNORE')
+
+
+def _exercise_timeout_reply_policies(protocol):
+    env = Env(protocol=protocol, moduleArgs='WORKERS 2 TIMEOUT 1000 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for n in range(5):
+        env.cmd('HSET', str(n), 'n', n)
+    query = [debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
+             'TIMEOUT_AFTER_N', 2, 'DEBUG_PARAMS_COUNT', 2]
+    for oom_policy in ('RETURN', 'IGNORE', 'FAIL'):
+        env.cmd('CONFIG', 'SET', 'search-on-oom', oom_policy)
+        env.cmd('CONFIG', 'SET', 'search-workers', 0)
+        expected = env.cmd(*query)
+        env.cmd('CONFIG', 'SET', 'search-workers', 2)
+        result = env.cmd(*query)
+        env.assertEqual(result, expected)
+        rows = result[1:] if protocol == 2 else result['results']
+        env.assertEqual(len(rows), 0 if oom_policy == 'FAIL' else 2)
+
+
+@skip(cluster=True)
+def test_timeout_reply_policies_resp2():
+    _exercise_timeout_reply_policies(2)
+
+
+@skip(cluster=True)
+def test_timeout_reply_policies_resp3():
+    _exercise_timeout_reply_policies(3)
 
 
 def test_reply_buffer_cursor_protocol_changes():
