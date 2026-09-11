@@ -52,6 +52,8 @@ buffers are released by Redis.
 Coordinator SEARCH stops serializing discarded replies between complete rows after
 a FAIL timeout or disconnect, so the reducer completion wait does not serialize the
 remaining payloads. RETURN_STRICT still serializes the retained ranked results.
+The terminal background path always unblocks the Redis handle, including after a
+timeout or disconnect, to release its ownership reference and native buffers.
 
 RETURN_STRICT retains the existing claim/completion handshake. After the worker
 finishes, eligible pipeline suffixes are drained directly into the same serialized

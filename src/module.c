@@ -3491,6 +3491,10 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
+  // Redis still needs an unblock to release the handle after timeout or disconnect.
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, mc);
   MRCtx_DecrRef(mc);
 }
 
@@ -3698,12 +3702,6 @@ cleanup:
   searchRequestCtx *doneReq = MRCtx_GetPrivData(mc);
   if (doneReq && !MRCtx_IsTimedOut(mc)) {
     searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
-  }
-
-  if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
-    // Timeout callback should not call unblockClient
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mc);
   }
 
   if (ctx) {
@@ -4339,10 +4337,8 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
-  if (!MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
-  }
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, mrctx);
 }
 
 static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int protocol,
@@ -4442,6 +4438,8 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
 
   // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
@@ -4561,6 +4559,9 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
   }
 
   searchRequestCtx_Free(req);
+#ifdef ENABLE_ASSERT
+  CoordSearchOnFreeDebug_Increment();
+#endif
 }
 
 // Free privdata callback for distributed search.
@@ -5270,6 +5271,8 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
 
   // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
