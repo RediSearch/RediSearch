@@ -100,8 +100,6 @@ fn first_match_wins() {
 #[cfg(debug_assertions)]
 #[should_panic(expected = "map_get called on an odd-length array")]
 fn array_map_get_odd_length_panics_in_debug() {
-    crate::suppress_panic_backtrace();
-
     let arr = Array::new(Box::new([
         SharedValue::new_string(b"price".to_vec()),
         SharedValue::new_num(9.99),

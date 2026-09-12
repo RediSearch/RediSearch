@@ -182,8 +182,6 @@ fn set_value_changes_variant() {
 #[test]
 #[should_panic(expected = "Cannot change the value of static NULL")]
 fn set_value_panics_on_static() {
-    crate::suppress_panic_backtrace();
-
     let mut v = SharedValue::null_static();
     v.set_value(Value::Number(1.0));
 }
@@ -191,8 +189,6 @@ fn set_value_panics_on_static() {
 #[test]
 #[should_panic(expected = "Failed to get mutable reference")]
 fn set_value_panics_when_shared() {
-    crate::suppress_panic_backtrace();
-
     let mut v = SharedValue::new(Value::Number(1.0));
     let _clone = v.clone();
     v.set_value(Value::Number(2.0));
