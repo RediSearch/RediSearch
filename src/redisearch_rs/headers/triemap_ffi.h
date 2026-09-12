@@ -62,8 +62,13 @@ typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
 
 /**
  * Callback type for passing to [`TrieMap_IterateRange`].
+ *
+ * Returns `true` to stop the walk. A walk over a high-cardinality trie is
+ * unbounded work, so a caller that has seen enough - an expansion cap reached,
+ * a request timed out - must be able to end it rather than pay for every
+ * remaining key.
  */
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
+typedef bool (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 /**
  * Callback type for passing to [`TrieMap_Add`].
@@ -277,7 +282,7 @@ struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
  *
  * The passed [`TrieMapRangeCallback`] function is called for each key found,
  * passing the key and its length, the value, and the `ctx` pointer passed to this
- * function.
+ * function. The walk stops early as soon as it returns `true`.
  *
  * Panics in case the passed callback is NULL.
  *

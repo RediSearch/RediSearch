@@ -1,0 +1,9 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+expression: reply
+---
+{
+  "Type": "UNION",
+  "Query type": "LEXRANGE",
+  "Child iterators": "The number of iterators in the union is 1"
+}

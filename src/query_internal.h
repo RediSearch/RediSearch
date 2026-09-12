@@ -78,6 +78,15 @@ QueryNode *NewTagNode(const FieldSpec *fs);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
 
+/* Build a `QN_LEXRANGE` node bounded on exactly one side.
+ *
+ * `lower` selects which side `bound` bounds - the range's beginning when true,
+ * its end when false - and `inclusive` whether the bound itself is in range.
+ * `bound` may be a literal or a query parameter (`QT_PARAM_TERM_CASE`), in which
+ * case the node carries a parameter resolved before evaluation. */
+QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
+                                      bool inclusive);
+
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);
 bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
