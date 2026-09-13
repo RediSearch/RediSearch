@@ -33,6 +33,8 @@ def _exercise_serialization(protocol):
          'DuringCoordRowSerialization' if env.isCluster() else 'DuringRowSerialization'),
         (['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'SORTBY', 2, '@name', 'ASC'],
          'DuringRowSerialization'),
+        (['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'SORTBY', 2, '@name', 'ASC',
+          'WITHCURSOR', 'COUNT', 10], 'DuringRowSerialization'),
         (['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$vec',
           'LOAD', 1, '@name', 'PARAMS', 2, 'vec', pack('ff', 0, 0)],
          'DuringHybridRowSerialization'),
@@ -43,6 +45,8 @@ def _exercise_serialization(protocol):
             run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', policy)
             for args, point in queries:
                 def normalize(result):
+                    if 'WITHCURSOR' in args:
+                        result = result[0]
                     if args[0] == 'FT.HYBRID':
                         result = to_dict(result)
                         env.assertGreaterEqual(float(result.pop('execution_time')), 0)
