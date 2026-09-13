@@ -89,6 +89,9 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
 
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
+#ifdef ENABLE_ASSERT
+    if (DebugSendError_Consume()) continue;
+#endif
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
     if (conn) {
       if (slotsInfoPos) {

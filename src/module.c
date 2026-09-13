@@ -3473,12 +3473,15 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   int profile = 0;
   size_t num = 0;
 
-  // Try to claim the REDUCING state - if timeout callback already claimed it,
-  // skip reduction and return without touching the blocked client.
+#ifdef ENABLE_ASSERT
+  if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
+#endif
+  // A timeout owns the reply, but the worker still owns completion of the
+  // blocked-client handle once its background work has finished.
   // If called from timeout callback, we already own reducing (claimed before calling).
   bool ownsReducing = fromTimeout || MRCtx_TryClaimReducing(mc);
   if (!ownsReducing) {
-    // Timeout callback is handling the reduction / reply path.
+    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), mc);
     return REDISMODULE_OK;
   }
 
@@ -3498,9 +3501,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   }
 #endif
 
-  // Timeout may have fired after the reducer was queued but before it started.
-  // In that case the timeout callback owns the blocked-client lifetime, so the
-  // background reducer must exit before touching `bc`.
+  // No reduction is needed if the timeout callback already replied.
   if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
     goto cleanup;
   }
@@ -3648,18 +3649,15 @@ cleanup:
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
-    // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mc);
   }
-
   if (ctx) {
     RedisModule_FreeThreadSafeContext(ctx);
   }
 
-  // Signal reducer complete only after all blocked-client usage is finished.
-  if (ownsReducing) {
-    MRCtx_SignalReducerComplete(mc);
+  MRCtx_SignalReducerComplete(mc);
+  if (!fromTimeout) {
+    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), mc);
   }
 
   return REDISMODULE_OK;
@@ -4288,8 +4286,8 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   QueryError_ClearError(status);
   if (!MRCtx_IsTimedOut(mrctx)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
   }
+  RedisModule_UnblockClient(bc, mrctx);
 }
 
 static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int protocol,
@@ -4387,10 +4385,13 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordSearchPrepare");
+#endif
 
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
@@ -4515,6 +4516,9 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
 // Releases only the blocked-client reference; MRCtx cleanup runs on the final release.
 static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   UNUSED(ctx);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("CoordSearchFreePrivData");
+#endif
   if (privdata) {
     struct MRCtx *mrctx = privdata;
     MRCtx_DecrRef(mrctx);
@@ -5205,10 +5209,13 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordSearchPrepare");
+#endif
 
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
