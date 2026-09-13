@@ -143,7 +143,7 @@ jobs:
       - name: Checkout
         # Shallow, submodule-free: this job only needs the install scripts and
         # the two local actions below. Redis itself is cloned by build-redis.
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
