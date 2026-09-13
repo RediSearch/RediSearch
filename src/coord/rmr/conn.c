@@ -234,7 +234,6 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 }
 
 
-/* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
@@ -242,6 +241,20 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
     return MRConnPool_GetConn(pool);
   }
   return NULL;
+}
+
+bool MRConnManager_HasConnectedConnection(MRConnManager *mgr, const char *id) {
+  dictEntry *entry = dictFind(mgr->map, id);
+  if (!entry) {
+    return false;
+  }
+  const MRConnPool *pool = dictGetVal(entry);
+  for (uint32_t i = 0; i < pool->num; i++) {
+    if (pool->conns[i]->state == MRConn_Connected) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /* Get the state string of the first connection for a specific node by id.
