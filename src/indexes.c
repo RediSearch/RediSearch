@@ -686,13 +686,13 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                          numChangedFields)) {
         continue;
       }
-      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
+      IndexSpec_UpdateDocEx(specOp->spec, ctx, key, type, NULL, DEFER_MODE_ALLOW, NULL);
     } else {
       // specOp->op is SpecOp_Del when the key matches the index prefix but
       // the filter expression fails (e.g. a field value changed so the filter
       // no longer passes, or a required field is missing). If the document was
       // previously indexed, it must be removed now.
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
+      IndexSpec_DeleteDocEx(specOp->spec, ctx, key, NULL, DEFER_MODE_ALLOW, NULL);
     }
   }
 
@@ -775,7 +775,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
+      IndexSpec_DeleteDocEx(specOp->spec, ctx, key, NULL, DEFER_MODE_ALLOW, NULL);
     }
 
   Indexes_SpecOpsIndexingCtxFree(specs);
@@ -819,9 +819,9 @@ static void reindexDocAfterFieldExpirationAdded(RedisModuleCtx *ctx, IndexSpec *
   // instead — otherwise the stale entry (with a clear inline bit) keeps being
   // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
   if (SchemaRule_ShouldIndex(spec, key, type, openKey)) {
-    IndexSpec_UpdateDoc(spec, ctx, key, type, openKey);
+    IndexSpec_UpdateDocEx(spec, ctx, key, type, openKey, DEFER_MODE_ALLOW, NULL);
   } else {
-    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
+    IndexSpec_DeleteDocEx(spec, ctx, key, openKey, DEFER_MODE_ALLOW, NULL);
   }
 }
 
@@ -887,9 +887,9 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
       if (SchemaRule_ShouldIndex(spec, key, type, k)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type, k);
+        IndexSpec_UpdateDocEx(spec, ctx, key, type, k, DEFER_MODE_ALLOW, NULL);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key, k);
+        IndexSpec_DeleteDocEx(spec, ctx, key, k, DEFER_MODE_ALLOW, NULL);
       }
       continue;
     }

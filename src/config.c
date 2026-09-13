@@ -2594,6 +2594,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Boolean parameters
   RM_TRY(
     RedisModule_RegisterBoolConfig(
+      ctx, "search-defer-contended-indexing", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.deferContendedIndexing)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
       ctx, "search-_free-resource-on-thread", 1,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
