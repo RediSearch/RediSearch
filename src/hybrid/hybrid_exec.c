@@ -138,6 +138,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 // the reply, or the RESP protocol used.
 static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("DuringHybridRowSerialization");
+#endif
   const uint32_t options = HREQ_RequestFlags(hreq);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
@@ -416,8 +419,7 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 /**
  * Store pipeline results for reply_callback path (FAIL policy with workers).
  * Called after startPipelineHybrid when using reply_callback mode.
- * Stores results in hreq->storedReplyState so serializeStoredResults_hybrid can be called
- * from the reply_callback on the main thread.
+ * Stores results for the worker serializer or the legacy STRICT reply callback.
  *
  * @param hreq The hybrid request
  * @param results Pipeline results (ownership transferred to storedReplyState)
@@ -425,7 +427,7 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
  * @param cv Cached variables for result serialization
  */
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv) {
-  // Store results in hreq for reply_callback to use
+  // Transfer ownership to the stored-result serializer.
   hreq->storedReplyState.results = results;
   hreq->storedReplyState.rc = rc;
   hreq->storedReplyState.cv = cv;
@@ -504,6 +506,10 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
       debugPauseStoreResultsHybrid(hreq, false); // pause after
+      if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !HybridRequest_TimedOut(hreq)) {
+        serializeStoredResults_hybrid(hreq, reply);
+        hreq->storedReplyState.replySerialized = true;
+      }
       return;
     }
 
@@ -518,7 +524,7 @@ done_err:
 
 /**
  * Serialize results from stored state (reply_callback path for FAIL policy).
- * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ * FAIL serializes on the worker; STRICT retains its callback serializer.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
@@ -532,10 +538,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
 
-    // Point qctx->err to the local error so finishSendChunkReply_hybrid/replyWarningsWithSuffixes
-    // can access it. The original qctx->err pointed to a stack variable in RSExecDistHybrid
-    // which is now gone (background thread returned). This local `err` remains valid until
-    // we clear it at the end of this function.
+    QueryError *previousError = qctx->err;
     qctx->err = &err;
 
     // Get stored results and rc
@@ -551,6 +554,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // finishSendChunk_HREQ handles cleanup and stats
     finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
 
+    qctx->err = previousError;
     // Clear the local error to avoid leak (QueryError may have allocated strings)
     QueryError_ClearError(&err);
 }
@@ -978,6 +982,10 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   HybridRequest *req = (HybridRequest *)node->privdata;
 
   // Check if results were stored (background thread completed successfully)
+  if (req->storedReplyState.replySerialized) {
+    return REDISMODULE_OK;
+  }
+
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
