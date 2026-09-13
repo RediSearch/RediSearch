@@ -49,6 +49,32 @@ static void testConnectivityDoesNotSelect(void) {
   dictRelease(mgr.map);
 }
 
+static void testGetterSkipsDisconnectedSlots(void) {
+  MRConnManager mgr = newManager();
+  MRConn connections[4] = {0};
+  MRConn *entries[] = {&connections[0], &connections[1], &connections[2], &connections[3]};
+  MRConnPool pool = {.num = 4, .rr = 3, .conns = entries};
+  mu_assert_int_eq(DICT_OK, dictAdd(mgr.map, "node", &pool));
+  connections[1].state = MRConn_Connected;
+  connections[2].state = MRConn_Connected;
+
+  mu_check(MRConnManager_HasConnectedConnection(&mgr, "node"));
+  mu_assert_int_eq(3, pool.rr);
+  mu_check(MRConn_Get(&mgr, "node") == &connections[1]);
+  mu_assert_int_eq(2, pool.rr);
+  mu_check(MRConn_Get(&mgr, "node") == &connections[2]);
+  mu_assert_int_eq(3, pool.rr);
+
+  connections[1].state = MRConn_Reconnecting;
+  connections[2].state = MRConn_Reconnecting;
+  mu_check(MRConn_Get(&mgr, "node") == NULL);
+  mu_assert_int_eq(3, pool.rr);
+  pool.num = 0;
+  mu_check(MRConn_Get(&mgr, "node") == NULL);
+  mu_assert_int_eq(3, pool.rr);
+  dictRelease(mgr.map);
+}
+
 static void freePendingCommands(redisAsyncContext *ac) {
   sdsfree(ac->c.obuf);
   while (ac->replies.head) {
@@ -118,6 +144,7 @@ static void testFailedValidationDoesNotSendOrSelect(void) {
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   MU_RUN_TEST(testConnectivityDoesNotSelect);
+  MU_RUN_TEST(testGetterSkipsDisconnectedSlots);
   MU_RUN_TEST(testValidatedFanoutRotation);
   MU_RUN_TEST(testFailedValidationDoesNotSendOrSelect);
   MU_REPORT();
