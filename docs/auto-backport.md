@@ -10,13 +10,13 @@ on the source PR, including when the action or agent fails.
 | Interaction on the source PR | Behavior |
 |---|---|
 | Merge with `backport 8.6` | Backport to `8.6`, with automatic conflict fallback. |
-| Add `backport 8.6` after merge | Process the PR's current backport labels. |
+| Add or remove a backport label, before or after merge | No workflow run. After merge, comment `/backport` to process the updated labels. |
 | `/backport` | Process targets from all current backport labels. |
 | `/backport 8.6 8.2` | Process exactly these targets, overriding labels for this run. |
 | `/backport >= 8.6` | Process every registered active release line at or above 8.6. |
 | `/backport >= 8.6 2.10` | Union the version expansion and explicit targets. |
-| `/backport-agent …` | Compatibility alias for `/backport …`, including action-first execution. |
 
+Use exactly `/backport`, or follow it with a normal space before arguments.
 Lists accept spaces or commas. Only the first comment line contains targets.
 Version floors use numeric ordering and include registered variants such as
 `8.6-rse`; they do not discover arbitrary branches from the remote. Explicit
@@ -24,8 +24,11 @@ release-shaped branch names can target branches outside the active registry.
 Malformed targets and empty version expansions are reported without silently
 falling back to labels. Valid sibling targets still run.
 
-Labels applied before merge take effect at merge. Creation commands only operate
-on merged PRs. Commands and post-merge label events require repository write,
+Labels applied before merge take effect at merge; a merge without backport
+labels does no backport work. A bare `/backport` without labels also does no work.
+Explicit comment targets work without labels and replace label-based selection;
+the union is only between ranges and named branches within that comment.
+Creation commands only operate on merged PRs. Commands require repository write,
 maintain, or admin permission; unrelated comments and bot comments do not invoke
 the agent. Removing a label does not cancel running work or close a backport PR.
 
@@ -39,9 +42,12 @@ replace its history.
 All new backport branches use `backport-agent/pr-<source PR>-to-<target>` so the
 same follow-up commands work regardless of which engine created the PR:
 
-- `/backport-agent-fix [context]` on the **backport PR** opts into diagnosing its
+- `/backport-fix [context]` on the **backport PR** opts into diagnosing its
   failed CI and addressing relevant reviewer feedback.
-- `/backport-agent-context <text>` supplies context for that CI repair flow.
+- `/backport-context <text>` supplies context for that CI repair flow.
+
+Only `/backport-fix` and `/backport-context` are accepted; the former
+agent-prefixed commands are no longer supported.
 
 CI repair remains opt-in. Creation never starts a model merely because a newly
 created PR later fails CI.
@@ -75,12 +81,15 @@ the authenticated App bot identity, run URL, and a snapshot of pre-existing
 comment IDs, then replaces its body with the combined results. It never parses
 comment prose to decide which branches succeeded. If the action did not create
 a comment, the finalizer creates one. A hidden run-and-attempt marker makes
-repeating finalization idempotent.
+repeating finalization idempotent. The pinned action cannot suppress its own
+comments; after an unsuccessful classic attempt, the workflow immediately
+changes its comment to an in-progress message while triage and fallback run.
 
 Agent timeouts, invalid manifests, unresolved conflicts, publication failures,
 and omitted targets appear as failures alongside successful PR links. A target
 that advanced during resolution must be retried against its new revision. The
-job is unsuccessful while a requested backport remains unfinished. A final
+summary step succeeds when the comment is posted. A separate result-check step
+fails the job while a requested backport remains unfinished. A final
 GitHub outage leaves the report and results in the workflow artifact instead of
 silently treating a failed comment write as success.
 
@@ -94,7 +103,7 @@ beyond GitHub's queue limit are cancelled and need to be retriggered.
 `task-backport_pr.yml` is the only creation event entry point. The separate
 agent-create workflow has been removed. Only `backport <branch>` labels select
 targets; legacy `backport-<branch>-agent` labels are ignored and can be deleted.
-The `/backport-agent` command remains an alias for `/backport`.
+The former `/backport-agent` command is no longer supported; use `/backport`.
 The source of truth for active release lines is `.github/release-branches.json`.
 
 `resolve_create.py` authorizes requests. `unified.py` owns deduplication,

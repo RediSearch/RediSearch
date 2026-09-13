@@ -10,10 +10,8 @@
 
 Pure-logic coverage for the two behaviors that are easy to get subtly wrong:
 
-- `resolve_create.resolve_targets` — the target-branch derivation, in
-  particular that a `labeled` event backports to ALL matching labels on the PR
-  (not just the one that fired), which is what makes multi-label backports
-  reliable under GitHub's "keep only the latest pending run" concurrency.
+- `resolve_create.resolve_targets` — the target-branch derivation, including
+  merge/bare-comment label selection and explicit comment target overrides.
 - `resolve_fix` reviewer-feedback collectors — the write-level trust gate and
   the bot/command-comment exclusions.
 
@@ -27,6 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 # The resolve modules live one directory up and import a sibling `common`.
@@ -44,40 +43,46 @@ def _labels(*names: str) -> dict:
 class ResolveTargetsTests(unittest.TestCase):
     def test_comment_args_override_labels(self):
         targets = resolve_create.resolve_targets(
-            "issue_comment", "created", "", "/backport-agent 8.6 8.2",
+            "issue_comment", "created", "/backport 8.6 8.2",
             _labels("backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.2"])
 
-    def test_labeled_event_resolves_all_matching_labels(self):
-        # The just-fired label is 8.6, but the PR also carries 8.4 and 8.2 —
-        # all three must be backported, not just the fired one.
-        targets = resolve_create.resolve_targets(
-            "pull_request_target", "labeled", "backport 8.6", "",
-            _labels("backport 8.6", "backport 8.4",
-                    "backport 8.2", "unrelated"),
-        )
-        self.assertEqual(targets, ["8.6", "8.4", "8.2"])
+    def test_label_events_are_ignored(self):
+        for action in ("labeled", "unlabeled"):
+            self.assertEqual(resolve_create.resolve_targets(
+                "pull_request_target", action, "", _labels("backport 8.6")), [])
 
-    def test_labeled_event_includes_fired_label_missing_from_snapshot(self):
-        # Guards the eventual-consistency race: the fired label isn't yet in the
-        # `gh pr view` snapshot, but must still be resolved.
-        targets = resolve_create.resolve_targets(
-            "pull_request_target", "labeled", "backport 8.6", "",
-            _labels("backport 8.4"),
-        )
-        self.assertEqual(targets, ["8.6", "8.4"])
+    def test_target_routing_matrix(self):
+        cases = [
+            ("pull_request_target", "", ["8.0"]),
+            ("issue_comment", "/backport", ["8.0"]),
+            ("issue_comment", "/backport 8.6", ["8.6"]),
+            ("issue_comment", "/backport >= 8.2", ["8.2", "8.6"]),
+            ("issue_comment", "/backport >= 8.2 2.10 8.6", ["8.2", "8.6", "2.10"]),
+            ("issue_comment", "/backport >= 99.0", []),
+        ]
+        with patch.object(resolve_create, "load_release_branches", return_value=["8.0", "8.2", "8.6"]):
+            for event, comment, expected in cases:
+                with self.subTest(event=event, comment=comment):
+                    self.assertEqual(resolve_create.resolve_targets(
+                        event, "closed" if event == "pull_request_target" else "created",
+                        comment, _labels("backport 8.0")), expected)
+            self.assertEqual(resolve_create.resolve_targets(
+                "issue_comment", "created", "/backport >= 8.2", _labels()), ["8.2", "8.6"])
+            self.assertEqual(resolve_create.resolve_targets(
+                "issue_comment", "created", "/backport", _labels()), [])
 
     def test_closed_event_resolves_all_labels(self):
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "closed", "", "",
+            "pull_request_target", "closed", "",
             _labels("backport 8.8", "backport 8.6"),
         )
         self.assertEqual(targets, ["8.8", "8.6"])
 
     def test_dedup_preserves_order(self):
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "labeled", "backport 8.6", "",
+            "pull_request_target", "closed", "",
             _labels("backport 8.6", "backport 8.6",
                     "backport 8.4"),
         )
@@ -85,30 +90,30 @@ class ResolveTargetsTests(unittest.TestCase):
 
     def test_non_matching_labels_yield_no_targets(self):
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "closed", "", "",
+            "pull_request_target", "closed", "",
             _labels("enhancement", "backports 8.6"),
         )
         self.assertEqual(targets, [])
 
     def test_plain_comment_falls_back_to_labels(self):
-        # Plain `/backport-agent` (no args) must still backport to every label
+        # Plain `/backport` (no args) must still backport to every label
         # on the PR — not silently resolve nothing.
         targets = resolve_create.resolve_targets(
-            "issue_comment", "created", "", "/backport-agent",
+            "issue_comment", "created", "/backport",
             _labels("backport 8.6", "backport 8.4"),
         )
         self.assertEqual(targets, ["8.6", "8.4"])
 
     def test_malformed_comment_targets_are_dropped(self):
         targets = resolve_create.resolve_targets(
-            "issue_comment", "created", "", "/backport-agent 8.6 foo 8.4x 8.2",
+            "issue_comment", "created", "/backport 8.6 foo 8.4x 8.2",
             _labels(),
         )
         self.assertEqual(targets, ["8.6", "8.2"])
 
     def test_variant_and_multidigit_targets_are_valid(self):
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "closed", "", "",
+            "pull_request_target", "closed", "",
             _labels("backport 8.6-rse", "backport 8.10",
                     "backport experimental"),  # dropped: not MAJOR.MINOR
         )
@@ -116,7 +121,7 @@ class ResolveTargetsTests(unittest.TestCase):
 
 
 class VersionFloorTests(unittest.TestCase):
-    """`/backport-agent >= <version>` expansion over the release-branch registry.
+    """`/backport >= <version>` expansion over the release-branch registry.
 
     The registry is stubbed so these assertions stay stable as release lines come
     and go; RegistryFileTests covers the real file.
@@ -131,72 +136,72 @@ class VersionFloorTests(unittest.TestCase):
 
     def _targets(self, comment: str, *labels: str) -> list[str]:
         return resolve_create.resolve_targets(
-            "issue_comment", "created", "", comment, _labels(*labels),
+            "issue_comment", "created", comment, _labels(*labels),
         )
 
     def test_floor_expands_to_every_newer_line(self):
-        self.assertEqual(self._targets("/backport-agent >= 2.10"), self.REGISTRY)
+        self.assertEqual(self._targets("/backport >= 2.10"), self.REGISTRY)
 
     def test_floor_without_space_is_equivalent(self):
-        self.assertEqual(self._targets("/backport-agent >=2.10"), self.REGISTRY)
+        self.assertEqual(self._targets("/backport >=2.10"), self.REGISTRY)
 
     def test_floor_excludes_older_lines_and_keeps_variants(self):
         # 8.4 and below drop out; `-rse` variants of included lines come along.
         self.assertEqual(
-            self._targets("/backport-agent >= 8.6"),
+            self._targets("/backport >= 8.6"),
             ["8.6", "8.6-rse", "8.8", "8.8-rse", "8.10"],
         )
 
     def test_floor_compares_numerically_not_lexically(self):
         # Lexically "8.10" < "8.9", which would wrongly exclude 8.10 here.
-        self.assertEqual(self._targets("/backport-agent >= 8.9"), ["8.10"])
+        self.assertEqual(self._targets("/backport >= 8.9"), ["8.10"])
 
     def test_floor_matches_variant_of_the_floor_line(self):
         self.assertEqual(
-            self._targets("/backport-agent >= 8.8-rse"), ["8.8", "8.8-rse", "8.10"],
+            self._targets("/backport >= 8.8-rse"), ["8.8", "8.8-rse", "8.10"],
         )
 
     def test_floor_unions_with_explicit_targets_and_dedups(self):
         self.assertEqual(
-            self._targets("/backport-agent >= 8.8, 2.10, 8.8"),
+            self._targets("/backport >= 8.8, 2.10, 8.8"),
             ["8.8", "8.8-rse", "8.10", "2.10"],
         )
 
     def test_floor_above_every_line_resolves_nothing_and_ignores_labels(self):
         # An explicit floor that matches nothing must NOT quietly fall back to
         # the PR's labels — main() then skips the run.
-        self.assertEqual(self._targets("/backport-agent >= 99.0", "backport 8.6"), [])
+        self.assertEqual(self._targets("/backport >= 99.0", "backport 8.6"), [])
 
     def test_malformed_floor_is_dropped_without_label_fallback(self):
-        for comment in ("/backport-agent >=", "/backport-agent >= foo",
-                        "/backport-agent >= 8", "/backport-agent >=8.6x"):
+        for comment in ("/backport >=", "/backport >= foo",
+                        "/backport >= 8", "/backport >=8.6x"):
             with self.subTest(comment=comment):
                 self.assertEqual(self._targets(comment, "backport 8.4"), [])
 
     def test_malformed_floor_does_not_drop_valid_siblings(self):
-        self.assertEqual(self._targets("/backport-agent >= foo 8.4"), ["8.4"])
+        self.assertEqual(self._targets("/backport >= foo 8.4"), ["8.4"])
 
     def test_oversized_floor_is_dropped_without_crashing(self):
         # A floor with a giant component would trip int()'s digit limit in
         # version_key; it must be rejected as malformed, not abort the run, and
         # valid siblings must survive.
         huge = "9" * 5000
-        self.assertEqual(self._targets(f"/backport-agent >= {huge}.1 8.4"), ["8.4"])
+        self.assertEqual(self._targets(f"/backport >= {huge}.1 8.4"), ["8.4"])
 
     def test_unavailable_registry_drops_the_floor_only(self):
         resolve_create.load_release_branches = lambda: []
-        self.assertEqual(self._targets("/backport-agent >= 2.10 8.4"), ["8.4"])
+        self.assertEqual(self._targets("/backport >= 2.10 8.4"), ["8.4"])
 
     def test_registry_entries_are_validated(self):
         # A typo'd registry entry is dropped like any other malformed target.
         resolve_create.load_release_branches = lambda: ["8.6", "8.7x", "8.10"]
-        self.assertEqual(self._targets("/backport-agent >= 8.6"), ["8.6", "8.10"])
+        self.assertEqual(self._targets("/backport >= 8.6"), ["8.6", "8.10"])
 
     def test_floor_only_applies_to_comment_args(self):
         # A label can never carry a floor (`backport >=2.10` is not a valid
         # label shape), so label-derived targets are untouched by expansion.
         targets = resolve_create.resolve_targets(
-            "pull_request_target", "closed", "", "", _labels("backport 8.6"),
+            "pull_request_target", "closed", "", _labels("backport 8.6"),
         )
         self.assertEqual(targets, ["8.6"])
 
@@ -435,6 +440,32 @@ class ReviewThreadTests(unittest.TestCase):
         self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
 
 
+class RepairCommandTests(unittest.TestCase):
+    def test_fix_commands_preserve_inline_context(self):
+        for command in ("/backport-fix",):
+            for suffix, expected in (("", ""), (" use the release API", "use the release API"),
+                                     ("\tkeep this\nignore second line", "keep this")):
+                with self.subTest(command=command, suffix=suffix):
+                    body = command + suffix
+                    self.assertTrue(resolve_fix.is_fix_command(body))
+                    self.assertEqual(resolve_fix.strip_inline_context(body), expected)
+
+    def test_similar_commands_do_not_trigger_repairs(self):
+        for body in ("/backport-fixes", "/backport-agent-fix", "/backport-context hint",
+                     "/backport", "text\n/backport-fix", ""):
+            with self.subTest(body=body):
+                self.assertFalse(resolve_fix.is_fix_command(body))
+
+    def test_context_command_rejects_legacy_alias(self):
+        bodies = ["/backport-context keep the API", "/backport-agent-context old hint",
+                  "/backport-contextual not a hint", "/backport-agent-contextual neither",
+                  "/backport-context", "/backport-context first\nsecond"]
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), patch.object(
+                common, "gh_paginated_array", return_value=bodies):
+            self.assertEqual(resolve_fix.fetch_trusted_context_comments(1),
+                             ["keep the API", "", "first\nsecond"])
+
+
 class GeneralCommentTests(unittest.TestCase):
     def setUp(self):
         os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"
@@ -450,16 +481,19 @@ class GeneralCommentTests(unittest.TestCase):
         return {"id": id, "author": author, "body": body, "updated_at": updated_at}
 
     def test_excludes_bot_by_author_not_prose(self):
-        # The bot (id=2) is dropped by AUTHOR; the `/backport-agent*` commands
+        # The bot (id=2) is dropped by AUTHOR; the `/backport*` commands
         # (3,4) by prefix. dave (5) quotes the bot's `🤖 Re:` heading but is a
         # maintainer — it must be KEPT (content-based bot filtering would wrongly
         # drop it).
         self._stub([
             self._c(1, "alice", "needs the header include"),
             self._c(2, "redis-pr-app[bot]", "🤖 Auto-backport summary\n..."),
-            self._c(3, "bob", "/backport-agent-context extra hint"),
-            self._c(4, "carol", "/backport-agent-fix"),
+            self._c(3, "bob", "/backport-context extra hint"),
+            self._c(4, "carol", "/backport-fix"),
             self._c(5, "dave", "🤖 Re: as you noted, this still drops the guard"),
+            self._c(6, "alice", "/backport-fix"),
+            self._c(7, "alice", "/backport-context new hint"),
+            self._c(8, "alice", "/backport 8.6"),
         ])
         got = resolve_fix.fetch_general_pr_comments(1, {})
         self.assertEqual([c["id"] for c in got], [1, 5])

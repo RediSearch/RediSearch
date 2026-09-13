@@ -1,9 +1,9 @@
 name: Fix CI failures on auto-backport PR (Codex agent)
 
 # Companion to task-backport_pr.yml. When a backport PR's CI fails, a
-# write-level human comments `/backport-agent-fix`; a Codex agent makes a minimal
+# write-level human comments `/backport-fix`; a Codex agent makes a minimal
 # fix and addresses in-scope reviewer feedback. Additional
-# `/backport-agent-context <text>` comments from write-level users are collected.
+# `/backport-context <text>` comments from write-level users are collected.
 #
 # PRIVILEGE SEPARATION (same shape as the create flow)
 #   The Codex agent step runs with **no GitHub token and no command network**: it
@@ -18,7 +18,7 @@ name: Fix CI failures on auto-backport PR (Codex agent)
 # Deliberately NOT wired to CI-failure events: a human opts in per PR.
 #
 # Expected "skipped" runs are normal: GitHub can't filter on comment body, so any
-# non-`/backport-agent-fix` comment produces a skipped job (Actions tab only).
+# non-`/backport-fix` comment produces a skipped job (Actions tab only).
 
 on:
   issue_comment:
@@ -30,7 +30,7 @@ permissions:
   contents: read
   actions: read          # resolve_fix.py: read the failed "Pull Request Flow" run + job logs
   pull-requests: read    # resolve_fix.py: gh pr view + GraphQL read of review threads
-  issues: read           # resolve_fix.py: read /backport-agent-context + general PR comments
+  issues: read           # resolve_fix.py: read /backport-context + general PR comments
 
 concurrency:
   group: backport-agent-fix-${{ github.event.issue.number }}
@@ -39,8 +39,8 @@ concurrency:
 env:
   # /tmp is writable under the codex workspace-write sandbox; $RUNNER_TEMP is not
   # guaranteed to be.
-  BACKPORT_WORK: /tmp/backport-agent-fix-work
-  BACKPORT_FIX_MANIFEST_FILE: /tmp/backport-agent-fix-manifest.json
+  BACKPORT_WORK: /tmp/backport-fix-work
+  BACKPORT_FIX_MANIFEST_FILE: /tmp/backport-fix-manifest.json
 
 jobs:
   backport-fix:
@@ -53,7 +53,7 @@ jobs:
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-      startsWith(github.event.comment.body, '/backport-agent-fix')
+      startsWith(github.event.comment.body, '/backport-fix')
 
     steps:
       # Checkout master so the resolve script + prompt are present (an old

@@ -3,14 +3,13 @@ name: Backport merged pull request
 # Interface and recovery policy: docs/auto-backport.md
 on:
   pull_request_target:
-    types: [closed, labeled]
+    types: [closed]
   issue_comment:
     types: [created]
 
 permissions:
   contents: read
   pull-requests: read
-  issues: read
 
 concurrency:
   group: backport-create-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -29,13 +28,11 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 75
     if: >-
-      (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
-        (github.event.action == 'closed' ||
-         startsWith(github.event.label.name, 'backport '))) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
        github.event.comment.user.type != 'Bot' &&
-       startsWith(github.event.comment.body, '/backport') &&
-       !startsWith(github.event.comment.body, '/backport-agent-'))
+       (github.event.comment.body == '/backport' ||
+        startsWith(github.event.comment.body, '/backport ')))
     steps:
       - name: Checkout trusted automation
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -52,7 +49,6 @@ jobs:
           EVENT_ACTION: ${{ github.event.action }}
           PR_NUMBER_FROM_PR: ${{ github.event.pull_request.number }}
           PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
-          LABEL_NAME: ${{ github.event.label.name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: python3 scripts/auto_backport/resolve_create.py
 
@@ -104,6 +100,16 @@ jobs:
           auto_merge_enabled: true
           add_labels: auto-backport
           copy_labels_pattern: '^(?!backport ).*'
+
+      - name: Mark unfinished backports as in progress
+        if: >-
+          !cancelled() && steps.preflight.outcome == 'success' &&
+          (steps.classic.outputs.was_successful == 'false' || steps.classic.outcome == 'failure')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.action-token.outputs.token }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/unified.py progress
 
       - name: Revoke classic token and remove its checkout
         id: revoke
@@ -174,6 +180,7 @@ jobs:
         run: python3 scripts/auto_backport/unified.py apply
 
       - name: Finalize the single summary comment
+        id: report
         if: always() && steps.ctx.outputs.skip == 'false' && steps.publish-token.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.publish-token.outputs.token }}
@@ -181,6 +188,12 @@ jobs:
           CREATED_PULL_NUMBERS: ${{ steps.classic.outputs.created_pull_numbers }}
           BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         run: python3 scripts/auto_backport/unified.py report
+
+      - name: Check for unfinished backports
+        if: always() && steps.report.outputs.has_failures == 'true'
+        run: |
+          echo '::error::One or more backports remain unfinished. See the final summary comment or backport-results artifact for details.'
+          exit 1
 
       - name: Preserve results even if publication fails
         if: always() && steps.ctx.outputs.skip == 'false'
