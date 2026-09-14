@@ -8,6 +8,7 @@
  */
 
 #include "result_processor.h"
+#include "query_request.h"
 #include "common.h"
 #include "query.h"
 #include "value_ffi.h"
@@ -185,7 +186,9 @@ TEST_F(ResultProcessorTest, drainPropagatesErrors) {
 TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
   IndexSpec spec = {0};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
-  sctx.time.skipTimeoutChecks = true;
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  sctx.timeout = &timeout;
   sctx.lock_state = SPEC_LOCK_READ_BORROWED;
 
   auto *iterator = new BlockingQueryIterator();
@@ -227,8 +230,10 @@ TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext)
       DocTable_Put(&spec.docs, "late", 4, 1, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
   DMD_Return(dmd);  // Keep only the table's reference before Next borrows the document.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
-  std::atomic<bool> timedOut{false};
-  sctx.time.timedOutFlag = &timedOut;
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  sctx.timeout = &timeout;
   sctx.lock_state = SPEC_LOCK_READ_BORROWED;
   QueryProcessingCtx qctx = {};
   auto *iterator = new BlockingQueryIterator(true);
@@ -239,7 +244,7 @@ TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext)
   std::thread worker([&] { status = rp->Next(rp, &next); });
   const bool entered =
       RS::WaitForCondition([&] { return iterator->entered.load(std::memory_order_acquire); }, 5);
-  timedOut.store(true);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
   EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
   EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
   iterator->release.store(true, std::memory_order_release);
