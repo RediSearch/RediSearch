@@ -18,6 +18,7 @@
 #include "common.h"
 #include <atomic>
 #include <thread>
+#include <string_view>
 
 struct ProjectorSource : ResultProcessor {
   const RLookupKey *key = nullptr;
@@ -25,14 +26,14 @@ struct ProjectorSource : ResultProcessor {
   RPDrainStatus drainStatus = RP_DRAIN_OK;
   size_t nextCalls = 0;
 
-  void populate(SearchResult *result, const char *text, t_docId id) {
+  void populate(SearchResult *result, std::string_view text, t_docId id) const {
     SearchResult_SetDocId(result, id);
     RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(result),
-                        RSValue_NewCopiedString(text, strlen(text)));
+                        RSValue_NewCopiedString(text.data(), text.size()));
   }
   ProjectorSource() {
     *static_cast<ResultProcessor *>(this) = {};
-    Next = [](ResultProcessor *base, SearchResult *result) -> int {
+    Next = [](ResultProcessor *base, SearchResult *result) {
       auto *self = static_cast<ProjectorSource *>(base);
       ++self->nextCalls;
       if (self->nextStatus == RS_RESULT_OK) self->populate(result, "next", 2);
@@ -47,7 +48,7 @@ struct ProjectorSource : ResultProcessor {
 };
 
 class ProjectorDrainTest : public ::testing::Test {
- protected:
+ public:
   QueryProcessingCtx qctx = {};
   QueryError error = QueryError_Default();
   RLookup lookup = RLookup_New();
@@ -61,8 +62,8 @@ class ProjectorDrainTest : public ::testing::Test {
   static void SetUpTestSuite() {
     RegisterAllFunctions();
   }
-  void create(const char *expression) {
-    HiddenString *text = NewHiddenString(expression, strlen(expression), false);
+  void create(std::string_view expression) {
+    const HiddenString *text = NewHiddenString(expression.data(), expression.size(), false);
     ast = ExprAST_Parse(text, &error);
     HiddenString_Free(text, false);
     ASSERT_NE(nullptr, ast);
@@ -75,7 +76,7 @@ class ProjectorDrainTest : public ::testing::Test {
     qctx.totalResults = 17;
     projector->parent = &qctx;
   }
-  void expectString(const SearchResult *row, const char *expected) {
+  void expectString(const SearchResult *row, const char *expected) const {
     const RSValue *value = RLookupRow_Get(output, SearchResult_GetRowData(row));
     ASSERT_NE(nullptr, value);
     size_t len = 0;
@@ -151,26 +152,27 @@ TEST_F(ProjectorDrainTest, terminalUpstreamDoesNotEvaluateOrTouchOutput) {
 TEST_F(ProjectorDrainTest, drainsWhileNextIsInsideExpressionEvaluation) {
   create("upper(@input)");
   static RSFunction original;
-  static std::atomic<bool> entered{false}, release{false};
+  static std::atomic entered{false};
+  static std::atomic release{false};
   entered.store(false);
   release.store(false);
   original = ast->func.Call;
-  ast->func.Call = [](ExprEval *ctx, RSValue **args, size_t count, RSValue *out) -> int {
+  ast->func.Call = [](ExprEval *ctx, RSValue **args, size_t count, RSValue *out) {
     if (SearchResult_GetDocId(ctx->res) == 2) {
-      entered.store(true, std::memory_order_release);
-      while (!release.load(std::memory_order_acquire)) std::this_thread::yield();
+      entered.store(true);
+      while (!release.load()) std::this_thread::yield();
     }
     return original(ctx, args, count, out);
   };
   SearchResult next = SearchResult_New();
   int status = RS_RESULT_MAX;
-  std::thread worker([&] { status = projector->Next(projector, &next); });
-  bool paused = RS::WaitForCondition([&] { return entered.load(); }, 5);
+  std::jthread worker([this, &status, &next] { status = projector->Next(projector, &next); });
+  bool paused = RS::WaitForCondition([] { return entered.load(); }, 5);
   if (paused) {
     EXPECT_EQ(RP_DRAIN_OK, projector->Drain(projector, &result));
     expectString(&result, "DRAIN");
   }
-  release.store(true, std::memory_order_release);
+  release.store(true);
   worker.join();
   EXPECT_TRUE(paused);
   EXPECT_EQ(RS_RESULT_OK, status);
