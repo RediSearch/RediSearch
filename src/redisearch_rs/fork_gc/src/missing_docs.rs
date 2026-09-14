@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! GC collection and application for the `missingFieldDict` inverted indexes.
+//! GC collection and application for the `missing.indexes` inverted indexes.
 
 use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
@@ -18,13 +18,13 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
 
-/// The field was removed from `missingFieldDict` between the child's scan and
+/// The field was removed from `missing.indexes` between the child's scan and
 /// the parent's apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the field was removed from missingFieldDict before the delta could be applied")]
+#[error("the field was removed from missing.indexes before the delta could be applied")]
 pub struct FieldNotFound;
 
-/// Collect GC deltas for every entry in the spec's `missingFieldDict` and write
+/// Collect GC deltas for every entry in the spec's `missing.indexes` and write
 /// them to the parent process.
 ///
 /// Iterates the dict and, for each entry with a non-null inverted index,
@@ -114,7 +114,7 @@ pub fn apply_missing_docs(
     };
 
     Ok(GcApplyStats {
-        // `records_removed` is 0: missingFieldDict entries are not counted
+        // `records_removed` is 0: missing.indexes entries are not counted
         // on insertion (they are internal bookkeeping), so we do not count
         // them on removal either.
         records_removed: 0,
