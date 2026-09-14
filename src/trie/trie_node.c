@@ -15,6 +15,7 @@
 #include <time.h>
 
 #include "trie_node_internal.h"
+#include "query_request.h"
 #include "redisearch.h"
 #include "util/timeout.h"
 #include "trie/levenshtein.h"
@@ -55,8 +56,7 @@ typedef struct {
   bool stop;
 
   // timeout
-  uint32_t timeoutCounter;  // counter to limit number of calls to TimedOut()
-  struct timespec timeout;  // milliseconds until timeout
+  QueryRequestTimeout *timeout;
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
@@ -937,7 +937,7 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
-  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
+  if (r->timeout && QueryRequestTimeout_IsTimedOut(r->timeout)) {
     r->stop = 1;
     return REDISEARCH_ERR;
   }
@@ -967,8 +967,8 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks) {
+                              TrieRangeCallback callback, void *ctx,
+                              QueryRequestTimeout *timeout) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
@@ -978,12 +978,10 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
     return;
   }
 
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout ? *timeout : (struct timespec){0},
-      .timeoutCounter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
+      .timeout = timeout,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
@@ -1037,7 +1035,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
     return;
   }
 
-  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
+  if (r->timeout && QueryRequestTimeout_IsTimedOut(r->timeout)) {
     r->stop = 1;
     return;
   }
@@ -1081,7 +1079,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 
 static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
   // timeout check
-  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
+  if (r->timeout && QueryRequestTimeout_IsTimedOut(r->timeout)) {
     r->stop = 1;
   }
   if (r->stop) {
@@ -1124,18 +1122,16 @@ static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
 }
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks) {
+                              TrieRangeCallback callback, void *ctx,
+                              QueryRequestTimeout *timeout) {
   // An empty pattern matches no term, and the initializer below reads str[nstr - 1]
   if (nstr <= 0) {
     return;
   }
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout ? *timeout : (struct timespec){0},
-      .timeoutCounter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
+      .timeout = timeout,
       .origStr = str,
       .lenOrigStr = nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),

@@ -133,7 +133,7 @@ void VVW_Reset(struct VarintVectorWriter *writer);
  * The following invariants must be upheld when calling this function:
  * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
- * 3. The caller must have exclusive access to `len`.
+ * 3. `len` cannot be NULL and the caller must have exclusive access to it.
  */
 uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, size_t *len);
 

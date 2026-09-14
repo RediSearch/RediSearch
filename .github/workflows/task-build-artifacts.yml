@@ -54,7 +54,7 @@ jobs:
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}
-      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
 
   build:
@@ -63,7 +63,7 @@ jobs:
     if: |
       !cancelled() &&
       needs.get-config.result == 'success'
-    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions:
       id-token: write # Required for OIDC role assumption during upload
       contents: read  # Required for actions/checkout
@@ -76,7 +76,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '')
         )
       || null }}
 

@@ -59,10 +59,6 @@ macro_rules! opaque {
                 std::ptr::from_mut(self).cast()
             }
 
-            pub fn as_opaque_non_null(&mut self) -> ::std::ptr::NonNull<$opaque_ty> {
-                ::std::ptr::NonNull::from(self).cast()
-            }
-
             pub unsafe fn from_opaque(opaque: $opaque_ty) -> Self {
                 // Safety: see trait's safety requirement.
                 unsafe { std::mem::transmute(opaque) }
@@ -83,13 +79,6 @@ macro_rules! opaque {
             pub unsafe fn from_opaque_mut_ptr<'__lt>(
                 opaque: *mut $opaque_ty,
             ) -> Option<&'__lt mut Self> {
-                // Safety: see trait's safety requirement.
-                unsafe { opaque.cast::<Self>().as_mut() }
-            }
-
-            pub unsafe fn from_opaque_non_null<'__lt>(
-                opaque: ::std::ptr::NonNull<$opaque_ty>,
-            ) -> &'__lt mut Self {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }

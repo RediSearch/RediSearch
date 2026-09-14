@@ -22,23 +22,37 @@
 //! Adding and removing items from this trie require order-aware operations.
 //!
 //! For instance, during the insertion:
-//! - insert owned term under tag key ([`OwnedTerm`])
+//! - under the tag key, store the owned term ([`OwnedTerm`]) and append a pointer to
+//!   it to that entry's member list
 //! - for each suffix:
-//!   - insert borrowed term under the suffix key ([`TermPtr`])
+//!   - append a pointer to the term ([`TermPtr`]) to the suffix key's member list
 //!
 //! # Keys and stored terms
 //!
 //! Keys are the NUL-free tag bytes and each of their suffixes. The stored *terms*
 //! are separate allocations that [`OwnedTerm::new`] NUL-terminates itself.
 //!
+//! # Reported memory usage
+//!
+//! [`TagSuffixIndex::mem_usage`] covers every allocation the index owns:
+//! - the trie nodes, each of which holds its [`SuffixData`] payload inline;
+//! - the [`OwnedTerm`] allocation behind each payload's owned term;
+//! - the heap block behind each payload's member list.
+//!
+//! A term is counted once, against the entry that owns it, not once per [`TermPtr`]
+//! aliasing it.
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
     ptr::NonNull,
 };
 
+use rqe_wildcard::WildcardPattern;
 use thin_vec::{AlignedU32, ThinVec};
-use trie_rs::TrieMap;
+use trie_rs::{
+    TrieMap,
+    iter::{LendingIter, WildcardIter, filter::VisitAll},
+};
 
 use crate::Tag;
 
@@ -118,26 +132,51 @@ impl Drop for OwnedTerm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TermPtr(NonNull<u8>);
 
+impl TermPtr {
+    /// Full allocation size in bytes (term bytes + the trailing NUL).
+    ///
+    /// # Safety
+    /// The [`OwnedTerm`] this pointer was taken from must still be alive.
+    pub const unsafe fn alloc_size(&self) -> usize {
+        // This cast doesn't change size, we care about only the NULL
+        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
+        // SAFETY: the pointee is a live allocation from [`OwnedTerm::new`], which
+        // NUL-terminates it.
+        unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_bytes_with_nul()
+            .len()
+    }
+
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+}
+
 /// Payload of one trie entry.
 #[derive(Debug, Default)]
 pub(crate) struct SuffixData {
     /// `Some` iff this entry's key is itself a member: the owning handle of
-    /// that member's tag term allocation.
+    /// that member's tag term allocation. Every [`TermPtr`] to that term borrows from here.
     full_term: Option<OwnedTerm>,
     /// Every member this entry's key is a suffix of.
-    refs: ThinVec<TermPtr, AlignedU32>,
+    members: ThinVec<TermPtr, AlignedU32>,
 }
 
 impl SuffixData {
-    /// Every member term this entry's key belongs to: the term itself when the
-    /// key is a full term (stored separately in [`Self::full_term`]) followed by
-    /// every term the key is a *proper* suffix of ([`Self::refs`]).
+    /// Every member term this entry's key belongs to — the terms it is a proper
+    /// suffix of, and the term equal to the key itself when there is one — in the
+    /// order [`TagSuffixIndex::add`] registered them.
+    ///
+    /// The order is important because a [`crate::SuffixQuery::Wildcard`] expansion
+    /// could truncate the sequence at its `max_prefix_expansions`.
     pub fn members(&self) -> impl Iterator<Item = TermPtr> + '_ {
-        self.full_term
-            .as_ref()
-            .map(OwnedTerm::borrowed)
-            .into_iter()
-            .chain(self.refs.iter().copied())
+        self.members.iter().copied()
+    }
+
+    /// Bytes this payload owns outside its trie node: the term allocation it holds,
+    /// when it holds one, plus its member list's heap block.
+    fn nested_mem_usage(&self) -> usize {
+        self.full_term.as_ref().map_or(0, OwnedTerm::alloc_size) + self.members.mem_usage()
     }
 }
 
@@ -145,6 +184,8 @@ impl SuffixData {
 pub(crate) struct TagSuffixIndex {
     /// The suffix entries
     entries: TrieMap<SuffixData>,
+    /// Total [`SuffixData::nested_mem_usage`] over every entry.
+    nested_mem_usage: usize,
 }
 
 impl TagSuffixIndex {
@@ -152,7 +193,42 @@ impl TagSuffixIndex {
     pub const fn new() -> Self {
         Self {
             entries: TrieMap::new(),
+            nested_mem_usage: 0,
         }
+    }
+
+    /// Insert or update the entry keyed by `key`, applying `f` to its payload and
+    /// folding the payload's growth into [`nested_mem_usage`](Self::nested_mem_usage).
+    fn insert_tracked(&mut self, key: &[u8], f: impl FnOnce(&mut SuffixData)) {
+        let mut delta = 0;
+
+        self.entries.insert_with(key, |slot| {
+            // Measured on `slot` rather than on `data` below, so that a brand-new entry
+            // contributes the whole of its fresh member list to the delta instead of
+            // having it netted out.
+            let before = slot.as_ref().map_or(0, SuffixData::nested_mem_usage);
+            let mut data = slot.unwrap_or_else(|| SuffixData {
+                full_term: None,
+                // Every entry gains a member immediately, and a suffix shared by two
+                // terms is the common case.
+                members: ThinVec::with_capacity(2),
+            });
+
+            f(&mut data);
+
+            let after = data.nested_mem_usage();
+            debug_assert!(
+                after >= before,
+                "an entry's payload allocations only ever grow: `add` bails out before \
+                 re-registering a term, so `full_term` only goes `None` -> `Some` and \
+                 `members` is only ever pushed to"
+            );
+            delta = after - before;
+
+            data
+        });
+
+        self.nested_mem_usage += delta;
     }
 
     /// Index `term` and every one of its suffixes.
@@ -178,33 +254,51 @@ impl TagSuffixIndex {
         let ptr = owned.borrowed();
 
         // Store the OwnedTerm into the full tag term
-        self.entries.insert_with(bytes, |slot| {
-            let mut data = slot.unwrap_or_else(|| SuffixData {
-                full_term: None,
-                refs: ThinVec::with_capacity(2),
-            });
+        self.insert_tracked(bytes, |data| {
+            // The term goes at the tail of the same member list as the references,
+            // as C's `addSuffixTrieMap` appends it: when this entry already exists
+            // because the key is a proper suffix of longer terms, those come first.
+            data.members.push(ptr);
             // Keep "alive" the owned term
             data.full_term = Some(owned);
-
-            data
         });
 
         // Process the suffixes as TermPtr
         for start in 1..bytes.len() {
-            self.entries.insert_with(&bytes[start..], |slot| {
-                let mut data = slot.unwrap_or_else(|| SuffixData {
-                    full_term: None,
-                    refs: ThinVec::with_capacity(2),
-                });
-                data.refs.push(ptr);
-                data
-            });
+            self.insert_tracked(&bytes[start..], |data| data.members.push(ptr));
         }
+    }
+
+    /// Iterate over all `(suffix, data)` entries, in lexicographical order of
+    /// the suffix.
+    pub fn lending_iter(&self) -> LendingIter<'_, SuffixData, VisitAll> {
+        self.entries.lending_iter()
+    }
+
+    /// Iterate over the `(suffix, data)` entries whose key starts with `prefix`,
+    /// in lexicographical order.
+    pub fn prefixed_iter(&self, prefix: &[u8]) -> trie_rs::iter::Iter<'_, SuffixData, VisitAll> {
+        self.entries.prefixed_iter(prefix)
+    }
+
+    /// Iterate over all `(suffix, data)` entries whose suffix matches the
+    /// wildcard `pattern`.
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, SuffixData> {
+        self.entries.wildcard_iter(pattern)
     }
 
     /// The entry keyed by exactly `key`, if any.
     pub fn find(&self, key: &[u8]) -> Option<&SuffixData> {
         self.entries.find(key)
+    }
+
+    /// Bytes the suffix trie occupies — see [the module's accounting
+    /// rules](self#reported-memory-usage) for what that covers.
+    pub const fn mem_usage(&self) -> usize {
+        self.entries.mem_usage() + self.nested_mem_usage
     }
 }
 
@@ -230,6 +324,21 @@ mod tests {
         // SAFETY: `t` is a live `OwnedTerm`, so its allocation holds `len`
         // initialized bytes.
         unsafe { std::slice::from_raw_parts(t.0.as_ptr(), len) }.to_vec()
+    }
+
+    /// The terms [`SuffixData::members`] yields, in order, with the terminator
+    /// stripped.
+    fn read_members(data: &SuffixData) -> Vec<Vec<u8>> {
+        data.members()
+            .map(|ptr| {
+                // SAFETY: `data` is borrowed from a live index, so the `OwnedTerm`
+                // each of its members points at is alive too.
+                let len = unsafe { ptr.alloc_size() };
+                // SAFETY: as above — the allocation holds `len` initialized bytes.
+                let with_nul = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), len) };
+                with_nul[..len - 1].to_vec()
+            })
+            .collect()
     }
 
     /// [`OwnedTerm::new`] takes the NUL-free term and appends the terminator
@@ -322,5 +431,158 @@ mod tests {
                 "the surviving reference must point at the live term allocation"
             );
         }
+    }
+
+    /// A term whose own key already exists as a proper suffix of longer terms is
+    /// registered *after* them, matching C's `addSuffixTrieMap` — which appends the
+    /// full term to the same array as the references. A capped expansion truncates
+    /// that order, so getting it wrong opens a different set of tag readers.
+    #[test]
+    fn a_term_registered_after_its_own_suffix_entry_comes_last() {
+        let mut idx = TagSuffixIndex::new();
+        for term in [b"beat".as_slice(), b"heat", b"eat"] {
+            add(&mut idx, term);
+        }
+
+        let data = idx.find(b"eat").expect("`eat` is indexed");
+        assert_eq!(
+            read_members(data),
+            [b"beat".to_vec(), b"heat".to_vec(), b"eat".to_vec()]
+        );
+    }
+
+    /// The other order: the term creates its own entry, so it is the first member
+    /// and later, longer terms are appended after it.
+    #[test]
+    fn a_term_registered_before_its_own_suffix_entry_comes_first() {
+        let mut idx = TagSuffixIndex::new();
+        for term in [b"eat".as_slice(), b"beat"] {
+            add(&mut idx, term);
+        }
+
+        let data = idx.find(b"eat").expect("`eat` is indexed");
+        assert_eq!(read_members(data), [b"eat".to_vec(), b"beat".to_vec()]);
+    }
+
+    /// [`TagSuffixIndex::nested_mem_usage`], recomputed from scratch by walking every
+    /// entry — the analogue of `TrieMap::recursive_mem_usage`, and the oracle the
+    /// incrementally maintained counter is checked against.
+    fn walked_nested_mem_usage(idx: &TagSuffixIndex) -> usize {
+        idx.entries.values().map(SuffixData::nested_mem_usage).sum()
+    }
+
+    /// The counter must equal the walk, and `mem_usage` must be the trie's own figure
+    /// plus that counter.
+    fn assert_counter_is_exact(idx: &TagSuffixIndex) {
+        assert_eq!(
+            idx.nested_mem_usage,
+            walked_nested_mem_usage(idx),
+            "the incremental counter drifted from a full walk of the entries"
+        );
+        assert_eq!(
+            idx.mem_usage(),
+            idx.entries.mem_usage() + idx.nested_mem_usage
+        );
+    }
+
+    #[test]
+    fn empty_index_owns_no_payload_bytes() {
+        let idx = TagSuffixIndex::new();
+
+        assert_eq!(idx.nested_mem_usage, 0);
+        assert_eq!(idx.mem_usage(), idx.entries.mem_usage());
+    }
+
+    /// A brand-new entry must contribute its whole member list, so the payload bytes of
+    /// the very first term cannot be zero. Measuring the "before" size on the
+    /// freshly-defaulted payload instead of on the vacant slot would net it out to zero.
+    #[test]
+    fn a_fresh_entrys_member_list_is_counted() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"hello");
+
+        assert!(
+            idx.nested_mem_usage > 0,
+            "five suffix entries own a member list each, plus one term allocation"
+        );
+        assert!(
+            idx.mem_usage() > idx.entries.mem_usage(),
+            "the payload allocations must lift the reported figure above the trie's own"
+        );
+        assert_counter_is_exact(&idx);
+    }
+
+    /// Registering a term that already exists as a proper suffix of a longer one sets
+    /// `full_term` on an entry that is already there, so no trie node changes and the
+    /// trie's own counter cannot see the new term allocation.
+    #[test]
+    fn a_term_taking_over_an_existing_suffix_entry_is_counted() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"hello");
+        let before = idx.mem_usage();
+
+        add(&mut idx, b"lo");
+
+        assert!(
+            idx.mem_usage() >= before + b"lo\0".len(),
+            "`lo` already had an entry, so its term allocation is the only guaranteed \
+             growth — and it has to be counted"
+        );
+        assert_counter_is_exact(&idx);
+    }
+
+    /// Terms sharing a suffix push onto the shared entries' member lists without adding
+    /// any trie node. The third sharer takes those lists past their initial capacity of
+    /// two, so the counter has to follow the reallocation as well.
+    #[test]
+    fn members_pushed_onto_shared_entries_are_counted() {
+        let mut idx = TagSuffixIndex::new();
+
+        for term in [b"hello".as_slice(), b"jello", b"mello"] {
+            add(&mut idx, term);
+            assert_counter_is_exact(&idx);
+        }
+
+        let shared = idx.find(b"ello").expect("`ello` is a suffix of all three");
+        assert_eq!(shared.members().count(), 3, "all three share this entry");
+        assert!(
+            shared.nested_mem_usage() > 2 * size_of::<TermPtr>(),
+            "a third member must have grown the list beyond its initial capacity"
+        );
+    }
+
+    /// The early return for an already-indexed term must not count its allocations twice
+    /// — nor, since it allocates a term it then drops, count them at all.
+    #[test]
+    fn a_duplicate_add_leaves_the_figure_untouched() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"hello");
+        let after_first = idx.mem_usage();
+
+        add(&mut idx, b"hello");
+
+        assert_eq!(idx.mem_usage(), after_first);
+        assert_counter_is_exact(&idx);
+    }
+
+    /// A longer term costs its extra term bytes *and* one member list per extra suffix,
+    /// so the gap has to exceed the difference in term length alone.
+    #[test]
+    fn a_longer_term_costs_more_than_its_extra_bytes() {
+        let short: &[u8] = b"short";
+        let long: &[u8] = b"a_considerably_longer";
+
+        let mut short_idx = TagSuffixIndex::new();
+        add(&mut short_idx, short);
+
+        let mut long_idx = TagSuffixIndex::new();
+        add(&mut long_idx, long);
+
+        assert!(
+            long_idx.nested_mem_usage - short_idx.nested_mem_usage > long.len() - short.len(),
+            "the extra suffix entries each own a member list on top of the longer term"
+        );
+        assert_counter_is_exact(&short_idx);
+        assert_counter_is_exact(&long_idx);
     }
 }

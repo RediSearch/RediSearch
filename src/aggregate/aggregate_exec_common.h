@@ -15,6 +15,7 @@
 typedef struct QueryError QueryError;
 
 struct AREQ;
+struct QueryRequestTimeout;
 
 bool hasTimeoutError(QueryError *err);
 
@@ -32,14 +33,12 @@ void destroyResults(SearchResult **results);
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
-  RSTimeoutPolicy timeoutPolicy;
-  struct timespec *timeout;
+  const struct QueryRequestTimeout *timeout;
   RSOomPolicy oomPolicy;
-  bool skipTimeoutChecks;
 
   // AREQ for the request being executed; consulted by AggregateResults (and
-  // its debug pause loop) to bail when the main-thread timeout callback flips
-  // AREQ_TimedOut. NULL on paths without a single owning AREQ (e.g. hybrid).
+  // its debug pause loop) to observe the request timeout. NULL on paths without
+  // a single owning AREQ (e.g. hybrid).
   // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
   struct AREQ *areq;
 } CommonPipelineCtx;

@@ -24,11 +24,11 @@ pub struct IndexSpecCache(NonNull<ffi::IndexSpecCache>);
 
 impl Clone for IndexSpecCache {
     fn clone(&self) -> Self {
-        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
         let refcount = unsafe { &raw const self.0.as_ref().refcount };
 
-        // Safety: See above
+        // SAFETY: See above
         let refcount = unsafe { AtomicUsize::from_ptr(refcount.cast_mut()) };
 
         refcount.fetch_add(1, Ordering::Relaxed);
@@ -39,7 +39,7 @@ impl Clone for IndexSpecCache {
 
 impl Drop for IndexSpecCache {
     fn drop(&mut self) {
-        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
 
         unsafe {
@@ -51,10 +51,39 @@ impl Drop for IndexSpecCache {
 impl IndexSpecCache {
     /// Creates an [`IndexSpecCache`] from a slice of [`ffi::FieldSpec`].
     pub fn from_fields<const N: usize>(fields: [ffi::FieldSpec; N]) -> Self {
-        // Safety: the redis module is always initialized at this point
+        Self::from_fields_and_rule(fields, None, None, None)
+    }
+
+    /// Like [`IndexSpecCache::from_fields`], additionally recording the schema
+    /// rule's special document-field names, mirroring what
+    /// `IndexSpec_BuildSpecCache` copies from the schema rule. The names are
+    /// recorded before the wrapper exists: the allocation is shareable (via
+    /// [`Clone`] and [`AsRef`]) and must never be mutated once it is.
+    pub fn from_fields_and_rule<const N: usize>(
+        fields: [ffi::FieldSpec; N],
+        lang: Option<&CStr>,
+        score: Option<&CStr>,
+        payload: Option<&CStr>,
+    ) -> Self {
+        fn rm_strdup(s: Option<&CStr>) -> *mut std::ffi::c_char {
+            let Some(s) = s else {
+                return ptr::null_mut();
+            };
+            // SAFETY: the redis module is always initialized at this point
+            let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
+            let len = s.to_bytes_with_nul().len();
+            // SAFETY: the size is non-zero and small
+            let dst = unsafe { alloc(len) }.cast::<std::ffi::c_char>();
+            // SAFETY: `dst` was just allocated with room for `len` bytes and
+            // `s` is a valid C string of exactly that length.
+            unsafe { ptr::copy_nonoverlapping(s.as_ptr(), dst, len) };
+            dst
+        }
+
+        // SAFETY: the redis module is always initialized at this point
         let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
 
-        // Safety: the size is non-zero, and doesn't overflow isize or any other common allocator invariants
+        // SAFETY: the size is non-zero, and doesn't overflow isize or any other common allocator invariants
         let ptr = NonNull::new(unsafe { alloc(size_of::<ffi::IndexSpecCache>()) })
             .unwrap()
             .cast::<ffi::IndexSpecCache>();
@@ -67,23 +96,54 @@ impl IndexSpecCache {
             (arr.len(), arr.into_raw())
         };
 
-        // Safety: we just allocated the pointer above
+        // SAFETY: we just allocated the pointer above
         unsafe {
             ptr.write(ffi::IndexSpecCache {
                 nfields,
                 fields,
                 refcount: 1,
+                lang_field: rm_strdup(lang),
+                score_field: rm_strdup(score),
+                payload_field: rm_strdup(payload),
             });
         }
 
         Self(ptr)
     }
 
+    /// Returns `true` if `name` is one of the schema rule's special document
+    /// fields (language / score / payload) recorded on this cache.
+    pub fn is_rule_special_field(&self, name: &CStr) -> bool {
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        let me = unsafe { self.0.as_ref() };
+        [me.lang_field, me.score_field, me.payload_field]
+            .into_iter()
+            .filter(|p| !p.is_null())
+            // SAFETY: non-null special-field names are valid, NUL-terminated
+            // strings by the construction contract — copied into the cache by
+            // from_fields_and_rule, or promised by the caller of from_raw.
+            .any(|p| unsafe { CStr::from_ptr(p) } == name)
+    }
+
+    /// Wraps an existing C-owned cache, taking ownership of one reference to
+    /// it: [`Drop`] releases that reference via [`ffi::IndexSpecCache_Decref`].
+    ///
     /// # Safety
     ///
-    /// The caller must ensure the following invariants are upheld for the *entire lifetime* of this type:
-    /// 1. The `spcache` pointer MUST point to a valid [`ffi::IndexSpecCache`].
-    /// 2. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated.
+    /// The caller must transfer an owned reference to the cache (such as the
+    /// one returned by `IndexSpec_GetSpecCache`) and must not release that
+    /// reference themselves, and must ensure the following invariants are
+    /// upheld for the *entire lifetime* of this type:
+    /// 1. The `ptr` pointer MUST point to a valid [`ffi::IndexSpecCache`].
+    /// 2. The [`ffi::IndexSpecCache`] being pointed to, and everything
+    ///    reachable through it, MUST NOT get mutated.
+    /// 3. Its `fields` pointer MUST point to a valid array of `nfields`
+    ///    [`ffi::FieldSpec`]s (or be null with `nfields == 0`), and every
+    ///    pointer nested in those entries (e.g. `fieldName`) MUST stay valid,
+    ///    with string fields NUL-terminated.
+    /// 4. Each of its special document-field names (`lang_field`,
+    ///    `score_field`, `payload_field`) MUST be null or point to a valid,
+    ///    NUL-terminated string.
     pub unsafe fn from_raw(ptr: NonNull<ffi::IndexSpecCache>) -> Self {
         debug_assert!(ptr.is_aligned());
 
@@ -91,7 +151,7 @@ impl IndexSpecCache {
     }
 
     pub fn fields(&self) -> &[ffi::FieldSpec] {
-        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
         let me = unsafe { self.0.as_ref() };
 
@@ -99,7 +159,7 @@ impl IndexSpecCache {
             debug_assert_eq!(me.nfields, 0);
             &[]
         } else {
-            // Safety: we correctly allocated and set the fields pointer and length above
+            // SAFETY: we correctly allocated and set the fields pointer and length above
             unsafe { slice::from_raw_parts(me.fields, me.nfields) }
         }
     }
@@ -107,7 +167,7 @@ impl IndexSpecCache {
     pub fn find_field(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
         self.fields().iter().find(|field| {
             debug_assert!(!field.fieldName.is_null());
-            // Safety: we have to trust that the `fieldName` pointer is valid
+            // SAFETY: we have to trust that the `fieldName` pointer is valid
             unsafe {
                 ffi::HiddenString_CompareC(field.fieldName, name.as_ptr(), name.count_bytes()) == 0
             }
@@ -117,14 +177,14 @@ impl IndexSpecCache {
 
 impl fmt::Debug for IndexSpecCache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         let inner = unsafe { self.0.as_ref() };
 
         let fields = if inner.fields.is_null() {
             debug_assert_eq!(inner.nfields, 0);
             &[]
         } else {
-            // Safety: we correctly allocated and set the fields pointer and length above
+            // SAFETY: we correctly allocated and set the fields pointer and length above
             unsafe { slice::from_raw_parts(inner.fields.cast::<FieldSpec>(), inner.nfields) }
         };
 
@@ -137,7 +197,7 @@ impl fmt::Debug for IndexSpecCache {
 
 impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
     fn as_ref(&self) -> &ffi::IndexSpecCache {
-        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         unsafe { self.0.as_ref() }
     }
 }

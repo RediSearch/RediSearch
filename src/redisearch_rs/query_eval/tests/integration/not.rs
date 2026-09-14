@@ -103,12 +103,6 @@ mod not {
         let id_c = context.add_document("doc_c");
         assert_eq!((id_a, id_b, id_c), (1, 2, 3));
 
-        // Disable timeout checks so the (clock-based) default deadline of the
-        // zero-initialised `QueryEvalCtx` does not expire the iterator.
-        let mut sctx = context.sctx;
-        // SAFETY: `context.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
-        unsafe { sctx.as_mut().time.skipTimeoutChecks = true };
-
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to the middle document only.
@@ -141,7 +135,7 @@ mod not {
     #[test]
     fn eval_not_none_child_falls_back_to_wildcard() {
         let _guard = GlobalGuard::default();
-        // Term context: the field exists but has no entry in `missingFieldDict`,
+        // Term context: the field exists but has no entry in `missing.indexes`,
         // so a QN_MISSING child makes `eval_node` return `None` — i.e. a NULL
         // child pointer. This is distinct from a structurally-empty child (an
         // `Empty` *iterator*, a non-null pointer handled by the reducer): here
@@ -152,7 +146,7 @@ mod not {
 
         // Two documents → docTable maxDocId == 2; the wildcard fallback walks
         // every id. `add_document` only touches the DocTable, never the
-        // `missingFieldDict`, so the QN_MISSING child still evaluates to `None`.
+        // `missing.indexes`, so the QN_MISSING child still evaluates to `None`.
         let id_a = context.add_document("doc_a");
         let id_b = context.add_document("doc_b");
         assert_eq!((id_a, id_b), (1, 2));
@@ -196,12 +190,6 @@ mod not {
         // path, so `eval_not` must forward a `NotOptimized` variant.
         // SAFETY: no iterator from this context is alive yet.
         context.spec_write().rule_mut().set_index_all(true);
-
-        // Disable timeout checks so the (clock-based) default deadline of the
-        // zero-initialised `QueryEvalCtx` does not expire the iterator.
-        let mut sctx = context.sctx;
-        // SAFETY: `context.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
-        unsafe { sctx.as_mut().time.skipTimeoutChecks = true };
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 

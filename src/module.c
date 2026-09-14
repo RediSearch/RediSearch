@@ -64,9 +64,11 @@
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
+#include "coord/index_list_command.h"
 #include "info/global_stats.h"
 #include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
+#include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
@@ -1029,6 +1031,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     }
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
+  const t_fieldIndex addedFieldsStart = sp->numFields;
   int addFieldsOk = IndexSpec_AddFields(ref, sp, ctx, &ac, &status);
 
   // if adding the fields has failed we return without updating statistics.
@@ -1038,9 +1041,8 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Schedule the initial background scan for the new fields.
   if (addFieldsOk && initialScan) {
-    IndexSpec_ScanAndReindex(ctx, ref);
+    IndexSpec_ScanAndReindexForAlter(ctx, ref, addedFieldsStart);
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);
@@ -1297,14 +1299,24 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+// Shard-side _FT._LIST; WITHCLUSTERSTATE replies the diagnostic payload the reducer consumes.
+int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  Indexes_List(&_reply, false);
-  return REDISMODULE_OK;
+  if (argc < 2) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    Indexes_List(&_reply, false);
+    return REDISMODULE_OK;
+  }
+
+  // argc == 2
+  if (!RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
+  }
+
+  return IndexList_ReplyLocalPayload(ctx);
 }
 
 // Restore an index schema from the given string.
@@ -1354,8 +1366,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 4,
-    .patchVersion = 0,
+    .minorVersion = 9,
+    .patchVersion = 241,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -1893,7 +1905,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",       SetFtExplaincliInfo, SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_DICT_DUMP,      DiskDisabledCmd(DictDumpCommand), "readonly",       SetFtDictdumpInfo,   SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SYNDUMP_CMD,    DiskDisabledCmd(SynDumpCommand),         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       SetFt_ListInfo,      SET_COMMAND_INFO, "slow admin", true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD_INTERNAL, IndexListInternal, "readonly",   SetDontCacheInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SYNADD_CMD,     DiskDisabledCmd(SynAddCommand),          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
     // read only commands
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
@@ -1948,10 +1960,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 
-  // At this point, the thread local storage is no longer needed, since all threads
-  // finished their work.
-  MainThread_DestroyBlockedQueries();
-
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
@@ -1965,7 +1973,15 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+
+  // Only after every pool whose cycles register in BlockedQueries has stopped
+  // (the workers pool above and the coordinator pool just now): no new cycle
+  // can link in after this point, so the unlink-only unwind leaves the
+  // registry permanently empty for MainThread_DestroyBlockedQueries below.
+  BlockedQueries_UnwindCycles();
   MR_FreeCluster();
+
+  MainThread_DestroyBlockedQueries();
 
   // free global structures
   Extensions_Free();
@@ -3436,6 +3452,8 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
+  // The worker owns blocked-client completion even when timeout owns the reply.
+  RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), mc);
   MRCtx_DecrRef(mc);
 }
 
@@ -3468,12 +3486,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   int profile = 0;
   size_t num = 0;
 
-  // Try to claim the REDUCING state - if timeout callback already claimed it,
-  // skip reduction and return without touching the blocked client.
+#ifdef ENABLE_ASSERT
+  if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
+#endif
   // If called from timeout callback, we already own reducing (claimed before calling).
   bool ownsReducing = fromTimeout || MRCtx_TryClaimReducing(mc);
   if (!ownsReducing) {
-    // Timeout callback is handling the reduction / reply path.
     return REDISMODULE_OK;
   }
 
@@ -3493,9 +3511,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   }
 #endif
 
-  // Timeout may have fired after the reducer was queued but before it started.
-  // In that case the timeout callback owns the blocked-client lifetime, so the
-  // background reducer must exit before touching `bc`.
+  // No reduction is needed if the timeout callback already replied.
   if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
     goto cleanup;
   }
@@ -3643,19 +3659,13 @@ cleanup:
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
-    // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mc);
   }
-
   if (ctx) {
     RedisModule_FreeThreadSafeContext(ctx);
   }
 
-  // Signal reducer complete only after all blocked-client usage is finished.
-  if (ownsReducing) {
-    MRCtx_SignalReducerComplete(mc);
-  }
+  MRCtx_SignalReducerComplete(mc);
 
   return REDISMODULE_OK;
 }
@@ -3666,6 +3676,43 @@ static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
 
 static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
+}
+
+// FT._LIST on the coordinator. The no-token form precedes every cluster and
+// blocking check: it must keep working inside MULTI/Lua and when the cluster is down.
+int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc > 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (argc == 2 && !RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
+  }
+
+  if (argc == 1) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    Indexes_List(&_reply, false);
+    return REDISMODULE_OK;
+  }
+
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    return IndexList_ReplySingleShard(ctx);
+  }
+
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand_SetProtocol(&cmd, ctx);
+  MRCommand_SetPrefix(&cmd, "_FT");
+  struct MRCtx *mrctx = IndexList_CreateRequest(ctx, GetNumShards_UnSafe());
+  MR_Fanout(mrctx, IndexListClusterStateReducer, cmd, true);
+  return REDISMODULE_OK;
 }
 
 static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3811,7 +3858,8 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Forward declaration for initQueryTimeout (defined later in file)
-static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString **argv, int argc,
+                            QueryError *status);
 
 static const char *coordinatorDebugPolicyError(bool isDebug) {
   if (isDebug && RSGlobalConfig.requestConfigParams.timeoutPolicy != TimeoutPolicy_Return) {
@@ -3899,8 +3947,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Early TIMEOUT argument parsing, required for block-client timeout.
   size_t queryTimeoutMS;
+  bool timeoutWasCapped;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, &timeoutWasCapped, argv, argc, &status) !=
+      REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -3922,6 +3972,19 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
   // Either path took the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
+
+  // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
+  // initQueryTimeout already resolved the command override and foreground cap.
+  r->reqConfig.queryTimeoutMS = (long long)queryTimeoutMS;
+  if (timeoutWasCapped) {
+    r->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+  QueryRequestTimeout_UpdateConfig(&r->base.timeout, r->reqConfig.timeoutPolicy,
+                                   r->reqConfig.queryTimeoutMS);
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+    QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  }
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -4012,8 +4075,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   // Parse timeout from command args
   size_t queryTimeoutMS;
+  bool timeoutWasCapped;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, &timeoutWasCapped, argv, argc, &status) !=
+      REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -4027,6 +4092,24 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Construction takes the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
+  // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
+  // initQueryTimeout already resolved the command override and foreground cap.
+  hreq->reqConfig.queryTimeoutMS = (long long)queryTimeoutMS;
+  if (timeoutWasCapped) {
+    hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+  QueryRequestTimeout_UpdateConfig(&hreq->base.timeout, hreq->reqConfig.timeoutPolicy,
+                                   hreq->reqConfig.queryTimeoutMS);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    subquery->reqConfig.queryTimeoutMS = hreq->reqConfig.queryTimeoutMS;
+    QueryRequestTimeout_UpdateConfig(&subquery->base.timeout,
+                                     subquery->reqConfig.timeoutPolicy,
+                                     subquery->reqConfig.queryTimeoutMS);
+  }
+  if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+    HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  }
   // The tail and sub sctxs aliased this handler's ctx, which dies when the
   // handler returns. The BG executor re-points the tail at its own thread-safe
   // ctx; the coordinator pipelines (RPNet chains) never read a sub's ctx.
@@ -4247,8 +4330,8 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   QueryError_ClearError(status);
   if (!MRCtx_IsTimedOut(mrctx)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
   }
+  RedisModule_UnblockClient(bc, mrctx);
 }
 
 static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int protocol,
@@ -4306,6 +4389,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
 
   // Append the prefixes of the index to the command
   StrongRef strong_ref = IndexSpecRef_Promote(spec_ref);
+  WeakRef_Release(spec_ref);
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
@@ -4335,9 +4419,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
   MRCommand_PrepareForDispatchTime(cmd, arg_pos);
   arg_pos += 2;
 
-  // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
-  WeakRef_Release(spec_ref);
 
   return REDISMODULE_OK;
 }
@@ -4346,10 +4428,14 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordSearchPrepare");
+#endif
 
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
@@ -4474,10 +4560,20 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
 // Releases only the blocked-client reference; MRCtx cleanup runs on the final release.
 static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   UNUSED(ctx);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("CoordSearchFreePrivData");
+#endif
   if (privdata) {
     struct MRCtx *mrctx = privdata;
     MRCtx_DecrRef(mrctx);
   }
+}
+
+static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(mrctx);
+  MRCtx_SetTimedOut(mrctx);
 }
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
@@ -4485,13 +4581,17 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
-// The value is also silently capped to search-_max-foreground-timeout-limit
-// when the limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED
-// flag on its own request, which is what surfaces the warning to the user.
-static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
+// The value is also silently capped to search-_max-foreground-timeout-limit when the limit is
+// active. If wasCapped is provided, it records that decision so callers which seed request parsing
+// with the effective value can still surface the MAX_TIMEOUT_CAPPED warning.
+static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString **argv, int argc,
+                            QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
   *timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  if (wasCapped) {
+    *wasCapped = false;
+  }
 
   int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
   if (timeoutArgIdx >= 0) {
@@ -4510,6 +4610,9 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
   long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
     *timeout = (size_t)capped;
+    if (wasCapped) {
+      *wasCapped = true;
+    }
   }
   return REDISMODULE_OK;
 }
@@ -4705,7 +4808,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Early TIMEOUT argument parsing, required for DistSearchBlockClientWithTimeout.
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, NULL, argv, argc, &status) != REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -4749,6 +4852,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
+  RedisModule_SetDisconnectCallback(bc, DistSearchDisconnectCallback);
 
   SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
@@ -5052,6 +5156,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   SearchCommand readCommands[] = {
     // read commands
     DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,               SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD_PUBLIC, SafeCmd(IndexListCommandHandler), "readonly", SetFt_ListInfo,       SET_COMMAND_INFO,      "slow admin", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DistAggregateCommand),     "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,            SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
@@ -5149,10 +5254,14 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordSearchPrepare");
+#endif
 
   // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);

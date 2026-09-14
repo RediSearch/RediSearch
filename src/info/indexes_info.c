@@ -85,7 +85,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_indexing_failures < index_error_count) {
       info.max_indexing_failures = index_error_count;
     }
-    info.background_indexing_failures_OOM += sp->scan_failed_OOM;
+    info.background_indexing_failures_OOM += RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
     size_t total_index_mem = info.total_mem - prev_total_mem;
 
     // Update min_mem and max_mem with total memory including disk storage
