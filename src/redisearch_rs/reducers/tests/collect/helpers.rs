@@ -57,7 +57,7 @@ impl RemoteCollectFixture {
     /// REDUCE COLLECT 6
     ///   FIELDS 1 @name
     ///   SORTBY 1 @sweetness
-    pub(super) fn reducer(&self, is_internal: bool) -> RemoteCollectReducer<'_> {
+    pub(super) fn reducer(&self, is_internal: bool) -> RemoteCollectReducer<'_, '_> {
         RemoteCollectReducer::new(
             Box::new([&self.name_key]),
             None,
@@ -141,11 +141,11 @@ pub(super) fn num_row(v: f64) -> (Vec<SharedValue>, Vec<SharedValue>) {
 /// reducer's live walk has something to iterate. Pre-registers three visible
 /// keys (`name`, `color`, `sweetness`) plus one [`RLookupKeyFlag::Hidden`]
 /// key (`__hidden`) so the "skip hidden" assertion has a target.
-pub(super) struct RemoteCollectLoadAllFixture<'lookup> {
-    pub(super) lookup: RLookup<'lookup>,
+pub(super) struct RemoteCollectLoadAllFixture {
+    pub(super) lookup: RLookup<'static>,
 }
 
-impl RemoteCollectLoadAllFixture<'_> {
+impl RemoteCollectLoadAllFixture {
     pub(super) fn new() -> Self {
         let mut lookup = RLookup::new();
         let _ = lookup
