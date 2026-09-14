@@ -442,7 +442,7 @@ TEST_F(ReindexSkipTest, metadataUpdateAfterFailedOpenReindexes) {
   RSDocumentMetadata *existing =
       const_cast<RSDocumentMetadata *>(DocTable_Borrow(&spec->docs, first));
   ASSERT_NE(existing, nullptr);
-  existing->flags |= Document_FailedToOpen;
+  existing->flags = static_cast<RSDocumentFlags>(existing->flags | Document_FailedToOpen);
   DMD_Return(existing);
 
   RMCK::hset(ctx, "doc:1", "__score", "0.5");
