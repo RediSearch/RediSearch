@@ -7,6 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
+extern "C" {
+#include "byte_offsets.h"
+}
+
 #include "result_processor.h"
 #include "query_request.h"
 #include "common.h"
@@ -20,6 +24,8 @@
 #include "query_flags.h"
 #include "metrics_ffi.h"
 #include "debug_commands.h"
+#include "search_options.h"
+#include "query_term_ffi.h"
 
 #include <atomic>
 #include <thread>
@@ -1186,6 +1192,198 @@ TEST_F(PauseDrainTest, drainsWhileNextIsParkedUpstream) {
   EXPECT_EQ(RS_RESULT_OK, status);
   EXPECT_EQ(pauseSource.documents.back(), SearchResult_GetDocumentMetadata(&next));
   EXPECT_FALSE(QueryDebugCtx_IsPaused());
+  SearchResult_Destroy(&next);
+}
+
+// Each path creates its own row and index result; only immutable configuration is shared.
+struct HighlighterDrainSource : KeyNameDrainSource {
+  const RLookupKey *key = nullptr;
+  bool retainIndex = true;
+  bool termOffsets = false;
+
+  void populate(SearchResult *result) const {
+    static constexpr char text[] = "one  two three four five six seven eight";
+    RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(result),
+                        RSValue_NewCopiedString(text, sizeof(text) - 1));
+    if (retainIndex) {
+      RSIndexResult *index;
+      if (termOffsets) {
+        RSToken token = {.str = const_cast<char *>("three"), .len = 5, .flags = 0};
+        index = NewTokenRecord(NewQueryTerm(&token, 1), 1);
+        // The record owns its term; these encoded offsets have static lifetime.
+        static const char offsets[] = {3};
+        RSOffsetVector_SetData(&index->data.term.borrowed.offsets, offsets, sizeof(offsets));
+      } else {
+        index = NewVirtualResult(1, RS_FIELDMASK_ALL);
+      }
+      SearchResult_SetOwnedIndexResult(result, index);
+    }
+  }
+
+  HighlighterDrainSource() {
+    Next = [](ResultProcessor *base, SearchResult *result) -> int {
+      auto *self = static_cast<HighlighterDrainSource *>(base);
+      ++self->nextCalls;
+      self->entered.store(true, std::memory_order_release);
+      while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      auto *dmd = self->documents.back();
+      DMD_Incref(dmd);
+      SearchResult_SetDocumentMetadata(result, dmd);
+      self->populate(result);
+      return RS_RESULT_OK;
+    };
+    Drain = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = static_cast<HighlighterDrainSource *>(base);
+      if (self->position == self->documents.size()) return self->terminal;
+      auto *dmd = self->documents[self->position++];
+      DMD_Incref(dmd);
+      SearchResult_SetDocumentMetadata(result, dmd);
+      self->populate(result);
+      return RP_DRAIN_OK;
+    };
+  }
+};
+
+class HighlighterDrainTest : public LoaderDrainTest {
+ protected:
+  HighlighterDrainSource hlpSource;
+  ReturnedField field = {};
+  FieldList fields = {};
+
+  void createHighlighter(bool allFields = false, bool termOffsets = false) {
+    hlpSource.termOffsets = termOffsets;
+    if (termOffsets) {
+      auto *cache = static_cast<IndexSpecCache *>(rm_calloc(1, sizeof(IndexSpecCache)));
+      cache->refcount = 1;
+      cache->nfields = 1;
+      cache->fields = static_cast<FieldSpec *>(rm_calloc(1, sizeof(FieldSpec)));
+      cache->fields[0].fieldName = NewHiddenString("field", 5, true);
+      cache->fields[0].fieldPath = cache->fields[0].fieldName;
+      cache->fields[0].types = INDEXFLD_T_FULLTEXT;
+      RLookup_SetCache(&lookup, cache);
+    }
+    hlpSource.key = RLookup_GetKey_Write(&lookup, "field", RLOOKUP_F_NOFLAGS);
+    RLookup_Seal(&lookup);
+    field.name = "field";
+    field.lookupKey = hlpSource.key;
+    field.mode = SummarizeMode_Synopsis;
+    field.summarizeSettings.contextLen = 1;
+    field.summarizeSettings.numFrags = 1;
+    field.summarizeSettings.separator = const_cast<char *>("...");
+    field.highlightSettings.openTag = const_cast<char *>("<b>");
+    field.highlightSettings.closeTag = const_cast<char *>("</b>");
+    if (allFields) {
+      fields.defaultField = field;
+    } else {
+      fields.fields = &field;
+      fields.numFields = 1;
+    }
+    loader = RPHighlighter_New(RS_LANG_ENGLISH, &fields, &lookup, false);
+    loader->upstream = &hlpSource;
+    // No query context: Drain must not consult the root iterator, even without retained data.
+    hlpSource.documents = {document("highlight:drain", nullptr),
+                           document("highlight:next", nullptr)};
+    if (termOffsets) {
+      for (auto *dmd : hlpSource.documents) {
+        auto *offsets = NewByteOffsets();
+        RSByteOffsets_ReserveFields(offsets, 1);
+        RSByteOffsets_AddField(offsets, 0, 1)->lastTokPos = 8;
+        ByteOffsetWriter writer;
+        ByteOffsetWriter_Init(&writer);
+        for (uint32_t offset : {0, 5, 9, 15, 20, 25, 29, 35}) {
+          ByteOffsetWriter_Write(&writer, offset);
+        }
+        ByteOffsetWriter_Move(&writer, offsets);
+        ByteOffsetWriter_Cleanup(&writer);
+        DocTable_SetByteOffsets(dmd, offsets);
+      }
+    }
+  }
+};
+
+TEST_F(HighlighterDrainTest, termOffsetsHighlightWholeFieldAndFragmentsLikeNext) {
+  createHighlighter(false, true);
+  for (bool fragments : {false, true}) {
+    field.mode = fragments
+                     ? static_cast<SummarizeMode>(SummarizeMode_Highlight | SummarizeMode_Synopsis)
+                     : SummarizeMode_Highlight;
+    if (fragments) {
+      fields.defaultField = field;
+      fields.numFields = 0;
+    }
+    ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+    size_t len = 0;
+    const char *text =
+        RSValue_StringPtrLen(RLookupRow_Get(hlpSource.key, SearchResult_GetRowData(&result)), &len);
+    std::string expected(text, len);
+    EXPECT_NE(std::string::npos, expected.find("<b>three</b>"));
+    if (!fragments)
+      EXPECT_EQ("one  two <b>three</b> four five six seven eight", expected);
+    else
+      EXPECT_NE(std::string::npos, expected.find("..."));
+    SearchResult_Clear(&result);
+    ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    expectValue(hlpSource.key, expected.c_str());
+    SearchResult_Clear(&result);
+  }
+}
+
+TEST_F(HighlighterDrainTest, retainedDataMatchesNextForExplicitAndAllFields) {
+  createHighlighter();
+  for (bool allFields : {false, true}) {
+    if (allFields) {
+      fields.defaultField = field;
+      fields.numFields = 0;
+    }
+    ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+    expectValue(hlpSource.key, "one two");
+    SearchResult_Clear(&result);
+    ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    expectValue(hlpSource.key, "one two");
+    SearchResult_Clear(&result);
+  }
+}
+
+TEST_F(HighlighterDrainTest, missingRetainedIndexLeavesRowUnchangedWithoutIteratorAccess) {
+  createHighlighter();
+  hlpSource.retainIndex = false;
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(hlpSource.key, "one  two three four five six seven eight");
+  EXPECT_EQ(0, hlpSource.nextCalls);
+}
+
+TEST_F(HighlighterDrainTest, propagatesTerminalStatusesWithoutTouchingOutput) {
+  createHighlighter();
+  hlpSource.documents.clear();
+  for (auto status : {RP_DRAIN_EOF, RP_DRAIN_ERROR}) {
+    hlpSource.terminal = status;
+    EXPECT_EQ(status, loader->Drain(loader, &result));
+    EXPECT_FALSE(SearchResult_HasIndexResult(&result));
+  }
+  EXPECT_EQ(0, hlpSource.nextCalls);
+}
+
+TEST_F(HighlighterDrainTest, drainsWhileNextIsParkedUpstream) {
+  createHighlighter(false, true);
+  field.mode = SummarizeMode_Highlight;
+  hlpSource.release.store(false);
+  SearchResult next = SearchResult_New();
+  int nextStatus = RS_RESULT_MAX;
+  std::thread worker([&] { nextStatus = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return hlpSource.entered.load(); }, 5);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    expectValue(hlpSource.key, "one  two <b>three</b> four five six seven eight");
+  }
+  hlpSource.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, nextStatus);
+  EXPECT_NE(SearchResult_GetDocumentMetadata(&result), SearchResult_GetDocumentMetadata(&next));
+  size_t length = 0;
+  const char *text =
+      RSValue_StringPtrLen(RLookupRow_Get(hlpSource.key, SearchResult_GetRowData(&next)), &length);
+  EXPECT_EQ("one  two <b>three</b> four five six seven eight", std::string(text, length));
   SearchResult_Destroy(&next);
 }
 
