@@ -20,10 +20,16 @@
 #include "sorting_vector_ffi.h"
 #include "hiredis/sds.h"
 #include "doc_table.h"
+#include "rlookup_ffi.h"
+#include "value_ffi.h"
 
 #include <vector>
 #include <string>
 #include <set>
+#include <future>
+#include <thread>
+#include <chrono>
+#include <atomic>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -242,32 +248,245 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
-
-
 class HybridMergerTest : public ::testing::Test {};
 
+TEST_F(HybridMergerTest, DrainSkipsNextClaimWhileScorePreparationIsParked) {
+  QueryProcessingCtx qitr = {0};
+  qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  MockUpstream source(0, {2.0, 2.0, 2.0, 2.0}, {1, 2, 3, 4});
+  ResultProcessor **upstreams = nullptr;
+  ResultProcessor *upstream = &source;
+  array_ensure_append_1(upstreams, upstream);
+  double weights[] = {1.0};
+  auto *lookup = CreateDummyLookupContext(1);
+  auto *merger = CreateLinearHybridMerger(upstreams, 1, weights, lookup);
+  QITR_PushRP(&qitr, merger);
+  SearchResult first = SearchResult_New(), next = SearchResult_New(), drained = SearchResult_New();
+  ASSERT_EQ(RS_RESULT_OK, merger->Next(merger, &first));
+  std::set<t_docId> ids{SearchResult_GetDocId(&first)};
+  SearchResult_Destroy(&first);
+
+  // Yield's first allocation prepares scores after the ready-list claim has completed.
+  static thread_local bool pauseAllocation = false;
+  static std::atomic<bool> paused, resume;
+  static decltype(RedisModule_Alloc) originalAlloc;
+  paused.store(false);
+  resume.store(false);
+  originalAlloc = RedisModule_Alloc;
+  RedisModule_Alloc = [](size_t size) -> void * {
+    if (pauseAllocation) {
+      pauseAllocation = false;
+      paused.store(true, std::memory_order_release);
+      while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+    }
+    return originalAlloc(size);
+  };
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] {
+    pauseAllocation = true;
+    status = merger->Next(merger, &next);
+    pauseAllocation = false;
+  });
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!paused.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+  bool entered = paused.load(std::memory_order_acquire);
+  if (entered) {
+    while (merger->Drain(merger, &drained) == RP_DRAIN_OK) {
+      EXPECT_TRUE(ids.insert(SearchResult_GetDocId(&drained)).second);
+      EXPECT_DOUBLE_EQ(2.0, SearchResult_GetScore(&drained));
+      SearchResult_Clear(&drained);
+    }
+    EXPECT_EQ(3, ids.size());
+    EXPECT_EQ(4, RPHybridMerger_GetDrainCount(merger));
+  }
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  RedisModule_Alloc = originalAlloc;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_TRUE(ids.insert(SearchResult_GetDocId(&next)).second);
+  EXPECT_EQ((std::set<t_docId>{1, 2, 3, 4}), ids);
+  EXPECT_DOUBLE_EQ(2.0, SearchResult_GetScore(&next));
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &drained));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &drained));
+  SearchResult_Destroy(&next);
+  SearchResult_Destroy(&drained);
+  CleanupDummyLookupContext(lookup);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(HybridMergerTest, DrainedPayloadSurvivesCleanupAndOverlappingFieldsAreReleased) {
+  struct PayloadSource : MockUpstream {
+    const RLookupKey *key = nullptr;
+    std::vector<RSValue *> values;
+    PayloadSource(double score) : MockUpstream(0, {score, score, score}, {1, 2, 3}) {
+      for (int i = 0; i < 3; ++i) values.push_back(RSValue_NewNumber(score + i));
+      Next = [](ResultProcessor *rp, SearchResult *row) {
+        auto *self = static_cast<PayloadSource *>(rp);
+        int rc = MockUpstream::NextFn(rp, row);
+        if (rc == RS_RESULT_OK) {
+          auto *value = self->values[self->counter - 1];
+          RSValue_IncrRef(value);
+          RLookup_WriteOwnKey(self->key, SearchResult_GetRowDataMut(row), value);
+        }
+        return rc;
+      };
+    }
+    ~PayloadSource() {
+      for (auto *value : values) RSValue_DecrRef(value);
+    }
+  };
+  for (bool rrf : {false, true}) {
+    SCOPED_TRACE(rrf ? "RRF" : "LINEAR");
+    PayloadSource first(2.0), second(4.0);
+    QueryProcessingCtx qitr = {0};
+    qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    auto *lookup = CreateDummyLookupContext(2);
+    auto *firstLookup = const_cast<RLookup *>(lookup->sourceLookups[0]);
+    auto *secondLookup = const_cast<RLookup *>(lookup->sourceLookups[1]);
+    RLookup_GetKey_Write(firstLookup, "unused", RLOOKUP_F_NOFLAGS);
+    first.key = RLookup_GetKey_Write(firstLookup, "payload", RLOOKUP_F_NOFLAGS);
+    second.key = RLookup_GetKey_Write(secondLookup, "payload", RLOOKUP_F_NOFLAGS);
+    auto *tailKey = RLookup_GetKey_Write(lookup->tailLookup, "payload", RLOOKUP_F_NOFLAGS);
+    ResultProcessor **upstreams = nullptr;
+    ResultProcessor *firstSource = &first, *secondSource = &second;
+    array_ensure_append_1(upstreams, firstSource);
+    array_ensure_append_1(upstreams, secondSource);
+    double weights[] = {0.5, 0.5};
+    auto *merger = rrf ? CreateRRFHybridMerger(upstreams, 2, 60, 10, lookup)
+                       : CreateLinearHybridMerger(upstreams, 2, weights, lookup);
+    QITR_PushRP(&qitr, merger);
+    SearchResult next = SearchResult_New(), drained = SearchResult_New();
+    EXPECT_EQ(RS_RESULT_OK, merger->Next(merger, &next));
+    const auto nextId = SearchResult_GetDocId(&next);
+    EXPECT_EQ(RP_DRAIN_OK, merger->Drain(merger, &drained));
+    const auto drainedId = SearchResult_GetDocId(&drained);
+    EXPECT_NE(nextId, drainedId);
+    EXPECT_EQ(3, RPHybridMerger_GetDrainCount(merger));
+    ASSERT_GE(drainedId, 1);
+    ASSERT_LE(drainedId, 3);
+    EXPECT_DOUBLE_EQ(rrf ? 2.0 / (60 + drainedId) : 3.0, SearchResult_GetScore(&drained));
+    const RSValue *payload = RLookupRow_Get(tailKey, SearchResult_GetRowData(&drained));
+    EXPECT_EQ(second.values[drainedId - 1], payload);
+    SearchResult_Destroy(&next);
+    CleanupDummyLookupContext(lookup);
+    QITR_FreeChain(&qitr);
+    for (size_t i = 0; i < 3; ++i) {
+      EXPECT_EQ(1, RSValue_Refcount(first.values[i]));
+      EXPECT_EQ(i == drainedId - 1 ? 2 : 1, RSValue_Refcount(second.values[i]));
+    }
+    EXPECT_DOUBLE_EQ(4.0 + drainedId - 1, RSValue_Number_Get(payload));
+    SearchResult_Destroy(&drained);
+    EXPECT_EQ(1, RSValue_Refcount(second.values[drainedId - 1]));
+  }
+}
+
+TEST_F(HybridMergerTest, DrainBeforeNextClosesPublicationWithoutReadingUpstream) {
+  QueryProcessingCtx qitr = {0};
+  qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  MockUpstream upstream(0, {2.0}, {1});
+  ResultProcessor **upstreams = nullptr;
+  ResultProcessor *source = &upstream;
+  array_ensure_append_1(upstreams, source);
+  double weights[] = {1.0};
+  auto *lookup = CreateDummyLookupContext(1);
+  auto *merger = CreateLinearHybridMerger(upstreams, 1, weights, lookup);
+  QITR_PushRP(&qitr, merger);
+  SearchResult row = SearchResult_New();
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  EXPECT_EQ(0, RPHybridMerger_GetDrainCount(merger));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &row));
+  EXPECT_EQ(0, upstream.counter);
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  SearchResult_Destroy(&row);
+  CleanupDummyLookupContext(lookup);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(HybridMergerTest, DrainMergesCommittedContributionsWhileUpstreamIsParked) {
+  struct ParkedUpstream : MockUpstream {
+    std::promise<void> entered;
+    std::promise<void> resume;
+    std::shared_future<void> released = resume.get_future().share();
+    ParkedUpstream() : MockUpstream(0, {4.0, 5.0}, {1, 2}) {
+      Next = [](ResultProcessor *rp, SearchResult *row) {
+        auto *self = static_cast<ParkedUpstream *>(rp);
+        if (self->counter == 1) {
+          self->entered.set_value();
+          self->released.wait();
+        }
+        return MockUpstream::NextFn(rp, row);
+      };
+    }
+  } second;
+  MockUpstream first(0, {2.0, 3.0}, {1, 2});
+  QueryProcessingCtx qitr = {0};
+  qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  ResultProcessor **upstreams = nullptr;
+  ResultProcessor *firstSource = &first, *secondSource = &second;
+  array_ensure_append_1(upstreams, firstSource);
+  array_ensure_append_1(upstreams, secondSource);
+  double weights[] = {0.5, 0.5};
+  auto *lookup = CreateDummyLookupContext(2);
+  auto *merger = CreateLinearHybridMerger(upstreams, 2, weights, lookup);
+  QITR_PushRP(&qitr, merger);
+  auto entered = second.entered.get_future();
+  SearchResult nextRow = SearchResult_New();
+  int nextStatus = RS_RESULT_OK;
+  std::thread worker([&] { nextStatus = merger->Next(merger, &nextRow); });
+  auto ready = entered.wait_for(std::chrono::seconds(5));
+  EXPECT_EQ(std::future_status::ready, ready);
+  SearchResult row = SearchResult_New();
+  std::set<t_docId> ids;
+  if (ready == std::future_status::ready) {
+    RPDrainStatus status;
+    while ((status = merger->Drain(merger, &row)) == RP_DRAIN_OK) {
+      auto id = SearchResult_GetDocId(&row);
+      EXPECT_TRUE(ids.insert(id).second);
+      EXPECT_DOUBLE_EQ(id == 1 ? 3.0 : 1.5, SearchResult_GetScore(&row));
+      SearchResult_Clear(&row);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, status);
+    EXPECT_EQ((std::set<t_docId>{1, 2}), ids);
+    EXPECT_EQ(2, RPHybridMerger_GetDrainCount(merger));
+  }
+  second.resume.set_value();
+  worker.join();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, nextStatus);
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  EXPECT_EQ(2, RPHybridMerger_GetDrainCount(merger));
+  SearchResult_Destroy(&row);
+  SearchResult_Destroy(&nextRow);
+  CleanupDummyLookupContext(lookup);
+  QITR_FreeChain(&qitr);
+}
+
 /*
- * Test that hybrid merger correctly merges and scores results from two upstreams with the same documents (full intersection)
+ * Test that hybrid merger correctly merges and scores results from two upstreams with the same
+ * documents (full intersection)
  *
  * Scoring function: Hybrid linear
  * Number of upstreams: 2
  * Intersection: Full intersection (same documents from both upstreams)
  * Emptiness: Both upstreams have documents
  * Timeout: No timeout
- * Expected behavior: Each document gets combined score from both upstreams using linear weights (0.3*2.0 + 0.7*4.0 = 3.4)
+ * Expected behavior: Each document gets combined score from both upstreams using linear weights
+ * (0.3*2.0 + 0.7*4.0 = 3.4)
  */
 TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   QueryProcessingCtx qitr = {0};
 
   // Create upstreams with same documents (full intersection)
   MockUpstream upstream1(0, {2.0, 2.0, 2.0}, {1, 2, 3});
-  MockUpstream upstream2(0, {4.0, 4.0, 4.0}, {1, 2, 3}); // Same docIds
+  MockUpstream upstream2(0, {4.0, 4.0, 4.0}, {1, 2, 3});  // Same docIds
 
   ResultProcessor *rp1 = &upstream1;
   ResultProcessor *rp2 = &upstream2;
 
   // Create hybrid merger with linear scoring
-  arrayof(ResultProcessor*) upstreams = NULL;
+  arrayof(ResultProcessor *) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.3, 0.7};

@@ -167,6 +167,57 @@ fn move_dynamic_key_transfers_ownership() {
     assert_eq!(SharedValue::refcount(&value), 2);
 }
 
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn move_dynamic_fields_preserves_sparse_slots_and_owned_values() {
+    let key = |index| {
+        let mut key = RLookupKey::new(c"field", RLookupKeyFlags::empty());
+        key.dstidx = index;
+        key
+    };
+    let source_sv = RSSortingVector::from_iter([SharedValue::new_num(10.0)]);
+    let destination_sv = RSSortingVector::from_iter([SharedValue::new_num(20.0)]);
+    let moved = SharedValue::new_num(1.0);
+    let replaced = SharedValue::new_num(2.0);
+    let mut src = RLookupRow::new();
+    let mut dst = RLookupRow::new();
+    src.set_sorting_vector(Some(&source_sv));
+    dst.set_sorting_vector(Some(&destination_sv));
+    src.write_key(&key(0), moved.clone());
+    src.write_key(&key(2), SharedValue::new_num(3.0));
+    dst.write_key(&key(0), replaced.clone());
+    dst.write_key(&key(1), SharedValue::new_num(4.0));
+    dst.write_key(&key(5), SharedValue::new_num(5.0));
+
+    src.move_dynamic_fields_to(&mut dst);
+
+    assert_eq!(src.num_dyn_values(), 0);
+    assert!(src.dyn_values().iter().all(Option::is_none));
+    assert_eq!(dst.num_dyn_values(), 4);
+    assert_eq!(dst.get(&key(0)).unwrap().as_num(), Some(1.0));
+    assert_eq!(dst.get(&key(1)).unwrap().as_num(), Some(4.0));
+    assert_eq!(dst.get(&key(2)).unwrap().as_num(), Some(3.0));
+    assert!(dst.get(&key(3)).is_none());
+    assert_eq!(dst.get(&key(5)).unwrap().as_num(), Some(5.0));
+    assert_eq!(SharedValue::refcount(&moved), 2);
+    assert_eq!(SharedValue::refcount(&replaced), 1);
+    assert_eq!(src.sorting_vector()[0].as_num(), Some(10.0));
+    assert_eq!(dst.sorting_vector()[0].as_num(), Some(20.0));
+
+    src.write_key(&key(7), SharedValue::new_num(7.0));
+    src.move_dynamic_fields_to(&mut dst);
+    assert_eq!(dst.len(), 8);
+    assert_eq!(dst.num_dyn_values(), 5);
+    assert_eq!(dst.get(&key(7)).unwrap().as_num(), Some(7.0));
+    src.move_dynamic_fields_to(&mut dst);
+    assert_eq!(dst.num_dyn_values(), 5);
+    drop(dst);
+    assert_eq!(SharedValue::refcount(&moved), 1);
+}
+
 struct WriteKeyMock<'a> {
     row: RLookupRow<'a>,
     num_resize: usize,
