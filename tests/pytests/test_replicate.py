@@ -93,6 +93,64 @@ def _config_get_value(conn, name):
     return res[name]
   return res[1]
 
+def testAlterReplicateWithDifferentScanSchedules():
+  """Normal ALTERs preserve query membership with serial scans on both nodes or
+  overlapping scans only on the primary or only on the replica."""
+  env = initEnv()
+  primary = env.getConnection()
+  replica = env.getSlaveConnection()
+  nodes = [('primary', primary), ('replica', replica)]
+
+  def wait_for_scan(conn, idx):
+    checkSlaveSynced(env, conn, ('FT.INFO', idx), 0,
+                     mapping=lambda reply: int(to_dict(reply)['indexing']))
+
+  for schedule, paused in [('serial', None), ('overlap_primary', primary),
+                           ('overlap_replica', replica)]:
+    idx = schedule
+    prefix = f'{schedule}:'
+    env.expect('FT.CREATE', idx, 'PREFIX', '1', prefix, 'SCHEMA', 'title', 'TEXT').ok()
+    documents = {
+      f'{prefix}title': {'title': 'table'},
+      f'{prefix}a': {'title': 'table', 'a': 'alpha'},
+      f'{prefix}b': {'title': 'table', 'b': 'beta'},
+      f'{prefix}both': {'title': 'table', 'a': 'alpha', 'b': 'beta'},
+    }
+    for key, fields in documents.items():
+      primary.hset(key, mapping=fields)
+    env.expect('WAIT', '1', '10000').equal(1)
+    for _, conn in nodes:
+      wait_for_scan(conn, idx)
+
+    try:
+      if paused is not None:
+        env.assertOk(paused.execute_command(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true'))
+      for field in ('a', 'b'):
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', field, 'TAG').ok()
+        # WAIT acknowledges the replicated command, not completion of its scan.
+        env.expect('WAIT', '1', '10000').equal(1)
+        for role, conn in nodes:
+          if conn is paused:
+            env.assertEqual(conn.execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx),
+                            'NEW', message=f'{schedule}: {role} after adding {field}')
+          else:
+            wait_for_scan(conn, idx)
+    finally:
+      if paused is not None:
+        env.assertOk(paused.execute_command(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false'))
+        env.assertOk(paused.execute_command(bgScanCommand(), 'SET_BG_INDEX_RESUME'))
+
+    for role, conn in nodes:
+      wait_for_scan(conn, idx)
+      for query, keys in [
+        ('@title:table', list(documents)),
+        ('@a:{alpha}', [f'{prefix}a', f'{prefix}both']),
+        ('@b:{beta}', [f'{prefix}b', f'{prefix}both']),
+      ]:
+        result = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(result), toSortedFlatList([len(keys), *keys]),
+                        message=f'{schedule}: {role} {query}')
+
 def testDelReplicate():
   env = initEnv()
   master = env.getConnection()
