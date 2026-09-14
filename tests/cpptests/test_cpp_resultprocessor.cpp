@@ -1133,6 +1133,87 @@ struct KeyNameDrainSource : LoaderDrainSource {
   }
 };
 
+class TimeoutDrainTest : public LoaderDrainTest, public ::testing::WithParamInterface<bool> {
+ protected:
+  KeyNameDrainSource timeoutSource;
+  QueryRequestTimeout timeout = {};
+
+  void SetUp() override {
+    LoaderDrainTest::SetUp();
+    QueryRequestTimeout_Init(&timeout,
+                             GetParam() ? TimeoutPolicy_Return : TimeoutPolicy_ReturnStrict, 60000);
+    QueryRequestTimeout_BeginCycle(&timeout, GetParam() ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
+                                                        : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    sctx.timeout = &timeout;
+    qctx.endProc = &timeoutSource;
+    if (GetParam())
+      PipelineAddTimeoutAfterCountClock(&qctx, &sctx, 1);
+    else
+      PipelineAddTimeoutAfterCount(&qctx, &sctx, 1);
+    loader = qctx.endProc;
+    timeoutSource.documents = {document("timeout:drain", nullptr),
+                               document("timeout:next", nullptr)};
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(TimeoutSources, TimeoutDrainTest, ::testing::Bool());
+
+TEST_P(TimeoutDrainTest, drainPreservesTimeoutAndNextCounter) {
+  const auto kind = timeout.kind;
+  const auto deadline = GetParam() ? *QueryRequestTimeout_GetClockDeadline(&timeout) : timespec{};
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  EXPECT_EQ(timeoutSource.documents.front(), SearchResult_GetDocumentMetadata(&result));
+  EXPECT_EQ(0, timeoutSource.nextCalls);
+  SearchResult_Clear(&result);
+  // The first Next must not inject a timeout after Drain has passed a row.
+  struct TimeoutProbe : ResultProcessor {
+    QueryRequestTimeout *timeout;
+  } probe = {};
+  probe.timeout = &timeout;
+  probe.Next = [](ResultProcessor *base, SearchResult *) -> int {
+    return QueryRequestTimeout_IsTimedOutExact(static_cast<TimeoutProbe *>(base)->timeout)
+               ? RS_RESULT_TIMEDOUT
+               : RS_RESULT_OK;
+  };
+  loader->upstream = &probe;
+  EXPECT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &result));
+  EXPECT_EQ(kind, timeout.kind);
+  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  if (GetParam()) {
+    EXPECT_EQ(deadline.tv_sec, QueryRequestTimeout_GetClockDeadline(&timeout)->tv_sec);
+    EXPECT_EQ(deadline.tv_nsec, QueryRequestTimeout_GetClockDeadline(&timeout)->tv_nsec);
+  }
+}
+
+TEST_P(TimeoutDrainTest, forwardsTerminalStatusesWithoutAccessingTimeoutContext) {
+  sctx.timeout = nullptr;
+  timeoutSource.documents.clear();
+  timeoutSource.terminal = RP_DRAIN_ERROR;
+  EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(0, timeoutSource.nextCalls);
+}
+
+TEST_P(TimeoutDrainTest, drainsWhileNextIsParkedUpstream) {
+  timeoutSource.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return timeoutSource.entered.load(); }, 5);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    EXPECT_EQ(timeoutSource.documents.front(), SearchResult_GetDocumentMetadata(&result));
+  }
+  timeoutSource.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(timeoutSource.documents.back(), SearchResult_GetDocumentMetadata(&next));
+  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  SearchResult_Destroy(&next);
+}
+
 class PauseDrainTest : public LoaderDrainTest {
  protected:
   KeyNameDrainSource pauseSource;
