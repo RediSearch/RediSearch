@@ -33,7 +33,6 @@ def build_index(env, field_type='TAG', *field_args):
     conn = create_index(env, 'name', field_type, *field_args)
     for i, name in enumerate(NAMES):
         conn.execute_command('HSET', f'doc{i + 1}', 'name', name)
-    return conn
 
 
 def build_city_index(env):
@@ -49,7 +48,6 @@ def build_named_ages(env):
     conn = create_index(env, 'name', 'TAG', 'age', 'NUMERIC')
     for i, (name, age) in enumerate([('alice', 30), ('bob', 40), ('charlie', 50)]):
         conn.execute_command('HSET', f'doc{i + 1}', 'name', name, 'age', age)
-    return conn
 
 
 def search(env, query, *args):
@@ -150,7 +148,7 @@ def testBraceDelimitsTheBound(env):
     env.assertEqual(search(env, '@name:>{bob}'), ['doc3', 'doc4', 'doc5'])
     # Parentheses make it a text clause, which a TAG field rejects.
     env.expect('FT.SEARCH', 'idx', '@name:>(bob)', 'DIALECT', '2') \
-        .error().contains('TEXT')
+        .error().contains('Expected a TEXT field')
 
 
 def testBoundOutsideTheIndex(env):
@@ -245,9 +243,7 @@ def testParameterBound(env):
 def testEscapedBound(env):
     """An escaped separator is part of the bound, not a second token."""
     enable_unstable_features(env)
-    conn = create_index(env, 'city', 'TAG')
-    conn.execute_command('HSET', 'doc1', 'city', 'new york')
-    conn.execute_command('HSET', 'doc2', 'city', 'paris')
+    build_city_index(env)
 
     env.assertEqual(search(env, '@city:>{new\\ york}'), ['doc2'])
 
@@ -591,7 +587,7 @@ def testWrongFieldType(env):
 
     for field in ('age', 'loc', 'txt'):
         env.expect('FT.SEARCH', 'idx', f'@{field}:>{{10}}', 'DIALECT', '2') \
-            .error().contains('TAG')
+            .error().contains('Expected a TAG field')
 
 
 def testUnknownField(env):
@@ -613,7 +609,8 @@ def testMissingBound(env):
     # a text clause. `testOperatorWithoutABoundIsUnchanged` shows the same
     # spelling on a TEXT field, where it is a plain term search rather than an
     # error.
-    env.expect('FT.SEARCH', 'idx', '@name:>bob', 'DIALECT', '2').error().contains('TEXT')
+    env.expect('FT.SEARCH', 'idx', '@name:>bob', 'DIALECT', '2') \
+        .error().contains('Expected a TEXT field')
 
 
 # ---------------------------------------------------------------------------
