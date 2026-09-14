@@ -139,7 +139,7 @@ mod optional {
     #[test]
     fn eval_optional_none_child_falls_back_to_wildcard() {
         let _guard = GlobalGuard::default();
-        // Term context: the field exists but has no entry in `missingFieldDict`,
+        // Term context: the field exists but has no entry in `missing.indexes`,
         // so a QN_MISSING child makes `eval_node` return `None` — i.e. a NULL
         // child pointer. This is distinct from a structurally-empty child (an
         // `Empty` *iterator*, a non-null pointer), which the reducer handles via
@@ -149,7 +149,7 @@ mod optional {
 
         // Two documents → docTable maxDocId == 2; the wildcard fallback walks
         // every id. `add_document` only touches the DocTable, never the
-        // `missingFieldDict`, so the QN_MISSING child still evaluates to `None`.
+        // `missing.indexes`, so the QN_MISSING child still evaluates to `None`.
         let id_a = context.add_document("doc_a");
         let id_b = context.add_document("doc_b");
         assert_eq!((id_a, id_b), (1, 2));

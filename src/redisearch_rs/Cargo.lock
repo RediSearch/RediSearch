@@ -1851,6 +1851,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "dict",
  "ffi",
  "field",
  "geo",
@@ -2493,10 +2494,12 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field",
  "geo",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
