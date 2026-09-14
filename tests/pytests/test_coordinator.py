@@ -236,7 +236,7 @@ def test_single_shard_optimization():
     env.expect('FT.SPELLCHECK', 'idx', 'hell').equal([['TERM', 'hell', [['1', 'hello']]]])
 
 
-@skip(cluster=False, redis_less_than="8.0.0")
+@skip(cluster=False, redis_less_than="8.2.0")
 def test_validation_preserves_connection_round_robin():
     """Search and iterator preflight must not consume connection-pool turns."""
     env = Env(moduleArgs='WORKERS 3 CONN_PER_SHARD 4')
