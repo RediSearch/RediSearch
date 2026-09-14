@@ -38,7 +38,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
  * the durable writes and the in-memory bookkeeping that pairs with them:
  *
  *   - Stage: write the doc-table / inverted-index / tag-index entries onto
- *     `aCtx->disk.batch` (`stageText`, `bulkStageFields`, `stageMissingFields`).
+ *     `aCtx->disk.batch` (`stageText`, `bulkStageFields`, `addMissingFieldsToBatch`).
  *   - Commit fence: `commitDocument` aborts on error or commits the batch;
  *     returns false iff the batch did not become durable.
  *   - Apply: only runs on a successful commit. Updates the RAM-side state
