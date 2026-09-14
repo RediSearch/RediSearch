@@ -226,6 +226,30 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModul
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
                                  QueryError* status);
 
+// Outcome of Document_ProbeFieldsPresent. Kept distinct from a bool so a probe that could not
+// be resolved is never mistaken for confirmed absence.
+typedef enum {
+  // At least one of the probed fields is present.
+  DOCUMENT_FIELDS_PRESENT,
+  // Every probed field is confirmed absent.
+  DOCUMENT_FIELDS_ABSENT,
+  // Presence could not be determined (unexpected key type, RedisJSON unavailable, or the
+  // JSON root could not be read off the key). Callers must not treat this as absence.
+  DOCUMENT_FIELDS_PROBE_FAILED,
+} DocumentFieldsProbeResult;
+
+/**
+ * Checks whether `key` (already open, of `type`) has at least one of spec->fields[start, end)
+ * present, without loading or validating field values. Resolves each field the same way full
+ * field loading does -- Hash via FieldSpec.fieldPath and RedisModule_HashGet (as in
+ * Document_LoadSchemaFieldHash), JSON via FieldSpec.fieldPath and the RedisJSON API (as in
+ * Document_LoadSchemaFieldJson) -- so Hash aliases and nested/multi-value JSONPaths resolve
+ * the same way here as they do for the full load.
+ */
+DocumentFieldsProbeResult Document_ProbeFieldsPresent(const IndexSpec *spec, RedisModuleKey *key,
+                                                      DocumentType type, t_fieldIndex start,
+                                                      t_fieldIndex end);
+
 /**
  * Append a `FieldExpiration` entry for `field` (at position `ii` in
  * `spec->fields`) to `*out` when the hash key has a TTL on that field; no-op
