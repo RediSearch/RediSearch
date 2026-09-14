@@ -216,10 +216,11 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
-/* Decrement the refcount of the DMD object, freeing it if we're the last reference */
+// Release publishes completed readers to the metadata writer's acquire uniqueness check;
+// acquire also orders the final free after earlier owners' accesses.
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
+  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_ACQ_REL)) {
     DMD_Free(dmd);
   }
 }

@@ -674,6 +674,10 @@ static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModule
   RSDocumentMetadata *dmd = NULL;
   bool updated = false;
   uint64_t docId = 0;
+  const char *keyname = NULL;
+  double score = 0;
+  size_t payloadSize = 0;
+  const char *payloadData = NULL;
 
   // Expiration can change indexed content independently of the fields named by this write.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH ||
@@ -683,15 +687,19 @@ static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModule
     goto cleanup;
   }
 
-  const char *keyname = RedisModule_StringPtrLen(key, NULL);
-  double score = SchemaRule_HashScore(ctx, spec->rule, k, keyname);
+  keyname = RedisModule_StringPtrLen(key, NULL);
+  score = SchemaRule_HashScore(ctx, spec->rule, k, keyname);
   payload = SchemaRule_HashPayload(ctx, spec->rule, k, keyname);
-  size_t payloadSize = 0;
-  const char *payloadData = payload ? RedisModule_StringPtrLen(payload, &payloadSize) : NULL;
+  payloadData = payload ? RedisModule_StringPtrLen(payload, &payloadSize) : NULL;
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
-  if (!dmd || dmd->type != DocumentType_Hash || (dmd->flags & Document_FailedToOpen) ||
+  // Buffered results retain their DMD after releasing the spec lock. Only the table and
+  // this borrow may own it during mutation; acquire pairs with those readers' returns.
+  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
+    goto cleanup;
+  }
+  if (dmd->type != DocumentType_Hash || (dmd->flags & Document_FailedToOpen) ||
       __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
       DocTable_GetFieldExpirations(&spec->docs, docId).len ||
       (spec->rule->payload_field && !(dmd->flags & Document_HasPayloadSlot))) {

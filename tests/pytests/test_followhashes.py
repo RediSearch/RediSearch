@@ -256,10 +256,12 @@ def testMetadataOnlyUpdatesPreserveIndexes():
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
                'SCORE_FIELD', 'score', 'PAYLOAD_FIELD', 'payload', 'SCHEMA',
                'title', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'SORTABLE',
+               'geom', 'GEOSHAPE', 'FLAT', 'optional', 'TEXT', 'INDEXMISSING',
                'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
                'DISTANCE_METRIC', 'L2').ok()
     vector = create_np_array_typed([1, 2]).tobytes()
-    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'tag', 'blue', 'n', '7', 'v', vector)
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'tag', 'blue', 'n', '7', 'v', vector,
+                         'geom', 'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))')
     first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
 
     def index_state():
@@ -269,17 +271,21 @@ def testMetadataOnlyUpdatesPreserveIndexes():
         backend = to_dict(vector_info['BACKEND_INDEX'])
         return {
             'operations': {kind: info[f'search_total_indexing_ops_{kind}_fields']
-                           for kind in ('tag', 'numeric', 'vector')},
+                           for kind in ('tag', 'numeric', 'vector', 'geoshape')},
             'metadata': {key: metadata[key] for key in
                          ('internal_id', 'num_tokens', 'max_freq', 'sortables')},
             'text': env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'),
             'tag': env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 'tag'),
             'numeric': env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'n'),
+            'geometry': env.cmd(debug_cmd(), 'DUMP_GEOMIDX', 'idx', 'geom'),
+            'missing': env.cmd('FT.SEARCH', 'idx', 'ismissing(@optional)', 'NOCONTENT'),
+            'inverted_size': index_info(env)['inverted_sz_mb'],
             'vector': {key: backend[key] for key in
                        ('INDEX_SIZE', 'INDEX_LABEL_COUNT', 'NUMBER_OF_MARKED_DELETED')},
         }
 
     before = index_state()
+    env.assertEqual(before['missing'], [1, 'doc:1'])
     updates = [
         (('HSET', 'doc:1', 'score', '0.5'), b'0.5', None),
         (('HSET', 'doc:1', 'payload', b'a\x00\xab'), b'0.5', b'a\x00\xab'),
@@ -299,6 +305,10 @@ def testMetadataOnlyUpdatesPreserveIndexes():
                         message=command)
         env.assertEqual(index_state(), before, message=command)
         env.expect('FT.SEARCH', 'idx', '@tag:{blue} @n:[7 7]', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', 'ismissing(@optional)', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', '@geom:[within $shape]', 'PARAMS', '2', 'shape',
+                   'POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))', 'NOCONTENT', 'DIALECT', '3').equal(
+                       [1, 'doc:1'])
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $vec AS distance]',
                    'PARAMS', '2', 'vec', vector, 'RETURN', '1', 'distance').equal(
                        [1, 'doc:1', ['distance', '0']])
@@ -307,7 +317,7 @@ def testMetadataOnlyUpdatesPreserveIndexes():
     conn.execute_command('HSET', 'doc:1', 'title', 'goodbye', 'score', '1')
     after = index_state()
     env.assertGreater(after['metadata']['internal_id'], first, message=after)
-    for kind in ('tag', 'numeric', 'vector'):
+    for kind in ('tag', 'numeric', 'vector', 'geoshape'):
         env.assertEqual(after['operations'][kind], before['operations'][kind] + 1, message=after)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', 'goodbye', 'NOCONTENT').equal([1, 'doc:1'])
