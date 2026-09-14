@@ -24,6 +24,7 @@ extern "C" {
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "util/arr.h"
 #include "util/references.h"
 #include "types_ffi.h"
