@@ -183,7 +183,7 @@ int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly) {
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      if (!MRConn_Get(&cl->mgr, sh->nodes[j].id)) {
+      if (!MRConnManager_HasConnectedConnection(&cl->mgr, sh->nodes[j].id)) {
         return REDIS_ERR;
       }
     }
