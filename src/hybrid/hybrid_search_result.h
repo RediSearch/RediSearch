@@ -56,10 +56,11 @@ HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, c
 /**
  * HybridSearchResult structure that stores SearchResults from multiple sources.
  */
-typedef struct {
+typedef struct HybridSearchResult {
   arrayof(SearchResult*) searchResults;  // Array of SearchResults from each source
   arrayof(bool) hasResults;              // Result availability flags
   size_t numSources;                     // Number of sources
+  struct HybridSearchResult *nextReady;  // Merger's committed-row ownership list
 } HybridSearchResult;
 
 /**
@@ -93,12 +94,14 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
  *
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
+ * All source rows must already have their fields materialized into the common destination slot
+ * mapping. Merging then needs no access to the lookup that defines that mapping.
  *
  * When `explainCtx` is non-NULL, an RSScoreExplain wrapper describing the
  * hybrid combine is attached to the merged result.
  */
 SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx,
-                                 HybridLookupContext *lookupCtx, const HybridExplainContext *explainCtx);
+                                 const HybridExplainContext *explainCtx);
 
 #ifdef __cplusplus
 }
