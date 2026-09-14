@@ -462,7 +462,7 @@ static void reopenCb(void *arg) {}
 
 // Compute absent fields from the cached INDEXMISSING field indexes.
 // Expiration handling stays in the RAM caller.
-dict *Indexer_CollectMissingFields(const IndexSpec *spec, const Document *doc) {
+dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc) {
   if (!IndexSpec_HasIndexMissing(spec)) return NULL;
 
   // Set of INDEXMISSING fields, seeded from the spec and narrowed below to the
@@ -486,7 +486,7 @@ dict *Indexer_CollectMissingFields(const IndexSpec *spec, const Document *doc) {
 static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                                   struct FieldExpirationSlice sortedFieldWithExpiration) {
   IndexSpec *spec = sctx->spec;
-  dict *df_fields_dict = Indexer_CollectMissingFields(spec, aCtx->doc);
+  dict *df_fields_dict = Indexer_GetDocumentMissingFields(spec, aCtx->doc);
   if (!df_fields_dict) return;
 
   // add indexmissing fields that are in the document but are marked to be expired at some point

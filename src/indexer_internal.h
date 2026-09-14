@@ -35,7 +35,7 @@ extern "C" {
  * keyed by field name with FieldSpec values. Returns NULL when none are configured.
  * The caller releases the dictionary. Field expiration is not considered.
  */
-dict *Indexer_CollectMissingFields(const IndexSpec *spec, const Document *doc);
+dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc);
 
 /**
  * Dispose of the replaced document's VecSim and Geometry entries: drop each one, except a
