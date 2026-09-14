@@ -51,6 +51,7 @@ typedef struct {
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
+  size_t vectorTotalDocsRelabeled;
 } FieldsGlobalStats;
 
 // The pipeline stage a timeout occurred in, used to break down the timeout metric.
@@ -211,6 +212,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 
 // Increase the number of documents indexed by the given field type by `toAdd`.
 void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd);
+
+// Increase, by `toAdd`, the number of documents whose entry for the given field type was moved
+// onto a new doc-id rather than re-added.
+void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd);
 
 #ifdef __cplusplus
 }
