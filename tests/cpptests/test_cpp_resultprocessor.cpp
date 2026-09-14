@@ -96,7 +96,7 @@ class LoaderDrainTest : public ::testing::Test {
   const RLookupKey *create(bool all = false, uint32_t flags = 0, bool force = false,
                            bool cached = false) {
     RLookupKey *mutableKey = all ? nullptr : RLookup_GetKey_Load(&lookup, "alias", "field", 0);
-    if (cached) mutableKey->flags |= RLOOKUP_F_VALAVAILABLE;
+    if (mutableKey && cached) mutableKey->flags |= RLOOKUP_F_VALAVAILABLE;
     const RLookupKey *key = mutableKey;
     uint32_t state = 0;
     loader = RPLoader_New(&sctx, flags, &lookup, all ? nullptr : &key, all ? 0 : 1, force, &state);
@@ -152,6 +152,11 @@ TEST_P(CrashDrainTest, forwardsErrorAndEofWithoutTouchingOutput) {
   EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
   EXPECT_EQ(17, SearchResult_GetScore(&result));
   EXPECT_EQ(0, source.nextCalls);
+}
+
+TEST_F(LoaderDrainTest, loadAllDoesNotApplyExplicitKeyCacheHint) {
+  EXPECT_EQ(nullptr, create(true, 0, false, true));
+  EXPECT_NE(nullptr, loader);
 }
 
 TEST_F(LoaderDrainTest, returnDrainsExplicitFieldsAfterNextUnwinds) {
