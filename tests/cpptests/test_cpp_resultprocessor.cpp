@@ -8,6 +8,7 @@
  */
 
 #include "result_processor.h"
+#include "query_request.h"
 #include "common.h"
 #include "query.h"
 #include "value_ffi.h"
