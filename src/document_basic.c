@@ -373,6 +373,8 @@ static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }
   for (t_fieldIndex i = start; i < end; ++i) {
+    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations,
+    // and reuse parsed field paths to avoid parsing the same path for every JSON key.
     JSONResultsIterator iter =
         japi->get(jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL));
     if (!iter) {
