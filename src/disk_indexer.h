@@ -38,7 +38,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
  * the durable writes and the in-memory bookkeeping that pairs with them:
  *
  *   - Stage: write the doc-table / inverted-index / tag-index entries onto
- *     `aCtx->disk.batch` (`stageText`, `bulkStageFields`, `addMissingFieldsToBatch`).
+ *     `aCtx->disk.batch` (`stageText`, `bulkStageFields`, `writeMissingFieldDocs`).
  *   - Commit fence: `commitDocument` aborts on error or commits the batch;
  *     returns false iff the batch did not become durable.
  *   - Apply: only runs on a successful commit. Updates the RAM-side state
@@ -48,7 +48,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
  * On commit failure, the apply step is skipped — no in-memory state was
  * mutated, so there is nothing to roll back.
  *
- * The RAM hooks (`writeExistingDocs`, `writeMissingFieldDocs`) are not called
+ * The RAM implementations of `writeExistingDocs` and `writeMissingFieldDocs` are not called
  * here. Missing fields are staged without RAM's query-time expiration handling.
  */
 void DiskIndexer_IndexDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
