@@ -755,7 +755,7 @@ bool MRIterator_AllShardsConnected(const MRIterator *it) {
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   MRClusterShard *shards = io_runtime_ctx->topo->shards;
   for (size_t i = 0; i < io_runtime_ctx->topo->numShards; i++) {
-    if (!MRConn_Get(&io_runtime_ctx->conn_mgr, shards[i].node.id)) {
+    if (!MRConnManager_HasConnectedConnection(&io_runtime_ctx->conn_mgr, shards[i].node.id)) {
       return false;
     }
   }
