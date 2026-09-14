@@ -18,6 +18,7 @@
 #include "common.h"
 #include <atomic>
 #include <thread>
+#include <vector>
 #include <string_view>
 
 struct ProjectorSource : ResultProcessor {
@@ -178,6 +179,107 @@ TEST_F(ProjectorDrainTest, drainsWhileNextIsInsideExpressionEvaluation) {
   EXPECT_EQ(RS_RESULT_OK, status);
   expectString(&next, "NEXT");
   expectString(&result, "DRAIN");
+  SearchResult_Destroy(&next);
+}
+
+class FilterDrainTest : public ProjectorDrainTest {
+ protected:
+  struct FilterSource : ProjectorSource {
+    std::vector<const char *> values;
+    size_t cursor = 0;
+    FilterSource() {
+      Drain = [](ResultProcessor *base, SearchResult *row) {
+        auto *self = static_cast<FilterSource *>(base);
+        if (self->cursor == self->values.size()) return self->drainStatus;
+        EXPECT_EQ(nullptr, RLookupRow_Get(self->key, SearchResult_GetRowData(row)));
+        EXPECT_EQ(0, SearchResult_GetScore(row));
+        self->populate(row, self->values[self->cursor], self->cursor + 10);
+        SearchResult_SetScore(row, 42);
+        ++self->cursor;
+        return RP_DRAIN_OK;
+      };
+      drainStatus = RP_DRAIN_EOF;
+    }
+  } filterSource;
+
+  void createFilter(const char *expression, std::vector<const char *> values) {
+    create(expression);
+    projector->Free(projector);
+    projector = RPEvaluator_NewFilter(ast, &lookup);
+    filterSource.key = input;
+    filterSource.values = std::move(values);
+    projector->upstream = &filterSource;
+    projector->parent = &qctx;
+  }
+};
+
+TEST_F(FilterDrainTest, dropsRowsAndTakesReplyCountWithoutChangingQueryCounters) {
+  createFilter("@input == 'keep'", {"drop", "drop", "keep", "drop"});
+  EXPECT_EQ(0, RPFilter_TakeDrainFiltered(projector));
+  ASSERT_EQ(RP_DRAIN_OK, projector->Drain(projector, &result));
+  EXPECT_EQ(12, SearchResult_GetDocId(&result));
+  EXPECT_EQ(42, SearchResult_GetScore(&result));
+  EXPECT_EQ(2, RPFilter_TakeDrainFiltered(projector));
+  EXPECT_EQ(0, RPFilter_TakeDrainFiltered(projector));
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_EOF, projector->Drain(projector, &result));
+  EXPECT_EQ(1, RPFilter_TakeDrainFiltered(projector));
+  EXPECT_EQ(0, RPFilter_TakeDrainFiltered(projector));
+  EXPECT_EQ(17, qctx.totalResults);
+  EXPECT_EQ(0, filterSource.nextCalls);
+}
+
+TEST_F(FilterDrainTest, falsePredicateClearsRowsAndPropagatesUpstreamError) {
+  createFilter("0", {"one", "two"});
+  projector->parent = nullptr;
+  filterSource.drainStatus = RP_DRAIN_ERROR;
+  EXPECT_EQ(RP_DRAIN_ERROR, projector->Drain(projector, &result));
+  EXPECT_EQ(2, RPFilter_TakeDrainFiltered(projector));
+  EXPECT_EQ(nullptr, RLookupRow_Get(input, SearchResult_GetRowData(&result)));
+  EXPECT_EQ(0, SearchResult_GetScore(&result));
+  EXPECT_FALSE(RPEvaluator_TakeDrainError(projector, &error));
+}
+
+TEST_F(FilterDrainTest, evaluationFailurePreservesPrivateDiagnosticAndIsNotAFilteredRow) {
+  createFilter("@input + 1", {"bad"});
+  EXPECT_EQ(RP_DRAIN_ERROR, projector->Drain(projector, &result));
+  EXPECT_TRUE(QueryError_IsOk(&error));
+  EXPECT_EQ(0, RPFilter_TakeDrainFiltered(projector));
+  EXPECT_TRUE(RPEvaluator_TakeDrainError(projector, &error));
+  EXPECT_FALSE(QueryError_IsOk(&error));
+  EXPECT_EQ(10, SearchResult_GetDocId(&result));
+}
+
+TEST_F(FilterDrainTest, drainsWhileNextEvaluatesWithoutSharingScratchOrDropCount) {
+  createFilter("strlen(@input)", {"", "keep"});
+  static RSFunction original;
+  static std::atomic<bool> entered{false}, release{false};
+  entered.store(false);
+  release.store(false);
+  original = ast->func.Call;
+  ast->func.Call = [](ExprEval *ctx, RSValue **args, size_t count, RSValue *out) -> int {
+    if (SearchResult_GetDocId(ctx->res) == 2) {
+      entered.store(true, std::memory_order_release);
+      while (!release.load(std::memory_order_acquire)) std::this_thread::yield();
+    }
+    return original(ctx, args, count, out);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = projector->Next(projector, &next); });
+  bool paused = RS::WaitForCondition([&] { return entered.load(); }, 5);
+  if (paused) {
+    EXPECT_EQ(RP_DRAIN_OK, projector->Drain(projector, &result));
+    EXPECT_EQ(11, SearchResult_GetDocId(&result));
+    EXPECT_EQ(1, RPFilter_TakeDrainFiltered(projector));
+  }
+  release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(paused);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(2, SearchResult_GetDocId(&next));
+  EXPECT_EQ(17, qctx.totalResults);
+  EXPECT_TRUE(QueryError_IsOk(&error));
   SearchResult_Destroy(&next);
 }
 

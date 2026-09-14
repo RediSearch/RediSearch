@@ -226,6 +226,11 @@ ResultProcessor *RPEvaluator_NewFilter(RSExpr *ast, const RLookup *lookup);
  */
 bool RPEvaluator_TakeDrainError(ResultProcessor *rp, QueryError *error);
 
+/** Take the number of rows rejected by Drain since the previous call.
+ * Drain-thread-only metadata for reply accounting; live query counters are untouched.
+ */
+size_t RPFilter_TakeDrainFiltered(ResultProcessor *rp);
+
 /**
  * Reply with a string which describes the result processor.
  */
