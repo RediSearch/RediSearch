@@ -315,7 +315,7 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 }
 
 // Missing postings share the document batch; a partial failure aborts all its writes.
-static void addMissingFieldsToBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   if (aCtx->stateFlags & ACTX_F_ERRORED) return;
 
   dict *missing = Indexer_GetDocumentMissingFields(sctx->spec, aCtx->doc);
@@ -354,7 +354,7 @@ void DiskIndexer_IndexDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     stageText(aCtx, ctx);
   }
   bulkStageFields(aCtx, ctx);
-  addMissingFieldsToBatch(aCtx, ctx);
+  writeMissingFieldDocs(aCtx, ctx);
 
   // Commit fence — returns false if the batch was aborted or the commit
   // failed; in either case the apply step must not run.
