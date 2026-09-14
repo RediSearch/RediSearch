@@ -43,7 +43,7 @@ pub(crate) fn eval<'index>(
     debug_assert!(term_bytes.is_some(), "token string should not be null");
     let term = RSQueryTerm::new_bytes(term_bytes.unwrap_or_default(), token_id, tok.flags());
 
-    if ctx.disk_spec().is_some() {
+    if !ctx.spec().diskSpec.is_null() {
         eval_disk(ctx, tok, term, opts, weight, effective_field_mask, config)
     } else {
         open_term_reader(ctx, tok, term, weight, effective_field_mask)

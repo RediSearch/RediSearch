@@ -21,7 +21,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     IteratorsConfig, not_reducer::TIMEOUT_CHECK_GRANULARITY, utils::AnyTimeoutContext,
 };
-use search_disk::DiskSpecView;
+use search_disk::SearchDiskHandle;
 
 use query_types::scorers::{BuiltInScorer, RequestedScorer};
 
@@ -99,10 +99,7 @@ impl QueryEvalContext {
     ///    spec has a null trie.
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
-    ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec). In that case,
-    ///    `sctx.diskSnapshot` must be a valid, non-null snapshot of that disk spec.
-    ///    Both handles must remain valid and unchanged while this context or any
-    ///    iterator derived from it is in use.
+    ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
     ///    The `opts.scorerName` pointer may be null (no scorer requested); when
     ///    non-null it must point to a valid NUL-terminated C string that stays
     ///    valid for at least the lifetime of the returned context (read by
@@ -489,31 +486,16 @@ impl QueryEvalContext {
         self.as_ref().docTable
     }
 
-    /// Borrow the disk index and the query's existing snapshot, if disk-backed.
-    /// No snapshot is created or refreshed by this accessor.
-    ///
-    /// The view cannot outlive the context borrow:
-    ///
-    /// ```compile_fail
-    /// use query::QueryEvalContext;
-    /// use search_disk::DiskSpecView;
-    /// fn escape(ctx: &QueryEvalContext) -> Option<DiskSpecView<'static>> {
-    ///     ctx.disk_spec()
-    /// }
-    /// ```
-    pub fn disk_spec(&self) -> Option<DiskSpecView<'_>> {
-        // SAFETY: invariant (2) of `new` guarantees the spec and matching
-        // snapshot remain valid and unchanged for this borrow.
-        unsafe { DiskSpecView::new(self.sctx()) }
-    }
-
     /// The highest document ID currently assigned in the index.
     ///
     /// In search-on-disk mode (`spec.diskSpec` non-null) the value comes from
     /// the disk index; otherwise it is read from the in-memory
     /// [`DocTable`](ffi::DocTable).
     pub fn max_doc_id(&self) -> DocId {
-        match self.disk_spec() {
+        // SAFETY: per invariant (1)/(2) of `new`, `spec.diskSpec` is either null
+        // or a valid `RedisSearchDiskIndexSpec`.
+        let disk = unsafe { SearchDiskHandle::new(self.spec().diskSpec) };
+        match disk {
             Some(disk) => disk.max_doc_id(),
             None => self.doc_table().maxDocId,
         }

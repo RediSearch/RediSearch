@@ -57,7 +57,7 @@ pub(crate) fn eval<'index>(
     let node_field_mask = node.opts().field_mask;
     let weight = node.opts().weight;
     let field_mask = node_field_mask & ctx.opts().fieldmask;
-    let is_disk = ctx.disk_spec().is_some();
+    let is_disk = !ctx.spec().diskSpec.is_null();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
     // Read with every other use of `ctx`, because `Expansion` borrows it mutably
     // for the rest of the expansion.

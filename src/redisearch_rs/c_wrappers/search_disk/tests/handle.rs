@@ -25,16 +25,3 @@ fn new_returns_none_for_null_spec() {
     let handle = unsafe { SearchDiskHandle::new(std::ptr::null_mut()) };
     assert!(handle.is_none());
 }
-
-#[test]
-fn view_returns_none_for_in_memory_context_without_snapshot() {
-    // SAFETY: these C structs allow zero-initialization; the view only reads
-    // `spec.diskSpec`, which is null for an in-memory index.
-    let mut spec: ffi::IndexSpec = unsafe { std::mem::zeroed() };
-    // SAFETY: RedisSearchCtx is a C struct whose fields allow zero-initialization.
-    let mut sctx: ffi::RedisSearchCtx = unsafe { std::mem::zeroed() };
-    sctx.spec = &mut spec;
-    // SAFETY: `spec` outlives the borrow, and no disk handles exist in RAM mode.
-    let view = unsafe { search_disk::DiskSpecView::new(&sctx) };
-    assert!(view.is_none());
-}

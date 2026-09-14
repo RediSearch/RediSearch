@@ -113,7 +113,7 @@ fn open_expanded_term_reader(
     // See the doc comment: expansion children always carry unit weight.
     const CHILD_WEIGHT: f64 = 1.0;
 
-    if ctx.disk_spec().is_some() {
+    if !ctx.spec().diskSpec.is_null() {
         return open_expanded_term_reader_disk(
             ctx,
             term_bytes,

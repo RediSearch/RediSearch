@@ -9,14 +9,18 @@
 
 //! Shared machinery for node types that read from a search-on-disk index.
 
+use std::ptr::NonNull;
+
 use query_error::QueryErrorCode;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
 use rqe_iterators::RQEIteratorPrintable;
+use search_disk::SearchDiskHandle;
 
 use crate::QueryEvalContext;
 
-/// Build a search-on-disk reader for a single term, turning a failure into a query error.
+/// Build a search-on-disk reader for a single term, resolving the query's disk
+/// snapshot and turning a failure into a query error.
 ///
 /// The context must be disk-backed. `term` must already carry its
 /// scoring metadata: the document count its IDF is derived from is looked up
@@ -34,15 +38,18 @@ pub(crate) fn new_term_iterator<'index>(
     weight: f64,
     needs_offsets: bool,
 ) -> Option<Box<dyn RQEIteratorPrintable<'index> + 'index>> {
-    let disk = ctx
-        .disk_spec()
+    // SAFETY: the context's disk spec is valid for the query. Resolve it here
+    // so the handle and snapshot always come from the same search context.
+    let disk = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) }
         .expect("disk term reader requires a disk index");
+    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+        .expect("query.sctx.diskSnapshot is null for a disk-backed query");
     // SAFETY: `disk` wraps the spec's disk index, valid for `'index`
     // (`QueryEvalContext` invariants 1/2), and single-threaded query evaluation
     // gives us the only live reference to it; the enterprise iterators are
-    // registered whenever a disk index is in use; the view carries the query's
-    // existing snapshot.
-    match unsafe { disk.new_term_iterator(term, field_mask, weight, needs_offsets) } {
+    // registered whenever a disk index is in use; `snapshot` is the disk
+    // snapshot taken at query start.
+    match unsafe { disk.new_term_iterator(term, field_mask, weight, needs_offsets, snapshot) } {
         Ok(it) => Some(it),
         Err(err) => {
             ctx.status()
