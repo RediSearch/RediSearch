@@ -110,16 +110,19 @@ class LoaderDrainTest : public ::testing::Test {
   }
 };
 
-class CrashDrainTest : public LoaderDrainTest {
+class CrashDrainTest : public LoaderDrainTest, public ::testing::WithParamInterface<CrashLocation> {
  protected:
   void SetUp() override {
     LoaderDrainTest::SetUp();
-    loader = RPCrash_New(CRASH_IN_C);
+    loader = RPCrash_New(GetParam());
     loader->upstream = &source;
   }
 };
 
-TEST_F(CrashDrainTest, forwardsOwnedResultsWithoutInjectingCrash) {
+INSTANTIATE_TEST_SUITE_P(CrashLocations, CrashDrainTest,
+                         ::testing::Values(CRASH_IN_C, CRASH_IN_RUST));
+
+TEST_P(CrashDrainTest, forwardsOwnedResultsWithoutInjectingCrash) {
   auto *dmd = document("crash:drain", nullptr);
   source.documents = {dmd};
   ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
@@ -134,7 +137,7 @@ TEST_F(CrashDrainTest, forwardsOwnedResultsWithoutInjectingCrash) {
   EXPECT_EQ(1, dmd->ref_count);
 }
 
-TEST_F(CrashDrainTest, forwardsErrorAndEofWithoutTouchingOutput) {
+TEST_P(CrashDrainTest, forwardsErrorAndEofWithoutTouchingOutput) {
   SearchResult_SetScore(&result, 17);
   source.terminal = RP_DRAIN_ERROR;
   EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
