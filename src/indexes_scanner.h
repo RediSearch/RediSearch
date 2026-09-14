@@ -79,6 +79,10 @@ typedef struct IndexesScanner {
   bool cancelled;
   bool isDebug;
   bool scanFailedOnOOM;
+  // Recorded once, right after construction, by the private scheduler in indexes_scan.c;
+  // non-empty only for a scan scheduled through IndexSpec_ScanAndReindexForAlter (see
+  // indexes_scan.h) that was able to stay selective.
+  AddedFieldsRange addedFields;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
@@ -86,10 +90,6 @@ typedef struct IndexesScanner {
   // Always NULL for the async strategy: it keeps indexing the key that observed the pressure, so
   // that key is not the one left out — the omitted documents are the ones its abort never reached.
   RedisModuleString *OOMkey;
-  // Recorded once, right after construction, by the private scheduler in indexes_scan.c;
-  // non-empty only for a scan scheduled through IndexSpec_ScanAndReindexForAlter (see
-  // indexes_scan.h) that was able to stay selective.
-  AddedFieldsRange addedFields;
 } IndexesScanner;
 
 // Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.
