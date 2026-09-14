@@ -17,7 +17,6 @@ use query_types::QueryNodeOptions;
 use rqe_core::FieldMask;
 use rqe_iterators::build_term_iterator;
 use rs_token::RSTokenRef;
-use search_disk::SearchDiskHandle;
 
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, disk, expansion_needs_offsets};
 
@@ -44,21 +43,8 @@ pub(crate) fn eval<'index>(
     debug_assert!(term_bytes.is_some(), "token string should not be null");
     let term = RSQueryTerm::new_bytes(term_bytes.unwrap_or_default(), token_id, tok.flags());
 
-    // SAFETY: `ctx.spec().diskSpec` is either null or a valid
-    // `RedisSearchDiskIndexSpec` that stays valid for `'index` (`QueryEvalContext`
-    // invariants 1/2). `SearchDiskHandle::new` yields `None` for the null
-    // (in-memory) case, which falls through to the in-memory reader below.
-    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
-        eval_disk(
-            ctx,
-            disk,
-            tok,
-            term,
-            opts,
-            weight,
-            effective_field_mask,
-            config,
-        )
+    if ctx.disk_spec().is_some() {
+        eval_disk(ctx, tok, term, opts, weight, effective_field_mask, config)
     } else {
         open_term_reader(ctx, tok, term, weight, effective_field_mask)
     }
@@ -117,10 +103,8 @@ fn open_term_reader<'index>(
 ///
 /// Returns `None` — after setting the query status —
 /// when the disk iterator cannot be built.
-#[expect(clippy::too_many_arguments)]
 fn eval_disk<'index>(
     ctx: &'index mut QueryEvalContext,
-    disk: SearchDiskHandle,
     tok: RSTokenRef,
     mut term: Box<RSQueryTerm>,
     opts: &QueryNodeOptions,
@@ -148,8 +132,7 @@ fn eval_disk<'index>(
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config);
 
-    let iter =
-        disk::new_term_iterator(ctx, disk, term, effective_field_mask, weight, needs_offsets)?;
+    let iter = disk::new_term_iterator(ctx, term, effective_field_mask, weight, needs_offsets)?;
 
     Some(Evaluated::RustLeaf(iter))
 }

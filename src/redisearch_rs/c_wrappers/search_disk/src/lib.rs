@@ -15,7 +15,7 @@
 //! can query it without scattering raw FFI calls and null checks across call
 //! sites.
 
-use std::ptr::NonNull;
+use std::{marker::PhantomData, ptr::NonNull};
 
 use inverted_index::NumericFilter;
 use query_term::RSQueryTerm;
@@ -172,6 +172,106 @@ impl SearchDiskHandle {
         } else {
             api.new_term_on_disk_without_offsets(
                 disk_spec, query_term, field_mask, weight, snapshot,
+            )
+        }
+    }
+}
+
+/// A borrowed disk index and the snapshot already held by its query.
+///
+/// This view neither creates nor releases a snapshot. Iterator construction
+/// retains the unsafe lifetime and exclusivity contract of [`SearchDiskHandle`].
+pub struct DiskSpecView<'a> {
+    handle: SearchDiskHandle,
+    snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    _borrow: PhantomData<&'a ffi::RedisSearchCtx>,
+}
+
+impl<'a> DiskSpecView<'a> {
+    /// Borrow the disk index and snapshot from a search context.
+    /// Returns [`None`] for an in-memory index.
+    ///
+    /// # Safety
+    ///
+    /// `sctx.spec` must be [valid] and non-null for `'a`. Its disk spec, when
+    /// non-null, must remain [valid] for `'a`, as must `sctx.diskSnapshot`, which
+    /// must belong to that disk spec. Neither handle may be replaced during `'a`.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn new(sctx: &'a ffi::RedisSearchCtx) -> Option<Self> {
+        // SAFETY: the caller guarantees a valid, non-null spec for `'a`.
+        let spec = unsafe { &*sctx.spec };
+        // SAFETY: the caller guarantees the disk spec remains valid for `'a`.
+        let handle = unsafe { SearchDiskHandle::new(spec.diskSpec) }?;
+        let snapshot = NonNull::new(sctx.diskSnapshot)
+            .expect("query.sctx.diskSnapshot is null for a disk-backed query");
+        Some(Self {
+            handle,
+            snapshot,
+            _borrow: PhantomData,
+        })
+    }
+
+    /// The highest document ID currently assigned in the disk index.
+    pub fn max_doc_id(&self) -> DocId {
+        self.handle.max_doc_id()
+    }
+
+    /// Build a numeric iterator using the query's existing snapshot.
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`SearchDiskHandle::new_numeric_iterator`] apply to
+    /// the borrowed disk spec and snapshot for `'index`, even after this view
+    /// is consumed. In particular, `'index` may extend beyond this view's borrow.
+    pub unsafe fn new_numeric_iterator<'index>(
+        self,
+        filter: &NumericFilter,
+        field_index: FieldIndex,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        // SAFETY: the caller upholds the handle's iterator contract.
+        unsafe {
+            self.handle
+                .new_numeric_iterator(filter, field_index, self.snapshot)
+        }
+    }
+
+    /// Build a geo iterator using the query's existing snapshot.
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`SearchDiskHandle::new_geo_iterator`] apply to the
+    /// borrowed disk spec and snapshot for `'index`, even after this view is consumed.
+    pub unsafe fn new_geo_iterator<'index>(
+        self,
+        gf: &'index mut ffi::GeoFilter,
+        field_index: FieldIndex,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        // SAFETY: the caller upholds the handle's iterator contract.
+        unsafe { self.handle.new_geo_iterator(gf, field_index, self.snapshot) }
+    }
+
+    /// Build a term iterator using the query's existing snapshot.
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`SearchDiskHandle::new_term_iterator`] apply to the
+    /// borrowed disk spec and snapshot for `'index`, even after this view is consumed.
+    pub unsafe fn new_term_iterator<'index>(
+        self,
+        query_term: Box<RSQueryTerm>,
+        field_mask: FieldMask,
+        weight: f64,
+        needs_offsets: bool,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        // SAFETY: the caller upholds the handle's iterator contract.
+        unsafe {
+            self.handle.new_term_iterator(
+                query_term,
+                field_mask,
+                weight,
+                needs_offsets,
+                self.snapshot,
             )
         }
     }

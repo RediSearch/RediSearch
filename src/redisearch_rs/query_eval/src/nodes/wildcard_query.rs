@@ -51,7 +51,7 @@ pub(crate) fn eval<'index>(
     // suffix-trie support check below uses the node's own mask.
     let node_field_mask = node.opts().field_mask;
     let weight = node.opts().weight;
-    let is_disk = !ctx.spec().diskSpec.is_null();
+    let is_disk = ctx.disk_spec().is_some();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
     let field_mask = node_field_mask & ctx.opts().fieldmask;
 

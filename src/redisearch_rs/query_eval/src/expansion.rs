@@ -21,7 +21,6 @@ use field::FieldMaskOrIndex;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
 use rqe_iterators::{build_term_iterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
-use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, disk};
 
@@ -34,7 +33,6 @@ use crate::{QueryEvalContext, disk};
 /// when the iterator cannot be built.
 fn open_expanded_term_reader_disk(
     ctx: &mut QueryEvalContext,
-    disk: SearchDiskHandle,
     term_bytes: &[u8],
     num_docs: usize,
     field_mask: FieldMask,
@@ -46,7 +44,7 @@ fn open_expanded_term_reader_disk(
     let mut term = RSQueryTerm::new_bytes(term_bytes, token_id, 0);
     term.set_idfs(num_documents, num_docs);
 
-    let it = disk::new_term_iterator(ctx, disk, term, field_mask, weight, needs_offsets)?;
+    let it = disk::new_term_iterator(ctx, term, field_mask, weight, needs_offsets)?;
     let ptr = RQEIteratorWrapper::boxed_new(it);
     let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
     // SAFETY: `nn` is a valid, owning C `QueryIterator`.
@@ -115,13 +113,9 @@ fn open_expanded_term_reader(
     // See the doc comment: expansion children always carry unit weight.
     const CHILD_WEIGHT: f64 = 1.0;
 
-    // SAFETY: `ctx.spec().diskSpec` is either null or a valid disk index spec
-    // that stays valid for the query; `SearchDiskHandle::new` yields `None` for
-    // the null (in-memory) case handled below.
-    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+    if ctx.disk_spec().is_some() {
         return open_expanded_term_reader_disk(
             ctx,
-            disk,
             term_bytes,
             num_docs,
             field_mask,

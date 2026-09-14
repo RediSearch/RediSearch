@@ -86,7 +86,7 @@ pub(crate) fn eval<'index>(
     };
 
     let field_mask = node_field_mask & ctx.opts().fieldmask;
-    let is_disk = !ctx.spec().diskSpec.is_null();
+    let is_disk = ctx.disk_spec().is_some();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
 
     let suffix_trie = ctx.spec().suffix;
