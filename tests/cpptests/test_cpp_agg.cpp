@@ -137,6 +137,88 @@ class ReducerOptionsCXX : public ReducerOptions {
   }
 };
 
+TEST_F(AggTest, grouperDrainLeavesPartialAndCompletedGroupsForNext) {
+  struct Source : ResultProcessor {
+    const RLookupKey *key;
+    size_t count = 0;
+    size_t drainCalls = 0;
+    bool resume = false;
+    explicit Source(const RLookupKey *key) : ResultProcessor{}, key(key) {
+      Next = [](ResultProcessor *rp, SearchResult *row) -> int {
+        auto *self = static_cast<Source *>(rp);
+        if (self->count == 1 && !self->resume) return RS_RESULT_TIMEDOUT;
+        if (self->count == 3) return RS_RESULT_EOF;
+        SearchResult_SetDocId(row, ++self->count);
+        RLookup_WriteOwnKey(self->key, SearchResult_GetRowDataMut(row),
+                            RSValue_NewNumber(self->count < 3 ? 0 : 1));
+        return RS_RESULT_OK;
+      };
+      Drain = [](ResultProcessor *rp, SearchResult *) {
+        ++static_cast<Source *>(rp)->drainCalls;
+        return RP_DRAIN_EOF;
+      };
+    }
+  };
+  RLookup input = RLookup_New(), output = RLookup_New();
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&input, "group", RLOOKUP_F_NOFLAGS);
+  const RLookupKey *outputKey = RLookup_GetKey_Write(&output, "group", RLOOKUP_F_NOFLAGS);
+  RLookupKey *countKey = RLookup_GetKey_Write(&output, "count", RLOOKUP_F_NOFLAGS);
+  Source source(inputKey);
+  Grouper *grouper =
+      Grouper_New(&inputKey, &outputKey, 1, GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
+  ArgsCursor args = {};
+  ReducerOptions options = {};
+  options.args = &args;
+  Grouper_AddReducer(grouper, RDCRCount_New(&options), countKey);
+  ResultProcessor *rp = Grouper_GetRP(grouper);
+  QueryError error = QueryError_Default();
+  QueryProcessingCtx qctx = {};
+  qctx.err = &error;
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  qctx.resultLimit = 10;
+  rp->parent = &qctx;
+  rp->upstream = &source;
+  SearchResult next = SearchResult_New(), drained = SearchResult_New();
+  SearchResult_SetDocId(&drained, 999);
+  SearchResult_SetScore(&drained, 42);
+  auto expectDrainEof = [rp, &drained, &source] {
+    EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+    EXPECT_EQ(999, SearchResult_GetDocId(&drained));
+    EXPECT_EQ(42, SearchResult_GetScore(&drained));
+    EXPECT_EQ(0, source.drainCalls);
+  };
+  expectDrainEof();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &next));
+  EXPECT_EQ(1, source.count);
+  expectDrainEof();
+  source.resume = true;
+  std::array<bool, 2> seen{};
+  for (size_t i = 0; i < seen.size(); ++i) {
+    EXPECT_EQ(RS_RESULT_OK, rp->Next(rp, &next));
+    double group = RSValue_Number_Get(RLookupRow_Get(outputKey, SearchResult_GetRowData(&next)));
+    EXPECT_TRUE(group == 0 || group == 1);
+    if (group == 0 || group == 1) {
+      EXPECT_FALSE(seen[static_cast<size_t>(group)]);
+      seen[static_cast<size_t>(group)] = true;
+      EXPECT_DOUBLE_EQ(group == 0 ? 2 : 1, RSValue_Number_Get(RLookupRow_Get(
+                                               countKey, SearchResult_GetRowData(&next))));
+    }
+    expectDrainEof();
+    SearchResult_Clear(&next);
+  }
+  EXPECT_EQ((std::array<bool, 2>{true, true}), seen);
+  EXPECT_EQ(RS_RESULT_EOF, rp->Next(rp, &next));
+  EXPECT_EQ(2, qctx.totalResults);
+  EXPECT_EQ(3, source.count);
+  expectDrainEof();
+  SearchResult_Destroy(&next);
+  SearchResult_Destroy(&drained);
+  rp->Free(rp);
+  RLookup_Cleanup(&output);
+  RLookup_Cleanup(&input);
+  QueryError_ClearError(&error);
+}
+
 TEST_F(AggTest, testGroupBy) {
   QueryProcessingCtx qitr = {0};
   RPMock ctx;
