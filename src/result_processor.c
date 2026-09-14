@@ -1027,6 +1027,8 @@ typedef struct {
   bool draining;
 } RPPager;
 
+static int rppagerNextLimit(ResultProcessor *base, SearchResult *r);
+
 static void pagerLock(RPPager *self) {
   while (atomic_exchange_explicit(&self->progressLock, true, memory_order_acquire)) {
   }
@@ -1084,7 +1086,7 @@ static int rppagerNextStrict_Skip(ResultProcessor *base, SearchResult *r) {
     --base->parent->resultLimit;
   }
   base->parent->resultLimit = downstreamLimit;
-  base->Next = rppagerNextStrict_Limit;
+  base->Next = rppagerNextLimit;
   return base->Next(base, r);
 }
 
@@ -1125,15 +1127,20 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
 
   base->parent->resultLimit = downstreamLimit;
 
-  base->Next = rppagerNext_Limit; // switch to second phase
+  base->Next = rppagerNextLimit; // switch to second phase
   return base->Next(base, r);
 }
 
 static int rppagerNext(ResultProcessor *base, SearchResult *r) {
-  // Only Next changes its own dispatch; Drain never reads this vtable entry.
-  base->Next = base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict ? rppagerNextStrict_Skip
-                                                                         : rppagerNext_Skip;
-  return base->Next(base, r);
+  return base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict ? rppagerNextStrict_Skip(base, r)
+                                                                   : rppagerNext_Skip(base, r);
+}
+
+static int rppagerNextLimit(ResultProcessor *base, SearchResult *r) {
+  // Cursor reads can change policy between cycles; don't retain an earlier cycle's choice.
+  return base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict
+             ? rppagerNextStrict_Limit(base, r)
+             : rppagerNext_Limit(base, r);
 }
 
 static RPDrainStatus rppagerDrain(ResultProcessor *base, SearchResult *r) {

@@ -1048,6 +1048,28 @@ TEST_F(PagerDrainTest, failedReservationBeforeTakeoverIsRefunded) {
   EXPECT_EQ((std::vector<double>{1, 2}), drain());
 }
 
+TEST_F(PagerDrainTest, cursorPolicyRestoreUsesStrictReservationAfterInlineReturn) {
+  create(0, 3, TimeoutPolicy_Return);
+  ASSERT_EQ(RS_RESULT_OK, pager->Next(pager, &result));
+  EXPECT_EQ(1, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  source.entered.store(false);
+  source.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = pager->Next(pager, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<double>{2}), drain());
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(3, SearchResult_GetScore(&next));
+  EXPECT_TRUE(drain().empty());
+  SearchResult_Destroy(&next);
+}
+
 TEST_F(PagerDrainTest, drainPropagatesUpstreamErrorAndEof) {
   create(1, 2);
   source.rows = 0;
