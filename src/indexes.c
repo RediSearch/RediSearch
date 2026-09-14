@@ -598,33 +598,28 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   return res;
 }
 
-/**
- * True when `changedFields` proves this update cannot change anything `spec` holds for the
- * document, so the reindex can be skipped. False whenever that cannot be established --
- * including when there is no change set to reason from.
- *
- * "No schema field was named" is not enough on its own, in three ways:
- *
- * - A hash matching the rule's prefix is a document whether or not it carries an indexed
- *   field, so `*`, result counts and `ismissing()` all depend on it being registered. A
- *   document the index does not hold yet must be indexed whatever the change set says,
- *   which is what the doc-table lookup below establishes.
- * - A rule FILTER may test a field the schema never mentions, and its verdict flips when
- *   that field changes, so a spec carrying one can never skip.
- * - The rule's language, score and payload fields are read from the document without being
- *   part of the schema.
- *
- * Conservative for a disk-backed spec, whose document bookkeeping does not run through
- * this doc table.
- */
-static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
-                                           RedisModuleString *key,
-                                           RedisModuleString **changedFields,
-                                           size_t numChangedFields) {
-  if (!changedFields || spec->diskSpec || spec->rule->filter_exp) {
-    return false;
+typedef enum {
+  IndexUpdate_Skip,
+  IndexUpdate_Metadata,
+  IndexUpdate_Full,
+} IndexUpdateAction;
+
+static bool ruleFieldEquals(const char *ruleField, const char *field, size_t length) {
+  return ruleField && strlen(ruleField) == length && !memcmp(ruleField, field, length);
+}
+
+// FILTER expressions may depend on fields outside the schema. Unknown changes and disk
+// bookkeeping likewise cannot establish that the existing index entries can be retained.
+static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ctx,
+                                             RedisModuleString *key, DocumentType type,
+                                             RedisModuleString **changedFields,
+                                             size_t numChangedFields) {
+  if (!changedFields || !numChangedFields || type != DocumentType_Hash || !spec->rule ||
+      spec->rule->type != DocumentType_Hash || spec->diskSpec || spec->rule->filter_exp) {
+    return IndexUpdate_Full;
   }
 
+  IndexUpdateAction action = IndexUpdate_Skip;
   // TODO: improve implementation to avoid O(n^2)
   //
   // The change set is the outer loop deliberately: it holds the fields one command wrote,
@@ -635,16 +630,22 @@ static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
     const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
     for (size_t j = 0; j < spec->numFields; ++j) {
       if (FieldSpec_PathEquals(&spec->fields[j], field, length)) {
-        return false;
+        return IndexUpdate_Full;
       }
     }
-    // The rule's language, score and payload fields are read from the document without being
-    // part of the schema, so they are matched by name rather than through a FieldSpec.
-    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
-        (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
-        (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
-      return false;
+    // Schema matches take priority: a metadata field may also have indexed/sortable content.
+    if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
+      return IndexUpdate_Full;
     }
+    if (ruleFieldEquals(spec->rule->score_field, field, length) ||
+        ruleFieldEquals(spec->rule->payload_field, field, length)) {
+      action = IndexUpdate_Metadata;
+    }
+  }
+
+  if (action == IndexUpdate_Metadata) {
+    // The metadata writer checks existence under its write lock.
+    return action;
   }
 
   // Last, because it is the only check that takes a lock. Same locking rationale as
@@ -658,7 +659,68 @@ static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
     DMD_Return(dmd);
   }
   RedisSearchCtx_UnlockSpec(&sctx);
-  return alreadyIndexed;
+  // Even a hash with no schema fields must be registered for counts, * and ismissing().
+  return alreadyIndexed ? IndexUpdate_Skip : IndexUpdate_Full;
+}
+
+static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
+    return false;
+  }
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RedisModuleString *payload = NULL;
+  RSDocumentMetadata *dmd = NULL;
+  bool updated = false;
+  uint64_t docId = 0;
+
+  // Expiration can change indexed content independently of the fields named by this write.
+  if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH ||
+      RedisModule_GetAbsExpire(k) != REDISMODULE_NO_EXPIRE ||
+      RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE ||
+      DocIdMeta_GetWithOpenKey(k, spec->specId, &docId) != REDISMODULE_OK) {
+    goto cleanup;
+  }
+
+  const char *keyname = RedisModule_StringPtrLen(key, NULL);
+  double score = SchemaRule_HashScore(ctx, spec->rule, k, keyname);
+  payload = SchemaRule_HashPayload(ctx, spec->rule, k, keyname);
+  size_t payloadSize = 0;
+  const char *payloadData = payload ? RedisModule_StringPtrLen(payload, &payloadSize) : NULL;
+
+  RedisSearchCtx_LockSpecWrite(&sctx);
+  dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
+  if (!dmd || dmd->type != DocumentType_Hash || (dmd->flags & Document_FailedToOpen) ||
+      __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
+      DocTable_GetFieldExpirations(&spec->docs, docId).len ||
+      (spec->rule->payload_field && !(dmd->flags & Document_HasPayloadSlot))) {
+    goto cleanup;
+  }
+
+  IndexSpec_IncrActiveWrites(spec);
+  if (payloadSize) {
+    updated = DocTable_SetPayload(&spec->docs, dmd, payloadData, payloadSize);
+  } else {
+    // Full indexing treats an empty payload as absent too.
+    DocTable_ClearPayload(&spec->docs, dmd);
+    updated = true;
+  }
+  if (updated) {
+    dmd->score = score;
+  }
+  IndexSpec_DecrActiveWrites(spec);
+
+cleanup:
+  DMD_Return(dmd);
+  RedisSearchCtx_UnlockSpec(&sctx);
+  if (payload) {
+    RedisModule_FreeString(ctx, payload);
+  }
+  if (k) {
+    RedisModule_CloseKey(k);
+  }
+  return updated;
 }
 
 void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
@@ -682,8 +744,10 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     SpecOpCtx *specOp = specs->specsOps + i;
 
     if (specOp->op == SpecOp_Add) {
-      if (changeSetAllowsSkippingReindex(specOp->spec, ctx, key, changedFields,
-                                         numChangedFields)) {
+      IndexUpdateAction action =
+          getHashUpdateAction(specOp->spec, ctx, key, type, changedFields, numChangedFields);
+      if (action == IndexUpdate_Skip ||
+          (action == IndexUpdate_Metadata && updateHashMetadata(specOp->spec, ctx, key))) {
         continue;
       }
       IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);

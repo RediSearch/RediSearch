@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 // Tests for the reindex skip in `Indexes_UpdateMatchingWithSchemaRules`.
 //
@@ -20,7 +20,7 @@
 // arguments, fails here too.
 //
 // The observable throughout is the doc-id. Indexing a document again gives it a new one, so
-// an unchanged doc-id means the update was skipped and a higher one means it was not.
+// an unchanged doc-id means the index entries were retained, including metadata-only updates.
 
 #include "gtest/gtest.h"
 #include "redismock/redismock.h"
@@ -29,12 +29,13 @@
 #include "spec.h"
 #include "indexes.h"
 #include "doc_id_meta.h"
+#include "rmutil/alloc.h"
 
 #include <string>
 #include <vector>
 
 class ReindexSkipTest : public ::testing::Test {
-protected:
+ protected:
   RedisModuleCtx *ctx = nullptr;
   IndexSpec *spec = nullptr;
   std::string indexName;
@@ -90,7 +91,7 @@ protected:
       fields.push_back(RedisModule_CreateString(nullptr, f.c_str(), f.size()));
     }
     Indexes_UpdateMatchingWithSchemaRules(ctx, RMCK::RString(key), DocumentType_Hash,
-                                         fields.empty() ? nullptr : fields.data(), fields.size());
+                                          fields.empty() ? nullptr : fields.data(), fields.size());
     for (RedisModuleString *f : fields) {
       RedisModule_FreeString(nullptr, f);
     }
@@ -204,44 +205,160 @@ TEST_F(ReindexSkipTest, filterTurningFalseRemovesTheDocument) {
   EXPECT_EQ(docIdOf("doc:1"), 0u) << "the rule no longer matches, so the document must be gone";
 }
 
-// SCORE_FIELD, LANGUAGE_FIELD and PAYLOAD_FIELD are read off the document without appearing
-// in the schema. Three independent comparisons in the gate, so three cases: dropping any one
-// of them leaves the doc-table entry holding a stale score, language or payload.
-TEST_F(ReindexSkipTest, ruleFieldChangeReindexes) {
-  createIndex({"SCORE_FIELD", "__score", "LANGUAGE_FIELD", "__language", "PAYLOAD_FIELD",
-               "__payload"});
+TEST_F(ReindexSkipTest, languageFieldChangeReindexes) {
+  createIndex({"SCORE_FIELD", "__score", "LANGUAGE_FIELD", "__language"});
   RMCK::hset(ctx, "doc:1", "title", "hello");
-  RMCK::hset(ctx, "doc:1", "__score", "1");
   RMCK::hset(ctx, "doc:1", "__language", "english");
-  RMCK::hset(ctx, "doc:1", "__payload", "p0");
-  notifyUpdate("doc:1", {"title"});
-  t_docId previous = docIdOf("doc:1");
-  ASSERT_NE(previous, 0u);
+  notifyUpdate("doc:1", {"title", "__language"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
 
-  // Values a document would plausibly carry: a bad language logs a warning and tells us
-  // nothing about the skip.
-  const std::vector<std::pair<const char *, const char *>> writes = {
-      {"__score", "0.5"}, {"__language", "french"}, {"__payload", "p1"}};
-  for (const auto &[field, value] : writes) {
-    RMCK::hset(ctx, "doc:1", field, value);
-    notifyUpdate("doc:1", {field});
-    const t_docId now = docIdOf("doc:1");
-    EXPECT_GT(now, previous) << "writing " << field << " must reindex the document";
-    previous = now;
-  }
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  RMCK::hset(ctx, "doc:1", "__language", "french");
+  notifyUpdate("doc:1", {"__score", "__language"});
+  EXPECT_GT(docIdOf("doc:1"), first);
+}
+
+TEST_F(ReindexSkipTest, scoreAndPayloadChangesPreserveMetadataIdentity) {
+  createIndex({"SCORE", "0.25", "SCORE_FIELD", "__score", "PAYLOAD_FIELD", "__payload"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  const RSDocumentMetadata *borrowed = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(borrowed, nullptr);
+  const auto docLen = borrowed->docLen;
+  const auto maxTermFreq = borrowed->maxTermFreq;
+  const auto tableSize = spec->docs.size;
+  const auto maxDocId = spec->docs.maxDocId;
+
+  auto expectMetadata = [&](double score, const char *payload) {
+    EXPECT_EQ(docIdOf("doc:1"), first);
+    const RSDocumentMetadata *current = DocTable_Borrow(&spec->docs, first);
+    ASSERT_EQ(current, borrowed);
+    EXPECT_FLOAT_EQ(current->score, score);
+    EXPECT_EQ(current->docLen, docLen);
+    EXPECT_EQ(current->maxTermFreq, maxTermFreq);
+    EXPECT_EQ(spec->docs.size, tableSize);
+    EXPECT_EQ(spec->docs.maxDocId, maxDocId);
+    if (payload) {
+      ASSERT_TRUE(hasPayload(current->flags));
+      EXPECT_EQ(std::string(current->payload->data, current->payload->len), payload);
+    } else {
+      EXPECT_FALSE(hasPayload(current->flags));
+    }
+    DMD_Return(current);
+  };
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  notifyUpdate("doc:1", {"__score"});
+  expectMetadata(0.5, nullptr);
+
+  RMCK::hset(ctx, "doc:1", "__payload", "first");
+  notifyUpdate("doc:1", {"__payload"});
+  expectMetadata(0.5, "first");
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.75");
+  RMCK::hset(ctx, "doc:1", "__payload", "second");
+  RMCK::hset(ctx, "doc:1", "unread", "x");
+  notifyUpdate("doc:1", {"__payload", "unread", "__score", "__payload"});
+  expectMetadata(0.75, "second");
+  DMD_Return(borrowed);
+}
+
+TEST_F(ReindexSkipTest, metadataAndIndexedFieldChangeReindexes) {
+  createIndex({"SCORE_FIELD", "__score"}, "renamed");
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  RMCK::hset(ctx, "doc:1", "title", "goodbye");
+  notifyUpdate("doc:1", {"__score", "title"});
+  EXPECT_GT(docIdOf("doc:1"), first);
+}
+
+TEST_F(ReindexSkipTest, metadataFieldThatIsAlsoAnAliasedSchemaPathReindexes) {
+  createIndex({"PAYLOAD_FIELD", "title"}, "renamed");
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+
+  RMCK::hset(ctx, "doc:1", "title", "goodbye");
+  notifyUpdate("doc:1", {"title"});
+  EXPECT_GT(docIdOf("doc:1"), first);
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, docIdOf("doc:1"));
+  ASSERT_NE(dmd, nullptr);
+  ASSERT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), "goodbye");
+  DMD_Return(dmd);
+}
+
+TEST_F(ReindexSkipTest, unseenDocumentIsIndexedOnMetadataOnlyWrite) {
+  createIndex({"SCORE_FIELD", "__score", "PAYLOAD_FIELD", "__payload"});
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  RMCK::hset(ctx, "doc:1", "__payload", "first");
+  notifyUpdate("doc:1", {"__score", "__payload"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  ASSERT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), "first");
+  DMD_Return(dmd);
 }
 
 // No change set is not a statement that nothing changed -- it is the absence of one, and the
 // document has to be reindexed. This is the path JSON, background scans and servers without
 // subkey notifications take.
 TEST_F(ReindexSkipTest, absentChangeSetNeverSkips) {
-  createIndex();
+  createIndex({"SCORE_FIELD", "__score"});
   RMCK::hset(ctx, "doc:1", "title", "hello");
   notifyUpdate("doc:1", {});
   const t_docId first = docIdOf("doc:1");
   ASSERT_NE(first, 0u);
 
-  RMCK::hset(ctx, "doc:1", "unread", "x");
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
   notifyUpdate("doc:1", {});
   EXPECT_GT(docIdOf("doc:1"), first) << "without a change set there is nothing to skip on";
+}
+
+TEST_F(ReindexSkipTest, metadataUpdateWithoutReservedPayloadSlotReindexes) {
+  createIndex();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  EXPECT_FALSE(DocTable_GetOwn(&spec->docs, first)->flags & Document_HasPayloadSlot);
+
+  // Legacy command paths can configure PAYLOAD_FIELD after documents have been indexed.
+  spec->rule->payload_field = rm_strdup("__payload");
+  RMCK::hset(ctx, "doc:1", "__payload", "first");
+  notifyUpdate("doc:1", {"__payload"});
+  const t_docId current = docIdOf("doc:1");
+  EXPECT_GT(current, first);
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, current);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  ASSERT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), "first");
+  DMD_Return(dmd);
+}
+
+TEST_F(ReindexSkipTest, metadataUpdateWithRetainedExpirationReindexes) {
+  createIndex({"SCORE_FIELD", "__score"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  // Stale DMD state alone must force a reload even when Redis no longer reports a TTL.
+  DocTable_GetOwn(&spec->docs, first)->expirationTimeNs = 123456789;
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  notifyUpdate("doc:1", {"__score"});
+  const t_docId current = docIdOf("doc:1");
+  EXPECT_GT(current, first);
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, current);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  EXPECT_EQ(dmd->expirationTimeNs, 0);
+  DMD_Return(dmd);
 }

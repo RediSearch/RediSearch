@@ -82,7 +82,8 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
  * Re-index `key` on every spec whose schema rules match it.
  *
  * `changedFields` / `numChangedFields` name the fields the originating command
- * modified, letting a spec that indexes none of them skip the reindex. They come
+ * modified, letting an existing RAM Hash document skip reindexing or update only
+ * its score/payload when those are the only relevant fields changed. They come
  * from a hash subkey notification; pass `NULL` / `0` when the change set is
  * unknown — for JSON writes, the background scan, and any event that carries no
  * subkeys — which reindexes unconditionally.
