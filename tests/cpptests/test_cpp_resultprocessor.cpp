@@ -27,7 +27,10 @@ extern "C" {
 #include "search_options.h"
 #include "query_term_ffi.h"
 
+#include <array>
 #include <atomic>
+#include <optional>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -1700,30 +1703,33 @@ TEST_F(MetricsDrainTest, drainsWhileNextIsParkedWithoutSharingOutput) {
 // Each path creates its own values from immutable configuration.
 struct VectorDrainSource : ResultProcessor {
   const RLookupKey *key = nullptr;
-  double nextDistance = 0.5, drainDistance = 0.5;
-  const char *text = nullptr;
+  double nextDistance = 0.5;
+  double drainDistance = 0.5;
+  std::optional<std::string_view> text;
   bool missing = false;
   int nextStatus = RS_RESULT_OK;
   RPDrainStatus drainStatus = RP_DRAIN_OK;
-  size_t nextCalls = 0, drainCalls = 0;
-  std::atomic<bool> entered{false}, release{true};
+  size_t nextCalls = 0;
+  size_t drainCalls = 0;
+  std::atomic<bool> entered{false};
+  std::atomic<bool> release{true};
 
   void fill(SearchResult *res, double distance) const {
     SearchResult_SetDocId(res, 42);
     SearchResult_SetScore(res, -1);
     if (!missing) {
       RSValue *value =
-          text ? RSValue_NewCopiedString(text, strlen(text)) : RSValue_NewNumber(distance);
+          text ? RSValue_NewCopiedString(text->data(), text->size()) : RSValue_NewNumber(distance);
       RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(res), value);
     }
   }
   VectorDrainSource() {
     *static_cast<ResultProcessor *>(this) = {};
-    Next = [](ResultProcessor *base, SearchResult *res) -> int {
+    Next = [](ResultProcessor *base, SearchResult *res) {
       auto *self = static_cast<VectorDrainSource *>(base);
       ++self->nextCalls;
-      self->entered.store(true, std::memory_order_release);
-      while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      self->entered.store(true);
+      while (!self->release.load()) std::this_thread::yield();
       if (self->nextStatus == RS_RESULT_OK) self->fill(res, self->nextDistance);
       return self->nextStatus;
     };
@@ -1737,7 +1743,7 @@ struct VectorDrainSource : ResultProcessor {
 };
 
 class VectorNormalizerDrainTest : public ::testing::Test {
- protected:
+ public:
   RLookup lookup = RLookup_New();
   const RLookupKey *key = RLookup_GetKey_Write(&lookup, "distance", 0);
   VectorDrainSource source;
@@ -1759,7 +1765,7 @@ class VectorNormalizerDrainTest : public ::testing::Test {
     normalizer->Free(normalizer);
     RLookup_Cleanup(&lookup);
   }
-  void expectScore(const SearchResult *res, double expected) {
+  void expectScore(const SearchResult *res, double expected) const {
     EXPECT_DOUBLE_EQ(expected, SearchResult_GetScore(res));
     const RSValue *value = RLookupRow_Get(key, SearchResult_GetRowData(res));
     ASSERT_NE(nullptr, value);
@@ -1769,9 +1775,10 @@ class VectorNormalizerDrainTest : public ::testing::Test {
 };
 
 TEST_F(VectorNormalizerDrainTest, nextAndDrainUseTheSameFormulas) {
-  const VectorNormFunction functions[] = {VectorNorm_L2, VectorNorm_IP, VectorNorm_Cosine};
-  const double expected[] = {2.0 / 3.0, 0.75, 0.75};
-  for (size_t i = 0; i < 3; ++i) {
+  const std::array<VectorNormFunction, 3> functions = {VectorNorm_L2, VectorNorm_IP,
+                                                       VectorNorm_Cosine};
+  const std::array expected = {2.0 / 3.0, 0.75, 0.75};
+  for (size_t i = 0; i < functions.size(); ++i) {
     create(functions[i]);
     SearchResult next = SearchResult_New();
     ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &next));
@@ -1815,13 +1822,13 @@ TEST_F(VectorNormalizerDrainTest, parkedNextDoesNotBlockOrChangeDrainedScore) {
   source.release.store(false);
   SearchResult next = SearchResult_New();
   int status = RS_RESULT_MAX;
-  std::thread worker([&] { status = normalizer->Next(normalizer, &next); });
-  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  std::jthread worker([this, &status, &next] { status = normalizer->Next(normalizer, &next); });
+  bool entered = RS::WaitForCondition([this] { return source.entered.load(); }, 5);
   if (entered) {
     EXPECT_EQ(RP_DRAIN_OK, normalizer->Drain(normalizer, &result));
     expectScore(&result, 0.125);
   }
-  source.release.store(true, std::memory_order_release);
+  source.release.store(true);
   worker.join();
   EXPECT_TRUE(entered);
   EXPECT_EQ(RS_RESULT_OK, status);
