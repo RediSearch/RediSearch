@@ -31,6 +31,22 @@ TIMEOUT_WARNING = TIMEOUT_ERROR
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
+
+def run_cmd_expect_disconnect(env, query_args, unexpected):
+    client = env.getConnection()
+    connection = client.connection_pool.get_connection()
+    try:
+        connection.send_command(*query_args)
+        connection.read_response()
+        unexpected.append(AssertionError('query returned after its client was killed'))
+    except redis_exceptions.ConnectionError:
+        pass
+    except Exception as exc:
+        unexpected.append(exc)
+    finally:
+        client.connection_pool.release(connection)
+
+
 def _coord_cursor_total(env, idx='idx'):
     """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
     info = env.cmd('FT.INFO', idx)
@@ -463,6 +479,88 @@ class TestCoordinatorTimeout:
     def tearDown(self):
         """Teardown: Print debug info about any remaining HYBRID clients."""
         debug_print_hybrid_clients(self.env, "TestCoordinatorTimeout teardown")
+
+    def _assert_disconnect_wakes_abort_channels(self, query_args, command_name):
+        """Disconnect while every shard cursor read is parked and require cycle teardown."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        sync_point = 'BeforeCursorReadSendChunk'
+        shard_connections = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        for connection in shard_connections:
+            connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            connection.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        free_count_before = _get_blocked_request_onfree_count(env)
+        unexpected = []
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, query_args, unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            for connection in shard_connections:
+                wait_for_condition(
+                    lambda connection=connection: (
+                        connection.execute_command(
+                            debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1,
+                        {},
+                    ),
+                    f'Timeout waiting for shard to park at {sync_point}',
+                )
+
+            blocked_client_id = wait_for_blocked_query_client(env, command_name)
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message=f'Disconnected {command_name} client should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+
+            # The shard workers remain parked, so only the disconnect wakeup can
+            # let the coordinator readers finish and release the request cycle.
+            wait_for_condition(
+                lambda: (
+                    _get_blocked_request_onfree_count(env) > free_count_before,
+                    {
+                        'before': free_count_before,
+                        'now': _get_blocked_request_onfree_count(env),
+                    },
+                ),
+                f'Disconnect did not release the blocked {command_name} request',
+                timeout=10,
+            )
+            env.assertTrue(env.isUp())
+        finally:
+            for connection in shard_connections:
+                try:
+                    connection.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                    connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                except Exception:
+                    pass
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_disconnect_wakes_aggregate_abort_channel(self):
+        """A disconnected coordinator aggregate wakes its parked MR reader."""
+        self._assert_disconnect_wakes_abort_channels(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(self.n_docs)],
+            'FT.AGGREGATE',
+        )
+
+    def test_disconnect_wakes_hybrid_abort_channels(self):
+        """A disconnected coordinator hybrid wakes both subqueries and its tail."""
+        self._assert_disconnect_wakes_abort_channels(
+            [
+                'FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            ],
+            'FT.HYBRID',
+        )
 
     def _test_fail_timeout_impl(self, query_args):
         env = self.env
@@ -5767,6 +5865,33 @@ class TestCoordinatorReducePause:
         """Clean up the pause state after each test."""
         resetCoordReduceDebug(self.env)
 
+    def test_disconnect_during_reduce(self):
+        """A coordinator FT.SEARCH treats disconnect as cancellation."""
+        env = self.env
+        unexpected = []
+        setPauseBeforeReduce(env, 1)
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, ['FT.SEARCH', 'idx', '*'], unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
+            wait_for_condition(
+                lambda: (getIsCoordReducePaused(env) == 1,
+                         {'paused': getIsCoordReducePaused(env)}),
+                'Timeout waiting for coordinator reducer to pause',
+            )
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message='Disconnected coordinator query should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+            env.assertTrue(env.isUp())
+        finally:
+            self._cleanup_pause_state()
+
     def test_timeout_fail_during_reduce_before_first(self):
         """Test timeout occurring during reduction before the first result is reduced."""
         env = self.env
@@ -6447,6 +6572,42 @@ class TestShardTimeout:
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ).noError()
+
+    def test_disconnect_marks_blocked_client_timeout(self):
+        """A disconnect releases workers waiting on the blocked-client atomic."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        unexpected = []
+        query = ['FT.AGGREGATE', 'idx', '*']
+        setPauseBeforeStoreResults(env, True, internal=False)
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, query, unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, query[0])
+            wait_for_condition(
+                lambda: (getIsStoreResultsPaused(env) == 1,
+                         {'paused': getIsStoreResultsPaused(env)}),
+                'Timeout waiting for query to pause before storing results',
+            )
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            wait_for_condition(
+                lambda: (getIsStoreResultsPaused(env) == 0,
+                         {'paused': getIsStoreResultsPaused(env)}),
+                'Disconnect did not trigger the blocked-client timeout atomic',
+            )
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message='Disconnected FT.AGGREGATE should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+        finally:
+            resetStoreResultsDebug(env)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""

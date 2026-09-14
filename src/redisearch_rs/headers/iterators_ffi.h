@@ -313,12 +313,12 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *
  * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
  * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
+ *    mechanism detects when the index has been replaced via `spec.missing.indexes`
  *    lookup.
  * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  * 5. `field_index` must be a valid index into `sctx.spec.fields`.
- * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+ * 6. `sctx.spec.missing.indexes` must be a non-null, valid dict pointer.
  */
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
 
