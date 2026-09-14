@@ -38,8 +38,7 @@ pub(crate) fn new_term_iterator<'index>(
     weight: f64,
     needs_offsets: bool,
 ) -> Option<Box<dyn RQEIteratorPrintable<'index> + 'index>> {
-    // SAFETY: the context's disk spec is valid for the query. Resolve it here
-    // so the handle and snapshot always come from the same search context.
+    // SAFETY: the context's disk spec is valid for the query.
     let disk = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) }
         .expect("disk term reader requires a disk index");
     let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
