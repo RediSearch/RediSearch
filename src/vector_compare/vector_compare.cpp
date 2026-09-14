@@ -19,6 +19,13 @@
 namespace {
 
 /**
+ * Vectors under one label above which an out-of-order comparison is abandoned rather than
+ * paid for. Only reached when positional matching already failed, i.e. a tiered multi-value
+ * label mid-migration.
+ */
+constexpr size_t kMaxUnorderedMatch = 256;
+
+/**
  * Compare the vector(s) stored under `label` against `blobs`, order-insensitively.
  *
  * `getDataByLabel` is typed while the index handle is not, so the caller below dispatches on
@@ -30,13 +37,19 @@ namespace {
  * part: `getDataByLabel` omits any trailing norm, and the norm is a function of the elements
  * anyway.
  *
- * Order-insensitive because a tiered index's `getDataByLabel` returns frontend vectors
- * before backend ones, not insertion order, so a multi-value label split across tiers can
- * list the same vectors in a different order than `blobs`. Each caller blob consumes one
- * matching stored entry (`matched`) rather than testing membership in a deduplicated set, so
- * a real change to how many times a value repeats is still caught: with the size check above
- * already requiring equal counts, consuming one match per blob is what tells `[A, A]` apart
- * from `[A, B]`, where a byte-deduplicated comparison would see `{A}` either way.
+ * Matching is positional first, which is the order a single tier reports and therefore the
+ * common case. Only when that fails does it fall back to treating the two sides as multisets,
+ * because a tiered index's `getDataByLabel` returns frontend vectors before backend ones, not
+ * insertion order, so a multi-value label split across tiers can list the same vectors in a
+ * different order than `blobs`. That fallback is quadratic, so it is capped at
+ * `kMaxUnorderedMatch` vectors -- past that, reporting 'changed' costs a reindex the caller
+ * was going to pay anyway, while scanning would block the indexing path that called in.
+ *
+ * The fallback consumes one matching stored entry per caller blob (`matched`) rather than
+ * testing membership in a deduplicated set, so a real change to how many times a value
+ * repeats is still caught: with the size check already requiring equal counts, consuming one
+ * match per blob is what tells `[A, A]` apart from `[A, B]`, where a byte-deduplicated
+ * comparison would see `{A}` either way.
  *
  * A vector that has been written to the backend but not yet removed from the frontend during
  * an in-flight ingest is a false negative -- it is counted twice in `stored`, against `blobs`'
@@ -61,17 +74,36 @@ bool holdsVectors(VecSimIndex *index, const VecSimIndexBasicInfo &info, size_t l
   std::vector<char> scratch(
       normalize ? VecSimParams_GetQueryBlobSize(info.type, info.dim, info.metric) : 0);
 
-  std::vector<bool> matched(stored.size(), false);
-  const char *blob = static_cast<const char *>(blobs);
-  for (size_t i = 0; i < numBlobs; ++i, blob += elementsSize) {
-    const void *comparand = blob;
-    if (normalize) {
-      memcpy(scratch.data(), blob, elementsSize);
-      VecSim_Normalize(scratch.data(), info.dim, info.type);
-      comparand = scratch.data();
+  const char *const firstBlob = static_cast<const char *>(blobs);
+  // The bytes an insert would store for `blobs[i]`, valid until the next call.
+  auto comparandAt = [&](size_t i) -> const void * {
+    const char *blob = firstBlob + i * elementsSize;
+    if (!normalize) {
+      return blob;
     }
+    memcpy(scratch.data(), blob, elementsSize);
+    VecSim_Normalize(scratch.data(), info.dim, info.type);
+    return scratch.data();
+  };
+
+  size_t firstMismatch = 0;
+  while (firstMismatch < numBlobs &&
+         memcmp(stored[firstMismatch].data(), comparandAt(firstMismatch), elementsSize) == 0) {
+    ++firstMismatch;
+  }
+  if (firstMismatch == numBlobs) {
+    return true;
+  }
+  if (numBlobs > kMaxUnorderedMatch) {
+    return false;
+  }
+
+  // Everything before `firstMismatch` paired up positionally, so only the rest can still move.
+  std::vector<bool> matched(stored.size(), false);
+  for (size_t i = firstMismatch; i < numBlobs; ++i) {
+    const void *comparand = comparandAt(i);
     bool found = false;
-    for (size_t j = 0; j < stored.size(); ++j) {
+    for (size_t j = firstMismatch; j < stored.size(); ++j) {
       if (!matched[j] && memcmp(stored[j].data(), comparand, elementsSize) == 0) {
         matched[j] = true;
         found = true;

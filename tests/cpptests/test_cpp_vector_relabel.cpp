@@ -32,9 +32,11 @@ extern "C" {
 #include "vector_compare/vector_compare.h"
 }
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <string>
+#include <vector>
 
 extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                    DocumentType type, RedisModuleKey *openKey,
@@ -456,6 +458,49 @@ TEST_F(VectorRelabelTest, holdsVectorsIsOrderInsensitiveButPreservesMultiplicity
   memcpy(aThenAThenB.data() + 16, kVecA, 16);
   memcpy(aThenAThenB.data() + 32, kVecB, 16);
   EXPECT_TRUE(VectorIndex_HoldsVectors(idx, reorderedWithDuplicate, aThenAThenB.data(), 3));
+
+  VecSimIndex_Free(idx);
+}
+
+// A label holding many vectors must not pay the quadratic out-of-order match. Matching is
+// positional first, so an unchanged multi-value field of any size stays linear; only a
+// reorder reaches the fallback, and above `kMaxUnorderedMatch` in vector_compare.cpp (256)
+// that fallback is abandoned in favour of the reindex the caller would otherwise pay for.
+TEST_F(VectorRelabelTest, holdsVectorsGivesUpOnLargeReorderedLabels) {
+  VecSimLogCtx logCtx = {.index_field_name = "vec"};
+  VecSimParams params{.algo = VecSimAlgo_BF,
+                      .algoParams = {.bfParams = BFParams{.type = VecSimType_FLOAT32,
+                                                          .dim = 4,
+                                                          .metric = VecSimMetric_L2,
+                                                          .multi = true}},
+                      .logCtx = &logCtx};
+  VecSimIndex *idx = VecSimIndex_New(&params);
+  ASSERT_TRUE(idx != nullptr);
+
+  constexpr size_t kAboveCap = 300;
+  constexpr size_t kDim = 4;
+  // Distinct vectors, so a reorder cannot accidentally match positionally.
+  std::vector<float> blobs(kAboveCap * kDim);
+  for (size_t i = 0; i < kAboveCap; ++i) {
+    for (size_t d = 0; d < kDim; ++d) {
+      blobs[i * kDim + d] = static_cast<float>(i * kDim + d);
+    }
+  }
+
+  const t_docId label = 1;
+  for (size_t i = 0; i < kAboveCap; ++i) {
+    ASSERT_EQ(VecSimIndex_AddVector(idx, &blobs[i * kDim], label), 1);
+  }
+
+  EXPECT_TRUE(VectorIndex_HoldsVectors(idx, label, blobs.data(), kAboveCap))
+      << "an unchanged label of any size must still read as unchanged";
+
+  // The same multiset, first two swapped: correct answer is true, but establishing that costs
+  // the capped scan, so this reports 'changed' instead.
+  std::vector<float> swapped = blobs;
+  std::swap_ranges(swapped.begin(), swapped.begin() + kDim, swapped.begin() + kDim);
+  EXPECT_FALSE(VectorIndex_HoldsVectors(idx, label, swapped.data(), kAboveCap))
+      << "past the cap a reorder is reported as a change rather than scanned for";
 
   VecSimIndex_Free(idx);
 }
