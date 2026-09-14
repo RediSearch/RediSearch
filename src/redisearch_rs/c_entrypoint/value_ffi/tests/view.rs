@@ -55,9 +55,10 @@ fn string_view_preserves_embedded_nul() {
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
     let view = unsafe { RSValue_GetReplyView(as_rs_value(&value)) };
     assert_eq!(view.view_type, RSValueViewType::String);
-    // SAFETY: the view borrows `value`, which outlives the slice; `str_ptr`/`str_len`
+    // SAFETY: the view borrows `value`, which outlives the slice; `string.bytes`/`str_len`
     // describe that value's string payload per `RSValue_GetReplyView`'s contract.
-    let bytes = unsafe { std::slice::from_raw_parts(view.str_ptr.cast::<u8>(), view.str_len) };
+    // The asserted String tag selects the bytes member of the union.
+    let bytes = unsafe { std::slice::from_raw_parts(view.string.bytes.cast::<u8>(), view.str_len) };
     assert_eq!(bytes, b"a\0b");
 }
 
@@ -126,7 +127,7 @@ fn map_view_reports_len_and_container() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn redis_string_view_exposes_ptr_len() {
+fn redis_string_view_preserves_original_object() {
     redis_mock::init_redis_module_mock();
     let raw = redis_mock::string::create_string("hello");
     // SAFETY: `raw` is a fresh string from the mock allocator; ownership moves into
@@ -134,9 +135,8 @@ fn redis_string_view_exposes_ptr_len() {
     let value = Value::RedisString(unsafe { RedisString::from_raw(raw) });
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
     let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value)) };
-    assert_eq!(view.view_type, RSValueViewType::String);
-    // SAFETY: the view borrows `value`, which outlives the slice; `str_ptr`/`str_len`
-    // describe that value's string payload per `RSValue_GetReplyView`'s contract.
-    let bytes = unsafe { std::slice::from_raw_parts(view.str_ptr.cast::<u8>(), view.str_len) };
-    assert_eq!(bytes, b"hello");
+    assert_eq!(view.view_type, RSValueViewType::RedisString);
+    // SAFETY: the asserted RedisString tag selects this union member.
+    assert_eq!(unsafe { view.string.redis_string }, raw.cast_const());
+    assert_eq!(view.resolved, as_value_ptr(&value));
 }

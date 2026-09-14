@@ -40,8 +40,8 @@ typedef enum RSValueViewType {
    */
   RSValueViewType_Number = 1,
   /**
-   * [`RSValueView::str_ptr`] / [`RSValueView::str_len`] hold the payload.
-   * Covers both owned and Redis-backed strings.
+   * [`RSValueView::string`] holds [`RSValueStringPointer::bytes`], with
+   * [`RSValueView::str_len`] bytes.
    */
   RSValueViewType_String = 2,
   /**
@@ -54,6 +54,10 @@ typedef enum RSValueViewType {
    * addressable with [`RSValue_Map_GetEntry`](crate::map::RSValue_Map_GetEntry).
    */
   RSValueViewType_Map = 4,
+  /**
+   * [`RSValueView::string`] holds [`RSValueStringPointer::redis_string`].
+   */
+  RSValueViewType_RedisString = 5,
 } RSValueViewType;
 
 typedef struct QueryError QueryError;
@@ -73,6 +77,22 @@ typedef struct RSValueMapBuilder RSValueMapBuilder;
 typedef struct RedisModuleString RedisModuleString;
 
 /**
+ * Borrowed string payload selected by [`RSValueView::view_type`].
+ * Sharing pointer storage keeps Redis-backed replies from enlarging the view.
+ */
+typedef union RSValueStringPointer {
+  /**
+   * Bytes for [`RSValueViewType::String`]; not NUL-terminated.
+   */
+  const char *bytes;
+  /**
+   * Original object for [`RSValueViewType::RedisString`], allowing C to reply
+   * without calling `RedisModule_StringPtrLen`.
+   */
+  const struct RedisModuleString *redis_string;
+} RSValueStringPointer;
+
+/**
  * The reply-side view of an [`RSValue`], returned by value from
  * [`RSValue_GetReplyView`].
  */
@@ -83,18 +103,16 @@ typedef struct RSValueView {
    */
   const struct RSValue *resolved;
   /**
-   * String payload. Not NUL-terminated; may contain embedded NUL bytes.
-   * Borrows from the input value.
+   * Borrows from the input value; the active member is selected by
+   * [`RSValueView::view_type`].
    */
-  const char *str_ptr;
+  union RSValueStringPointer string;
   /**
    * Number payload.
    */
   double num;
   /**
-   * Length of [`RSValueView::str_ptr`] in bytes. `usize` because
-   * Redis-backed strings carry `size_t` lengths; capping at `u32` would
-   * turn an oversized value into a reply-time abort.
+   * Byte length of [`RSValueStringPointer::bytes`] for [`RSValueViewType::String`].
    */
   size_t str_len;
   /**

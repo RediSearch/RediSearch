@@ -17,6 +17,7 @@
 
 use crate::RSValue;
 use crate::util::expect_value;
+use redis_module::RedisModuleString;
 use std::ffi::c_char;
 use std::ptr;
 use value::Value;
@@ -31,8 +32,8 @@ pub enum RSValueViewType {
     Null = 0,
     /// [`RSValueView::num`] holds the payload.
     Number = 1,
-    /// [`RSValueView::str_ptr`] / [`RSValueView::str_len`] hold the payload.
-    /// Covers both owned and Redis-backed strings.
+    /// [`RSValueView::string`] holds [`RSValueStringPointer::bytes`], with
+    /// [`RSValueView::str_len`] bytes.
     String = 2,
     /// [`RSValueView::resolved`] is a container of [`RSValueView::len`]
     /// elements, addressable with [`RSValue_ArrayItem`](crate::array::RSValue_ArrayItem).
@@ -40,6 +41,19 @@ pub enum RSValueViewType {
     /// [`RSValueView::resolved`] is a map of [`RSValueView::len`] entries,
     /// addressable with [`RSValue_Map_GetEntry`](crate::map::RSValue_Map_GetEntry).
     Map = 4,
+    /// [`RSValueView::string`] holds [`RSValueStringPointer::redis_string`].
+    RedisString = 5,
+}
+
+/// Borrowed string payload selected by [`RSValueView::view_type`].
+/// Sharing pointer storage keeps Redis-backed replies from enlarging the view.
+#[repr(C)]
+pub union RSValueStringPointer {
+    /// Bytes for [`RSValueViewType::String`]; not NUL-terminated.
+    pub bytes: *const c_char,
+    /// Original object for [`RSValueViewType::RedisString`], allowing C to reply
+    /// without calling `RedisModule_StringPtrLen`.
+    pub redis_string: *const RedisModuleString,
 }
 
 /// The reply-side view of an [`RSValue`], returned by value from
@@ -53,14 +67,12 @@ pub struct RSValueView {
     /// The fully resolved value this view describes: references followed,
     /// trios collapsed to their middle element. Borrows from the input value.
     pub resolved: *const RSValue,
-    /// String payload. Not NUL-terminated; may contain embedded NUL bytes.
-    /// Borrows from the input value.
-    pub str_ptr: *const c_char,
+    /// Borrows from the input value; the active member is selected by
+    /// [`RSValueView::view_type`].
+    pub string: RSValueStringPointer,
     /// Number payload.
     pub num: f64,
-    /// Length of [`RSValueView::str_ptr`] in bytes. `usize` because
-    /// Redis-backed strings carry `size_t` lengths; capping at `u32` would
-    /// turn an oversized value into a reply-time abort.
+    /// Byte length of [`RSValueStringPointer::bytes`] for [`RSValueViewType::String`].
     pub str_len: usize,
     /// Which payload fields are meaningful.
     pub view_type: RSValueViewType,
@@ -73,7 +85,7 @@ impl RSValueView {
         Self {
             view_type,
             resolved: ptr::from_ref(resolved).cast(),
-            str_ptr: ptr::null(),
+            string: RSValueStringPointer { bytes: ptr::null() },
             str_len: 0,
             num: 0.0,
             len: 0,
@@ -119,15 +131,15 @@ pub unsafe extern "C" fn RSValue_GetReplyView(value: *const RSValue) -> RSValueV
         Value::String(str) => {
             let (ptr, len) = str.as_ptr_len();
             let mut view = RSValueView::new(V::String, value);
-            view.str_ptr = ptr;
+            view.string = RSValueStringPointer { bytes: ptr };
             view.str_len = len as usize;
             view
         }
         Value::RedisString(str) => {
-            let (ptr, len) = str.as_ptr_len();
-            let mut view = RSValueView::new(V::String, value);
-            view.str_ptr = ptr;
-            view.str_len = len;
+            let mut view = RSValueView::new(V::RedisString, value);
+            view.string = RSValueStringPointer {
+                redis_string: str.as_ptr(),
+            };
             view
         }
         Value::Array(array) => {

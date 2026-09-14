@@ -555,7 +555,10 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
 
   switch (view.view_type) {
     case RSValueViewType_String:
-      return RedisModule_Reply_StringBuffer(reply, view.str_ptr, view.str_len);
+      return RedisModule_Reply_StringBuffer(reply, view.string.bytes, view.str_len);
+
+    case RSValueViewType_RedisString:
+      return RedisModule_Reply_String(reply, view.string.redis_string);
 
     case RSValueViewType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
