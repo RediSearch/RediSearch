@@ -99,7 +99,7 @@ fn open_term_reader<'index>(
 /// Looks up the term's document count in the terms trie to compute the IDF
 /// then builds a disk term iterator.
 ///
-/// `disk` must wrap the spec's own disk index.
+/// The context must be disk-backed.
 ///
 /// Returns `None` — after setting the query status —
 /// when the disk iterator cannot be built.
