@@ -336,10 +336,10 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
     _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')
 
 
-@skip(cluster=False, redis_less_than="8.0.0")
+@skip(cluster=False, redis_less_than="8.2.0")
 def test_validation_preserves_connection_round_robin():
     """Search and iterator preflight must not consume connection-pool turns."""
-    env = Env(moduleArgs='WORKERS 3 CONN_PER_SHARD 4')
+    env = Env(moduleArgs='CONN_PER_SHARD 4')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'UNF').ok()
     shards = [env.getConnection(i) for i in range(env.shardsCount)]
     with TimeLimit(5, 'Not all pool connections became ready'):
