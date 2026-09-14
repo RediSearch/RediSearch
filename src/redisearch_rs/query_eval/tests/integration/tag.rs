@@ -45,12 +45,12 @@ type Indexed = (Vec<u8>, Vec<DocId>);
 const TAG_APPLE: &[u8] = b"apple"; // docs 1, 2
 const TAG_APRICOT: &[u8] = b"apricot"; // docs 2, 3 -- doc 2 is the overlap
 const TAG_BANANA: &[u8] = b"banana"; // docs 3, 4
-const TAG_PHRASE: &[u8] = b"red apple"; // doc 5 -- the `sdsjoin` target
+const TAG_PHRASE: &[u8] = b"red apple"; // doc 5 -- the phrase-join target
 const TAG_BINARY: &[u8] = b"caf\xff"; // doc 6 -- 0xff appears in no UTF-8 sequence
 const TAG_NUL: &[u8] = b"ab\0cd"; // doc 7
 const TAG_NUL_HEAD: &[u8] = b"ab"; // doc 8 -- what a truncated lookup of TAG_NUL hits
-const TAG_NUL_PHRASE_JOINED: &[u8] = b"ab x"; // doc 9 -- what `sdsjoin` builds from TAG_NUL
-const TAG_NUL_PHRASE_WHOLE: &[u8] = b"ab\0cd x"; // doc 10 -- what a binary-safe join would build
+const TAG_NUL_PHRASE_JOINED: &[u8] = b"ab x"; // doc 9 -- what a strlen-based join would build from TAG_NUL
+const TAG_NUL_PHRASE_WHOLE: &[u8] = b"ab\0cd x"; // doc 10 -- what the length-based join builds
 // doc 11 -- the value production indexes for an empty tag field, and the only
 // one the empty wildcard pattern can reach.
 const TAG_EMPTY: &[u8] = b"";
@@ -1279,7 +1279,7 @@ fn eval_tag_phrase_child_joins_its_tokens_with_a_space() {
 }
 
 #[test]
-fn eval_tag_phrase_child_truncates_a_token_at_a_nul() {
+fn eval_tag_phrase_child_keeps_a_token_past_a_nul() {
     let values = values(&[(TAG_NUL_PHRASE_JOINED, &[9]), (TAG_NUL_PHRASE_WHOLE, &[10])]);
     let mut fixture = TagFixture::new(TagOptions {
         values,
@@ -1287,12 +1287,20 @@ fn eval_tag_phrase_child_truncates_a_token_at_a_nul() {
         children: vec![Child::Phrase(&[TAG_NUL, b"x"])],
         ..TagOptions::default()
     });
-    let mut it = fixture.eval().expect("the truncated join is indexed");
-    assert_eq!(
-        drain_doc_ids(&mut it),
-        vec![9],
-        "sdsjoin is strlen-based, even though no lowering step ran"
-    );
+    let mut it = fixture.eval().expect("the whole join is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![10]);
+}
+
+#[test]
+fn eval_tag_phrase_child_treats_an_empty_token_as_a_zero_length_word() {
+    let values = values(&[(b"foo ", &[1]), (b"foo", &[2])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::Phrase(&[b"foo", b""])],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("\"foo \" is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![1]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1392,7 +1400,7 @@ fn eval_tag_lowercases_the_query_on_a_case_insensitive_field() {
 // `tag_strtolower` is called once per branch, not once ahead of the dispatch:
 // `Query_EvalTagPrefixNode` and `Query_EvalTagWildcardNode` each call it on
 // their own pattern, and the phrase case calls it on each child before the
-// `sdsjoin`. [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`]
+// join. [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`]
 // above only exercises the `Token` branch's call -- every other pattern used
 // so far is already lowercase, so a port that dropped lowering from one of
 // the other three would still pass unnoticed. The three tests below give
