@@ -1216,7 +1216,8 @@ struct HighlighterDrainSource : KeyNameDrainSource {
     if (retainIndex) {
       RSIndexResult *index;
       if (termOffsets) {
-        RSToken token = {.str = const_cast<char *>("three"), .len = 5, .flags = 0};
+        char term[] = "three";
+        RSToken token = {.str = term, .len = sizeof(term) - 1, .flags = 0};
         index = NewTokenRecord(NewQueryTerm(&token, 1), 1);
         // The record owns its term; these encoded offsets have static lifetime.
         static const char offsets[] = {3};
@@ -1232,8 +1233,8 @@ struct HighlighterDrainSource : KeyNameDrainSource {
     Next = [](ResultProcessor *base, SearchResult *result) -> int {
       auto *self = static_cast<HighlighterDrainSource *>(base);
       ++self->nextCalls;
-      self->entered.store(true, std::memory_order_release);
-      while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      self->entered.store(true);
+      while (!self->release.load()) std::this_thread::yield();
       auto *dmd = self->documents.back();
       DMD_Incref(dmd);
       SearchResult_SetDocumentMetadata(result, dmd);
@@ -1253,10 +1254,13 @@ struct HighlighterDrainSource : KeyNameDrainSource {
 };
 
 class HighlighterDrainTest : public LoaderDrainTest {
- protected:
+ public:
   HighlighterDrainSource hlpSource;
   ReturnedField field = {};
   FieldList fields = {};
+  char separator[4] = "...";
+  char openTag[4] = "<b>";
+  char closeTag[5] = "</b>";
 
   void createHighlighter(bool allFields = false, bool termOffsets = false) {
     hlpSource.termOffsets = termOffsets;
@@ -1277,9 +1281,9 @@ class HighlighterDrainTest : public LoaderDrainTest {
     field.mode = SummarizeMode_Synopsis;
     field.summarizeSettings.contextLen = 1;
     field.summarizeSettings.numFrags = 1;
-    field.summarizeSettings.separator = const_cast<char *>("...");
-    field.highlightSettings.openTag = const_cast<char *>("<b>");
-    field.highlightSettings.closeTag = const_cast<char *>("</b>");
+    field.summarizeSettings.separator = separator;
+    field.highlightSettings.openTag = openTag;
+    field.highlightSettings.closeTag = closeTag;
     if (allFields) {
       fields.defaultField = field;
     } else {
@@ -1377,13 +1381,13 @@ TEST_F(HighlighterDrainTest, drainsWhileNextIsParkedUpstream) {
   hlpSource.release.store(false);
   SearchResult next = SearchResult_New();
   int nextStatus = RS_RESULT_MAX;
-  std::thread worker([&] { nextStatus = loader->Next(loader, &next); });
-  bool entered = RS::WaitForCondition([&] { return hlpSource.entered.load(); }, 5);
+  std::jthread worker([this, &nextStatus, &next] { nextStatus = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([this] { return hlpSource.entered.load(); }, 5);
   if (entered) {
     EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
     expectValue(hlpSource.key, "one  two <b>three</b> four five six seven eight");
   }
-  hlpSource.release.store(true, std::memory_order_release);
+  hlpSource.release.store(true);
   worker.join();
   EXPECT_TRUE(entered);
   EXPECT_EQ(RS_RESULT_OK, nextStatus);
