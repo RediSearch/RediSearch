@@ -601,6 +601,19 @@ class SorterDrainTest : public ::testing::Test {
     RLookup_Cleanup(&lookup);
     QueryError_ClearError(&error);
   }
+  void createMixedFieldSorter() {
+    source.scores = {1, 1, 1, 1};
+    source.values = {RSValue_NewNumber(1), RSValue_NewCopiedString("z", 1), RSValue_NewNumber(2),
+                     RSValue_NewCopiedString("y", 1)};
+    source.key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
+    RLookup_Seal(&lookup);
+    create(4);
+    sorter->Free(sorter);
+    sorter = RPSorter_NewByFields(4, &source.key, 1, 1);
+    sorter->parent = &qctx;
+    sorter->upstream = &source;
+    source.terminal = RS_RESULT_TIMEDOUT;
+  }
   std::vector<double> drainScores() {
     std::vector<double> output;
     RPDrainStatus status;
@@ -782,17 +795,7 @@ TEST_F(SorterDrainTest, fieldOrderingAndScoreTiesMatchNext) {
 }
 
 TEST_F(SorterDrainTest, comparisonDiagnosticsNeverWriteNextErrorDuringDrain) {
-  source.scores = {1, 1, 1, 1};
-  source.values = {RSValue_NewNumber(1), RSValue_NewCopiedString("z", 1), RSValue_NewNumber(2),
-                   RSValue_NewCopiedString("y", 1)};
-  source.key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
-  RLookup_Seal(&lookup);
-  create(4);
-  sorter->Free(sorter);
-  sorter = RPSorter_NewByFields(4, &source.key, 1, 1);
-  sorter->parent = &qctx;
-  sorter->upstream = &source;
-  source.terminal = RS_RESULT_TIMEDOUT;
+  createMixedFieldSorter();
   ASSERT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
   EXPECT_STREQ("Error converting string", QueryError_GetUserError(&error));
   EXPECT_STREQ("Error converting string", QueryError_GetDisplayableError(&error, true));
@@ -814,17 +817,7 @@ TEST_F(SorterDrainTest, comparisonDiagnosticsNeverWriteNextErrorDuringDrain) {
 }
 
 TEST_F(SorterDrainTest, comparisonDiagnosticsPreserveExistingErrors) {
-  source.scores = {1, 1, 1, 1};
-  source.values = {RSValue_NewNumber(1), RSValue_NewCopiedString("z", 1), RSValue_NewNumber(2),
-                   RSValue_NewCopiedString("y", 1)};
-  source.key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
-  RLookup_Seal(&lookup);
-  create(4);
-  sorter->Free(sorter);
-  sorter = RPSorter_NewByFields(4, &source.key, 1, 1);
-  sorter->parent = &qctx;
-  sorter->upstream = &source;
-  source.terminal = RS_RESULT_TIMEDOUT;
+  createMixedFieldSorter();
   QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
   QueryError_SetDetail(&error, "earlier Next error");
   ASSERT_EQ(RS_RESULT_TIMEDOUT, sorter->Next(sorter, &result));
@@ -836,6 +829,37 @@ TEST_F(SorterDrainTest, comparisonDiagnosticsPreserveExistingErrors) {
   EXPECT_TRUE(RPSorter_TakeDrainError(sorter, &drainError));
   EXPECT_STREQ("earlier Drain error", QueryError_GetUserError(&drainError));
   QueryError_ClearError(&drainError);
+}
+
+TEST(SearchResultComparisonTest, legacyFieldComparatorPreservesFallbackAndErrors) {
+  RLookup lookup = RLookup_New();
+  const RLookupKey *key = RLookup_GetKey_Write(&lookup, "sort", RLOOKUP_F_NOFLAGS);
+  RLookup_Seal(&lookup);
+  SearchResult number = SearchResult_New();
+  SearchResult text = SearchResult_New();
+  SearchResult_SetDocId(&number, 2);
+  SearchResult_SetDocId(&text, 1);
+  RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(&number), RSValue_NewNumber(1));
+  RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(&text), RSValue_NewCopiedString("z", 1));
+
+  // Without an error sink the legacy entrypoint falls back to string ordering.
+  EXPECT_GT(SearchResult_CmpByFields(&key, 1, &number, &text, 1, nullptr), 0);
+  QueryError error = QueryError_Default();
+  EXPECT_LT(SearchResult_CmpByFields(&key, 1, &number, &text, 1, &error), 0);
+  EXPECT_EQ(QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, QueryError_GetCode(&error));
+  EXPECT_STREQ("Error converting string", QueryError_GetUserError(&error));
+  EXPECT_STREQ("Error converting string", QueryError_GetDisplayableError(&error, true));
+  QueryError_ClearError(&error);
+
+  QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+  QueryError_SetDetail(&error, "earlier error");
+  EXPECT_LT(SearchResult_CmpByFields(&key, 1, &number, &text, 1, &error), 0);
+  EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&error));
+  EXPECT_STREQ("earlier error", QueryError_GetUserError(&error));
+  QueryError_ClearError(&error);
+  SearchResult_Destroy(&number);
+  SearchResult_Destroy(&text);
+  RLookup_Cleanup(&lookup);
 }
 
 struct processor1Ctx : public ResultProcessor {
