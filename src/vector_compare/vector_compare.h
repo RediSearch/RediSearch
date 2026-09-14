@@ -30,8 +30,9 @@ extern "C" {
  * correctly rather than reported as changed every time.
  *
  * Answers false whenever the vectors differ **or the comparison cannot be made**: a lossy
- * storage that cannot reproduce the input, or a count that does not match what the label
- * holds. False is always the safe answer, costing a delete + re-add that could have been
+ * storage that cannot reproduce the input, a count that does not match what the label holds,
+ * or an allocation failure while copying the stored vectors out -- nothing throws across this
+ * boundary. False is always the safe answer, costing a delete + re-add that could have been
  * avoided; a wrong true would leave a stale vector answering queries.
  *
  * Lives in a C++ translation unit because VecSim exposes stored vectors through

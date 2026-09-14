@@ -85,13 +85,8 @@ bool holdsVectors(VecSimIndex *index, const VecSimIndexBasicInfo &info, size_t l
   return true;
 }
 
-}  // namespace
-
-extern "C" bool VectorIndex_HoldsVectors(VecSimIndex *index, size_t label, const void *blobs,
-                                         size_t numBlobs) {
-  if (!index || !blobs || numBlobs == 0) {
-    return false;
-  }
+/** Resolve the index's data type, which `getDataByLabel` needs as a template argument. */
+bool dispatchHoldsVectors(VecSimIndex *index, size_t label, const void *blobs, size_t numBlobs) {
   const VecSimIndexBasicInfo info = index->basicInfo();
   switch (info.type) {
     case VecSimType_FLOAT32:
@@ -109,5 +104,23 @@ extern "C" bool VectorIndex_HoldsVectors(VecSimIndex *index, size_t label, const
     default:
       // A data type this function has not been taught: reindex rather than guess.
       return false;
+  }
+}
+
+}  // namespace
+
+extern "C" bool VectorIndex_HoldsVectors(VecSimIndex *index, size_t label, const void *blobs,
+                                         size_t numBlobs) {
+  if (!index || !blobs || numBlobs == 0) {
+    return false;
+  }
+  // No exception may cross back into the C caller, which has no way to unwind it. Comparing
+  // means copying out every vector the label holds, so this allocates, and under memory
+  // pressure that throws. `false` is already the documented answer when the comparison cannot
+  // be made, and it costs only the delete + re-add this was trying to save.
+  try {
+    return dispatchHoldsVectors(index, label, blobs, numBlobs);
+  } catch (...) {
+    return false;
   }
 }
