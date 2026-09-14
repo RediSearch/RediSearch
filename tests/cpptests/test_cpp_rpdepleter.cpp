@@ -20,6 +20,8 @@
 #include <chrono>
 #include "redismock/redismock.h"
 #include "search_result.h"
+#include "thpool/thpool.h"
+#include "value_ffi.h"
 
 #include <thread>
 #include <chrono>
@@ -313,12 +315,211 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
   depleter->Free(depleter);
 }
 
-// Instantiate the parameterized test with both true and false values
-INSTANTIATE_TEST_SUITE_P(
-    LockingVariants,
-    RPSafeDepleterTest,
-    ::testing::Values(false, true),
-    [](const ::testing::TestParamInfo<bool>& info) {
-      return info.param ? "WithIndexLock" : "WithoutIndexLock";
+TEST_P(RPSafeDepleterTest, DrainBeforeQueuedJobStartsNeverWaitsOrPullsUpstream) {
+  auto *pool = redisearch_thpool_create(1, 0, nullptr, "drain");
+  ASSERT_NE(nullptr, pool);
+  redisearch_thpool_pause_threads(pool);
+  QueryProcessingCtx qctx = {};
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  MockUpstream source;
+  auto *depleter = RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], pool);
+  depleter->parent = &qctx;
+  depleter->upstream = &source;
+  SearchResult result = SearchResult_New();
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &result));
+  RPSafeDepleter_StartDepletion(depleter);
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &result));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, depleter->Next(depleter, &result));
+  redisearch_thpool_resume_threads(pool);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  EXPECT_EQ(0, source.count);
+  SearchResult_Destroy(&result);
+  depleter->Free(depleter);
+  redisearch_thpool_destroy(pool);
+}
+
+TEST_P(RPSafeDepleterTest, DrainCommittedRowsWhileWorkerAndNextArePending) {
+  struct Source : MockUpstream {
+    std::atomic<bool> entered{false}, release{false};
+    Source() {
+      Next = [](ResultProcessor *base, SearchResult *row) -> int {
+        auto *self = static_cast<Source *>(base);
+        if (self->count == 2) {
+          self->entered.store(true, std::memory_order_release);
+          while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+        }
+        return MockUpstream::NextFn(base, row);
+      };
     }
-);
+  } source;
+  QueryProcessingCtx qctx = {};
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  depleter->parent = &qctx;
+  depleter->upstream = &source;
+  RPSafeDepleter_StartDepletion(depleter);
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  SearchResult next = SearchResult_New(), drained = SearchResult_New();
+  int nextStatus = RS_RESULT_MAX;
+  std::atomic<bool> nextStarted{false};
+  std::thread reader([&] {
+    nextStarted.store(true, std::memory_order_release);
+    nextStatus = depleter->Next(depleter, &next);
+  });
+  bool started = RS::WaitForCondition([&] { return nextStarted.load(); }, 5);
+  if (entered && started) {
+    for (t_docId id : {1, 2}) {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &drained));
+      EXPECT_EQ(id, SearchResult_GetDocId(&drained));
+      SearchResult_Clear(&drained);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &drained));
+  }
+  source.release.store(true, std::memory_order_release);
+  reader.join();
+  RPSafeDepleter_WaitForCompletion(depleter);
+  EXPECT_TRUE(entered);
+  EXPECT_TRUE(started);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, nextStatus);
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &drained));
+  SearchResult_Destroy(&next);
+  SearchResult_Destroy(&drained);
+  depleter->Free(depleter);
+}
+
+TEST_P(RPSafeDepleterTest, DrainCompletedBufferAfterNextPrefix) {
+  QueryProcessingCtx qctx = {};
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  MockUpstream source;
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  depleter->parent = &qctx;
+  depleter->upstream = &source;
+  RPSafeDepleter_StartDepletion(depleter);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  SearchResult result = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_OK, depleter->Next(depleter, &result));
+  EXPECT_EQ(1, SearchResult_GetDocId(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+  EXPECT_EQ(2, SearchResult_GetDocId(&result));
+  depleter->Free(depleter);
+  EXPECT_EQ(2, SearchResult_GetDocId(&result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_P(RPSafeDepleterTest, DrainDoesNotWaitForWorkerBufferGrowth) {
+  static thread_local bool pauseAllocation = false;
+  struct Source : MockUpstream {
+    Source() {
+      Next = [](ResultProcessor *base, SearchResult *row) -> int {
+        auto *self = static_cast<Source *>(base);
+        pauseAllocation = self->count == 2;
+        return MockUpstream::NextFn(base, row);
+      };
+    }
+  } source;
+  QueryProcessingCtx qctx = {};
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  depleter->parent = &qctx;
+  depleter->upstream = &source;
+  static std::atomic<bool> entered{false}, release{false};
+  static void *(*originalAlloc)(size_t);
+  entered.store(false);
+  release.store(false);
+  originalAlloc = RedisModule_Alloc;
+  RedisModule_Alloc = [](size_t size) -> void * {
+    if (pauseAllocation && size == sizeof(array_hdr_t) + 4 * sizeof(SearchResult *)) {
+      pauseAllocation = false;
+      entered.store(true, std::memory_order_release);
+      while (!release.load(std::memory_order_acquire)) std::this_thread::yield();
+    }
+    return originalAlloc(size);
+  };
+  RPSafeDepleter_StartDepletion(depleter);
+  bool paused = RS::WaitForCondition([&] { return entered.load(); }, 5);
+  SearchResult result = SearchResult_New();
+  if (paused) {
+    for (t_docId id : {1, 2}) {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+      EXPECT_EQ(id, SearchResult_GetDocId(&result));
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &result));
+  }
+  release.store(true, std::memory_order_release);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  redisearch_thpool_wait(depleterPool);
+  RedisModule_Alloc = originalAlloc;
+  EXPECT_TRUE(paused);
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &result));
+  SearchResult_Destroy(&result);
+  depleter->Free(depleter);
+}
+
+TEST_P(RPSafeDepleterTest, DrainPayloadOwnershipSurvivesCleanupAndRejectsLateRowExactlyOnce) {
+  struct Source : MockUpstream {
+    RLookup lookup = RLookup_New();
+    const RLookupKey *key = RLookup_GetKey_Write(&lookup, "payload", RLOOKUP_F_NOFLAGS);
+    std::array<RSValue *, 4> values;
+    std::atomic<bool> entered{false}, release{false};
+    Source() : MockUpstream(4) {
+      RLookup_Seal(&lookup);
+      for (size_t i = 0; i < values.size(); ++i) values[i] = RSValue_NewNumber(i + 1);
+      Next = [](ResultProcessor *base, SearchResult *row) -> int {
+        auto *self = static_cast<Source *>(base);
+        if (self->count == 3) {
+          self->entered.store(true, std::memory_order_release);
+          while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+        }
+        int rc = MockUpstream::NextFn(base, row);
+        if (rc == RS_RESULT_OK) {
+          RSValue *value = self->values[self->count - 1];
+          RSValue_IncrRef(value);
+          RLookup_WriteOwnKey(self->key, SearchResult_GetRowDataMut(row), value);
+        }
+        return rc;
+      };
+    }
+    ~Source() {
+      for (auto *value : values) RSValue_DecrRef(value);
+      RLookup_Cleanup(&lookup);
+    }
+  } source;
+  QueryProcessingCtx qctx = {};
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  depleter->parent = &qctx;
+  depleter->upstream = &source;
+  RPSafeDepleter_StartDepletion(depleter);
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  SearchResult result = SearchResult_New();
+  if (entered) EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+  source.release.store(true, std::memory_order_release);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(2, RSValue_Refcount(source.values[0]));
+  EXPECT_EQ(2, RSValue_Refcount(source.values[1]));
+  EXPECT_EQ(2, RSValue_Refcount(source.values[2]));
+  EXPECT_EQ(1, RSValue_Refcount(source.values[3]));
+  depleter->Free(depleter);
+  EXPECT_EQ(2, RSValue_Refcount(source.values[0]));
+  for (size_t i = 1; i < source.values.size(); ++i) {
+    EXPECT_EQ(1, RSValue_Refcount(source.values[i]));
+  }
+  const RSValue *transferred = RLookupRow_Get(source.key, SearchResult_GetRowData(&result));
+  EXPECT_EQ(source.values[0], transferred);
+  if (transferred) EXPECT_DOUBLE_EQ(1, RSValue_Number_Get(transferred));
+  SearchResult_Destroy(&result);
+  EXPECT_EQ(1, RSValue_Refcount(source.values[0]));
+}
+
+// Instantiate the parameterized test with both true and false values
+INSTANTIATE_TEST_SUITE_P(LockingVariants, RPSafeDepleterTest, ::testing::Values(false, true),
+                         [](const ::testing::TestParamInfo<bool> &info) {
+                           return info.param ? "WithIndexLock" : "WithoutIndexLock";
+                         });
