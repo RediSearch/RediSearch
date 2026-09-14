@@ -19,6 +19,7 @@
 #include "redismock/util.h"
 #include "query_flags.h"
 #include "metrics_ffi.h"
+#include "debug_commands.h"
 
 #include <atomic>
 #include <thread>
@@ -1125,6 +1126,68 @@ struct KeyNameDrainSource : LoaderDrainSource {
     };
   }
 };
+
+class PauseDrainTest : public LoaderDrainTest {
+ protected:
+  KeyNameDrainSource pauseSource;
+
+  void SetUp() override {
+    LoaderDrainTest::SetUp();
+    ASSERT_FALSE(QueryDebugCtx_HasDebugRP());
+    loader = RPPauseAfterCount_New(1);
+    ASSERT_NE(nullptr, loader);
+    loader->upstream = &pauseSource;
+    pauseSource.documents = {document("pause:drain", nullptr), document("pause:next", nullptr)};
+  }
+
+  void TearDown() override {
+    QueryDebugCtx_SetPause(false);
+    LoaderDrainTest::TearDown();
+  }
+};
+
+TEST_F(PauseDrainTest, drainPreservesPauseStateAndNextCounter) {
+  QueryDebugCtx_SetPause(true);
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  EXPECT_EQ(pauseSource.documents.front(), SearchResult_GetDocumentMetadata(&result));
+  EXPECT_TRUE(QueryDebugCtx_IsPaused());
+  EXPECT_EQ(loader, QueryDebugCtx_GetDebugRP());
+  EXPECT_EQ(0, pauseSource.nextCalls);
+  SearchResult_Clear(&result);
+  // A consumed debug counter would make this Next wait instead of reaching upstream.
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+  EXPECT_EQ(pauseSource.documents.back(), SearchResult_GetDocumentMetadata(&result));
+  EXPECT_TRUE(QueryDebugCtx_IsPaused());
+}
+
+TEST_F(PauseDrainTest, forwardsErrorAndEofWithoutChangingDebugState) {
+  pauseSource.documents.clear();
+  pauseSource.terminal = RP_DRAIN_ERROR;
+  QueryDebugCtx_SetPause(true);
+  EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_TRUE(QueryDebugCtx_IsPaused());
+  EXPECT_EQ(0, pauseSource.nextCalls);
+}
+
+TEST_F(PauseDrainTest, drainsWhileNextIsParkedUpstream) {
+  pauseSource.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return pauseSource.entered.load(); }, 5);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    EXPECT_EQ(pauseSource.documents.front(), SearchResult_GetDocumentMetadata(&result));
+  }
+  pauseSource.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(pauseSource.documents.back(), SearchResult_GetDocumentMetadata(&next));
+  EXPECT_FALSE(QueryDebugCtx_IsPaused());
+  SearchResult_Destroy(&next);
+}
 
 class KeyNameDrainTest : public LoaderDrainTest {
  protected:
