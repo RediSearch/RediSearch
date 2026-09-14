@@ -294,3 +294,9 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) 
       break;
   }
 }
+
+void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd) {
+  if (field_types == INDEXFLD_T_VECTOR) {
+    RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled += toAdd;
+  }
+}
