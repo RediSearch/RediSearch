@@ -976,63 +976,30 @@ def testEmptyExplainCli():
         env.assertEqual(res, expected)
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{foo ""}')
-        if dialect < 5:
-            expected = [
-                'TAG:@tag {',
-                '  INTERSECT {',
-                '    foo',
-                '    ""',
-                '  }',
-                '}',
-                ''
-            ]
-        else:
-            expected = [
-                'TAG:@tag {',
-                '  foo ""',
-                '}',
-                ''
-            ]
+        expected = [
+            'TAG:@tag {',
+            '  foo ""',
+            '}',
+            ''
+        ]
         env.assertEqual(res, expected)
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" bar}')
-        if dialect < 5:
-            expected = [
-                'TAG:@tag {',
-                '  INTERSECT {',
-                '    ""',
-                '    bar',
-                '  }',
-                '}',
-                ''
-            ]
-        else:
-            expected = [
-                'TAG:@tag {',
-                '  "" bar',
-                '}',
-                ''
-            ]
+        expected = [
+            'TAG:@tag {',
+            '  "" bar',
+            '}',
+            ''
+        ]
         env.assertEqual(res, expected)
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" ""}')
-        if dialect < 5:
-            expected = [
-                'TAG:@tag {',
-                '  INTERSECT {',
-                '    ""',
-                '    ""',
-                '  }',
-                '}',
-                ''
-            ]
-        else:
-            expected = [
-                'TAG:@tag {',
-                '  "" ""',
-                '}',
-                ''
-            ]
+        expected = [
+            'TAG:@tag {',
+            '  "" ""',
+            '}',
+            ''
+        ]
         env.assertEqual(res, expected)
 
         # # ------------------------------ TEXT field ----------------------------
@@ -1194,6 +1161,40 @@ def testEmptyExplainCli():
             ''
         ]
         env.assertEqual(res, expected)
+
+@skip(cluster=True)
+def testTagPhraseWithEmptyWordSearch():
+    """An empty word inside a tag phrase such as {foo ""} is a zero-length segment of the
+    joined value, and hash indexing trims edge whitespace, so {foo ""} matches nothing but
+    {foo "" bar} matches a stored 'foo  bar'."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
+    conn.execute_command('HSET', 'h1', 't', 'foo ')
+    conn.execute_command('HSET', 'h2', 't', 'foo  bar')
+
+    env.expect('FT.SEARCH', 'idx', '@t:{foo ""}', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@t:{foo "" bar}', 'NOCONTENT').equal([1, 'h2'])
+    env.expect('FT.EXPLAIN', 'idx', '@t:{foo "" bar}').equal(r'''
+TAG:@t {
+  foo "" bar
+}
+'''[1:])
+
+@skip(cluster=True, no_json=True)
+def testTagPhraseWithEmptyWordSearchJSON():
+    """A JSON tag field with the default separator is not trimmed, so {foo ""} matches a
+    stored value of 'foo '."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
+    conn.execute_command('JSON.SET', 'j1', '$', '{"t":"foo "}')
+
+    env.expect('FT.SEARCH', 'jidx', '@t:{foo ""}', 'NOCONTENT').equal([1, 'j1'])
 
 def testInvalidUseOfEmptyString():
     """Tests that invalid syntax for empty values is rejected by the parser"""
