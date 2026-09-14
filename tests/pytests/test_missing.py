@@ -684,7 +684,7 @@ def test_missing_field_name_with_interior_nul(env):
 
     # Restore the poisoned schema. The RDB loader rejects field names with
     # interior NUL bytes.
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, poisoned_dump).error().contains('Failed to deserialize schema')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'idx', encode, poisoned_dump).error().contains('Failed to deserialize schema')
 
     # Verify no index was created from the poisoned dump.
     idx_list = env.cmd('FT._LIST')
