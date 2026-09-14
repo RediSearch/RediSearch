@@ -331,7 +331,7 @@ def testMetadataUpdatesMatchFullReindex(env):
 
     def run_updates(force_plain):
         # The subscription mode is fixed by the first index, so each side needs a new server.
-        server = Env(freshEnv=True)
+        server = Env(freshEnv=True, moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
         try:
             if force_plain:
                 server.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '1').ok()
@@ -410,6 +410,7 @@ def testMetadataUpdateClassificationIsPerIndex(env):
         env.expect('FT.SEARCH', idx, 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                    'NOCONTENT').equal([1, 'doc:1', '0.75'])
 
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     conn.execute_command('HSET', 'doc:1', 'shared', '0.25')
     env.expect('FT.SEARCH', 'filtered', '*', 'NOCONTENT').equal([0])
     env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'filtered', 'doc:1'), 0)
