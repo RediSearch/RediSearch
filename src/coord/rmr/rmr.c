@@ -747,8 +747,7 @@ void iterStartCb(void *p) {
   // Pre-fanout connection validation - check ALL connections before any setup.
   // If validation fails, we return early with a single error (it->len stays 1).
   for (size_t i = 0; i < numShards; i++) {
-    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, shards[i].node.id);
-    if (!conn) {
+    if (!MRConnManager_HasConnectedConnection(&io_runtime_ctx->conn_mgr, shards[i].node.id)) {
       // At least one connection is not established - fail with a single error.
       // it->len/pending/inProcess remain at their initial value of 1.
       // Run privateDataInit so ShardResponseBarrier (used by FT.AGGREGATE
