@@ -294,7 +294,7 @@ fn apply_numeric_node(tree: &mut NumericRangeTree, node: NumericNodeDelta) -> Op
         bytes_allocated: info.bytes_allocated,
         block_count_delta: info.block_count_delta,
         blocks_denied: info.ignored_last_block as u64,
-        numeric_nodes_missed: 0,
+        ..GcApplyStats::default()
     })
 }
 

@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import copy
 import threading
 import time
@@ -67,6 +74,88 @@ def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
 
     env.expect('HGET', 'doc:1', 't').equal('hello')
     env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_lazily_expired_field_notification(env: Env):
+    """Reading a field after its TTL lapses must not crash the server.
+
+    Lazy hash-field expiry hands the module a subkey that is a stack `robj` carrying
+    `OBJ_STATIC_REFCOUNT` (`t_hash.c`), unlike `HSET`/`HDEL`, which pass `c->argv[...]`
+    pointers. Keeping such a string with `RedisModule_RetainString` reaches `incrRefCount`,
+    which panics on a static refcount, so the subkey notification handler has to hold it with
+    `RedisModule_HoldString` and keep the pointer that returns.
+
+    Active expiry takes a different route again -- `createStringObject`, refcount 1 -- so it
+    would not have caught this. The read below is what forces the lazy path.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Active expiry has to be off for this to test anything. It allocates the subkey with
+    # `createStringObject` and is harmless, so if a cycle reaps the field first the read below
+    # simply finds it missing and never reaches the stack-allocated path -- a regression to
+    # `RedisModule_RetainString` would then crash in production while this test passed. Timing
+    # alone cannot rule that out on a slow host, so the cycle is disabled rather than outrun.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    try:
+        conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+        conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 't')
+        time.sleep(0.05)
+
+        # With no active cycle, this read is what expires the field, and it emits the hexpired
+        # notification carrying the stack-allocated subkey.
+        env.assertEqual(conn.execute_command('HGET', 'doc:1', 't'), None)
+
+        # Still answering, i.e. still alive -- the assertion this test exists for.
+        env.expect('PING').true()
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    finally:
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_unindexed_field_expiry_leaves_the_document(env: Env):
+    """A field the schema does not read expiring must not disturb the document.
+
+    Pins that the hexpired event carries a usable change set rather than merely not
+    crashing: `other` is outside the schema, so the document keeps its doc-id and stays
+    queryable on `t`.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'other')
+    time.sleep(0.05)
+    env.assertEqual(conn.execute_command('HGET', 'doc:1', 'other'), None)
+
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                    message='an unindexed field expiring should not reindex the document')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_hdel_of_unindexed_field_is_skipped(env: Env):
+    """HDEL shares the reindex path with HSET but removes rather than writes.
+
+    Deleting a field outside the schema changes nothing the index holds, so the document
+    keeps its doc-id; deleting an indexed one must reindex.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+
+    conn.execute_command('HDEL', 'doc:1', 'other')
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                    message='deleting an unindexed field should not reindex')
+
+    conn.execute_command('HDEL', 'doc:1', 't')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+
 
 @skip(cluster=True, redis_less_than='8.0')
 def test_doc_expiration_preserves_field_expiration(env: Env):
@@ -482,8 +571,15 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     expected_inverted_index = build_inverted_index_dict_for_documents(expected_results)
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
-    time.sleep(0.5)
-    env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
+    # Active expiration runs on Redis's background cycle, so a fixed sleep can be too
+    # short under CI load. Wait deterministically for the expected post-expiration
+    # state instead of assuming a fixed delay is always enough.
+    actual_results = {}
+    def check_expired():
+        nonlocal actual_results
+        actual_results = transform_document_list_to_dict(env.cmd('FT.SEARCH', 'idx', '*'))
+        return actual_results == expected_results, actual_results
+    wait_for_condition(check_expired, 'Timeout waiting for active expiration to reap expired fields', timeout=10)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
          .apply(sort_document_names).equal([len(expected_docs), *expected_docs]))

@@ -8,50 +8,19 @@
 */
 #pragma once
 
-#include <pthread.h>
-#include <stdint.h>
-
 #include "util/dllist.h"
-#include "util/references.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Callback to free privdata when BlockedQueryNode is destroyed
-typedef void (*BlockedQueryNode_FreePrivData)(void *privdata);
-
 /**
- * @brief Represents all the active queries.
+ * @brief The registry of in-flight blocked-client cycles (crash reports).
  *
- * This structure is used to store information about an active query, including
- * a strong reference to the `IndexSpec` associated with the query. Since we use
- * the StrongRef, we know that we can safely access the `IndexSpec` upon crashing.
- */
-typedef struct {
-  DLLIST_node llnode; // Node in the doubly-linked list
-  StrongRef spec;     // IndexSpec strong ref
-  time_t start;       // Time node was added into list
-  void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
-  BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
-} BlockedQueryNode;
-
-typedef struct {
-  DLLIST_node llnode; // Node in the doubly-linked list
-  StrongRef spec;     // IndexSpec strong ref
-  uint64_t cursorId;  // cursor id
-  size_t count;       // cursor count
-  time_t start;       // Time node was added into list
-  void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
-  BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
-} BlockedCursorNode;
-
-/**
- * @brief Represents a list of active queries.
- *
- * This structure is used to store a list of active queries. It contains a
- * doubly-linked list of `ActiveQueryNode` and `ActiveCursorNode` objects
- * It is not thread safe and should be manipulated from a single thread
+ * Two intrusive lists of QueryRequests, linked through their `registryInfo`
+ * by BeginCycle and unlinked by EndCycle. The registry owns nothing: the
+ * walkers read everything they report through the linked request itself.
+ * It is not thread safe and must be manipulated from the main thread only.
  */
 typedef struct ActiveQueries {
   DLLIST queries;
@@ -59,27 +28,17 @@ typedef struct ActiveQueries {
 } BlockedQueries;
 
 /**
- * @brief Initializes the active queries data structure.
- *
- * This function allocates memory for the `ActiveQueries` structure and
- * initializes the doubly-linked list for storing `ActiveQueries` objects.
+ * @brief Initializes the blocked queries data structure.
  */
 BlockedQueries* BlockedQueries_Init();
 
 /**
- * @brief Frees the active queries data structure.
+ * @brief Frees the blocked queries data structure.
  *
- * This function destroys the doubly-linked lists and frees the active queries pointer
+ * Logs any request still registered and asserts emptiness — a linked request
+ * at teardown is a bug.
  */
 void BlockedQueries_Free(BlockedQueries*);
-
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec,
-                                          void *privdata, BlockedQueryNode_FreePrivData freePrivData);
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId,
-                                            size_t count,
-                                            void *privdata, BlockedQueryNode_FreePrivData freePrivData);
-void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
-void BlockedQueries_RemoveCursor(BlockedCursorNode* node);
 
 #ifdef __cplusplus
 }

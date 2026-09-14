@@ -53,7 +53,8 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
  * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
  * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
@@ -61,10 +62,10 @@ extern "C" {
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
- * Collect GC delta data for every entry in the spec's `missingFieldDict` and
+ * Collect GC delta data for every entry in the spec's `missing.indexes` and
  * send it to the parent process over the pipe.
  *
- * Iterates the `missingFieldDict`, and for each entry with a non-null
+ * Iterates the `missing.indexes`, and for each entry with a non-null
  * `InvertedIndex` calls `scan_gc` which sends the field name header
  * followed by the serialised GC delta. Sends a terminator once all
  * entries are processed.
@@ -74,7 +75,8 @@ void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
  * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
  * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
@@ -95,12 +97,36 @@ void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
  * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
  * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  */
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
+ * Collect GC delta data for every term in the spec's terms trie and send it
+ * to the parent process over the pipe.
+ *
+ * Walks the terms trie, and for each term with a non-null `InvertedIndex`
+ * attempts a GC scan. When a scan produces a delta the term header (its raw
+ * bytes) followed by the serialised GC delta is sent. Terms that produce no
+ * delta or fail the scan are skipped. A terminator is sent once every term
+ * has been processed.
+ *
+ * Any write failure, such as a closed fd or a broken pipe, terminates the
+ * child process via `RedisModule_ExitFromChild`.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ */
+void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
  * Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
@@ -130,7 +156,7 @@ void FGC_freeBuffer(void *buf, size_t len);
 enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 
 /**
- * Receive and apply the GC delta for one field in the spec's `missingFieldDict`.
+ * Receive and apply the GC delta for one field in the spec's `missing.indexes`.
  *
  * Reads one protocol frame from the pipe. Returns [`FGCError::Collected`] after
  * successfully applying a delta, [`FGCError::Done`] when the child sent a
@@ -162,6 +188,23 @@ enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
  *    alive for the duration of this call.
  */
 enum FGCError FGC_parentHandleNumeric(ForkGC *gc);
+
+/**
+ * Receive and apply the GC delta for one term in the spec's terms trie.
+ *
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Collected`] after
+ * successfully applying a delta, [`FGCError::Done`] when the child sent a
+ * terminator (all terms processed), or an error variant on pipe or spec failure.
+ *
+ * Called in a loop (via `COLLECT_FROM_CHILD`) until it returns something other
+ * than [`FGCError::Collected`].
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ */
+enum FGCError FGC_parentHandleTerms(ForkGC *gc);
 
 /**
  * Read a length-prefixed buffer frame from the FGC pipe.

@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
@@ -310,9 +317,8 @@ def test_async_updates_sanity():
                       query_before_update.tobytes())
         env.assertGreater(float(res[2][1]), float(0))
 
-        # Invoke GC, so we clean zombies for which all their repair jobs are done. We run in background
-        # so in case child process is not receiving cpu time, we do not hang the gc thread in the parent process.
-        forceBGInvokeGC(env)
+        # Wait for this cycle so a slow fork cannot accumulate redundant GC requests.
+        forceInvokeGC(env, timeout=0)
 
         # Number of zombies should decrease from one iteration to another.
         env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)

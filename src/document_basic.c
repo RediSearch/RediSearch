@@ -341,6 +341,70 @@ done:
   return rv;
 }
 
+// Use the full loader's field paths, but avoid retrieving values just to check presence.
+static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
+                                                        const FieldSpec *fields, t_fieldIndex start,
+                                                        t_fieldIndex end) {
+  if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  for (t_fieldIndex i = start; i < end; ++i) {
+    int exists = 0;
+    if (RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXISTS,
+                            HiddenString_GetUnsafe(fields[i].fieldPath, NULL), &exists,
+                            NULL) != REDISMODULE_OK) {
+      return DOCUMENT_FIELDS_PROBE_FAILED;
+    }
+    if (exists) {
+      return DOCUMENT_FIELDS_PRESENT;
+    }
+  }
+  return DOCUMENT_FIELDS_ABSENT;
+}
+
+// JSON half of Document_ProbeFieldsPresent. Mirrors the per-field resolution in
+// Document_LoadSchemaFieldJson's field loop: a NULL iterator, or a zero-length result (as can
+// happen after JSON.DEL), means the field is absent.
+static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
+                                                        const FieldSpec *fields, t_fieldIndex start,
+                                                        t_fieldIndex end) {
+  RedisJSON jsonRoot = JSON_GetJsonFromHandleCompat(key);
+  if (!jsonRoot) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  for (t_fieldIndex i = start; i < end; ++i) {
+    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations,
+    // and reuse parsed field paths to avoid parsing the same path for every JSON key.
+    JSONResultsIterator iter =
+        japi->get(jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL));
+    if (!iter) {
+      continue;
+    }
+    size_t len = japi->len(iter);
+    japi->freeIter(iter);
+    if (len > 0) {
+      return DOCUMENT_FIELDS_PRESENT;
+    }
+  }
+  return DOCUMENT_FIELDS_ABSENT;
+}
+
+DocumentFieldsProbeResult Document_ProbeFieldsPresent(const IndexSpec *spec, RedisModuleKey *key,
+                                                      DocumentType type, t_fieldIndex start,
+                                                      t_fieldIndex end) {
+  RS_ASSERT(start <= end && end <= spec->numFields);
+  switch (type) {
+    case DocumentType_Hash:
+      return probeHashFieldsPresent(key, spec->fields, start, end);
+    case DocumentType_Json:
+      return probeJsonFieldsPresent(key, spec->fields, start, end);
+    default:
+      // Disk indexes never reach the selective scan path that calls this probe; any other
+      // type is unexpected here.
+      return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+}
+
 /* used only by unit tests */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
@@ -558,12 +622,17 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
+  // A lazily patched rule field must also reach the spec cache: queries read
+  // the special-field names from the cache snapshot (the rule itself may be
+  // gone by reply time), so a stale cache would leave the patched field
+  // visible in replies.
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     array_append(arguments, globalAddRSstrings[0]);
     array_append(arguments, opts->scoreStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -574,6 +643,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -584,6 +654,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
+      IndexSpec_RefreshSpecCache(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }

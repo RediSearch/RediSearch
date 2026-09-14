@@ -99,6 +99,34 @@ impl<'a> RLookup<'a> {
         );
 
         self.index_spec_cache = spcache;
+
+        // Keys created before the cache was attached could not be checked
+        // against the rule's special fields — mark them now.
+        if let Some(cache) = &self.index_spec_cache {
+            for key in self.keys.iter_mut() {
+                if cache.is_rule_special_field(key.name().as_ref()) {
+                    key.project().header.flags |= RLookupKeyFlag::Hidden;
+                }
+            }
+        }
+    }
+
+    /// [`RLookupKeyFlag::Hidden`] if `name` is one of the schema rule's
+    /// special document fields (language / score / payload) recorded on the
+    /// attached spec cache, empty otherwise. These are control fields: they
+    /// are loaded into rows but never replied. Applied at key creation — by
+    /// reply time no keys are created and the schema rule may already be
+    /// freed, so the reply path must be able to filter by flag alone.
+    fn hidden_if_schema_special(&self, name: &CStr) -> RLookupKeyFlags {
+        if self
+            .index_spec_cache
+            .as_ref()
+            .is_some_and(|cache| cache.is_rule_special_field(name))
+        {
+            RLookupKeyFlag::Hidden.into()
+        } else {
+            RLookupKeyFlags::empty()
+        }
     }
 
     pub fn disable_options(&mut self, options: RLookupOptions) {
@@ -220,6 +248,8 @@ impl<'a> RLookup<'a> {
         if self.options.contains(RLookupOption::AllowUnresolved) {
             let mut key = RLookupKey::new(name, flags);
             key.flags |= RLookupKeyFlag::Unresolved;
+            let special = self.hidden_if_schema_special(key.name().as_ref());
+            key.flags |= special;
 
             let key = self.keys.push(key);
 
@@ -261,6 +291,8 @@ impl<'a> RLookup<'a> {
 
         let mut key = RLookupKey::new(name, flags);
         key.update_from_field_spec(fs);
+        let special = self.hidden_if_schema_special(key.name().as_ref());
+        key.flags |= special;
         Ok(key)
     }
 
@@ -279,6 +311,7 @@ impl<'a> RLookup<'a> {
         flags &= GET_KEY_FLAGS;
 
         let name = name.into();
+        let flags = flags | self.hidden_if_schema_special(&name);
 
         let key = if let Some(c) = self.keys.find_by_name_mut(&name) {
             // A. we found the key in the lookup table:
@@ -312,6 +345,7 @@ impl<'a> RLookup<'a> {
         flags &= GET_KEY_FLAGS;
 
         let name = name.into();
+        let flags = flags | self.hidden_if_schema_special(&name);
 
         // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
         // 2. create a new key with the name of the field, and mark it as doc-source.
@@ -434,7 +468,11 @@ impl<'a> RLookup<'a> {
         // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
         // for every key.
         let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
-            .map(|k| self.keys.push(k))
+            .map(|mut k| {
+                let special = self.hidden_if_schema_special(k.name().as_ref());
+                k.flags |= special;
+                self.keys.push(k)
+            })
             .collect();
 
         let key_name =
@@ -1054,6 +1092,85 @@ mod tests {
         assert!(ptr::addr_eq(old_dst_baz, &raw const *dst_baz));
         // and should still contain all the old flags
         assert!(dst_baz.flags == make_bitflags!(RLookupKeyFlag::{ExplicitReturn | QuerySrc}));
+    }
+
+    /// Keys named after the schema rule's special fields (score, lang, payload)
+    /// are marked [`RLookupKeyFlag::Hidden`] — retroactively when the spec cache
+    /// is attached, and at creation for keys made afterwards — so the reply path
+    /// can filter them by flag alone, without reaching for the schema rule.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn rule_special_fields_hidden_at_creation_and_retroactively() {
+        let mut rlookup = RLookup::new();
+        rlookup
+            .get_key_write(c"a", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup
+            .get_key_write(c"score", RLookupKeyFlags::empty())
+            .unwrap();
+
+        // Without a spec cache recording special fields, nothing is hidden.
+        for name in [c"a", c"score"] {
+            let key = rlookup
+                .keys
+                .find_by_name(name)
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert!(!key.flags.contains(RLookupKeyFlag::Hidden));
+        }
+
+        // Attached after the keys exist: retro-marks `score` as hidden.
+        let spcache = crate::IndexSpecCache::from_fields_and_rule(
+            [],
+            Some(c"lang"),
+            Some(c"score"),
+            Some(c"payload"),
+        );
+        rlookup.set_cache(Some(spcache));
+
+        let score = rlookup
+            .keys
+            .find_by_name(c"score")
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert!(score.flags.contains(RLookupKeyFlag::Hidden));
+        let a = rlookup
+            .keys
+            .find_by_name(c"a")
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert!(!a.flags.contains(RLookupKeyFlag::Hidden));
+
+        // Keys created while the cache is attached are hidden at creation.
+        rlookup
+            .get_key_write(c"lang", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup
+            .get_key_write(c"b", RLookupKeyFlags::empty())
+            .unwrap();
+        rlookup
+            .get_key_write(c"payload", RLookupKeyFlags::empty())
+            .unwrap();
+
+        for (name, hidden) in [(c"lang", true), (c"b", false), (c"payload", true)] {
+            let key = rlookup
+                .keys
+                .find_by_name(name)
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert_eq!(
+                key.flags.contains(RLookupKeyFlag::Hidden),
+                hidden,
+                "key {name:?}"
+            );
+        }
     }
 
     /// Test that the Hidden flag is properly handled when adding keys from one lookup to another.

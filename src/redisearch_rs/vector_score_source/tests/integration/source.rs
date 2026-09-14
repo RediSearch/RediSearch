@@ -16,9 +16,7 @@
 //! neighbours are simply the highest ids — making every expected ordering
 //! trivially predictable.
 
-use std::num::NonZeroUsize;
-
-use std::collections::HashSet;
+use std::{collections::HashSet, num::NonZeroUsize, ptr};
 
 use ffi::{RLookupKey, t_docId};
 use index_result::{RSIndexResult, RSResultKind};
@@ -381,10 +379,16 @@ fn index_size_reflects_added_vectors() {
 
 /// A zero-filled lookup key. The metrics channel only compares the key's
 /// address, so the fields are never read.
-fn make_key() -> RLookupKey {
-    // SAFETY: `RLookupKey` is plain data whose all-zero state (null pointers,
-    // zero indices) is valid and never dereferenced by the metrics code.
-    unsafe { std::mem::zeroed() }
+const fn make_key() -> RLookupKey {
+    RLookupKey {
+        dstidx: 0,
+        svidx: 0,
+        flags: 0,
+        path: ptr::null(),
+        name: ptr::null(),
+        name_len: 0,
+        next: ptr::null_mut(),
+    }
 }
 
 /// The first yield on fresh storage: with no entry yet under the source's

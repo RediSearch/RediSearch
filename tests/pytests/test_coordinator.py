@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 @skip(cluster=False)
@@ -87,6 +94,36 @@ def test_required_fields(env):
     env.expect('ft.search', 'idx', 'hello', 'nocontent', 'SORTBY', 't', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', '$hello'])
     # Field is not in Rlookup, will not load
     env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', None])
+
+@skip(cluster=True)
+def test_required_fields_key_cache(env):
+    """The shard-side `_REQUIRED_FIELDS` key cache: a key resolved on one row is reused on
+    later rows (cache hit), a name unresolvable on early rows resolves once a later
+    document's load creates its key (the NULL retry), and a NULL entry left by one cursor
+    chunk is still retried on later `FT.CURSOR READ` chunks."""
+    env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
+    # doc1 lacks `dyn`; doc2 carries it. Without sorting, reply order is docId
+    # (insertion) order, so doc1 serializes first.
+    env.cmd('HSET', 'doc1', 't', 'hello')
+    env.cmd('HSET', 'doc2', 't', 'hello', 'dyn', 'world')
+
+    # Content loading creates each document's keys just before its row is serialized:
+    # `t` resolves on row 1 and must be served from the cache on row 2, while `dyn` is
+    # unresolvable on row 1 (doc1's load did not create it) and must resolve on row 2.
+    env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't', 'dyn').equal(
+        [2, 'doc1', '$hello', None, ['t', 'hello'],
+            'doc2', '$hello', '$world', ['t', 'hello', 'dyn', 'world']])
+
+    # Same late resolution across cursor chunks: chunk 1 serializes only doc1, leaving
+    # `dyn` unresolved in the cached request; the next chunk's `LOAD *` row creates the
+    # key, and the retained NULL entry must be retried rather than frozen.
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*',
+                          '_REQUIRED_FIELDS', '1', 'dyn', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res, [1, None, ['t', 'hello']], message=res)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    env.assertEqual(res, [1, '$world', ['t', 'hello', 'dyn', 'world']], message=res)
+    if cursor:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
 
 
 def check_info_commandstats(env, cmd):
@@ -471,3 +508,35 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
 
     _set_one_shard_unreachable(env)
     _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')
+
+
+@skip(cluster=False, redis_less_than="8.0.0")
+def test_validation_preserves_connection_round_robin():
+    """Search and iterator preflight must not consume connection-pool turns."""
+    env = Env(moduleArgs='WORKERS 3 SEARCH_IO_THREADS 1 CONN_PER_SHARD 4')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'UNF').ok()
+    shards = [env.getConnection(i) for i in range(env.shardsCount)]
+    with TimeLimit(5, 'Not all pool connections became ready'):
+        while True:
+            states = env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+            if (len(states) == 2 * env.shardsCount
+                    and all(pool == ['Connected'] * 4 for pool in states[1::2])):
+                break
+
+    for command, internal_command in [
+        (['FT.SEARCH', 'idx', '*', 'RETURN', '1', 't'], '_ft.search'),
+        (['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t'], '_ft.aggregate'),
+    ]:
+        # Establish connections and negotiate the protocol before measuring commands.
+        for _ in range(8):
+            env.expect(*command).equal([0])
+        before = [{c['id']: int(c['tot-cmds']) for c in shard.client_list()}
+                  for shard in shards]
+        for _ in range(8):
+            env.expect(*command).equal([0])
+        for shard, baseline in zip(shards, before):
+            clients = shard.client_list()
+            deltas = [int(c['tot-cmds']) - baseline.get(c['id'], 0)
+                      for c in clients if c['cmd'].lower() == internal_command
+                      and int(c['tot-cmds']) > baseline.get(c['id'], 0)]
+            env.assertEqual(sorted(deltas), [2, 2, 2, 2], message=clients)

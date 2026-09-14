@@ -780,7 +780,7 @@ where
     ///
     /// The liveness check is deliberately **not** performed here: it is
     /// leaf-specific (each leaf locates its index differently — `Term` via
-    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missingFieldDict`,
+    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missing.indexes`,
     /// `Wildcard` via `existingDocs`), so it cannot be expressed generically at
     /// this layer. Consequently, resuming the *bare* core iterator directly —
     /// i.e. an [`InvIndIterator`] not wrapped by one of those leaves — after the
@@ -824,10 +824,8 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // The live reader's `unique_docs()` is unavailable once weakened, so we
-        // return the snapshot cached at construction (see `num_docs`). This
-        // matches the active `num_estimated` and keeps FT.PROFILE introspection
-        // of a suspended iterator meaningful.
+        // The live reader's `unique_docs()` is unavailable once weakened, so
+        // return the snapshot cached at construction (see `num_docs`).
         self.num_docs_field() as usize
     }
 }

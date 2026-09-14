@@ -74,8 +74,7 @@ static void LogDisconnectedNodes(IORuntimeCtx *io_runtime_ctx) {
   if (!topo) return;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRClusterNode *node = &topo->shards[i].node;
-    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, node->id);
-    if (!conn) {
+    if (!MRConnManager_HasConnectedConnection(&io_runtime_ctx->conn_mgr, node->id)) {
       const char *state = MRConnManager_GetNodeState(&io_runtime_ctx->conn_mgr, node->id);
       RedisModule_Log(RSDummyContext, "warning",
                       "IORuntime ID %zu: Node %s (%s:%d) not connected (state: %s)",
@@ -99,7 +98,7 @@ static void topologyFailureCB(uv_timer_t *timer) {
 
 static int CheckTopologyConnections(const MRClusterTopology *topo, IORuntimeCtx *ioRuntime) {
   for (size_t i = 0; i < topo->numShards; i++) {
-    if (!MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id)) {
+    if (!MRConnManager_HasConnectedConnection(&ioRuntime->conn_mgr, topo->shards[i].node.id)) {
       return REDIS_ERR;
     }
   }
@@ -380,6 +379,10 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {
   RQ_Done(io_runtime_ctx->queue);
+}
+
+void IORuntimeCtx_RequestStarted(IORuntimeCtx *io_runtime_ctx) {
+  RQ_IncrPending(io_runtime_ctx->queue);
 }
 
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership) {

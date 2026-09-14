@@ -76,7 +76,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && AREQ_TimedOut(areq)) {
+    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -105,7 +105,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Honour a main-thread timeout flag at the row boundary: buffering
      // stages (safe loader, sorter yield) can keep emitting from internal
      // buffers without re-touching upstream's per-row timeout check.
-     if (areq && AREQ_TimedOut(areq)) {
+     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -119,11 +119,11 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
      // Check timeout after aggregation
-     if (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
+     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {

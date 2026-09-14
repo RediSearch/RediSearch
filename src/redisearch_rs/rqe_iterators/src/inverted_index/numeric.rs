@@ -336,7 +336,7 @@ where
         let term_cstr = std::ffi::CString::new(term_str).unwrap();
         map.kv_simple_string(c"Term", &term_cstr);
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+        ctx.print_estimated(map);
     }
 }
 
@@ -728,8 +728,6 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
             Self::Unfiltered(it) => it.print_profile(map, ctx),
             Self::Filtered(it) => it.print_profile(map, ctx),
             Self::Geo(it) => {
-                use crate::RQEIterator as _;
-
                 let se_hash = geo::hash::GeoHashBits {
                     bits: it.range_min() as u64,
                     step: geo::hash::GEO_STEP_MAX,
@@ -753,7 +751,7 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
                 let term_cstr = std::ffi::CString::new(term_str).unwrap();
                 map.kv_simple_string(c"Term", &term_cstr);
                 ctx.print_optional_counters(map);
-                map.kv_long_long(c"Estimated number of matches", it.num_estimated() as i64);
+                ctx.print_estimated(map);
             }
         }
     }

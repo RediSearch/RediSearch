@@ -22,6 +22,7 @@
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/rs_atomic.h"
 #include "util/references.h"
 #include "rules.h"
 #include <pthread.h>
@@ -312,6 +313,17 @@ typedef enum {
   IndexDrop_KeepDocs,
 } IndexDropMode;
 
+// State backing INDEXMISSING fields.
+typedef struct {
+  // Field name -> Index_DocIdsOnly inverted index of the documents lacking
+  // that field.
+  dict *indexes;
+  // Indices into IndexSpec.fields of the INDEXMISSING fields, so indexing a
+  // document need not scan the whole schema. Indices rather than FieldSpec
+  // pointers, because FT.ALTER reallocates IndexSpec.fields.
+  arrayof(t_fieldIndex) fields;
+} IndexSpecMissing;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -342,7 +354,9 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Background indexing failed due to Out Of Memory. Written under the GIL;
+  // read by query workers capturing the warning snapshot — hence atomic.
+  RS_Atomic(bool) scan_failed_OOM;
   // Number of keys the background build had scanned when it aborted on OOM, frozen
   // before the scanner is freed. IndexesScanner_IndexedPercent derives percent_indexed
   // from it (over the current DbSize) while scan_failed_OOM holds, so an OOM-cancelled
@@ -384,8 +398,7 @@ typedef struct IndexSpec {
   // Quick access to the spec's strong ref
   StrongRef own_ref;
 
-  // Contains inverted indexes of missing fields
-  dict *missingFieldDict;
+  IndexSpecMissing missing;
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
@@ -447,6 +460,11 @@ static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
 }
 
+// Whether any field in the schema was declared INDEXMISSING.
+static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
+  return array_len(sp->missing.fields) != 0;
+}
+
 /**
  * This lightweight object contains a COPY of the actual index spec.
  * This makes it safe for other modules to use for information such as
@@ -461,6 +479,13 @@ typedef struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
   size_t refcount;
+  // Owned copies of the schema rule's special document-field names (each may
+  // be NULL). Key creation marks keys with these names as hidden, so reply
+  // serialization needs no access to the schema rule (the rule may already be
+  // freed by reply time; this cache is refcounted and outlives the spec).
+  char *lang_field;
+  char *score_field;
+  char *payload_field;
 } IndexSpecCache;
 
 /**
@@ -480,6 +505,14 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
  * Can handle NULL
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
+
+/**
+ * Replace the spec's cache with a freshly built one, releasing the spec's
+ * reference to the old cache (queries holding their own reference are
+ * unaffected). Call after mutating what the cache carries — the field table
+ * or the schema rule's special-field names. Requires the spec write lock.
+ */
+void IndexSpec_RefreshSpecCache(IndexSpec *sp);
 
 /*
  * Get a field spec by field name. Case insensitive!
@@ -626,8 +659,11 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // callback) so the DocIdMeta update can reuse the handle instead of reopening
 // the key by name; pass NULL otherwise. The caller retains ownership of
 // `openKey` and must keep it valid for the duration of the call.
+// `changedFields` / `numChangedFields` name the fields the originating command
+// modified (NULL / 0 when unknown);
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey);
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -642,7 +678,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 /* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
 extern dictType invIdxDictType;
 
-/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+/* The dictType used for IndexSpec.missing.indexes: HiddenString keys, InvertedIndex* values. */
 extern dictType missingFieldDictType;
 
 /**

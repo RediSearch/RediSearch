@@ -11,6 +11,7 @@
 #include "util/arr.h"
 #include "redismodule.h"
 
+#include <stdint.h>
 #ifndef __cplusplus
 #include <stdbool.h>
 #endif
@@ -35,6 +36,8 @@ typedef struct RedisModule_Reply {
   bool resp3;
   int count;
   arrayof(struct RedisModule_Reply_StackEntry) stack;
+  char *scratch;  // see RedisModule_Reply_PrefixedStringBuffer
+  size_t scratch_cap;
 #ifdef REDISMODULE_REPLY_DEBUG
   arrayof(char) json;
 #endif
@@ -64,6 +67,12 @@ int RedisModule_Reply_Double(RedisModule_Reply *reply, double val);
 int RedisModule_Reply_SimpleString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, size_t len);
+
+/* Emit `prefix` followed by the `n` bytes of `s` as one bulk string (e.g. tag-prefixed
+ * sort keys), without a per-value allocation for typical sizes: small values are assembled
+ * in a bounded reply-owned scratch buffer reused across rows and freed by
+ * RedisModule_EndReply; larger values use an exact-sized temporary freed before returning. */
+int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s, size_t n);
 int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val);
@@ -80,6 +89,13 @@ int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply);
 /* Based on the value type, serialize the value into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);;
+
+struct RLookup;
+struct RLookupRow;
+/* Serialize a row's visible fields as alternating name/value entries, in lookup-key order.
+ * A field is emitted when its key carries all of `requiredFlags`, none of `excludeFlags`,
+ * and the row holds a value for it. The caller owns the enclosing map/array. */
+int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const struct RLookup *lk, const struct RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags, unsigned int apiVersion);
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);
