@@ -1100,6 +1100,139 @@ TEST_F(MetricsDrainTest, drainsWhileNextIsParkedWithoutSharingOutput) {
   SearchResult_Destroy(&next);
 }
 
+// Each path creates its own values from immutable configuration.
+struct VectorDrainSource : ResultProcessor {
+  const RLookupKey *key = nullptr;
+  double nextDistance = 0.5, drainDistance = 0.5;
+  const char *text = nullptr;
+  bool missing = false;
+  int nextStatus = RS_RESULT_OK;
+  RPDrainStatus drainStatus = RP_DRAIN_OK;
+  size_t nextCalls = 0, drainCalls = 0;
+  std::atomic<bool> entered{false}, release{true};
+
+  void fill(SearchResult *res, double distance) const {
+    SearchResult_SetDocId(res, 42);
+    SearchResult_SetScore(res, -1);
+    if (!missing) {
+      RSValue *value =
+          text ? RSValue_NewCopiedString(text, strlen(text)) : RSValue_NewNumber(distance);
+      RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(res), value);
+    }
+  }
+  VectorDrainSource() {
+    *static_cast<ResultProcessor *>(this) = {};
+    Next = [](ResultProcessor *base, SearchResult *res) -> int {
+      auto *self = static_cast<VectorDrainSource *>(base);
+      ++self->nextCalls;
+      self->entered.store(true, std::memory_order_release);
+      while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      if (self->nextStatus == RS_RESULT_OK) self->fill(res, self->nextDistance);
+      return self->nextStatus;
+    };
+    Drain = [](ResultProcessor *base, SearchResult *res) {
+      auto *self = static_cast<VectorDrainSource *>(base);
+      ++self->drainCalls;
+      if (self->drainStatus == RP_DRAIN_OK) self->fill(res, self->drainDistance);
+      return self->drainStatus;
+    };
+  }
+};
+
+class VectorNormalizerDrainTest : public ::testing::Test {
+ protected:
+  RLookup lookup = RLookup_New();
+  const RLookupKey *key = RLookup_GetKey_Write(&lookup, "distance", 0);
+  VectorDrainSource source;
+  ResultProcessor *normalizer = nullptr;
+  SearchResult result = SearchResult_New();
+
+  void SetUp() override {
+    RLookup_Seal(&lookup);
+    source.key = key;
+    create(VectorNorm_L2);
+  }
+  void create(VectorNormFunction function) {
+    if (normalizer) normalizer->Free(normalizer);
+    normalizer = RPVectorNormalizer_New(function, key);
+    normalizer->upstream = &source;
+  }
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    normalizer->Free(normalizer);
+    RLookup_Cleanup(&lookup);
+  }
+  void expectScore(const SearchResult *res, double expected) {
+    EXPECT_DOUBLE_EQ(expected, SearchResult_GetScore(res));
+    const RSValue *value = RLookupRow_Get(key, SearchResult_GetRowData(res));
+    ASSERT_NE(nullptr, value);
+    EXPECT_DOUBLE_EQ(expected, RSValue_Number_Get(value));
+    EXPECT_EQ(42, SearchResult_GetDocId(res));
+  }
+};
+
+TEST_F(VectorNormalizerDrainTest, nextAndDrainUseTheSameFormulas) {
+  const VectorNormFunction functions[] = {VectorNorm_L2, VectorNorm_IP, VectorNorm_Cosine};
+  const double expected[] = {2.0 / 3.0, 0.75, 0.75};
+  for (size_t i = 0; i < 3; ++i) {
+    create(functions[i]);
+    SearchResult next = SearchResult_New();
+    ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &next));
+    ASSERT_EQ(RP_DRAIN_OK, normalizer->Drain(normalizer, &result));
+    expectScore(&next, expected[i]);
+    expectScore(&result, expected[i]);
+    SearchResult_Destroy(&next);
+    SearchResult_Clear(&result);
+  }
+}
+
+TEST_F(VectorNormalizerDrainTest, convertsStringsAndUsesZeroForInvalidOrMissingDistance) {
+  for (const char *input : {"3", "not-a-number", ""}) {
+    source.text = input;
+    source.missing = *input == '\0';
+    ASSERT_EQ(RP_DRAIN_OK, normalizer->Drain(normalizer, &result));
+    expectScore(&result, *input == '3' ? 0.25 : 0);
+    SearchResult_Clear(&result);
+  }
+}
+
+TEST_F(VectorNormalizerDrainTest, forwardsTerminalStatusesWithoutTransforming) {
+  for (auto status : {RP_DRAIN_EOF, RP_DRAIN_ERROR}) {
+    source.drainStatus = status;
+    SearchResult_SetScore(&result, -5);
+    EXPECT_EQ(status, normalizer->Drain(normalizer, &result));
+    EXPECT_EQ(-5, SearchResult_GetScore(&result));
+    EXPECT_EQ(nullptr, RLookupRow_Get(key, SearchResult_GetRowData(&result)));
+  }
+  EXPECT_EQ(0, source.nextCalls);
+  for (int status : {RS_RESULT_EOF, RS_RESULT_ERROR, RS_RESULT_TIMEDOUT, RS_RESULT_PAUSED}) {
+    source.nextStatus = status;
+    EXPECT_EQ(status, normalizer->Next(normalizer, &result));
+    EXPECT_EQ(-5, SearchResult_GetScore(&result));
+  }
+}
+
+TEST_F(VectorNormalizerDrainTest, parkedNextDoesNotBlockOrChangeDrainedScore) {
+  source.nextDistance = 3;
+  source.drainDistance = 7;
+  source.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = normalizer->Next(normalizer, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, normalizer->Drain(normalizer, &result));
+    expectScore(&result, 0.125);
+  }
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  expectScore(&next, 0.25);
+  expectScore(&result, 0.125);
+  SearchResult_Destroy(&next);
+}
+
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
