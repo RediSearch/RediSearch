@@ -1025,7 +1025,71 @@ typedef struct {
   ResultProcessor base;
   uint32_t offset;
   uint32_t remaining;
+  // Drain takes the remaining budget once; late Next completions cannot change it.
+  atomic_bool progressLock;
+  bool draining;
 } RPPager;
+
+static void pagerLock(RPPager *self) {
+  while (atomic_exchange_explicit(&self->progressLock, true, memory_order_acquire)) {
+  }
+}
+
+static void pagerUnlock(RPPager *self) {
+  atomic_store_explicit(&self->progressLock, false, memory_order_release);
+}
+
+static int rppagerNextStrict_Limit(ResultProcessor *base, SearchResult *r) {
+  RPPager *self = (RPPager *)base;
+  pagerLock(self);
+  if (self->draining || !self->remaining) {
+    int rc = self->draining ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    pagerUnlock(self);
+    return rc;
+  }
+  // Include an outstanding Next output in the budget taken by Drain.
+  --self->remaining;
+  pagerUnlock(self);
+
+  int rc = base->upstream->Next(base->upstream, r);
+  if (rc != RS_RESULT_OK) {
+    pagerLock(self);
+    if (!self->draining) ++self->remaining;
+    pagerUnlock(self);
+  }
+  return rc;
+}
+
+static int rppagerNextStrict_Skip(ResultProcessor *base, SearchResult *r) {
+  RPPager *self = (RPPager *)base;
+  pagerLock(self);
+  if (self->draining) {
+    pagerUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
+  uint32_t offset = self->offset;
+  uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
+  pagerUnlock(self);
+
+  uint32_t downstreamLimit = base->parent->resultLimit;
+  base->parent->resultLimit = offset + limit;
+  while (offset) {
+    int rc = base->upstream->Next(base->upstream, r);
+    if (rc != RS_RESULT_OK) return rc;
+    pagerLock(self);
+    bool takenOver = self->draining;
+    // An uncommitted skip may cost Drain an extra row, never expose a pre-OFFSET row.
+    if (!takenOver) --self->offset;
+    pagerUnlock(self);
+    SearchResult_Clear(r);
+    if (takenOver) return RS_RESULT_TIMEDOUT;
+    --offset;
+    --base->parent->resultLimit;
+  }
+  base->parent->resultLimit = downstreamLimit;
+  base->Next = rppagerNextStrict_Limit;
+  return base->Next(base, r);
+}
 
 static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
@@ -1068,6 +1132,33 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   return base->Next(base, r);
 }
 
+static int rppagerNext(ResultProcessor *base, SearchResult *r) {
+  // Only Next changes its own dispatch; Drain never reads this vtable entry.
+  base->Next = base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict ? rppagerNextStrict_Skip
+                                                                         : rppagerNext_Skip;
+  return base->Next(base, r);
+}
+
+static RPDrainStatus rppagerDrain(ResultProcessor *base, SearchResult *r) {
+  RPPager *self = (RPPager *)base;
+  if (!self->draining) {
+    bool concurrent = base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict;
+    if (concurrent) pagerLock(self);
+    self->draining = true;
+    if (concurrent) pagerUnlock(self);
+  }
+  if (!self->remaining) return RP_DRAIN_EOF;
+  while (self->offset) {
+    RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
+    if (rc != RP_DRAIN_OK) return rc;
+    --self->offset;
+    SearchResult_Clear(r);
+  }
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
+  if (rc == RP_DRAIN_OK) --self->remaining;
+  return rc;
+}
+
 static void rppagerFree(ResultProcessor *base) {
   rm_free(base);
 }
@@ -1077,11 +1168,12 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->remaining = limit;
+  atomic_init(&ret->progressLock, false);
 
   ret->base.type = RP_PAGER_LIMITER;
-  ret->base.Next = rppagerNext_Skip;
+  ret->base.Next = rppagerNext;
   ret->base.Free = rppagerFree;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = rppagerDrain;
 
   return &ret->base;
 }
