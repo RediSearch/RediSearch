@@ -3320,6 +3320,11 @@ static int RPCrash_NextInRust(ResultProcessor *base, SearchResult *r) {
   return base->upstream->Next(base->upstream, r);
 }
 
+// Fault injection belongs to Next, not timeout cleanup of retained results.
+static RPDrainStatus RPCrash_Drain(ResultProcessor *base, SearchResult *r) {
+  return base->upstream->Drain(base->upstream, r);
+}
+
 ResultProcessor *RPCrash_New(enum CrashLocation location) {
   RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
   ret->base.Drain = RPDrain_EOF;
@@ -3328,6 +3333,7 @@ ResultProcessor *RPCrash_New(enum CrashLocation location) {
       ret->base.type = RP_CRASH;
       ret->base.Next = RPCrash_Next;
       ret->base.Free = RPCrash_Free;
+      ret->base.Drain = RPCrash_Drain;
       return &ret->base;
     case CRASH_IN_RUST:
       ret->base.type = RP_CRASH_IN_RUST;
