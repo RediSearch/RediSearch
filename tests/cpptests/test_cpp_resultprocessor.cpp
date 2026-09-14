@@ -18,6 +18,7 @@
 #include "spec.h"
 #include "redismock/util.h"
 #include "query_flags.h"
+#include "metrics_ffi.h"
 
 #include <atomic>
 #include <thread>
@@ -860,6 +861,147 @@ TEST(SearchResultComparisonTest, legacyFieldComparatorPreservesFallbackAndErrors
   SearchResult_Destroy(&number);
   SearchResult_Destroy(&text);
   RLookup_Cleanup(&lookup);
+}
+
+// Independent source payloads let a parked Next coexist with upstream Drain.
+struct MetricsDrainSource : ResultProcessor {
+  RSIndexResult *nextIndex = NewVirtualResult(1, RS_FIELDMASK_ALL);
+  RSIndexResult *drainIndex = NewVirtualResult(1, RS_FIELDMASK_ALL);
+  int nextStatus = RS_RESULT_OK;
+  RPDrainStatus drainStatus = RP_DRAIN_OK;
+  size_t nextCalls = 0, drainCalls = 0;
+  std::atomic<bool> entered{false}, release{true};
+
+  MetricsDrainSource() {
+    *static_cast<ResultProcessor *>(this) = {};
+    Next = [](ResultProcessor *base, SearchResult *res) -> int {
+      auto *self = static_cast<MetricsDrainSource *>(base);
+      ++self->nextCalls;
+      self->entered.store(true, std::memory_order_release);
+      while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      if (self->nextStatus == RS_RESULT_OK) {
+        SearchResult_SetBorrowedIndexResult(res, self->nextIndex);
+      }
+      return self->nextStatus;
+    };
+    Drain = [](ResultProcessor *base, SearchResult *res) {
+      auto *self = static_cast<MetricsDrainSource *>(base);
+      ++self->drainCalls;
+      if (self->drainStatus != RP_DRAIN_OK) return self->drainStatus;
+      SearchResult_SetOwnedIndexResult(res, self->drainIndex);
+      self->drainIndex = nullptr;
+      self->drainStatus = RP_DRAIN_EOF;
+      return RP_DRAIN_OK;
+    };
+  }
+  ~MetricsDrainSource() {
+    if (nextIndex) IndexResult_Free(nextIndex);
+    if (drainIndex) IndexResult_Free(drainIndex);
+  }
+};
+
+class MetricsDrainTest : public ::testing::Test {
+ protected:
+  RLookup lookup = RLookup_New();
+  const RLookupKey *key = RLookup_GetKey_Write(&lookup, "metric", RLOOKUP_F_NOFLAGS);
+  const RLookupKey *other = RLookup_GetKey_Write(&lookup, "other", RLOOKUP_F_NOFLAGS);
+  MetricsDrainSource source;
+  ResultProcessor *metrics = RPMetricsLoader_New();
+  SearchResult result = SearchResult_New();
+
+  void SetUp() override {
+    RLookup_Seal(&lookup);
+    // No parent: transforming a row must not access live query bookkeeping.
+    metrics->upstream = &source;
+  }
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    metrics->Free(metrics);
+    RLookup_Cleanup(&lookup);
+  }
+  void expectMetric(SearchResult *res, const RLookupKey *metricKey, double expected) {
+    const RSValue *value = RLookupRow_Get(metricKey, SearchResult_GetRowData(res));
+    ASSERT_NE(nullptr, value);
+    EXPECT_DOUBLE_EQ(expected, RSValue_Number_Get(value));
+  }
+};
+
+TEST_F(MetricsDrainTest, drainMatchesNextAndOwnsOutputValues) {
+  for (auto *index : {source.nextIndex, source.drainIndex}) {
+    ResultMetrics_Add(index, key, 1.25);
+    ResultMetrics_Add(index, other, -2.5);
+    ResultMetrics_Add(index, key, 3.75);
+  }
+  SearchResult next = SearchResult_New();
+  ASSERT_EQ(RS_RESULT_OK, metrics->Next(metrics, &next));
+  ASSERT_EQ(RP_DRAIN_OK, metrics->Drain(metrics, &result));
+  for (auto *res : {&next, &result}) {
+    expectMetric(res, key, 3.75);
+    expectMetric(res, other, -2.5);
+  }
+  EXPECT_NE(RLookupRow_Get(key, SearchResult_GetRowData(&next)),
+            RLookupRow_Get(key, SearchResult_GetRowData(&result)));
+  ResultMetrics_Reset(source.nextIndex);
+  SearchResult_Destroy(&next);
+  expectMetric(&result, key, 3.75);
+  EXPECT_TRUE(SearchResult_GetFlags(&result) & Result_OwnsIndexResult);
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_EOF, metrics->Drain(metrics, &result));
+}
+
+TEST_F(MetricsDrainTest, emptyAndMissingPayloadPreserveTheRow) {
+  for (bool missing : {false, true}) {
+    SearchResult_Clear(&result);
+    if (missing) {
+      // The previous Drain transferred the empty payload to result, now cleared.
+      EXPECT_EQ(nullptr, source.drainIndex);
+      source.drainStatus = RP_DRAIN_OK;
+    }
+    SearchResult_SetDocId(&result, 42);
+    SearchResult_SetScore(&result, 7);
+    RLookup_WriteOwnKey(other, SearchResult_GetRowDataMut(&result), RSValue_NewNumber(9));
+    ASSERT_EQ(RP_DRAIN_OK, metrics->Drain(metrics, &result));
+    EXPECT_EQ(42, SearchResult_GetDocId(&result));
+    EXPECT_EQ(7, SearchResult_GetScore(&result));
+    expectMetric(&result, other, 9);
+    EXPECT_EQ(nullptr, RLookupRow_Get(key, SearchResult_GetRowData(&result)));
+  }
+}
+
+TEST_F(MetricsDrainTest, terminalStatusesDoNotTransformOrCallNext) {
+  for (auto status : {RP_DRAIN_EOF, RP_DRAIN_ERROR}) {
+    source.drainStatus = status;
+    EXPECT_EQ(status, metrics->Drain(metrics, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetIndexResult(&result));
+  }
+  EXPECT_EQ(0, source.nextCalls);
+  EXPECT_EQ(2, source.drainCalls);
+  for (int status : {RS_RESULT_EOF, RS_RESULT_ERROR, RS_RESULT_TIMEDOUT, RS_RESULT_PAUSED}) {
+    source.nextStatus = status;
+    EXPECT_EQ(status, metrics->Next(metrics, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetIndexResult(&result));
+  }
+}
+
+TEST_F(MetricsDrainTest, drainsWhileNextIsParkedWithoutSharingOutput) {
+  ResultMetrics_Add(source.nextIndex, key, 11);
+  ResultMetrics_Add(source.drainIndex, key, 22);
+  source.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = metrics->Next(metrics, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, metrics->Drain(metrics, &result));
+    expectMetric(&result, key, 22);
+  }
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  expectMetric(&next, key, 11);
+  expectMetric(&result, key, 22);
+  SearchResult_Destroy(&next);
 }
 
 struct processor1Ctx : public ResultProcessor {
