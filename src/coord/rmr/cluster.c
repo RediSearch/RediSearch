@@ -68,8 +68,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
   // Pre-fanout connection validation
   if (validateConnections) {
     for (size_t i = 0; i < topo->numShards; i++) {
-      MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
-      if (!conn) {
+      if (!MRConnManager_HasConnectedConnection(&ioRuntime->conn_mgr, topo->shards[i].node.id)) {
         return 0;
       }
     }
