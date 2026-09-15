@@ -449,28 +449,77 @@ def test_hnsw_sq8_reload_without_workers():
 
 
 @skip(cluster=True)
-def test_hnsw_sq8_reload_during_accumulation():
-    """Rebuild a partially trained index, then cross the threshold with new writes."""
-    # Exercise background migration; the workerless case is covered separately.
+def test_hnsw_sq8_default_training_batch():
+    """Accumulate the full default training set, then migrate and query it."""
     env = Env(moduleArgs='WORKERS 2')
-    create_hnsw(env, 'idx', hnsw_params(
-        'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))
     conn = getConnectionByEnv(env)
-    for i in range(3):
-        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
-    conn.execute_command('HSET', 'doc0', 'v', sq8_vector(5))
-    conn.execute_command('DEL', 'doc2')
-
-    for _ in env.reloadingIterator():
-        assert_sq8_storage(env, 2)
-        assert_sq8_documents(env, ['doc0', 'doc1'])
-        env.assertEqual(vector_field_info(env, 'idx')['training_threshold'], 4)
-
-    for i in (2, 3):
-        conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1))
+    create_hnsw(env, 'idx', hnsw_params('FLOAT32', 'COMPRESSION', 'SQ8'))
+    vectors = np.random.default_rng(42).uniform(
+        -0.5, 0.5, (DEFAULT_TRAINING_THRESHOLD, 64)).astype(np.float32)
+    with conn.pipeline(transaction=False) as pipe:
+        for i, vector in enumerate(vectors[:-1]):
+            pipe.hset(f'doc{i}', 'v', vector.tobytes())
+        pipe.execute()
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    assert_sq8_storage(env, 0, 4)
-    assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'])
+    assert_sq8_storage(env, DEFAULT_TRAINING_THRESHOLD - 1)
+
+    def check_queries(count):
+        for i in (0, count // 2, count - 1):
+            result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $q AS dist]',
+                             'PARAMS', 2, 'q', vectors[i].tobytes(),
+                             'RETURN', 1, 'dist', 'DIALECT', 2)
+            env.assertEqual([result[0], *result[1::2]], [1, f'doc{i}'], message=result)
+            env.assertEqual(result[2][0], 'dist', message=result)
+            env.assertTrue(abs(float(result[2][1])) < 0.001, message=result)
+
+    check_queries(DEFAULT_TRAINING_THRESHOLD - 1)
+    conn.execute_command('HSET', f'doc{DEFAULT_TRAINING_THRESHOLD - 1}',
+                         'v', vectors[-1].tobytes())
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    assert_sq8_storage(env, 0, DEFAULT_TRAINING_THRESHOLD)
+    check_queries(DEFAULT_TRAINING_THRESHOLD)
+
+
+@skip(cluster=True)
+def test_hnsw_sq8_reload_during_accumulation():
+    """Check L2 scores after training-set mutations, with and without rebuilding the sums."""
+    env = Env(moduleArgs='WORKERS 2')
+    conn = getConnectionByEnv(env)
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        for reload_before_training in (False, True):
+            create_hnsw(env, 'idx', hnsw_params(
+                data_type, 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))
+            for i in range(3):
+                conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1, data_type))
+            conn.execute_command('HSET', 'doc0', 'v', sq8_vector(5, data_type))
+            conn.execute_command('DEL', 'doc2')
+
+            def check_scores(expected):
+                result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 4 @v $q AS dist]',
+                                 'PARAMS', 2, 'q', sq8_vector(1, data_type),
+                                 'SORTBY', 'dist', 'RETURN', 1, 'dist', 'DIALECT', 2)
+                env.assertEqual([result[0], *result[1::2]],
+                                [len(expected), *expected], message=result)
+                for key, fields in zip(result[1::2], result[2::2]):
+                    env.assertEqual(fields[0], 'dist', message=result)
+                    env.assertTrue(np.isclose(float(fields[1]), expected[key],
+                                               rtol=0.02, atol=0.02),
+                                   message=(data_type, reload_before_training, result))
+
+            assert_sq8_storage(env, 2)
+            check_scores({'doc1': 1, 'doc0': 16})
+            if reload_before_training:
+                env.dumpAndReload()
+                assert_sq8_storage(env, 2)
+                check_scores({'doc1': 1, 'doc0': 16})
+                env.assertEqual(vector_field_info(env, 'idx')['training_threshold'], 4)
+
+            for i in (2, 3):
+                conn.execute_command('HSET', f'doc{i}', 'v', sq8_vector(i + 1, data_type))
+            env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+            assert_sq8_storage(env, 0, 4)
+            check_scores({'doc1': 1, 'doc2': 4, 'doc3': 9, 'doc0': 16})
+            env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
 
 
 @skip(cluster=True)
