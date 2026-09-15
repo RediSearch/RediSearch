@@ -175,15 +175,15 @@ def test_restore_schema(env: Env):
     # Test restore failures
     # env.expect('_FT._RESTOREIFNX').error().contains('wrong number of arguments') # TODO: Uncomment when redis issue is fixed
     env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('wrong number of arguments')
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'Too', 'many', 'arguments').error().contains('wrong number of arguments')
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'Ten', 'blob').error().contains('Invalid encoding version')
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA', '42', 'blob').error().contains('Failed to deserialize schema')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'idx', 'Too', 'many', 'arguments').error().contains('wrong number of arguments')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'missing', 'Ten', 'blob').error().contains('Invalid encoding version')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'missing', '42', 'blob').error().contains('Failed to deserialize schema')
 
     # dump the index
     dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
 
     # Test that we manage to call restore while the index exists
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'idx', encode, dump).ok()
     env.assertEqual(env.cmd('FT._LIST'), ['idx'], message="Expected only one index after restoring existing index")
 
     # drop the index
@@ -191,7 +191,7 @@ def test_restore_schema(env: Env):
     env.assertEqual(env.cmd('FT._LIST'), [], message="Expected no indexes after dropping the index")
 
     # restore the index
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'idx', encode, dump).ok()
     env.assertEqual(env.cmd('FT._LIST'), ['idx'], message="Expected one index after restoring the index")
 
     # Test that the restored index works as expected, and that the schema is as expected

@@ -79,15 +79,16 @@ TEST_F(ClusterTest, SchemaPropagation) {
     ASSERT_EQ(specs.size(), propagated_commands.size());
     ASSERT_EQ(specs.size(), Indexes_Count());
 
-    // Expected commands: _FT._RESTOREIFNX SCHEMA <encode version> <serialized schema>
-    // We will check that the serialized schema matches what we expect
+    // Expected commands:
+    // _FT._RESTOREIFNX SCHEMA <index name> <encode version> <serialized schema>
     for (auto &cmd : propagated_commands) {
-        ASSERT_EQ(cmd.size(), 4);
+        ASSERT_EQ(cmd.size(), 5);
         ASSERT_EQ(cmd[0], "_FT._RESTOREIFNX");
         ASSERT_EQ(cmd[1], "SCHEMA");
-        int encver = std::stoi(cmd[2]);
+        ASSERT_TRUE(cmd[2] == "idx1" || cmd[2] == "idx2");
+        int encver = std::stoi(cmd[3]);
         ASSERT_EQ(encver, INDEX_CURRENT_VERSION);
-        ASSERT_TRUE(serialized_specs.find(cmd[3]) != serialized_specs.end()) << "Serialized schema not found: " << cmd[3];
+        ASSERT_TRUE(serialized_specs.find(cmd[4]) != serialized_specs.end()) << "Serialized schema not found: " << cmd[4];
     }
 }
 
