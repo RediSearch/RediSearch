@@ -155,10 +155,10 @@ pub trait DocumentFormat {
     ///
     /// This is an alternative to `open` + per-field `load_field`, used when
     /// the caller needs every field (e.g. `FT.SEARCH` with no `RETURN`).
-    /// Needs `&mut RLookup` because it may create new keys on the fly.
+    /// New keys are published through the lookup's append-only runtime API.
     fn load_all(
         &self,
-        rlookup: &mut RLookup,
+        rlookup: &RLookup,
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError>;
@@ -229,11 +229,9 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     ///
     /// `Self::force_load` has **no effect** on this method, all keys are always loaded anyways.
     ///
-    /// Unlike [`Self::load_specific`], this needs `&mut RLookup` because it may create new keys on
-    /// the fly. It is taken here rather than held by the loader so the per-field
-    /// [`Self::load_specific`] path never carries a mutable borrow that could alias caller-supplied
-    /// key references.
-    pub fn load_all(self, rlookup: &mut RLookup) -> Result<(), LoadAllError> {
+    /// Runtime keys are appended without mutating existing keys, so lookup readers and
+    /// caller-supplied key references may remain active during loading.
+    pub fn load_all(self, rlookup: &RLookup) -> Result<(), LoadAllError> {
         self.format
             .load_all(rlookup, self.dst_row, &self.dmd.key_name(Some(self.ctx)))
     }
@@ -361,7 +359,7 @@ mod tests {
 
         fn load_all(
             &self,
-            _rlookup: &mut RLookup,
+            _rlookup: &RLookup,
             _dst_row: &mut RLookupRow,
             _key_name: &RedisString,
         ) -> Result<(), LoadAllError> {
