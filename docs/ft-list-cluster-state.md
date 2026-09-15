@@ -62,8 +62,8 @@ example of string statuses and schema-mismatch attribution.
 
 Missing-index diagnostics require a usable report from the shard. A shard that
 does not answer is not evidence that the index is absent there. Rejections,
-incompatible fingerprint versions or `rdbcompression` settings, and failures to
-compute fingerprints produce uncertainty. Proven inconsistency remains visible
+incompatible fingerprint recipes or encoding versions, and null fingerprints from
+older peers produce uncertainty. Proven inconsistency remains visible
 even when other shards could not be assessed.
 
 Fingerprints are compared only among shards using the same fingerprint recipe and
@@ -104,18 +104,18 @@ command list.
 
 ### Fingerprint implementation
 
-The fingerprint hashes a schema-only RDB serialization. A dedicated module type
-provides the save callback required by `SaveDataTypeToString`; it is never stored
-as a Redis key. The ordinary index type cannot substitute for it because that
-serializer also includes the index name, aliases, and data-dependent state.
-Removing this type would require a separate schema encoder or a Redis API that
-accepts a save callback directly.
+The fingerprint streams schema values directly into SHA-1 and returns its leading
+64 bits. It does not register a module type, invoke RDB save callbacks, or build a
+temporary serialization. Numbers use a fixed byte order and strings have explicit
+boundaries; pointers, struct padding, and live index state are never hashed.
+Stopwords use sorted traversal and synonym membership hashes are order-independent.
 
-RDB **compression**, rather than compaction, matters because the same schema can
-produce different serialized bytes when `rdbcompression` differs. Its setting is
-therefore part of the comparison recipe. If the config helper cannot read it,
-the payload uses null fingerprints to avoid claiming equality under an unknown
-recipe. The node ID may be empty in standalone mode or before topology arrives.
+Recipe `4` identifies this direct hash; earlier recipes `2` and `3` hashed RDB
+bytes. Both use the same internal payload shape, so mixed recipes produce
+uncertainty rather than a false schema mismatch. Current producers always return
+an integer fingerprint, while the reducer still accepts older null fingerprints.
+`rdbcompression` no longer affects fingerprints or comparability. The node ID may
+be empty in standalone mode or before topology arrives.
 
 The coordinator owns the target-node snapshot in the list command's private
 request data. A generic callback captures it on the IO thread immediately before

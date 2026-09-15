@@ -109,10 +109,8 @@ void Indexes_ForEachSpec(IndexesSpecVisitor visit, void *ud);
 void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 
 // Replies with this shard's internal _FT._LIST WITHCLUSTERSTATE payload. node_id may be NULL when
-// unknown. With comparable false, every fingerprint is reported nil: the shard cannot show
-// its schemas are comparable, so they must not be compared.
-void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id,
-                                          long long recipe, bool comparable);
+// unknown. Fingerprints are compared only within matching recipe/version groups.
+void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id);
 
 // Collect the specs whose schema rules match `key` (of document `type`) into a
 // freshly allocated SpecOpIndexingCtx. `runFilters` controls whether FILTER

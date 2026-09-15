@@ -81,7 +81,6 @@
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
-static RedisModuleType *SchemaFingerprintType;
 
 // Maximum number of indexes that can be created.
 // Can be modified via FT.DEBUG for testing.
@@ -3126,7 +3125,7 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
 }
 
 // A new top-level schema-defining member saved here must be mirrored in
-// SchemaFingerprint_RdbSave.
+// schemaFingerprint.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3531,54 +3530,6 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   IndexSpec_RdbSave(rdb, value, contextFlags);
 }
 
-// Mirrors IndexSpec_RdbSave's top-level sequence over the schema-defining subset
-// only, reusing the per-substructure savers so new parameters flow in on their own.
-static void SchemaFingerprint_RdbSave(RedisModuleIO *rdb, void *value) {
-  const IndexSpec *sp = value;
-  RedisModule_SaveUnsigned(rdb, SCHEMA_FINGERPRINT_FORMAT_VERSION);
-  RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
-  RedisModule_SaveUnsigned(rdb, sp->numFields);
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], 0 /* contextFlags: no SST/disk state */, false);
-  }
-  SchemaRule_RdbSave(sp->rule, rdb);
-  if (sp->flags & Index_HasCustomStopwords) {
-    StopWordList_RdbSave(rdb, sp->stopwords);
-  }
-  if (sp->flags & Index_HasSmap) {
-    // Hashed, not saved: the synonym RDB stream follows per-process dict order.
-    RedisModule_SaveUnsigned(rdb, SynonymMap_Fingerprint(sp->smap));
-  }
-  RedisModule_SaveUnsigned(rdb, (uint64_t)sp->timeout);
-}
-
-static void *SchemaFingerprint_RdbLoad(RedisModuleIO *rdb, int encver) {
-  (void)rdb;
-  (void)encver;
-  return NULL;
-}
-
-static void SchemaFingerprint_Free(void *value) {
-  (void)value;
-}
-
-int IndexSpec_RegisterSchemaFingerprintType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {
-      .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .rdb_save = SchemaFingerprint_RdbSave,
-      .rdb_load = SchemaFingerprint_RdbLoad,
-      .free = SchemaFingerprint_Free,
-      .aof_rewrite = GenericAofRewrite_DisabledHandler,
-  };
-  SchemaFingerprintType =
-      RedisModule_CreateDataType(ctx, "ft_schfp0", SCHEMA_FINGERPRINT_FORMAT_VERSION, &tm);
-  if (SchemaFingerprintType == NULL) {
-    RedisModule_Log(ctx, "warning", "Could not create schema fingerprint type");
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
-
 const char *IndexSpec_GetClusterStateName(const IndexSpec *sp, size_t *len) {
   const char *name = HiddenString_GetUnsafe(sp->specName, len);
   // Existing FT._LIST replies stop at the first NUL. Retain that contract while
@@ -3590,20 +3541,133 @@ const char *IndexSpec_GetClusterStateName(const IndexSpec *sp, size_t *len) {
   return name;
 }
 
-bool IndexSpec_SchemaFingerprint(const IndexSpec *sp, uint64_t *out) {
-  RedisModuleString *repr =
-      RedisModule_SaveDataTypeToString(NULL, (IndexSpec *)sp, SchemaFingerprintType);
-  RS_ASSERT(repr != NULL);
-  if (!repr) {
-    return false;
+static void fingerprintHiddenString(Sha1Context *hash, const HiddenString *value) {
+  Sha1_UpdateU64(hash, value != NULL);
+  if (value) {
+    size_t len;
+    const char *bytes = HiddenString_GetUnsafe(value, &len);
+    Sha1_UpdateBuffer(hash, bytes, len);
   }
-  size_t len;
-  const char *data = RedisModule_StringPtrLen(repr, &len);
-  Sha1 sha;
-  Sha1_Compute(data, len, &sha);
-  RedisModule_FreeString(NULL, repr);
-  *out = Sha1_LeadingU64(&sha);
-  return true;
+}
+
+static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *params) {
+  Sha1_UpdateU64(hash, params->algo);
+  switch (params->algo) {
+    case VecSimAlgo_BF: {
+      const BFParams *p = &params->algoParams.bfParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      break;
+    }
+    case VecSimAlgo_TIERED: {
+      const TieredIndexParams *p = &params->algoParams.tieredParams;
+      RS_ASSERT(p->primaryIndexParams);
+      if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+      } else {
+        RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
+        Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
+      }
+      fingerprintVectorParams(hash, p->primaryIndexParams);
+      break;
+    }
+    case VecSimAlgo_HNSWLIB: {
+      const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->M);
+      Sha1_UpdateU64(hash, p->efConstruction);
+      Sha1_UpdateU64(hash, p->efRuntime);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+    case VecSimAlgo_SVS: {
+      const SVSParams *p = &params->algoParams.svsParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->quantBits);
+      Sha1_UpdateU64(hash, p->graph_max_degree);
+      Sha1_UpdateU64(hash, p->construction_window_size);
+      Sha1_UpdateU64(hash, p->leanvec_dim);
+      Sha1_UpdateU64(hash, p->search_window_size);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+  }
+}
+
+static void fingerprintField(Sha1Context *hash, const FieldSpec *field) {
+  fingerprintHiddenString(hash, field->fieldName);
+  fingerprintHiddenString(hash, field->fieldPath);
+  Sha1_UpdateU64(hash, field->types);
+  Sha1_UpdateU64(hash, field->options);
+  Sha1_UpdateU64(hash, (uint64_t)(int64_t)field->sortIdx);
+  if (FIELD_IS(field, INDEXFLD_T_FULLTEXT) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->ftId);
+    Sha1_UpdateDouble(hash, field->ftWeight);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_TAG) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->tagOpts.tagFlags);
+    Sha1_UpdateU64(hash, (unsigned char)field->tagOpts.tagSep);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
+    Sha1_UpdateU64(hash, field->vectorOpts.expBlobSize);
+    fingerprintVectorParams(hash, &field->vectorOpts.vecSimParams);
+    if (field->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo ==
+            VecSimAlgo_HNSWLIB) {
+      Sha1_UpdateU64(hash, field->vectorOpts.diskCtx.rerank);
+    }
+  }
+  if (FIELD_IS(field, INDEXFLD_T_GEOMETRY) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->geometryOpts.geometryCoords);
+  }
+}
+
+static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
+  Sha1_UpdateU64(hash, rule->type);
+  Sha1_UpdateU64(hash, array_len(rule->prefixes));
+  for (uint32_t i = 0; i < array_len(rule->prefixes); ++i) {
+    size_t len;
+    const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], &len);
+    Sha1_UpdateBuffer(hash, prefix, len);
+  }
+  fingerprintHiddenString(hash, rule->filter_exp_str);
+  Sha1_UpdateCString(hash, rule->lang_field);
+  Sha1_UpdateCString(hash, rule->score_field);
+  Sha1_UpdateCString(hash, rule->payload_field);
+  Sha1_UpdateDouble(hash, rule->score_default);
+  Sha1_UpdateU64(hash, rule->lang_default);
+  Sha1_UpdateU64(hash, rule->index_all);
+}
+
+// Hash values individually: raw structs contain padding, pointers, and live index state.
+static void schemaFingerprint(Sha1Context *hash, const void *value) {
+  const IndexSpec *sp = value;
+  Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_FORMAT_VERSION);
+  Sha1_UpdateU64(hash, sp->flags);
+  Sha1_UpdateU64(hash, sp->numFields);
+  for (int i = 0; i < sp->numFields; ++i) {
+    fingerprintField(hash, &sp->fields[i]);
+  }
+  fingerprintRule(hash, sp->rule);
+  if (sp->flags & Index_HasCustomStopwords) {
+    Sha1_UpdateU64(hash, StopWordList_Fingerprint(sp->stopwords));
+  }
+  if (sp->flags & Index_HasSmap) {
+    Sha1_UpdateU64(hash, SynonymMap_Fingerprint(sp->smap));
+  }
+  Sha1_UpdateU64(hash, sp->timeout);
+}
+
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp) {
+  return Sha1_ComputeValue(schemaFingerprint, sp);
 }
 
 /**

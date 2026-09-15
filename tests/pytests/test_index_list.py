@@ -211,11 +211,9 @@ def test_internal_payload_reports_this_shards_schemas(env):
     env.assertEqual(len(set(node_ids)), env.shardsCount)
     env.assertEqual([p[0] for p in payloads], node_ids)
 
-    # The gates - fingerprint recipe and index encoding version - agree here, and the
-    # recipe carries the shard's own rdbcompression setting.
-    env.assertEqual(len(set((p[1], p[2]) for p in payloads)), 1)
-    compression = to_dict(conns[0].execute_command('CONFIG', 'GET', 'rdbcompression'))
-    env.assertEqual(payloads[0][1] % 2, 1 if compression['rdbcompression'] == 'yes' else 0)
+    # Recipe 4 hashes schema values directly; recipes 2/3 hashed RDB bytes.
+    env.assertEqual([p[1] for p in payloads], [4] * env.shardsCount)
+    env.assertEqual(len(set(p[2] for p in payloads)), 1)
 
     fps = [dict(p[3]) for p in payloads]
     # Equal schemas must hash equal across processes, and unequal ones apart.
@@ -332,43 +330,46 @@ def test_divergence_is_proven_within_a_gate_group(env):
     shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
-    # Put the last shard in a gate group of its own. The other two still agree with each
-    # other, and their schemas differ, so that divergence stays provable.
-    con = env.getConnection(env.shardsCount)
-    prior = to_dict(con.execute_command('CONFIG', 'GET', 'rdbcompression'))['rdbcompression']
-    con.execute_command('CONFIG', 'SET', 'rdbcompression',
-                        'no' if prior == 'yes' else 'yes')
+    # Emulate an older RDB-fingerprint peer without changing the current recipe.
+    if env.useTLS:
+        env.skip()
+    node_id, _, version, entries = internal_payload(env, env.shardsCount)
+    fingerprint = dict(entries)['idx']
+    response = (f'*4\r\n${len(node_id)}\r\n{node_id}\r\n'
+                f':2\r\n:{version}\r\n*1\r\n*2\r\n$3\r\nidx\r\n:{fingerprint}\r\n').encode()
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
     try:
-        status = cluster_state(env)['idx']['status']
-        env.assertEqual(set(status.keys()), {'warning'})
-        env.assertEqual(status['warning'],
+        with rejecting_shard(env, env.shardsCount, response):
+            expected = {'warning':
                         INCONSISTENT + ': the shards that have it hold 2 different'
                         ' schemas. Drop the index and recreate it so that all shards'
                         ' agree. The rest of the picture cannot be determined: shards'
-                        ' are running incompatible versions or configurations.')
+                        ' are running incompatible versions or configurations.'}
+
+            def has_old_recipe():
+                status = cluster_state(env)['idx']['status']
+                return status == expected, status
+
+            wait_for_condition(has_old_recipe, 'coordinator did not receive the older recipe')
+            env.assertEqual(cluster_state(env)['idx']['status'], expected)
     finally:
-        con.execute_command('CONFIG', 'SET', 'rdbcompression', prior)
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
 
 
 @skip(cluster=False)
 @env_spec(shardsCount=3)
-def test_rdbcompression_skew_reads_as_undetermined(env):
-    """Shards that disagree on rdbcompression cannot have their fingerprints compared,
-    and must read as undetermined rather than as a schema mismatch."""
+def test_rdbcompression_does_not_affect_fingerprints(env):
+    """Equal schemas remain comparable with different persistence compression settings."""
     shard_node_ids(env)
-    # The long field name is incidental: what makes the shards incomparable is the gate
-    # itself, not a proven difference in the bytes the fingerprint is taken over.
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                'a_field_name_well_over_twenty_bytes_long', 'TEXT').ok()
-
+    before = [local_fingerprint(env, 'idx', i) for i in range(1, env.shardsCount + 1)]
     con = env.getConnection(env.shardsCount)
     prior = to_dict(con.execute_command('CONFIG', 'GET', 'rdbcompression'))['rdbcompression']
-    con.execute_command('CONFIG', 'SET', 'rdbcompression', 'no')
+    con.execute_command('CONFIG', 'SET', 'rdbcompression', 'no' if prior == 'yes' else 'yes')
     try:
-        status = cluster_state(env)['idx']['status']
-        env.assertEqual(set(status.keys()), {'warning'})
-        env.assertEqual(status['warning'], INCONSISTENT + ' cannot be determined: shards are'
-                        ' running incompatible versions or configurations.')
+        env.assertEqual([local_fingerprint(env, 'idx', i) for i in range(1, env.shardsCount + 1)], before)
+        env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': 'ok'}})
     finally:
         con.execute_command('CONFIG', 'SET', 'rdbcompression', prior)
 

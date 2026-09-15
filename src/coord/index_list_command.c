@@ -22,8 +22,6 @@
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "util/dict/dict.h"
-#include "config.h"
-#include "rmutil/strings.h"
 #include "util/arr/arr.h"
 
 #define FT_LIST_CS_KEY_INDEX "index"
@@ -70,18 +68,9 @@ struct MRCtx *IndexList_CreateRequest(RedisModuleCtx *ctx, int replyCap) {
 }
 
 int IndexList_ReplyLocalPayload(RedisModuleCtx *ctx) {
-  // A failed read cannot safely choose a default: that could label different
-  // serialization recipes as comparable.
-  RedisModuleString *setting = getRedisConfigValue(ctx, "rdbcompression");
-  const bool comparable = setting != NULL;
-  const bool compression = setting && RMUtil_StringEqualsCaseC(setting, "yes");
-  if (setting) {
-    RedisModule_FreeString(ctx, setting);
-  }
   char *nodeId = MR_DuplicateLocalNodeId();
   RedisModule_Reply reply = RedisModule_NewReply(ctx);
-  Indexes_ReplyWithClusterStatePayload(&reply, nodeId, SchemaFingerprint_Recipe(compression),
-                                       comparable);
+  Indexes_ReplyWithClusterStatePayload(&reply, nodeId);
   rm_free(nodeId);
   return REDISMODULE_OK;
 }

@@ -1032,24 +1032,13 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
   RedisModule_EndReply(reply);
 }
 
-typedef struct {
-  RedisModule_Reply *reply;
-  bool comparable;
-} FingerprintReplyCtx;
-
 static void replySpecNameAndFingerprint(IndexSpec *sp, void *ud) {
-  const FingerprintReplyCtx *ctx = ud;
-  RedisModule_Reply *reply = ctx->reply;
+  RedisModule_Reply *reply = ud;
   RedisModule_Reply_Array(reply);
   size_t nameLen;
   const char *specName = IndexSpec_GetClusterStateName(sp, &nameLen);
   RedisModule_Reply_StringBuffer(reply, specName, nameLen);
-  uint64_t fingerprint;
-  if (ctx->comparable && IndexSpec_SchemaFingerprint(sp, &fingerprint)) {
-    RedisModule_Reply_LongLong(reply, (long long)fingerprint);
-  } else {
-    RedisModule_Reply_Null(reply);
-  }
+  RedisModule_Reply_LongLong(reply, (long long)IndexSpec_SchemaFingerprint(sp));
   RedisModule_Reply_ArrayEnd(reply);
 }
 
@@ -1057,20 +1046,18 @@ static void replySpecNameAndFingerprint(IndexSpec *sp, void *ud) {
 // reducer in index_list_command.c decodes it, so the two must change together.
 //   [node_id, fingerprint recipe, index encoding version,
 //    [[index name, fingerprint or nil], ...]]
-// node_id is empty when the shard's identity is unknown; a nil fingerprint means
-// the index is present but its schema is not comparable.
-void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id,
-                                          long long recipe, bool comparable) {
+// node_id is empty when the shard's identity is unknown. Older recipes may emit
+// nil fingerprints; this producer always emits an integer.
+void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id) {
   RedisModule_Reply_Array(reply);
 
   RedisModule_Reply_SimpleString(reply, node_id ? node_id : "");
 
-  RedisModule_Reply_LongLong(reply, recipe);
+  RedisModule_Reply_LongLong(reply, SCHEMA_FINGERPRINT_RECIPE);
   RedisModule_Reply_LongLong(reply, INDEX_CURRENT_VERSION);
 
-  FingerprintReplyCtx ctx = {.reply = reply, .comparable = comparable};
   RedisModule_Reply_Array(reply);
-  Indexes_ForEachSpec(replySpecNameAndFingerprint, &ctx);
+  Indexes_ForEachSpec(replySpecNameAndFingerprint, reply);
   RedisModule_Reply_ArrayEnd(reply);
 
   RedisModule_Reply_ArrayEnd(reply);

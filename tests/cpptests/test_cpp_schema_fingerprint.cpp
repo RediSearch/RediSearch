@@ -11,6 +11,7 @@
 #include "common.h"
 #include "indexes.h"
 #include "synonym_map.h"
+#include "util/hash/hash.h"
 
 #include <initializer_list>
 #include <vector>
@@ -44,8 +45,7 @@ class SchemaFingerprintTest : public ::testing::Test {
       ADD_FAILURE() << "no spec to fingerprint";
       return out;
     }
-    EXPECT_TRUE(IndexSpec_SchemaFingerprint(sp, &out));
-    return out;
+    return IndexSpec_SchemaFingerprint(sp);
   }
 
   std::vector<StrongRef> specs;
@@ -108,4 +108,98 @@ TEST_F(SchemaFingerprintTest, DataDependentStateDoesNotAffectFingerprint) {
   sp->scan_in_progress = true;
   sp->stats.termsSize += 42;
   ASSERT_EQ(before, fp(sp));
+}
+
+TEST_F(SchemaFingerprintTest, DoesNotUseRdbSerialization) {
+  IndexSpec *sp = parse("idx_direct", {"SCHEMA", "t", "TEXT"});
+  ASSERT_NE(sp, nullptr);
+  const uint64_t before = fp(sp);
+  const auto save = RedisModule_SaveDataTypeToString;
+  RedisModule_SaveDataTypeToString = nullptr;
+  const uint64_t direct = IndexSpec_SchemaFingerprint(sp);
+  RedisModule_SaveDataTypeToString = save;
+  ASSERT_EQ(before, direct);
+}
+
+TEST_F(SchemaFingerprintTest, VectorConfigurationIsHashedWithoutRuntimeState) {
+  IndexSpec *a = parse("idx_vec_a", {"SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM",
+                                     "8", "DISTANCE_METRIC", "L2"});
+  IndexSpec *b = parse("idx_vec_b", {"SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM",
+                                     "8", "DISTANCE_METRIC", "L2"});
+  ASSERT_NE(a, nullptr);
+  ASSERT_NE(b, nullptr);
+  ASSERT_EQ(fp(a), fp(b));
+  auto &params = b->fields[0].vectorOpts.vecSimParams.algoParams.tieredParams;
+  auto &hnsw = params.primaryIndexParams->algoParams.hnswParams;
+  const uint64_t baseline = fp(a);
+  hnsw.M++;
+  ASSERT_NE(baseline, fp(b));
+  hnsw.M--;
+  hnsw.efConstruction++;
+  ASSERT_NE(baseline, fp(b));
+  hnsw.efConstruction--;
+  hnsw.efRuntime++;
+  ASSERT_NE(baseline, fp(b));
+  hnsw.efRuntime--;
+  const double epsilon = hnsw.epsilon;
+  hnsw.epsilon += 0.1;
+  ASSERT_NE(baseline, fp(b));
+  hnsw.epsilon = epsilon;
+  params.specificParams.tieredHnswParams.swapJobThreshold++;
+  ASSERT_NE(baseline, fp(b));
+}
+
+TEST_F(SchemaFingerprintTest, TagGeometryAndRulesAffectFingerprint) {
+  const uint64_t tag = fp(parse("idx_tag", {"SCHEMA", "t", "TAG"}));
+  ASSERT_NE(tag, fp(parse("idx_sep", {"SCHEMA", "t", "TAG", "SEPARATOR", ";"})));
+  ASSERT_NE(tag, fp(parse("idx_case", {"SCHEMA", "t", "TAG", "CASESENSITIVE"})));
+  const uint64_t text = fp(parse("idx_text", {"SCHEMA", "t", "TEXT"}));
+  ASSERT_NE(text, fp(parse("idx_score", {"SCORE", "0.5", "SCHEMA", "t", "TEXT"})));
+  ASSERT_NE(text, fp(parse("idx_lang", {"LANGUAGE", "french", "SCHEMA", "t", "TEXT"})));
+  ASSERT_NE(text, fp(parse("idx_score_field", {"SCORE_FIELD", "rank", "SCHEMA", "t", "TEXT"})));
+  ASSERT_NE(text, fp(parse("idx_lang_field", {"LANGUAGE_FIELD", "lang", "SCHEMA", "t", "TEXT"})));
+  ASSERT_NE(text, fp(parse("idx_payload", {"PAYLOAD_FIELD", "payload", "SCHEMA", "t", "TEXT"})));
+  ASSERT_NE(fp(parse("idx_geo1", {"SCHEMA", "shape", "GEOSHAPE", "FLAT"})),
+            fp(parse("idx_geo2", {"SCHEMA", "shape", "GEOSHAPE", "SPHERICAL"})));
+}
+
+TEST(SchemaHashEncoding, UsesBigEndianNumbersAndStringBoundaries) {
+  const auto visit = [](Sha1Context *hash, const void *) {
+    Sha1_UpdateU64(hash, 0x0102030405060708ULL);
+    Sha1_UpdateBuffer(hash, "ab", 2);
+    Sha1_UpdateDouble(hash, 1.0);
+  };
+  const unsigned char expected[] = {1, 2, 3, 4,   5,   6,    7,    8, 0, 0, 0, 0, 0,
+                                    0, 0, 2, 'a', 'b', 0x3f, 0xf0, 0, 0, 0, 0, 0, 0};
+  Sha1 sha;
+  Sha1_Compute(reinterpret_cast<const char *>(expected), sizeof(expected), &sha);
+  ASSERT_EQ(Sha1_ComputeValue(visit, nullptr), Sha1_LeadingU64(&sha));
+  const auto strings = [](Sha1Context *hash, const void *value) {
+    Sha1_UpdateCString(hash, static_cast<const char *>(value));
+  };
+  ASSERT_NE(Sha1_ComputeValue(strings, nullptr), Sha1_ComputeValue(strings, ""));
+}
+
+TEST_F(SchemaFingerprintTest, FlatAndSvsVectorDefinitionsAreCovered) {
+  IndexSpec *flat = parse("idx_flat", {"SCHEMA", "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                                       "DIM", "8", "DISTANCE_METRIC", "L2"});
+  ASSERT_NE(flat, nullptr);
+  const uint64_t flatBefore = fp(flat);
+  flat->fields[0].vectorOpts.vecSimParams.algoParams.bfParams.metric = VecSimMetric_IP;
+  ASSERT_NE(flatBefore, fp(flat));
+
+  IndexSpec *svs = parse("idx_svs", {"SCHEMA", "v", "VECTOR", "SVS-VAMANA", "6", "TYPE", "FLOAT32",
+                                     "DIM", "8", "DISTANCE_METRIC", "L2"});
+  ASSERT_NE(svs, nullptr);
+  auto &tiered = svs->fields[0].vectorOpts.vecSimParams.algoParams.tieredParams;
+  auto &params = tiered.primaryIndexParams->algoParams.svsParams;
+  const uint64_t before = fp(svs);
+  params.graph_max_degree++;
+  ASSERT_NE(before, fp(svs));
+  params.graph_max_degree--;
+  params.search_window_size++;
+  ASSERT_NE(before, fp(svs));
+  params.search_window_size--;
+  tiered.specificParams.tieredSVSParams.trainingTriggerThreshold++;
+  ASSERT_NE(before, fp(svs));
 }
