@@ -3650,7 +3650,7 @@ static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
 // Hash values individually: raw structs contain padding, pointers, and live index state.
 static void schemaFingerprint(Sha1Context *hash, const void *value) {
   const IndexSpec *sp = value;
-  Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_FORMAT_VERSION);
+  Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_VERSION);
   Sha1_UpdateU64(hash, sp->flags);
   Sha1_UpdateU64(hash, sp->numFields);
   for (int i = 0; i < sp->numFields; ++i) {

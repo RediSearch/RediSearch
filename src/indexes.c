@@ -1049,14 +1049,14 @@ static void replySpecNameAndFingerprintVisitor(IndexSpec *sp, void *ud) {
 // reducer in index_list_command.c decodes it, so the two must change together.
 //   [node_id, fingerprint recipe, index encoding version,
 //    [[index name, fingerprint or nil], ...]]
-// node_id is empty when the shard's identity is unknown. Older recipes may emit
-// nil fingerprints; this producer always emits an integer.
+// node_id is empty when the shard's identity is unknown. The reducer accepts
+// nil fingerprints as unavailable; this producer always emits an integer.
 void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id) {
   RedisModule_Reply_Array(reply);
 
   RedisModule_Reply_SimpleString(reply, node_id ? node_id : "");
 
-  RedisModule_Reply_LongLong(reply, SCHEMA_FINGERPRINT_RECIPE);
+  RedisModule_Reply_LongLong(reply, SCHEMA_FINGERPRINT_VERSION);
   RedisModule_Reply_LongLong(reply, INDEX_CURRENT_VERSION);
 
   RedisModule_Reply_Array(reply);

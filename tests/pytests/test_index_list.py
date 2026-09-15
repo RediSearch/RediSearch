@@ -211,8 +211,8 @@ def test_internal_payload_reports_this_shards_schemas(env):
     env.assertEqual(len(set(node_ids)), env.shardsCount)
     env.assertEqual([p[0] for p in payloads], node_ids)
 
-    # Recipe 4 hashes schema values directly; recipes 2/3 hashed RDB bytes.
-    env.assertEqual([p[1] for p in payloads], [4] * env.shardsCount)
+    # The initial fingerprint version is shared by every shard.
+    env.assertEqual([p[1] for p in payloads], [1] * env.shardsCount)
     env.assertEqual(len(set(p[2] for p in payloads)), 1)
 
     fps = [dict(p[3]) for p in payloads]
@@ -330,7 +330,7 @@ def test_divergence_is_proven_within_a_gate_group(env):
     shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
-    # Emulate an older RDB-fingerprint peer without changing the current recipe.
+    # Emulate a peer with a different fingerprint version.
     if env.useTLS:
         env.skip()
     node_id, _, version, entries = internal_payload(env, env.shardsCount)
@@ -346,11 +346,11 @@ def test_divergence_is_proven_within_a_gate_group(env):
                         ' agree. The rest of the picture cannot be determined: shards'
                         ' are running incompatible versions or configurations.'}
 
-            def has_old_recipe():
+            def has_different_version():
                 status = cluster_state(env)['idx']['status']
                 return status == expected, status
 
-            wait_for_condition(has_old_recipe, 'coordinator did not receive the older recipe')
+            wait_for_condition(has_different_version, 'coordinator did not receive the different fingerprint version')
             env.assertEqual(cluster_state(env)['idx']['status'], expected)
     finally:
         env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()

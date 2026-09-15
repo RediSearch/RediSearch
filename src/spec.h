@@ -581,10 +581,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 */
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
-// A new recipe must never compare equal to older RDB-based recipes (2 and 3).
 // Bump whenever the schema members or their hash encoding change.
-#define SCHEMA_FINGERPRINT_FORMAT_VERSION 2
-#define SCHEMA_FINGERPRINT_RECIPE 4
+#define SCHEMA_FINGERPRINT_VERSION 1
 
 // Deterministic hash of schema values, independent of RDB settings and shard data.
 // Includes field definitions, indexing rules, custom stopwords, synonyms, and timeout;
