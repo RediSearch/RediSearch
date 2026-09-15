@@ -166,14 +166,13 @@ def test_index_both_missing_and_diverged(env):
         con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
         con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', 'a', 'TEXT', *extra)
 
-    status = cluster_state(env)['idx']['status']
-    env.assertEqual(set(status.keys()), {'warning', 'schema_groups', 'missing_from_shards'})
-    env.assertEqual(status['schema_groups'], [[node] for node in sorted(node_ids[:2])])
-    env.assertEqual(status['missing_from_shards'], [node_ids[-1]])
-    env.assertEqual(status['warning'],
-                    INCONSISTENT + ': index is missing from 1 of 3 reporting shards, and the'
-                    ' shards that have it hold 2 different schemas.'
-                    ' Drop the index and recreate it so that all shards agree.')
+    env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': {
+        'warning': INCONSISTENT + ': index is missing from 1 of 3 reporting shards, and the'
+                   ' shards that have it hold 2 different schemas.'
+                   ' Drop the index and recreate it so that all shards agree.',
+        'schema_groups': [[node] for node in sorted(node_ids[:2])],
+        'missing_from_shards': [node_ids[2]],
+    }}})
 
 
 @skip(cluster=False)
@@ -649,7 +648,10 @@ def test_single_shard_embedded_nul_index_names(env):
     check_embedded_nul_index_names(env)
 
 
-def check_schema_agreement_groups(env):
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_schema_agreement_groups(env):
+    """Two matching nodes are grouped separately from the node with another schema."""
     node_ids = shard_node_ids(env)
     for shard in range(1, 4):
         con = env.getConnection(shard)
@@ -669,20 +671,6 @@ def check_schema_agreement_groups(env):
         entry = to_dict(reply[0])
         entry['status'] = to_dict(entry['status'])
         env.assertEqual(entry, expected['idx'])
-
-
-@skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_schema_agreement_groups_resp2(env):
-    """Two matching nodes are grouped separately from the node with another schema."""
-    check_schema_agreement_groups(env)
-
-
-@skip(cluster=False)
-@env_spec(shardsCount=3, protocol=3)
-def test_schema_agreement_groups_resp3(env):
-    """RESP3 retains nested schema-group arrays inside the existing status map."""
-    check_schema_agreement_groups(env)
 
 
 @skip(cluster=False)
