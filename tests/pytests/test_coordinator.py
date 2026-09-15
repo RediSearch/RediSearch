@@ -343,3 +343,35 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
 
     _set_one_shard_unreachable(env)
     _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')
+
+
+@skip(cluster=False, redis_less_than="8.2.0")
+def test_validation_preserves_connection_round_robin():
+    """Search and iterator preflight must not consume connection-pool turns."""
+    env = Env(moduleArgs='CONN_PER_SHARD 4')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'UNF').ok()
+    shards = [env.getConnection(i) for i in range(env.shardsCount)]
+    with TimeLimit(5, 'Not all pool connections became ready'):
+        while True:
+            states = env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+            if (len(states) == 2 * env.shardsCount
+                    and all(pool == ['Connected'] * 4 for pool in states[1::2])):
+                break
+
+    for command, internal_command in [
+        (['FT.SEARCH', 'idx', '*', 'RETURN', '1', 't'], '_ft.search'),
+        (['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t'], '_ft.aggregate'),
+    ]:
+        # Establish connections and negotiate the protocol before measuring commands.
+        for _ in range(8):
+            env.expect(*command).equal([0])
+        before = [{c['id']: int(c['tot-cmds']) for c in shard.client_list()}
+                  for shard in shards]
+        for _ in range(8):
+            env.expect(*command).equal([0])
+        for shard, baseline in zip(shards, before):
+            clients = shard.client_list()
+            deltas = [int(c['tot-cmds']) - baseline.get(c['id'], 0)
+                      for c in clients if c['cmd'].lower() == internal_command
+                      and int(c['tot-cmds']) > baseline.get(c['id'], 0)]
+            env.assertEqual(sorted(deltas), [2, 2, 2, 2], message=clients)

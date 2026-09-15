@@ -70,8 +70,12 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
 void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);
 
-/* Get the connection for a specific node by id, return NULL if this node is not in the pool */
+/* Select the next connected connection for a node and advance round robin.
+ * Returns NULL if the node is missing or has no connected connections. */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
+
+/* Check availability without advancing round robin; call from the owning uv thread. */
+bool MRConnManager_HasConnectedConnection(MRConnManager *mgr, const char *id);
 
 /* Get the state string of the first connection for a specific node by id.
  * Returns NULL if this node is not in the pool.
