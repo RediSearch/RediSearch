@@ -155,7 +155,8 @@ impl Drop for OwnedDocumentMetadata {
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
         let refcount = unsafe { AtomicU16::from_ptr(self.refcount_ptr()) };
 
-        if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+        // Match DMD_Return's ordering for the metadata writer's uniqueness check and final free.
+        if refcount.fetch_sub(1, Ordering::AcqRel) == 1 {
             // Safety: The caller of `from_raw` promised the pointer is valid.
             unsafe {
                 ffi::DMD_Free(self.0.as_ptr());

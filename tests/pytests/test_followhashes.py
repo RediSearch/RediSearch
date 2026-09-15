@@ -245,6 +245,204 @@ def testBinaryPayload(env):
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads', **{NEVER_DECODE: []})
         env.assertEqual(res, [1, b'thing:foo', b'\x00\xAB\x20', [b'name', b'foo']])
 
+
+@skip(cluster=True)
+def testMetadataOnlyUpdatesPreserveIndexes():
+    """Metadata-only Hash notifications retain document IDs, postings, and vector entries."""
+    # Synchronous HNSW writes make backend deletion and indexing counters deterministic.
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    conn = getConnectionByEnv(env)
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
+               'SCORE_FIELD', 'score', 'PAYLOAD_FIELD', 'payload', 'SCHEMA',
+               'title', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'SORTABLE',
+               'geom', 'GEOSHAPE', 'FLAT', 'optional', 'TEXT', 'INDEXMISSING',
+               'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    vector = create_np_array_typed([1, 2]).tobytes()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'tag', 'blue', 'n', '7', 'v', vector,
+                         'geom', 'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+
+    def index_state():
+        info = conn.execute_command('INFO', 'MODULES')
+        metadata = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc:1', 'REVEAL'))
+        vector_info = get_vecsim_debug_dict(env, 'idx', 'v')
+        backend = to_dict(vector_info['BACKEND_INDEX'])
+        return {
+            'operations': {kind: info[f'search_total_indexing_ops_{kind}_fields']
+                           for kind in ('tag', 'numeric', 'vector', 'geoshape')},
+            'metadata': {key: metadata[key] for key in
+                         ('internal_id', 'num_tokens', 'max_freq', 'sortables')},
+            'text': env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'),
+            'tag': env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 'tag'),
+            'numeric': env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'n'),
+            'geometry': env.cmd(debug_cmd(), 'DUMP_GEOMIDX', 'idx', 'geom'),
+            'missing': env.cmd('FT.SEARCH', 'idx', 'ismissing(@optional)', 'NOCONTENT'),
+            'inverted_size': index_info(env)['inverted_sz_mb'],
+            'vector': {key: backend[key] for key in
+                       ('INDEX_SIZE', 'INDEX_LABEL_COUNT', 'NUMBER_OF_MARKED_DELETED')},
+        }
+
+    before = index_state()
+    env.assertEqual(before['missing'], [1, 'doc:1'])
+    updates = [
+        (('HSET', 'doc:1', 'score', '0.5'), b'0.5', None),
+        (('HSET', 'doc:1', 'payload', b'a\x00\xab'), b'0.5', b'a\x00\xab'),
+        (('HSET', 'doc:1', 'score', '0.75', 'payload', 'last', 'unread', 'x'),
+         b'0.75', b'last'),
+        (('HDEL', 'doc:1', 'score', 'payload'), b'0.25', None),
+        (('HSET', 'doc:1', 'payload', ''), b'0.25', None),
+        (('HSET', 'doc:1', 'score', '0.125', 'score', '0.5'), b'0.5', None),
+        (('HINCRBYFLOAT', 'doc:1', 'score', '0.25'), b'0.75', None),
+    ]
+    for command, score, payload in updates:
+        conn.execute_command(*command)
+        res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE',
+                      'WITHSCORES', 'WITHPAYLOADS', 'NOCONTENT', **{NEVER_DECODE: []})
+        env.assertEqual(res, [1, b'doc:1', score, payload], message=command)
+        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first,
+                        message=command)
+        env.assertEqual(index_state(), before, message=command)
+        env.expect('FT.SEARCH', 'idx', '@tag:{blue} @n:[7 7]', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', 'ismissing(@optional)', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', '@geom:[within $shape]', 'PARAMS', '2', 'shape',
+                   'POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))', 'NOCONTENT', 'DIALECT', '3').equal(
+                       [1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $vec AS distance]',
+                   'PARAMS', '2', 'vec', vector, 'RETURN', '1', 'distance').equal(
+                       [1, 'doc:1', ['distance', '0']])
+
+    # An indexed-field update is a control: the same probes must detect its reindex.
+    conn.execute_command('HSET', 'doc:1', 'title', 'goodbye', 'score', '1')
+    after = index_state()
+    env.assertGreater(after['metadata']['internal_id'], first, message=after)
+    for kind in ('tag', 'numeric', 'vector', 'geoshape'):
+        env.assertEqual(after['operations'][kind], before['operations'][kind] + 1, message=after)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'goodbye', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True)
+def testMetadataUpdatesMatchFullReindex(env):
+    """Score defaults and payload removal agree with the plain-notification full-index path."""
+    if env.env == 'existing-env':
+        env.skip()
+
+    def run_updates(force_plain):
+        # The subscription mode is fixed by the first index, so each side needs a new server.
+        server = Env(freshEnv=True, moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+        try:
+            if force_plain:
+                server.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '1').ok()
+            server.assertEqual(server.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'),
+                               0 if force_plain else 1)
+            server.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
+                          'SCORE_FIELD', 'score', 'PAYLOAD_FIELD', 'payload',
+                          'SCHEMA', 'title', 'TEXT').ok()
+            conn = getConnectionByEnv(server)
+            conn.execute_command('HSET', 'doc:1', 'title', 'hello')
+            previous = server.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+            commands = [
+                ('HSET', 'doc:1', 'score', 'not-a-number'),
+                ('HSET', 'doc:1', 'score', '10'),
+                ('HSET', 'doc:1', 'score', '-2'),
+                ('HDEL', 'doc:1', 'score'),
+                ('HSET', 'doc:1', 'payload', b'first\x00payload'),
+                ('HSET', 'doc:1', 'payload', ''),
+                ('HSET', 'doc:1', 'payload', 'again'),
+                ('HDEL', 'doc:1', 'payload'),
+            ]
+            results = []
+            for command in commands:
+                conn.execute_command(*command)
+                current = server.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+                if force_plain:
+                    server.assertGreater(current, previous, message=command)
+                else:
+                    server.assertEqual(current, previous, message=command)
+                previous = current
+                results.append(server.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE',
+                                          'WITHSCORES', 'WITHPAYLOADS', 'NOCONTENT',
+                                          **{NEVER_DECODE: []}))
+            server.assertEqual(results[0], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[1], [1, b'doc:1', b'10', None])
+            server.assertEqual(results[3], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[4], [1, b'doc:1', b'0.25', b'first\x00payload'])
+            server.assertEqual(results[5], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[6], [1, b'doc:1', b'0.25', b'again'])
+            server.assertEqual(results[7], [1, b'doc:1', b'0.25', None])
+            conn.execute_command('DEL', 'doc:1')
+            server.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+            conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', 'recreated')
+            server.expect('FT.SEARCH', 'idx', 'hello', 'WITHPAYLOADS', 'NOCONTENT').equal(
+                [1, 'doc:1', 'recreated'])
+            return results
+        finally:
+            server.stop()
+
+    env.assertEqual(run_updates(False), run_updates(True))
+
+
+@skip(cluster=True)
+def testMetadataUpdateClassificationIsPerIndex(env):
+    """A shared Hash field can be metadata, an aliased schema path, or a FILTER input."""
+    conn = getConnectionByEnv(env)
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    env.expect('FT.CREATE', 'metadata', 'SCORE_FIELD', 'shared',
+               'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.CREATE', 'indexed', 'SCORE_FIELD', 'shared',
+               'SCHEMA', 'title', 'TEXT', 'shared', 'AS', 'weight', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'filtered', 'SCORE_FIELD', 'shared', 'FILTER', '@shared >= 0.5',
+               'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'shared', '1')
+    first = {idx: env.cmd(debug_cmd(), 'DOCIDTOID', idx, 'doc:1')
+             for idx in ('metadata', 'indexed', 'filtered')}
+
+    conn.execute_command('HSET', 'doc:1', 'shared', '0.75')
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'metadata', 'doc:1'), first['metadata'])
+    for idx in ('indexed', 'filtered'):
+        current = env.cmd(debug_cmd(), 'DOCIDTOID', idx, 'doc:1')
+        env.assertGreater(current, first[idx], message=(idx, current, first[idx]))
+    env.expect('FT.SEARCH', 'indexed', '@weight:[0.75 0.75]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'indexed', '@weight:[1 1]', 'NOCONTENT').equal([0])
+    for idx in ('metadata', 'filtered'):
+        env.expect('FT.SEARCH', idx, 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+                   'NOCONTENT').equal([1, 'doc:1', '0.75'])
+
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    conn.execute_command('HSET', 'doc:1', 'shared', '0.25')
+    env.expect('FT.SEARCH', 'filtered', '*', 'NOCONTENT').equal([0])
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'filtered', 'doc:1'), 0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'metadata', 'doc:1'), first['metadata'])
+    env.expect('FT.SEARCH', 'indexed', '@weight:[0.25 0.25]', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def testMetadataUpdateWithExpirationReindexes(env):
+    """A metadata write falls back when document or Hash-field expiration may affect postings."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'score', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', 'fields').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'score', '0.25')
+    expire_at = int(conn.execute_command('TIME')[0]) * 1000 + 3600000
+    conn.execute_command('PEXPIREAT', 'doc:1', expire_at)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    conn.execute_command('HSET', 'doc:1', 'score', '0.5')
+    current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.assertGreater(current, first, message=(first, current))
+    env.assertEqual(conn.execute_command('PEXPIRETIME', 'doc:1'), expire_at)
+
+    conn.execute_command('PERSIST', 'doc:1')
+    conn.execute_command('HPEXPIREAT', 'doc:1', expire_at, 'FIELDS', '1', 'title')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    conn.execute_command('HSET', 'doc:1', 'score', '0.75')
+    current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.assertGreater(current, first, message=(first, current))
+    env.assertEqual(conn.execute_command('HPEXPIRETIME', 'doc:1', 'FIELDS', '1', 'title'), [expire_at])
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'NOCONTENT').equal([1, 'doc:1', '0.75'])
+
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
@@ -621,17 +819,20 @@ def testJsonWriteIsNeverSkipped(env):
     Standalone only, as with the other `DOCIDTOID` assertions in this file.
     """
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCORE_FIELD', '$.score', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
 
     conn.execute_command('JSON.SET', 'doc:1', '$', '{"t":"hello","other":"world"}')
     first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
     env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # A path outside the schema. The equivalent hash write is the one that gets skipped.
-    conn.execute_command('JSON.SET', 'doc:1', '$.other', '"changed"')
+    # A score path outside the schema is still fully reindexed for JSON.
+    conn.execute_command('JSON.SET', 'doc:1', '$.score', '0.5')
     env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
                       message='a JSON write must reindex even when no indexed path changed')
     env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    env.expect('FT.SEARCH', 'idx', '@t:hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'NOCONTENT').equal([1, 'doc:1', '0.5'])
 
 @skip(cluster=True)
 def testRestore(env):

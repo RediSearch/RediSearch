@@ -102,9 +102,12 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
  */
 sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
 
-/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
- * document */
+// Caller holds the spec write lock. Returns 0 for NULL metadata/data or a DMD allocated
+// without Document_HasPayloadSlot; otherwise copies the payload and returns 1.
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
+
+// Caller holds the spec write lock. Removes the payload while retaining its reserved slot.
+void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 
 bool DocTable_Exists(const DocTable *t, t_docId docId);
 
@@ -213,10 +216,11 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
-/* Decrement the refcount of the DMD object, freeing it if we're the last reference */
+// Release publishes completed readers to the metadata writer's acquire uniqueness check;
+// acquire also orders the final free after earlier owners' accesses.
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
+  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_ACQ_REL)) {
     DMD_Free(dmd);
   }
 }
