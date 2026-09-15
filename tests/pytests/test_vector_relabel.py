@@ -33,10 +33,10 @@ VEC_A = _blob(0.25)
 VEC_B = _blob(0.75)
 VEC_C = _blob(0.5)
 
-def _create_index(env):
+def _create_index(env, algorithm='HNSW'):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                'title', 'TEXT',
-               'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', DIM,
+               'vector', 'VECTOR', algorithm, '6', 'TYPE', 'FLOAT32', 'DIM', DIM,
                'DISTANCE_METRIC', 'L2').ok()
 
 def _load_doc(env, conn):
@@ -127,6 +127,28 @@ def test_relabel_unchanged_vector_on_text_update():
     # One indexing op for the initial load, and the update counted as a move rather than a
     # second indexing op.
     env.assertEqual(_vector_ops(env), (1, 1))
+    _assert_doc_is_queryable(env, 'goodbye', VEC_A)
+    env.assertEqual(_search_ids(env, 'hello'), [])
+
+def test_svs_refusal_falls_back_to_delete_and_add():
+    """An index whose algorithm cannot move a label must re-add, not fail the update.
+
+    SVS keeps its vectors in the library's own form and does not implement the move, so the
+    request is refused and the caller falls back. What this pins is that the refusal is
+    invisible to a client: the document stays queryable and holds the same vector, at the
+    cost of the indexing operation the move would have saved.
+    """
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    conn = env.getClusterConnectionIfNeeded()
+
+    _create_index(env, algorithm='SVS-VAMANA')
+    _load_doc(env, conn)
+
+    conn.execute_command('HSET', 'doc:1', 'title', 'goodbye')
+
+    # Two indexing ops and no move: the initial load, then the update re-adding the vector
+    # because the refusal sent it down the fallback.
+    env.assertEqual(_vector_ops(env), (2, 0))
     _assert_doc_is_queryable(env, 'goodbye', VEC_A)
     env.assertEqual(_search_ids(env, 'hello'), [])
 

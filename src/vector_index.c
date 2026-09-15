@@ -75,15 +75,23 @@ bool isLVQSupported() {
 }
 // Contract documented on the declaration in vector_index.h.
 // Names for the refusal codes, so a log line reads as the reason rather than as a number.
+// A table rather than a switch: the mapping is data, and a `case` per code would leave every
+// code a given run does not reach permanently uncovered.
+static const char *const relabelCodeNames[] = {
+    [VecSimRelabel_OK] = "OK",
+    [VecSimRelabel_OldLabelMissing] = "OldLabelMissing",
+    [VecSimRelabel_NewLabelTaken] = "NewLabelTaken",
+    [VecSimRelabel_SameLabel] = "SameLabel",
+    [VecSimRelabel_Unsupported] = "Unsupported",
+};
+
 static const char *relabelCodeName(VecSimRelabelCode rc) {
-  switch (rc) {
-    case VecSimRelabel_OK: return "OK";
-    case VecSimRelabel_OldLabelMissing: return "OldLabelMissing";
-    case VecSimRelabel_NewLabelTaken: return "NewLabelTaken";
-    case VecSimRelabel_SameLabel: return "SameLabel";
-    case VecSimRelabel_Unsupported: return "Unsupported";
-  }
-  return "unknown";
+  // Cast before comparing so a negative code wraps into the out-of-range branch rather than
+  // indexing behind the table.
+  const size_t i = (size_t)rc;
+  return i < sizeof(relabelCodeNames) / sizeof(*relabelCodeNames) && relabelCodeNames[i]
+             ? relabelCodeNames[i]
+             : "unknown";
 }
 
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
