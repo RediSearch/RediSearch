@@ -146,8 +146,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
   QueryRequest_BeginCycle(request, bc, reply_cb);
-  // report block client start time
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  BlockedClientTiming_Begin(&request->timing, bc);
   return bc;
 }
 

@@ -273,6 +273,11 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
 
   if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
     HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+#ifdef ENABLE_ASSERT
+    // Depleter loaders can park before this tail owns the results claim.
+    SyncPoint_WaitUntil(SYNC_POINT_AFTER_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers,
+                        hreq);
+#endif
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
@@ -1057,6 +1062,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   const bool coordinator = !IsInternal(hreq->requests[0]);
   recordHREQTimeoutStage(hreq, /*isError=*/true, coordinator);
+  BlockedClientTiming_Finish(&request->timing);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, coordinator);
@@ -1089,6 +1095,7 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
     // The worker has not reached the tail aggregation phase yet.
+    BlockedClientTiming_Finish(&request->timing);
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
                                            IsProfile(hreq));
   }
@@ -1097,6 +1104,7 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   // waiting here would hold the GIL it needs. Preempt and reply empty; the
   // worker will finish after this callback returns.
   if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
+    BlockedClientTiming_Finish(&request->timing);
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
                                            IsProfile(hreq));
   }
@@ -1109,6 +1117,7 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
+  BlockedClientTiming_Finish(&request->timing);
   return REDISMODULE_OK;
 }
 
@@ -1133,6 +1142,7 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   // Record at the stage the deadline caught the request (REPLY once the cursors
   // were published, QUEUE/PIPELINE before that).
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
+  BlockedClientTiming_Finish(&request->timing);
 
   common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, true, IsProfile(hreq));
 
@@ -1511,7 +1521,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  */
 static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   freeHybridParams(BCHCtx->hybridParams);
-  RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
+  BlockedClientTiming_Finish(&BCHCtx->hreq->base.timing);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
   RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
   WeakRef_Release(BCHCtx->spec_ref);
@@ -1526,6 +1536,7 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
  */
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest *hreq = BCHCtx->hreq;
+  BlockedClientTiming_Start(&hreq->base.timing);
   // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
   // (no-op if already timed out while queued, via the SetExecutionStage freeze).
   HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
@@ -1534,6 +1545,10 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
+
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {

@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "query_error.h"
+#include "util/blocked_client_timing.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
 
@@ -346,6 +347,7 @@ typedef struct QueryRequest {
    * results and the Redis reply callback serializes them on the main thread. */
   bool useReplyCallback;
   QueryRequestTimeout timeout;
+  BlockedClientTiming timing;
   QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
