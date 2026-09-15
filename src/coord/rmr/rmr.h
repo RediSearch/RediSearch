@@ -71,7 +71,7 @@ void MR_InitLocalNodeId();
 void MR_SetLocalNodeId(const char *node_id);
 
 /* @brief Get the local node ID for this shard.
- * The caller must call MR_ReleaseLocalNodeId() when done using the returned string.
+ * The caller must call MR_ReleaseLocalNodeIdReadLock() when done using the returned string.
  */
 const char* MR_GetLocalNodeId(void);
 
@@ -79,6 +79,10 @@ const char* MR_GetLocalNodeId(void);
  * Must be called after MR_GetLocalNodeId() to release the read lock.
  */
 void MR_ReleaseLocalNodeIdReadLock();
+
+/* Copy the local node ID under its read lock. Returns NULL if unknown; the caller
+ * owns the copy and must release it with rm_free(). No lock remains held. */
+char *MR_DuplicateLocalNodeId(void);
 
 /* @brief Free the local node ID structure. */
 void MR_FreeLocalNodeId();
@@ -132,9 +136,9 @@ bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
  * on the IO thread from the topology the fanout uses, so a reducer can name the shards
  * that did not reply without racing a topology update.
  */
-void MRCtx_CaptureShardNodeIds(struct MRCtx *ctx);
+void MRCtx_SetCaptureShardNodeIds(struct MRCtx *ctx);
 
-/* @brief Node ids recorded by MRCtx_CaptureShardNodeIds(), owned by the context.
+/* @brief Node ids recorded by MRCtx_SetCaptureShardNodeIds(), owned by the context.
  * @param count Out: the number of node ids returned.
  */
 const char **MRCtx_GetShardNodeIds(const struct MRCtx *ctx, size_t *count);

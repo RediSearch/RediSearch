@@ -178,7 +178,7 @@ static void captureShardNodeIds(MRCtx *ctx, const MRClusterTopology *topo) {
   ctx->numShardNodeIds = topo->numShards;
 }
 
-void MRCtx_CaptureShardNodeIds(MRCtx *ctx) {
+void MRCtx_SetCaptureShardNodeIds(MRCtx *ctx) {
   ctx->captureShardNodeIds = true;
 }
 
@@ -470,6 +470,13 @@ const char* MR_GetLocalNodeId(void) {
   RS_ASSERT(local_node_id_g != NULL);
   pthread_rwlock_rdlock(&local_node_id_g->lock);
   return local_node_id_g->node_id;
+}
+
+char *MR_DuplicateLocalNodeId(void) {
+  const char *id = MR_GetLocalNodeId();
+  char *copy = id ? rm_strdup(id) : NULL;
+  MR_ReleaseLocalNodeIdReadLock();
+  return copy;
 }
 
 void MR_FreeLocalNodeId() {

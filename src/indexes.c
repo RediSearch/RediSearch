@@ -1053,7 +1053,7 @@ static void replySpecNameAndFingerprint(IndexSpec *sp, void *ud) {
 }
 
 // Wire format of the internal _FT._LIST WITHCLUSTERSTATE payload; the FT._LIST
-// reducer in module.c decodes it, so the two must change together.
+// reducer in index_list_command.c decodes it, so the two must change together.
 //   [node_id, fingerprint recipe, index encoding version,
 //    [[index name, fingerprint or nil], ...]]
 // node_id is empty when the shard's identity is unknown; a nil fingerprint means

@@ -5,6 +5,10 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import socket
+import socketserver
+import threading
+
 from common import *
 
 # Every non-"ok" warning opens with this marker, shared with the FT.INFO error on a
@@ -72,6 +76,14 @@ def test_list_rejects_unknown_arguments(env):
     """FT._LIST takes at most the WITHCLUSTERSTATE token."""
     env.expect('FT._LIST', 'BOGUS').error().equal(UNKNOWN_ARG)
     env.expect('FT._LIST', 'BOGUS', 'EXTRA').error().contains('wrong number of arguments')
+
+
+@skip(cluster=True)
+def test_list_command_metadata_accepts_optional_token(env):
+    """RAMP discovers public command arity and key positions from COMMAND INFO."""
+    info = next(iter(env.cmd('COMMAND', 'INFO', 'FT._LIST').values()))
+    env.assertEqual(info['arity'], -1)
+    env.assertEqual([info['first_key_pos'], info['last_key_pos'], info['step_count']], [0, 0, 0])
 
 
 @skip(cluster=True)
@@ -418,3 +430,142 @@ def test_standalone_reports_every_index_ok_resp3(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.assertEqual(env.cmd('FT._LIST', 'WITHCLUSTERSTATE'),
                     [{'index': 'idx', 'status': 'ok'}])
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=1)
+def test_single_shard_cluster_reports_every_index_ok(env):
+    """The single-shard cluster path answers locally, including inside MULTI and Lua."""
+    shard_node_ids(env)
+    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC').ok()
+    expected = {'idx1': {'index': 'idx1', 'status': 'ok'},
+                'idx2': {'index': 'idx2', 'status': 'ok'}}
+    env.assertEqual(cluster_state(env), expected)
+    reply = env.cmd('FT._LIST', 'WITHCLUSTERSTATE')
+    env.expect('MULTI').ok()
+    env.expect('FT._LIST', 'WITHCLUSTERSTATE').equal('QUEUED')
+    env.assertEqual(env.cmd('EXEC'), [reply])
+    env.expect('EVAL', "return redis.call('FT._LIST', 'WITHCLUSTERSTATE')", '0').equal(reply)
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=1, protocol=3)
+def test_single_shard_cluster_resp3(env):
+    """A single-shard cluster exposes the same RESP3 maps as standalone."""
+    shard_node_ids(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.assertEqual(env.cmd('FT._LIST', 'WITHCLUSTERSTATE'),
+                    [{'index': 'idx', 'status': 'ok'}])
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_empty_union_with_unreachable_shard_is_an_error(env):
+    """An index only on the silent shard must not appear to be a confirmed empty list."""
+    shard_node_ids(env)
+    con = env.getConnection(env.shardsCount)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    try:
+        with stopped_shard(env, env.shardsCount):
+            env.expect('FT._LIST', 'WITHCLUSTERSTATE').error().equal(
+                INCONSISTENT + ' cannot be determined: incomplete shard reports; '
+                'the index list may be incomplete.')
+    finally:
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_empty_cluster_returns_empty_list(env):
+    """A complete set of empty shard reports confirms there are no indexes."""
+    shard_node_ids(env)
+    env.expect('FT._LIST', 'WITHCLUSTERSTATE').equal([])
+
+
+@contextmanager
+def rejecting_shard(env, shard_id):
+    """Replace a stopped shard with an endpoint that rejects the new internal command.
+
+    A real internal connection bypasses ACLs, so revoking a user's permission would
+    not exercise rejection. This RESP endpoint models an older shard that can
+    authenticate but does not recognize _FT._LIST.
+    """
+    address = env.getConnection(shard_id).connection_pool.connection_kwargs
+    connections = []
+
+    class Handler(socketserver.StreamRequestHandler):
+        def handle(self):
+            try:
+                while header := self.rfile.readline():
+                    if not header.startswith(b'*'):
+                        return
+                    args = []
+                    for _ in range(int(header[1:])):
+                        length = int(self.rfile.readline()[1:])
+                        args.append(self.rfile.read(length))
+                        self.rfile.read(2)
+                    command = args[0].upper()
+                    if command == b'_FT._LIST':
+                        self.wfile.write(b"-ERR unknown command '_FT._LIST'\r\n")
+                    elif command == b'PING':
+                        self.wfile.write(b'+PONG\r\n')
+                    else:
+                        self.wfile.write(b'+OK\r\n')
+            except (ConnectionError, OSError):
+                pass
+
+    class Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+        def get_request(self):
+            request, address = super().get_request()
+            connections.append(request)
+            return request, address
+
+    with stopped_shard(env, shard_id):
+        with Server((address['host'], address['port']), Handler) as server:
+            thread = threading.Thread(target=server.serve_forever)
+            thread.start()
+            try:
+                yield
+            finally:
+                server.shutdown()
+                thread.join()
+                for connection in connections:
+                    try:
+                        connection.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_rejecting_shard_is_not_named_unreachable(env):
+    """Unattributed rejection errors suppress shard IDs, including mixed failures."""
+    if env.useTLS:
+        env.skip()  # The synthetic older-shard endpoint speaks plain RESP.
+    shard_node_ids(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    try:
+        with rejecting_shard(env, 2):
+            def has_rejection():
+                status = cluster_state(env)['idx']['status']
+                return (isinstance(status, dict) and
+                        'rejected the request' in status['warning']), status
+
+            wait_for_condition(has_rejection, 'coordinator did not reconnect to rejecting shard')
+            status = cluster_state(env)['idx']['status']
+            env.assertEqual(status, {'warning': INCONSISTENT + ' cannot be determined: '
+                "1 of 3 shards rejected the request (ERR unknown command '_FT._LIST')."})
+            with stopped_shard(env, 3):
+                status = cluster_state(env)['idx']['status']
+                env.assertEqual(status, {'warning': INCONSISTENT + ' cannot be determined: '
+                    '1 of 3 shards did not reply; '
+                    "1 of 3 shards rejected the request (ERR unknown command '_FT._LIST')."})
+    finally:
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()

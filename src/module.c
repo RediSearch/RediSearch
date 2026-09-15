@@ -174,7 +174,7 @@ RedisModuleString *config_default_scorer = NULL;
 static void DEBUG_DistSearchCommandHandler(void* pd);
 /* ======================= DEBUG ONLY DECLARATIONS ======================= */
 
-bool SearchCluster_Ready() {
+static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
 
@@ -1297,6 +1297,26 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
+}
+
+// Shard-side _FT._LIST; WITHCLUSTERSTATE replies the diagnostic payload the reducer consumes.
+int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc > 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (argc < 2) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    Indexes_List(&_reply, false);
+    return REDISMODULE_OK;
+  }
+
+  // argc == 2
+  if (!RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
+  }
+
+  return IndexList_ReplyLocalPayload(ctx);
 }
 
 // Restore an index schema from the given string.
@@ -3657,12 +3677,51 @@ cleanup:
   return REDISMODULE_OK;
 }
 
-bool cannotBlockCtx(RedisModuleCtx *ctx) {
+static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
   return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
 }
 
-int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
+static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
+}
+
+// FT._LIST on the coordinator. The no-token form precedes every cluster and
+// blocking check: it must keep working inside MULTI/Lua and when the cluster is down.
+int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc > 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (argc == 2 && !RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
+  }
+
+  if (argc == 1) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    Indexes_List(&_reply, false);
+    return REDISMODULE_OK;
+  }
+
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    return IndexList_ReplySingleShard(ctx);
+  }
+
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand_SetProtocol(&cmd, ctx);
+  MRCommand_SetPrefix(&cmd, "_FT");
+  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, GetNumShards_UnSafe());
+  // The reducer names the shards that did not reply, so it needs the ones asked.
+  MRCtx_SetCaptureShardNodeIds(mrctx);
+  MR_Fanout(mrctx, IndexListClusterStateReducer, cmd, true);
+  return REDISMODULE_OK;
 }
 
 static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

@@ -20,7 +20,6 @@
 #include "rmalloc.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
-#include "rmutil/strings.h"
 #include "triemap_ffi.h"
 #include "util/arr/arr.h"
 
@@ -31,42 +30,16 @@
 #define FT_LIST_CS_KEY_UNREACHABLE "unreachable_shards"
 #define FT_LIST_CS_STATUS_OK "ok"
 
-// Reads rdbcompression into *enabled; false if unreadable. getRedisConfigBool() folds
-// a failed read into its default, losing that distinction.
-static bool readRdbCompression(RedisModuleCtx *ctx, bool *enabled) {
-  int value = 0;
-  if (RedisModule_ConfigGetBool(ctx, "rdbcompression", &value) != REDISMODULE_OK) {
-    return false;
-  }
-
-  *enabled = value != 0;
-  return true;
-}
-
-// Shard-side _FT._LIST; WITHCLUSTERSTATE replies the diagnostic payload the reducer consumes.
-int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc > 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (argc < 2) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-    Indexes_List(&_reply, false);
-    return REDISMODULE_OK;
-  }
-
-  // argc == 2
-  if (!RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE"))
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
-
-  bool rdbCompression = false;  // An unreadable setting is reported as incomparable
-  const bool comparable = readRdbCompression(ctx, &rdbCompression);
-  const char *nodeId = MR_GetLocalNodeId();
-
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  Indexes_ReplyWithClusterStatePayload(&_reply, nodeId, SchemaFingerprint_Recipe(rdbCompression),
+// An unreadable setting must not silently default to a comparable fingerprint recipe.
+int IndexList_ReplyLocalPayload(RedisModuleCtx *ctx) {
+  int compression = 0;
+  const bool comparable =
+      RedisModule_ConfigGetBool(ctx, "rdbcompression", &compression) == REDISMODULE_OK;
+  char *nodeId = MR_DuplicateLocalNodeId();
+  RedisModule_Reply reply = RedisModule_NewReply(ctx);
+  Indexes_ReplyWithClusterStatePayload(&reply, nodeId, SchemaFingerprint_Recipe(compression != 0),
                                        comparable);
-  MR_ReleaseLocalNodeIdReadLock();
+  rm_free(nodeId);
   return REDISMODULE_OK;
 }
 
@@ -130,6 +103,12 @@ typedef struct {
   // so the result doesn't depend on reply order.
   arrayof(ClusterStateGates) gateGroups;
 } ClusterStateReports;
+
+static void ClusterStateReports_Clear(ClusterStateReports *reports) {
+  TrieMap_Free(reports->byName, ClusterStateIndexInfo_Free);
+  array_free(reports->shardIds);
+  array_free(reports->gateGroups);
+}
 
 // Folds one shard payload into the picture. An error or malformed reply gets no
 // slot, so it reads as non-reporting rather than divergence.
@@ -368,7 +347,7 @@ static void replySpecStatusOk(IndexSpec *sp, void *ud) {
 
 // Reducer for FT._LIST WITHCLUSTERSTATE: one map per index across the shards'
 // lists. Divergence the replies prove is reported even when shards are silent.
-static int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies) {
+int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   ClusterStateReports reports = {
       .byName = NewTrieMap(),
@@ -385,9 +364,7 @@ static int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **r
     const char *err = reports.firstError
                           ? MRReply_String(reports.firstError, NULL)
                           : QueryError_Strerror(QUERY_ERROR_CODE_CLUSTER_NO_RESPONSES);
-    TrieMap_Free(reports.byName, ClusterStateIndexInfo_Free);
-    array_free(reports.shardIds);
-    array_free(reports.gateGroups);
+    ClusterStateReports_Clear(&reports);
     return RedisModule_ReplyWithError(ctx, err);
   }
 
@@ -408,6 +385,20 @@ static int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **r
   // >1 gate group means shards disagree on the recipe; some fingerprints aren't comparable.
   const bool versionSkew = array_len(reports.gateGroups) > 1;
   const bool uncertain = nNotReporting > 0 || versionSkew;
+
+  // An empty union cannot carry a per-index warning about an unobserved shard.
+  if (nNotReporting > 0 && TrieMap_NUniqueKeys(reports.byName) == 0) {
+    RedisModule_ReplyWithError(ctx, INCONSISTENT_INDEX_STATE
+                               " cannot be determined: incomplete shard reports; "
+                               "the index list may be incomplete.");
+    ClusterStateReports_Clear(&reports);
+    array_free(unreachableIds);
+    return REDISMODULE_OK;
+  }
+
+  // Error replies have no node identity. Naming all absent IDs would incorrectly
+  // label reachable rejecting shards as unreachable, including in mixed failures.
+  const bool canNameUnreachable = reports.nRejected == 0;
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   RedisModule_Reply_Array(reply);
@@ -435,7 +426,8 @@ static int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **r
           .errorText = reports.firstError ? MRReply_String(reports.firstError, NULL) : NULL,
           .versionSkew = versionSkew,
       };
-      replyClusterStateEntry(reply, name, nameLen, &verdict, missing, unreachableIds);
+      replyClusterStateEntry(reply, name, nameLen, &verdict, missing,
+                             canNameUnreachable ? unreachableIds : NULL);
     } else {
       replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL);
     }
@@ -447,55 +439,16 @@ static int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **r
   RedisModule_Reply_ArrayEnd(reply);
   RedisModule_EndReply(reply);
 
-  TrieMap_Free(reports.byName, ClusterStateIndexInfo_Free);
-  array_free(reports.shardIds);
-  array_free(reports.gateGroups);
+  ClusterStateReports_Clear(&reports);
   array_free(unreachableIds);
   return REDISMODULE_OK;
 }
 
-// FT._LIST on the coordinator. The no-token form precedes every cluster and
-// blocking check: it must keep working inside MULTI/Lua and when the cluster is down.
-int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc > 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (argc == 2 && !RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE"))
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
-
-  if (argc == 1) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-    Indexes_List(&_reply, false);
-    return REDISMODULE_OK;
-  }
-
-  if (!SearchCluster_Ready()) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-
-  RS_AutoMemory(ctx);
-
-  if (GetNumShards_UnSafe() == 1) {
-    // Nothing to disagree with, so every local index is trivially consistent.
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    RedisModule_Reply_Array(reply);
-    Indexes_ForEachSpec(replySpecStatusOk, reply);
-    RedisModule_Reply_ArrayEnd(reply);
-    RedisModule_EndReply(reply);
-    return REDISMODULE_OK;
-  }
-
-  if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
-  }
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-  MRCommand_SetPrefix(&cmd, "_FT");
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, GetNumShards_UnSafe());
-  // The reducer names the shards that did not reply, so it needs the ones asked.
-  MRCtx_CaptureShardNodeIds(mrctx);
-  MR_Fanout(mrctx, IndexListClusterStateReducer, cmd, true);
+int IndexList_ReplySingleShard(RedisModuleCtx *ctx) {
+  RedisModule_Reply reply = RedisModule_NewReply(ctx);
+  RedisModule_Reply_Array(&reply);
+  Indexes_ForEachSpec(replySpecStatusOk, &reply);
+  RedisModule_Reply_ArrayEnd(&reply);
+  RedisModule_EndReply(&reply);
   return REDISMODULE_OK;
 }

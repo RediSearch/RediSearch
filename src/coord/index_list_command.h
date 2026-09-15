@@ -11,6 +11,14 @@
 
 #include "redismodule.h"
 
-int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+#include "rmr/reply.h"
+#include "rmr/rmr.h"
 
-int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+// Internal shard payload; copies the node identity before serializing schemas.
+int IndexList_ReplyLocalPayload(RedisModuleCtx *ctx);
+
+// A single shard has no peers to disagree with; all its local indexes report ok.
+int IndexList_ReplySingleShard(RedisModuleCtx *ctx);
+
+// Folds shard payloads into the public per-index consistency reply.
+int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies);
