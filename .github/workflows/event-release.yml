@@ -142,9 +142,18 @@ jobs:
           if [[ "$GITHUB_ACTOR" != *"[bot]" ]]; then
             REVIEWERS="$REVIEWERS,$GITHUB_ACTOR"
           fi
+          PR_BODY_FILE="$(mktemp)"
+          cat > "$PR_BODY_FILE" <<EOF
+          This PR was automatically created by the release workflow of $RELEASE_TAG.
+
+          #### Release Notes
+
+          - [ ] This PR requires release notes
+          - [x] This PR does not require release notes
+          EOF
           gh pr create \
             --title    "Bump version from $CUR_VERSION to $NEXT_VERSION" \
-            --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
+            --body-file "$PR_BODY_FILE" \
             --head     "$BRANCH" \
             --base     "$RELEASE_BRANCH" \
             --reviewer "$REVIEWERS" \
