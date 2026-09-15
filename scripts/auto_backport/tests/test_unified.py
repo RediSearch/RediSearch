@@ -286,6 +286,9 @@ class UnifiedTests(unittest.TestCase):
             self.assertEqual(self.outputs["has_failures"], "true")
             self.assertIn("auto-merge failed", unified.saved("summary").with_suffix(".md").read_text())
             self.assertIn(url, unified.saved("summary").with_suffix(".md").read_text())
+            result = unified.read(unified.saved("results"))["rows"]["8.6"]
+            self.assertEqual(result["status"], "error")
+            self.assertIn("auto-merge failed", result["detail"])
             gh.assert_any_call(*merge)
 
         # A new request deduplicates to this existing PR before reporting.
@@ -296,6 +299,25 @@ class UnifiedTests(unittest.TestCase):
             self.assertEqual(self.outputs["has_failures"], "false")
             gh.assert_any_call(*merge)
             self.assertFalse(any(c.args[:2] == ("pr", "create") for c in gh.call_args_list))
+
+    def test_finalizer_persists_reconciled_results_before_comment_failure(self):
+        url = "https://github.com/o/r/pull/3"
+        for status in ("clean", "already open", "conflicts(1)"):
+            with self.subTest(status=status):
+                self.state["rows"]["8.6"] = {"target": "8.6", "status": status, "detail": url}
+                unified.write("results", self.state)
+                recovered = {"target": "8.8", "status": "already merged", "detail": url}
+                with patch.object(unified, "existing_row", return_value=recovered), patch.object(
+                        unified, "api_pages", return_value=[]), patch.object(
+                        common, "gh", side_effect=subprocess.CalledProcessError(1, "gh")):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        unified.report(self.ctx)
+                result = unified.read(unified.saved("results"))
+                self.assertEqual(result["rows"]["8.8"], recovered)
+                self.assertEqual(result["rows"]["8.6"]["status"], "error")
+                self.assertIn(url, result["rows"]["8.6"]["detail"])
+                self.assertIn("auto-merge failed", result["rows"]["8.6"]["detail"])
+                self.assertEqual(result["comment_ids"], self.state["comment_ids"])
 
     def test_finalizer_does_not_enable_auto_merge_on_closed_or_merged_prs(self):
         for status in ("already merged", "closed — manual intervention"):

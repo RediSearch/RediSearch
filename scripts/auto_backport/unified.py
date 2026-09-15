@@ -372,6 +372,8 @@ def report(ctx: dict) -> int:
             except (OSError, subprocess.CalledProcessError):
                 row["status"] = "error"
                 row["detail"] = f"auto-merge failed for {url}; retry with /backport {row['target']}"
+    state["rows"] = {row["target"]: row for row in rows}
+    write("results", state)
     body = apply_create.summary_comment(ctx["pr"], ctx["sha"], rows)
     run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     marker = f"<!-- unified-backport:{os.environ['GITHUB_RUN_ID']}:{os.environ['GITHUB_RUN_ATTEMPT']} -->"
