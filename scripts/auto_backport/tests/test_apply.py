@@ -58,6 +58,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -151,6 +152,16 @@ class ApplyCreateTests(unittest.TestCase):
         self.assertEqual(row["status"], "clean")
         self.assertTrue(row["detail"].startswith("http"))
         self.assertTrue(self._pushed())
+
+    def test_clean_and_conflict_prs_enable_auto_merge(self):
+        for status in ("clean", "conflicts"):
+            with self.subTest(status=status), patch.object(common, "gh", wraps=common.gh) as gh:
+                row = apply_create.apply_target(
+                    self.ctx, self.git,
+                    {"target": "8.6", "branch": "backport-agent/pr-8774-to-8.6",
+                     "status": status, "conflict_log": []})
+                self.assertNotEqual(row["status"], "error")
+                gh.assert_any_call("pr", "merge", row["detail"], "--auto", "--merge")
 
     def test_existing_pr_is_not_reopened(self):
         common.gh = lambda *a, **k: ("OPEN https://github.com/x/y/pull/1"
