@@ -446,3 +446,21 @@ def testInfoFieldIndexingTime(env):
         env.assertGreater(int(field_stats['indexing_apply_count']), 0)
         env.assertGreater(int(field_stats['indexing_apply_time_ns']), 0)
         env.assertGreater(int(field_stats['indexing_apply_max_time_ns']), 0)
+
+def testInfoFieldIndexingTimeIndexMissing(env):
+    # `writeMissingFieldDocs` records FIELD_INDEXING_INDEX on its own, outside the
+    # normal per-field preprocess/index/apply pipeline, so it needs its own coverage.
+    conn = getConnectionByEnv(env)
+
+    def field_indexing_stats():
+        return {to_dict(field)['attribute']: to_dict(field)
+                for field in index_info(env, 'idx')['field statistics']}
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'INDEXMISSING')
+
+    conn.execute_command('HSET', 'doc:1', 'other', 'x')
+
+    field_stats = field_indexing_stats()['txt']
+    env.assertGreater(int(field_stats['indexing_index_count']), 0)
+    env.assertGreater(int(field_stats['indexing_index_time_ns']), 0)
+    env.assertGreater(int(field_stats['indexing_index_max_time_ns']), 0)
