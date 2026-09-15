@@ -2064,48 +2064,84 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    * 2. Yield: Normalize each result's score by division with the max score, then pass
    *    it downstream.
   *******************************************************************************************************************/
- typedef struct {
-   ResultProcessor base;
-   // Stores the max value found (if needed in the future)
-   double maxValue;
-   const RLookupKey *scoreKey;
-   SearchResult *pooledResult;
-   arrayof(SearchResult *) pool;
-   bool timedOut;
- } RPMaxScoreNormalizer;
+typedef struct {
+  ResultProcessor base;
+  // Stores the max value found (if needed in the future)
+  double maxValue;
+  const RLookupKey *scoreKey;
+  SearchResult *pooledResult;
+  arrayof(SearchResult *) pool;
+  atomic_bool poolLock;
+  bool draining;
+  bool timedOut;
+} RPMaxScoreNormalizer;
 
+static void maxScoreLock(RPMaxScoreNormalizer *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  while (atomic_exchange_explicit(&self->poolLock, true, memory_order_acquire)) {
+  }
+}
 
- static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
-   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
-   array_free_ex(self->pool, srDtor(*(char **)ptr));
-   srDtor(self->pooledResult);
-   rm_free(self);
- }
+static void maxScoreUnlock(RPMaxScoreNormalizer *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  atomic_store_explicit(&self->poolLock, false, memory_order_release);
+}
 
- static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
-   RPMaxScoreNormalizer* self = (RPMaxScoreNormalizer*)rp;
-   size_t length = array_len(self->pool);
-   if (length == 0) {
-    // We've already yielded all results, return EOF
-    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-    self->timedOut = false;
-    return ret;
-   }
-  SearchResult *poppedResult = array_pop(self->pool);
+static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
+  array_free_ex(self->pool, srDtor(*(char **)ptr));
+  srDtor(self->pooledResult);
+  rm_free(self);
+}
+
+static void maxScoreApply(const RPMaxScoreNormalizer *self, SearchResult *r,
+                          SearchResult *poppedResult, double maximum) {
   SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
   double oldScore = SearchResult_GetScore(r);
-  if (self->maxValue != 0) {
-    SearchResult_SetScore(r, SearchResult_GetScore(r) / self->maxValue);
+  if (maximum != 0) {
+    SearchResult_SetScore(r, SearchResult_GetScore(r) / maximum);
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r),
+                        RSValue_NewNumber(SearchResult_GetScore(r)));
   }
   EXPLAIN(SearchResult_GetScoreExplainMut(r),
-        "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
-        SearchResult_GetScore(r), oldScore, self->maxValue);
+          "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
+          SearchResult_GetScore(r), oldScore, maximum);
+}
+
+static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  maxScoreLock(self);
+  if (self->draining) {
+    maxScoreUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
+  SearchResult *row = array_len(self->pool) ? array_pop(self->pool) : NULL;
+  double maximum = self->maxValue;
+  maxScoreUnlock(self);
+  if (!row) {
+    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    self->timedOut = false;
+    return ret;
+  }
+  maxScoreApply(self, r, row, maximum);
   return RS_RESULT_OK;
- }
+}
+
+static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  if (!self->draining) {
+    maxScoreLock(self);
+    self->draining = true;
+    maxScoreUnlock(self);
+  }
+  // The pool and its maximum are now drain-owned; never refill from upstream.
+  if (!array_len(self->pool)) return RP_DRAIN_EOF;
+  maxScoreApply(self, r, array_pop(self->pool), self->maxValue);
+  return RP_DRAIN_OK;
+}
 
 static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
@@ -2123,11 +2159,41 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
     return rc;
   }
 
-  self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
   // The pooled result outlives the upstream iterator's `it->current` slot;
   // preserve or drop the borrowed RSIndexResult before storing in the pool.
   SearchResult_BufferIndexResult(rp, self->pooledResult);
+  maxScoreLock(self);
+  if (self->draining) {
+    maxScoreUnlock(self);
+    SearchResult_Clear(self->pooledResult);
+    return RS_RESULT_TIMEDOUT;
+  }
+  SearchResult **oldPool = NULL;
+  if (rp->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict &&
+      array_hdr(self->pool)->remain_cap == 0) {
+    oldPool = self->pool;
+    uint32_t length = array_len(oldPool);
+    maxScoreUnlock(self);
+    uint32_t growth = MIN(MAX(length, 1), UINT16_MAX);
+    RS_ASSERT(length <= UINT32_MAX - growth);
+    SearchResult **grown = array_newlen(SearchResult *, length + growth);
+    // Drain only pops (changes the header), never writes slots or frees the array.
+    // The request lifetime keeps oldPool alive while its pointer slots are copied.
+    memcpy(grown, oldPool, length * sizeof(*grown));
+    array_set_len(grown, length);
+    maxScoreLock(self);
+    if (self->draining) {
+      maxScoreUnlock(self);
+      array_free(grown);
+      SearchResult_Clear(self->pooledResult);
+      return RS_RESULT_TIMEDOUT;
+    }
+    self->pool = grown;
+  }
+  self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
   array_ensure_append_1(self->pool, self->pooledResult);
+  maxScoreUnlock(self);
+  if (oldPool) array_free(oldPool);
 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
@@ -2137,25 +2203,31 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
 
 static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  maxScoreLock(self);
+  bool draining = self->draining;
+  maxScoreUnlock(self);
+  if (draining) return RS_RESULT_TIMEDOUT;
   uint32_t chunkLimit = rp->parent->resultLimit;
-  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  rp->parent->resultLimit = UINT32_MAX;  // we want to accumulate all results
   int rc;
-  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {};
-  rp->parent->resultLimit = chunkLimit; // restore the limit
+  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {
+  };
+  rp->parent->resultLimit = chunkLimit;  // restore the limit
   return rc;
 }
 
- /* Create a new Max Collector processor */
- ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
+/* Create a new Max Collector processor */
+ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
   RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   *ret->pooledResult = SearchResult_New();
-  ret->pool = array_new(SearchResult*, 0);
+  ret->pool = array_new(SearchResult *, 0);
   ret->base.Next = RPMaxScoreNormalizer_Accum;
   ret->base.Free = RPMaxScoreNormalizer_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPMaxScoreNormalizer_Drain;
   ret->base.type = RP_MAX_SCORE_NORMALIZER;
   ret->scoreKey = rlk;
+  atomic_init(&ret->poolLock, false);
   return &ret->base;
 }
 
