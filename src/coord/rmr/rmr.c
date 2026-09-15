@@ -582,6 +582,7 @@ static void uvReplyClusterInfo(void *p) {
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
   RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
+  RedisModule_BlockedClientMeasureTimeStart(bc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   IORuntimeCtx_RequestCompleted(ioRuntime);
@@ -593,7 +594,6 @@ static void uvReplyClusterInfo(void *p) {
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
   replyClusterInfoCtx->bc = bc;
