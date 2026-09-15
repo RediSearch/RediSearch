@@ -1032,14 +1032,17 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
   RedisModule_EndReply(reply);
 }
 
-static void replySpecNameAndFingerprint(IndexSpec *sp, void *ud) {
-  RedisModule_Reply *reply = ud;
+static void replySpecNameAndFingerprint(IndexSpec *sp, RedisModule_Reply *reply) {
   RedisModule_Reply_Array(reply);
   size_t nameLen;
   const char *specName = IndexSpec_GetClusterStateName(sp, &nameLen);
   RedisModule_Reply_StringBuffer(reply, specName, nameLen);
   RedisModule_Reply_LongLong(reply, (long long)IndexSpec_SchemaFingerprint(sp));
   RedisModule_Reply_ArrayEnd(reply);
+}
+
+static void replySpecNameAndFingerprintVisitor(IndexSpec *sp, void *ud) {
+  replySpecNameAndFingerprint(sp, ud);
 }
 
 // Wire format of the internal _FT._LIST WITHCLUSTERSTATE payload; the FT._LIST
@@ -1057,7 +1060,7 @@ void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *
   RedisModule_Reply_LongLong(reply, INDEX_CURRENT_VERSION);
 
   RedisModule_Reply_Array(reply);
-  Indexes_ForEachSpec(replySpecNameAndFingerprint, reply);
+  Indexes_ForEachSpec(replySpecNameAndFingerprintVisitor, reply);
   RedisModule_Reply_ArrayEnd(reply);
 
   RedisModule_Reply_ArrayEnd(reply);
