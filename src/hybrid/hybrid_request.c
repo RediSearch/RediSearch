@@ -230,6 +230,17 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
         req->requests[i]->pipeline.qctx.skipIndexResultDeepCopy = false;
       }
     }
+    if (rc == REDISMODULE_OK) {
+      // The tail is final: at execution time the merger and loaders may only
+      // append keys to its lookups; changing an existing key panics in the
+      // Rust core. Seal both ends of the tail plan (they differ when the tail
+      // has its own GROUP BY).
+      RLookup_Seal(tailLookup);
+      RLookup *lastLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_LAST);
+      if (lastLookup && lastLookup != tailLookup) {
+        RLookup_Seal(lastLookup);
+      }
+    }
     return rc;
 }
 
@@ -522,6 +533,18 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
       QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
+    }
+  }
+}
+
+void HybridRequest_WakeAbortChannels(HybridRequest *req) {
+  if (!req) {
+    return;
+  }
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      QueryRequestAsyncState_WakeAbortChannel(&req->requests[i]->base.async);
     }
   }
 }

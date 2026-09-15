@@ -1179,3 +1179,66 @@ def testTagSuffixTrieInfoOverhead(env):
         res = env.cmd('FT.SEARCH', 'idx', '@t:{*llo}', 'NOCONTENT')
         env.assertEqual(res[0], 2)  # hello, jello
         env.assertEqual(py2sorted(res[1:]), ['doc1', 'doc2'])
+
+# A byte `nu_utf8_read` (deps/libnu/utf8.h) treats as the lead byte of a
+# 4-byte UTF-8 sequence -- any byte >= 0xf0 -- but which is not a valid UTF-8
+# lead byte at all (only 0xf0-0xf4 are). `utf8_4b` (deps/libnu/utf8_internal.h)
+# unconditionally reads the 3 bytes following the lead byte with no bounds
+# check, so ending a token in this byte makes the decoder read past whatever
+# it is embedded in.
+_INVALID_UTF8_LEAD = b'\xff'
+
+def _assertSurvivesInvalidUtf8TagToken(env, conn, query):
+    """Send `query` (a tag token ending in `_INVALID_UTF8_LEAD`) and assert
+    the server survives it.
+
+    Case-insensitive tag matching lowercases every non-ASCII token through
+    `unicode_tolower` (src/util/strconv.h), which decodes it with
+    `nu_utf8_read`. That decoder has no bounds checking of its own: a lead
+    byte whose declared multi-byte sequence extends past the token's length
+    reads past the token's allocation regardless of what memory follows it.
+    Under AddressSanitizer (`SAN=address`) this is an immediate, reliably
+    detected heap-buffer-overflow; on a plain build it silently reads
+    adjacent heap memory instead of crashing. A correct build bounds the
+    read and stays responsive either way.
+    """
+    try:
+        conn.execute_command('FT.SEARCH', 'idx', query, 'NOCONTENT')
+    except Exception:
+        # A graceful error reply is fine; a dropped connection means the
+        # server crashed, which the liveness check below reports. Either
+        # way the test must not stop here.
+        pass
+
+    # check server is still alive
+    try:
+        alive = bool(conn.execute_command('PING'))
+    except redis.exceptions.ConnectionError:
+        alive = False
+    env.assertTrue(alive,
+                    message='server crashed evaluating an invalid-UTF-8 tag token: %r' % query)
+
+def testTagInvalidUtf8LoweringOverflow(env):
+    """Regression: a case-insensitive tag token ending in a byte
+    `nu_utf8_read` reads as a multi-byte UTF-8 lead must not overflow past
+    its allocation during `unicode_tolower`'s lowering.
+
+    Covers the token, prefix, and wildcard branches, which each reach
+    `tag_strtolower` independently in `src/query.c`. See
+    `_assertSurvivesInvalidUtf8TagToken` for the overflow mechanism.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+    # Exact token, through QN_TOKEN. A leading ASCII run keeps the invalid
+    # byte off the very first position, off the ASCII-only fast path that
+    # ASCII-only tokens like `hello` above would take.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'}')
+    # Prefix token, through Query_EvalTagPrefixNode.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'*}')
+    # Wildcard token, through Query_EvalTagWildcardNode.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b"@t:{w'caf" + _INVALID_UTF8_LEAD + b"*'}")
+
+    # The server must still serve a well-formed tag query.
+    env.expect('FT.SEARCH', 'idx', '@t:{hello}', 'NOCONTENT').equal([1, 'doc1'])

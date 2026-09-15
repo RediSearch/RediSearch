@@ -195,7 +195,7 @@ static int parseCursorSettings(uint32_t *reqflags, CursorConfig *cursorConfig, A
   return REDISMODULE_OK;
 }
 
-static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, QueryError *status){
+static int parseRequiredFields(RequiredField **requiredFields, ArgsCursor *ac, QueryError *status){
 
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
@@ -204,17 +204,16 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
     return REDISMODULE_ERR;
   }
   int requiredFieldNum = AC_NumArgs(&args);
-  // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
-  // If we need to use them in reply we should make a copy of those strings.
-  const char** reqFields = array_new(const char*, requiredFieldNum);
+  // The names are shallow copies, to use only for lookup. If we need to use them in reply we
+  // should make a copy of those strings. Keys are resolved lazily at serialization time.
+  RequiredField* reqFields = array_new(RequiredField, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
-    const char *s = AC_GetStringNC(&args, NULL); {
-      if(!s) {
-        array_free(reqFields);
-        return REDISMODULE_ERR;
-      }
+    const char *s = AC_GetStringNC(&args, NULL);
+    if(!s) {
+      array_free(reqFields);
+      return REDISMODULE_ERR;
     }
-    array_append(reqFields, s);
+    array_append(reqFields, ((RequiredField){.name = s, .key = NULL}));
   }
 
   *requiredFields = reqFields;
@@ -1945,6 +1944,13 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
+    // The pipeline is final: execution may only append keys to the reply
+    // lookup (document loaders, the coordinator's RPNet); changing an existing
+    // key panics in the Rust core.
+    RLookup *replyLookup = AGPLN_GetLookup(&req->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
+    if (replyLookup) {
+      RLookup_Seal(replyLookup);
+    }
   }
   return rc;
 }

@@ -282,6 +282,11 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_TO_SUBSCRIBER_MODULES (1<<0)
 #define REDISMODULE_NOTIFY_TO_SUBSCRIBER_CLIENTS (1<<1)
 
+/* Delivery flags for RM_SubscribeToKeyspaceEventsWithSubkeys.
+ * These are passed in the 'flags' parameter, not in 'types'. */
+#define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
+#define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
+
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
 #define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)
@@ -1174,6 +1179,7 @@ typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
+typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
 typedef void (*RedisModulePostNotifyJobFunc) (RedisModuleCtx *ctx, void *pd);
 typedef void (*RedisModulePostNotifyJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
 /* Backward-compatible alias for the original (pre-rename) name. */
@@ -1655,6 +1661,9 @@ REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx)
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_NotifyKeyspaceEventWithSubkeys)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddPostNotificationJobForKey)(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
@@ -2129,6 +2138,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
     REDISMODULE_GET_API(UnsubscribeFromKeyspaceEvents);
+    REDISMODULE_GET_API(SubscribeToKeyspaceEventsWithSubkeys);
+    REDISMODULE_GET_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
+    REDISMODULE_GET_API(NotifyKeyspaceEventWithSubkeys);
     REDISMODULE_GET_API(AddPostNotificationJob);
     REDISMODULE_GET_API(AddPostNotificationJobForKey);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);

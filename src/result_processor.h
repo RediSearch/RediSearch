@@ -95,13 +95,26 @@ void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 // Result count to report to the client: matches minus the rows a loader dropped
-// (deleted/re-indexed/expired mid-load). Invariant: skippedResults <= totalResults
-// — drops are a subset of counted matches, and any stage that transforms or replaces
-// totalResults (grouper, hybrid merge, optimizer offset/limit) folds in and clears
-// skippedResults first. The assert enforces the invariant at every reply site.
+// (deleted/re-indexed/expired mid-load). Saturates at zero.
+//
+// `skippedResults <= totalResults` reads like an invariant — drops are a subset of counted
+// matches, and any stage that transforms or replaces totalResults (grouper, hybrid merge,
+// optimizer offset/limit) folds in and clears skippedResults first. It does not hold across a
+// cursor chunk boundary. A read without WITHCOUNT resets both counters when it finishes, while
+// a buffering stage upstream — `SORTBY` with `MAX`, which accumulates every row before
+// yielding any — hands rows counted during one read to the loader during a later one. A
+// document that vanished in between is counted in `skippedResults` for a read whose
+// `totalResults` no longer includes it.
+//
+// Both counters are unsigned, so subtracting then wrapped: five such rows reported 4294967291
+// as the result count, and the assert this used to carry aborted an assert-enabled build
+// rather than catching anything a caller could act on. Same reasoning, and the same remedy, as
+// the clamp in `rpevalNext_filter` — and needed alongside it, since with both a filter and
+// dropped documents that clamp pins `totalResults` at zero and leaves this subtraction to wrap.
 static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
-  RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
-                "skippedResults must not exceed totalResults");
+  if (qctx->skippedResults >= qctx->totalResults) {
+    return 0;
+  }
   return qctx->totalResults - qctx->skippedResults;
 }
 
