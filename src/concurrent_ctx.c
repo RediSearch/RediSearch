@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "concurrent_ctx.h"
+#include <limits.h>
+#include "query_request.h"
 
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
@@ -46,8 +48,6 @@ typedef struct ConcurrentCmdCtx {
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *ctx;
   ConcurrentCmdHandler handler;
-  RedisModuleString **argv;
-  int argc;
   int options;
   int poolId;
   WeakRef spec_ref;
@@ -84,8 +84,9 @@ size_t ConcurrentSearchPool_HighPriorityPendingJobsCount() {
 
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
+  QueryRequest *request = RedisModule_BlockClientGetPrivateData(ctx->bc);
 
-  ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
+  ctx->handler(ctx->ctx, request->args.argv, (int)request->args.argc, ctx);
 
   RedisModule_FreeThreadSafeContext(ctx->ctx);
 
@@ -95,7 +96,6 @@ static void threadHandleCommand(void *p) {
     RedisModule_UnblockClient(ctx->bc, privdata);
   }
 
-  rm_free(ctx->argv);
   rm_free(p);
 }
 
@@ -130,8 +130,10 @@ int ConcurrentCmdCtx_GetPoolId(const ConcurrentCmdCtx *cctx) {
 }
 
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
-                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          RedisModuleCtx *ctx,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
+  QueryRequest *request = handlerCtx->bcCtx.request;
+  RS_ASSERT(request && request->args.argv && request->args.argc <= INT_MAX);
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
   // If timeoutMS is not 0, both timeout callback and reply callback must be set
@@ -140,17 +142,12 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
 
   cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback,
                                        handlerCtx->bcCtx.timeout_callback,
-                                       handlerCtx->bcCtx.request ? QueryRequest_OnFree : NULL,
+                                       QueryRequest_OnFree,
                                        handlerCtx->bcCtx.timeoutMS);
 
-  if (handlerCtx->bcCtx.request) {
-    // Safe against the just-armed timer: the timeout callback runs on this
-    // same thread.
-    QueryRequest_BeginCycle(handlerCtx->bcCtx.request, cmdCtx->bc,
-                            handlerCtx->bcCtx.reply_callback);
-  }
+  // Safe against the just-armed timer: the timeout callback runs on this same thread.
+  QueryRequest_BeginCycle(request, cmdCtx->bc, handlerCtx->bcCtx.reply_callback);
 
-  cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;
   cmdCtx->coordStartTime = handlerCtx->coordStartTime;
   cmdCtx->numShards = handlerCtx->numShards;
@@ -159,11 +156,6 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
   cmdCtx->poolId = poolType;
-  // Copy command arguments so they can be released by the calling thread
-  cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
-  for (int i = 0; i < argc; i++) {
-    cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
-  }
 
   RedisModule_BlockedClientMeasureTimeStart(cmdCtx->bc);
 

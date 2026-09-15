@@ -107,9 +107,10 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmd
 // Returns the thread pool ID the command was dispatched on.
 int ConcurrentCmdCtx_GetPoolId(const struct ConcurrentCmdCtx *cctx);
 
-/* Same as handleRedis command, but set flags for the concurrent context */
+/* Dispatch a request-backed command. The handler borrows the request's full
+ * held argv, including debug arguments, until its terminal unblock. */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
-                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          RedisModuleCtx *ctx,
                                           ConcurrentSearchHandlerCtx *handlerCtx);
 
 /********************************************* for debugging **********************************/

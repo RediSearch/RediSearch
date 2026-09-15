@@ -694,15 +694,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     cmd.reqConfig = &hreq->reqConfig;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-    // Only detects the profile prefix; nothing borrows from the job's argv here.
+    // Detect the profile prefix before constructing the query's argument cursor.
     ArgsCursor profileAc = {0};
     ArgsCursor_InitRString(&profileAc, argv, argc);
     ProfileOptions profileOptions = EXEC_NO_FLAGS;
     int rc = ParseProfile(&profileAc, status, &profileOptions);
     if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    // Parse from the held argv — the parse borrows pointers into these
-    // strings, which must outlive this job's own argv copies.
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argc);
 
