@@ -224,8 +224,7 @@ static void ClusterStateReports_AddShard(ClusterStateReports *reports, MRReply *
     }
   }
 
-  if (group == array_len(reports->gateGroups))
-    reports->gateGroups = array_ensure_append_1(reports->gateGroups, gates);
+  if (group == array_len(reports->gateGroups)) array_ensure_append_1(reports->gateGroups, gates);
 
   for (size_t j = 0; j < nEntries; j++) {
     const MRReply *pair = MRReply_ArrayElement(entries, j);
@@ -241,7 +240,7 @@ static void ClusterStateReports_AddShard(ClusterStateReports *reports, MRReply *
     const bool valid = MRReply_Type(fp) == MR_REPLY_INTEGER;
     const ClusterStateFingerprint reported = {
         .group = group, .slot = slot, .fp = valid ? MRReply_Integer(fp) : 0, .valid = valid};
-    info->fps = array_ensure_append_1(info->fps, reported);
+    array_ensure_append_1(info->fps, reported);
     info->noFingerprint += !valid;
   }
 }
@@ -322,25 +321,25 @@ static arrayof(ClusterStateSchemaGroup)
     }
     if (group == array_len(groups)) {
       const ClusterStateSchemaGroup newGroup = {.gateGroup = fp->group, .fingerprint = fp->fp};
-      groups = array_ensure_append_1(groups, newGroup);
+      array_ensure_append_1(groups, newGroup);
     }
     if (!idInArray(id, groups[group].nodeIds, array_len(groups[group].nodeIds))) {
-      groups[group].nodeIds = array_ensure_append_1(groups[group].nodeIds, id);
+      array_ensure_append_1(groups[group].nodeIds, id);
     }
   }
   return groups;
 }
 
 static void replySchemaGroups(RedisModule_Reply *reply, arrayof(ClusterStateSchemaGroup) groups) {
-  RedisModule_ReplyKV_Array(reply, FT_LIST_CS_KEY_SCHEMA_GROUPS);
+  RedisModule_ReplyKV_Set(reply, FT_LIST_CS_KEY_SCHEMA_GROUPS);
   for (uint32_t i = 0; i < array_len(groups); ++i) {
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_Set(reply);
     for (uint32_t j = 0; j < array_len(groups[i].nodeIds); ++j) {
       RedisModule_Reply_SimpleString(reply, groups[i].nodeIds[j]);
     }
-    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_SetEnd(reply);
   }
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_SetEnd(reply);
 }
 
 static void replyShardIds(RedisModule_Reply *reply, const char *key, arrayof(const char *) ids) {
