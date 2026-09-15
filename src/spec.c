@@ -618,11 +618,6 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
                         "COMPRESSION is not supported for disk-based vector indexes");
     return 0;
   }
-  if (hnswParams->quantType == VecSimQuant_SQ8 && hnswParams->dim > HNSW_SQ8_MAX_DIM) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "SQ8 DIM cannot exceed", " %u",
-                                  HNSW_SQ8_MAX_DIM);
-    return 0;
-  }
   VecSimParams *estimateParams = primaryParams;
   if (hnswParams->quantType == VecSimQuant_SQ8) {
     estimateParams = params;
