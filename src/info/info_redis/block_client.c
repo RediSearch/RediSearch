@@ -171,7 +171,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   if (request->async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(QueryRequest_GetAREQ(request));
   }
-  // report block client start time
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  BlockedClientTiming_Begin(&request->timing, bc);
   return bc;
 }
