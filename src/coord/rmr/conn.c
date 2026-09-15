@@ -108,19 +108,25 @@ static void MRConnPool_Free(void *privdata, void *p) {
   rm_free(pool);
 }
 
-/* Get a connection from the connection pool. We select the next available connected connection with
- * a round robin selector */
-static MRConn *MRConnPool_Get(MRConnPool *pool) {
+/* Return pool->num when no connected slot exists. Leave selection state unchanged. */
+static size_t MRConnPool_FindConnected(const MRConnPool *pool) {
+  size_t index = pool->rr;
   for (size_t i = 0; i < pool->num; i++) {
-
-    MRConn *conn = pool->conns[pool->rr];
-    // increase the round-robin counter
-    pool->rr = (pool->rr + 1) % pool->num;
-    if (conn->state == MRConn_Connected) {
-      return conn;
+    if (pool->conns[index]->state == MRConn_Connected) {
+      return index;
     }
+    index = (index + 1) % pool->num;
   }
-  return NULL;
+  return pool->num;
+}
+
+static MRConn *MRConnPool_Get(MRConnPool *pool) {
+  size_t index = MRConnPool_FindConnected(pool);
+  if (index == pool->num) {
+    return NULL;
+  }
+  pool->rr = (index + 1) % pool->num;
+  return pool->conns[index];
 }
 
 static dictType nodeIdToConnPoolType = {
@@ -160,6 +166,15 @@ void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
     }
   }
   dictReleaseIterator(it);
+}
+
+bool MRConnManager_HasConnectedConnection(MRConnManager *mgr, const char *id) {
+  dictEntry *entry = dictFind(mgr->map, id);
+  if (!entry) {
+    return false;
+  }
+  const MRConnPool *pool = dictGetVal(entry);
+  return MRConnPool_FindConnected(pool) != pool->num;
 }
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
