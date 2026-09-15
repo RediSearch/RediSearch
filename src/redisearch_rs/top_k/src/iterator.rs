@@ -384,6 +384,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 // phase needn't re-walk the child. A discarded candidate skips the
                 // copy entirely. When rich results can be trimmed, copy only the
                 // child's yielded metrics rather than its full scoring subtree.
+                // A candidate the heap cannot keep — the common case once it is
+                // full and `k` is small — skips building the push frame and its
+                // record closure entirely.
+                if !self.heap.may_retain(score) {
+                    continue;
+                }
                 self.heap.push_with_record_lazy(doc_id, score, || {
                     Some(if can_trim_deep_results {
                         capture_child_metrics(result)
