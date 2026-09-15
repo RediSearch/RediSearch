@@ -3648,7 +3648,7 @@ cleanup:
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    MRCtx_FinishTiming(mc);
   }
   if (ctx) {
     RedisModule_FreeThreadSafeContext(ctx);
@@ -4280,8 +4280,11 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_SEARCH_BAILOUT_FINISH);
+#endif
   if (!MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    MRCtx_FinishTiming(mrctx);
   }
   RedisModule_UnblockClient(bc, mrctx);
 }
@@ -4421,6 +4424,10 @@ typedef struct SearchCmdCtx {
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
+  MRCtx_StartTiming(sCmdCtx->mrctx);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
@@ -4590,6 +4597,7 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
     } else {
       MRCtx_WaitForReducerComplete(mrctx);
     }
+    MRCtx_FinishTiming(mrctx);
   }
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -4643,6 +4651,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   if (QueryError_HasError(MRCtx_GetStatus(mrctx))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, MRCtx_GetStatus(mrctx));
+    MRCtx_FinishTiming(mrctx);
     return REDISMODULE_OK;
   }
 
@@ -4660,6 +4669,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   }
   RedisModule_EndReply(reply);
 
+  MRCtx_FinishTiming(mrctx);
   return REDISMODULE_OK;
 }
 
@@ -4819,7 +4829,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   sCmdCtx->bc = bc;
   sCmdCtx->mrctx = mrctx;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
-  RedisModule_BlockedClientMeasureTimeStart(bc);
 
   MRCtx_IncrRef(mrctx);
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
@@ -5254,6 +5263,10 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
 
 static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
+  MRCtx_StartTiming(sCmdCtx->mrctx);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }

@@ -23,7 +23,7 @@ def create_query_timing_index(env):
 
 def assert_background_duration(env, command, sync_point, force_timeout, expected_reply=None,
                                expected_error=None, while_paused=None, command_name=None,
-                               timeout_releases_worker=False,
+                               after_dispatch=None, timeout_releases_worker=False,
                                timeout_sync_point=None):
     """Check elapsed work; sync_point=None pauses after storing results, before signalling."""
     if command_name is None:
@@ -50,6 +50,8 @@ def assert_background_duration(env, command, sync_point, force_timeout, expected
         is_paused = lambda: env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point)
     try:
         worker.start()
+        if after_dispatch is not None:
+            after_dispatch()
         wait_for_condition(
             lambda: (is_paused() == 1, {}),
             f'Worker did not pause at {sync_point or "stored results"}', timeout=10)
@@ -452,3 +454,116 @@ def test_coordinator_query_timeout_commits_background_duration():
                         while_paused=finish_before_timeout, timeout_sync_point=finished_hook)
     finally:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_search_commits_background_duration():
+    """Distributed search publishes elapsed work on completion and forced timeout."""
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0', protocol=3)
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 't', 'hello')
+    command = ['FT.SEARCH', 'idx', '*']
+    expected_reply = {
+        'attributes': [], 'warning': [], 'total_results': 1, 'format': 'STRING',
+        'results': [{'id': '{doc}:1', 'extra_attributes': {'t': 'hello'}, 'values': []}],
+    }
+    previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        for policy in ('fail', 'return-strict', 'return'):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+            assert_background_duration(
+                env, command, 'BeforeSpecLock', force_timeout=False,
+                expected_reply=expected_reply)
+            if policy != 'return':
+                assert_timeout_duration(env, command, 'BeforeSpecLock')
+    finally:
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_search_bailout_commits_background_duration():
+    """Losing the index before fanout still publishes the search worker's elapsed time."""
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0', protocol=3)
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        for policy in ('fail', 'return-strict', 'return'):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+            assert_background_duration(
+                env, ['FT.SEARCH', 'idx', '*'], 'BeforeSpecLock', force_timeout=False,
+                expected_error='The index was dropped before the query could be executed',
+                while_paused=lambda: env.expect('FT.DROPINDEX', 'idx').ok())
+    finally:
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_search_bailout_timeout_commits_background_duration():
+    """RETURN_STRICT publishes duration when timeout returns the worker's stored error."""
+    # Disable clock timeouts so CLIENT UNBLOCK selects the published-error return path.
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0 ON_TIMEOUT RETURN-STRICT', protocol=3)
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    prepare_hook = 'BeforeSpecLock'
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', prepare_hook).ok()
+
+    def drop_index_before_fanout():
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', prepare_hook) == 1, {}),
+                f'Worker did not reach {prepare_hook}', timeout=10)
+            env.expect('FT.DROPINDEX', 'idx').ok()
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', prepare_hook).ok()
+
+    assert_background_duration(
+        env, ['FT.SEARCH', 'idx', '*'], 'BeforeCoordSearchBailoutFinish', force_timeout=True,
+        expected_error='The index was dropped before the query could be executed',
+        after_dispatch=drop_index_before_fanout)
+
+
+@skip(cluster=False, min_shards=2)
+def test_coordinator_debug_search_commits_background_duration():
+    """Debug search publishes its worker interval when shards return a forced timeout."""
+    # Coordinator debug queries require RETURN; TIMEOUT_AFTER_N supplies the timeout.
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0 ON_TIMEOUT RETURN', protocol=3)
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 't', 'hello')
+    command = [debug_cmd()] + parseDebugQueryCommandArgs(
+        ['FT.SEARCH', 'idx', '*'], ['TIMEOUT_AFTER_N', 0])
+    result = assert_background_duration(
+        env, command, 'BeforeSpecLock', force_timeout=False,
+        command_name=f'{debug_cmd()}|FT.SEARCH',
+        expected_reply={
+            'attributes': [], 'warning': [ANY], 'total_results': 0,
+            'format': 'STRING', 'results': [],
+        })
+    assert_timeout_warning(env, result, message=str(result))
+
+
+@skip(cluster=False, min_shards=2)
+def test_fanout_reply_completion_commits_background_duration():
+    """Real fanout replies publish elapsed time before completion or forced timeout."""
+    # Match the helper's worker cleanup and expose FT.INFO fields as a RESP3 map.
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0', protocol=3)
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    for force_timeout in (False, True):
+        result = assert_background_duration(
+            env, ['FT.INFO', 'idx'], 'BeforeFanoutFinish', force_timeout=force_timeout,
+            expected_error='Timeout calling command' if force_timeout else None)
+        if not force_timeout:
+            env.assertEqual(result['index_name'], 'idx', message=result)
+        duration = env.cmd('INFO', 'COMMANDSTATS')['cmdstat_FT.INFO']['usec']
+        # This visits every I/O loop after the released fanout callback; worker
+        # pool completion cannot establish that ordering.
+        env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+        env.assertEqual(env.cmd('INFO', 'COMMANDSTATS')['cmdstat_FT.INFO']['usec'], duration)
