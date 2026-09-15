@@ -343,7 +343,7 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 
 QueryNode *NewMissingNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_MISSING);
-  ret->miss.field = field;
+  ret->miss.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   return ret;
 }
 
@@ -1491,9 +1491,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_GEOMETRY:
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
-    case QN_MISSING:
-      s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(qs->miss.field->fieldName, NULL));
-      break;
+    case QN_MISSING: {
+      const FieldSpec *missFs = spec->fields + qs->miss.fieldIndex;
+      s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(missFs->fieldName, NULL));
+    } break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }

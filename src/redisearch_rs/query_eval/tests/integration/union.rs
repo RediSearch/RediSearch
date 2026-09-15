@@ -223,7 +223,7 @@ mod union {
 
         // child 1: QN_MISSING for a field with no missing values → None.
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
-        missing_child.set_missing_field(context.field_spec());
+        unsafe { missing_child.set_missing_field(context.field_spec()) };
         // child 2: QN_IDS resolving to a real document.
         let keys = MockKeys::new(&["doc_a"]);
         let mut dids = vec![id_a];
