@@ -728,7 +728,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
                                  bool *rerank) {
   int rc;
   TieredIndexParams *tieredParams = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
-  VecSimParams *params = tieredParams->primaryIndexParams;
+  HNSWParams *hnswParams = &tieredParams->primaryIndexParams->algoParams.hnswParams;
 
   // HNSW mandatory params.
   bool mandtype = false;
@@ -756,54 +756,53 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
 
   while (!AC_IsAtEnd(&subAc)) {
     if (AC_AdvanceIfMatch(&subAc, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(&subAc, &params->algoParams.hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(&subAc, &hnswParams->type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(&subAc, &params->algoParams.hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(&subAc, &hnswParams->metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status,  VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_M)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_M), rc);
         return 0;
       }
       mandM = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFCONSTRUCTION), rc);
         return 0;
       }
       mandEfConstruction = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
         return 0;
       }
       mandEfRuntime = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(&subAc, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      if ((rc = AC_GetDouble(&subAc, &hnswParams->epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_COMPRESSION)) {
-      if ((rc = parseVectorField_GetHnswQuantType(
-               &subAc, &params->algoParams.hnswParams.quantType)) != AC_OK) {
+      if ((rc = parseVectorField_GetHnswQuantType(&subAc, &hnswParams->quantType)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_COMPRESSION),
                           rc);
         return 0;
@@ -867,7 +866,6 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
     return 0;
   }
 
-  HNSWParams *hnswParams = &params->algoParams.hnswParams;
   if (hnswParams->quantType != VecSimQuant_NONE && hnswParams->type != VecSimType_FLOAT32 &&
       hnswParams->type != VecSimType_FLOAT16) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -885,14 +883,13 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
-    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&
-        params->algoParams.hnswParams.type != VecSimType_FLOAT16) {
-      const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
+    if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
+      const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support %s vector type", typeName);
       return 0;
     }
-    if (params->algoParams.hnswParams.multi) {
+    if (hnswParams->multi) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support multi-value vectors");
       return 0;
@@ -920,7 +917,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
 
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
+  fs->vectorOpts.expBlobSize = hnswParams->dim * VecSimType_sizeof(hnswParams->type);
 
   return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
 }
