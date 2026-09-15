@@ -334,6 +334,7 @@ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
  * Normalizes vector distance scores using a provided normalization function.
  * Processes results immediately without accumulation.
  * The normalization function is provided by pipeline construction logic.
+ * normFunc must be pure, nonblocking and safe for concurrent calls; scoreKey is non-null.
  *******************************************************************************************************************/
 ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey);
 
