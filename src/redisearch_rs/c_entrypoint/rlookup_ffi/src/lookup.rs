@@ -21,7 +21,6 @@ use rlookup::{
 use std::{
     borrow::Cow,
     ffi::{CStr, CString, c_char, c_int},
-    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };
@@ -186,8 +185,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_read_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -238,8 +237,8 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_read_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -282,8 +281,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_write_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -333,8 +332,8 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_write_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -383,8 +382,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_load_ptr(name, field_name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -440,8 +439,8 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_load_ptr(name, field_name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
@@ -512,6 +511,27 @@ pub unsafe extern "C" fn RLookup_SetCache(
     lookup.set_cache(spcache);
 }
 
+/// Seal the lookup at the end of pipeline construction: from now on it is
+/// append-only. Creating new keys stays legal (document loaders and the
+/// coordinator append keys during execution), but overriding or mutating an
+/// existing key panics. Idempotent.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Seal(lookup: *mut OpaqueRLookup) {
+    // SAFETY: ensured by caller (1.)
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_Seal");
+
+    lookup.seal();
+}
+
 /// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
 ///
 /// # Safety
@@ -545,7 +565,9 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
     let lookup =
         unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_Cleanup");
+    // Key names and paths may be borrowed from pipeline steps that are destroyed before the
+    // lookup, so cleanup can only validate invariants that do not dereference borrowed data.
+    lookup.assert_structure_valid("RLookup_Cleanup");
 
     // Safety: ensured by caller (2.)
     unsafe { ptr::drop_in_place(lookup) };
@@ -905,6 +927,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 3. Existing keys must not be mutated while iterating. Concurrent by-name appends
+///    are allowed; the iterator visits only the slots present at creation.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -914,51 +938,48 @@ pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLook
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_Iter");
 
-    let current = lookup.cursor().current().map_or(ptr::null(), ptr::from_ref);
-
-    RLookupIterator { current }
+    RLookupIterator {
+        lookup,
+        next: 0,
+        remaining: lookup.get_row_len() as usize,
+    }
 }
 
 /// An iterator over the keys in an `RLookup`, returning immutable pointers.
 #[repr(C)]
 pub struct RLookupIterator<'a> {
-    pub current: *const RLookupKey<'a>,
+    pub lookup: *const RLookup<'a>,
+    pub next: size_t,
+    pub remaining: size_t,
 }
 
-/// Return an iterator over an [`RLookup`]'s key list with editing operations.
+/// Advance a [`RLookupIterator`] without retaining the lookup's vector storage.
 ///
 /// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
-/// 3. The caller must treat the returned `current` pointer as pinned. Specifically
-///    a. Not move (memcpy/memmove) out of the pointer.
-///    b. The pointed-to value must remain at its original address in memory and never be relocated.
+/// `iterator` and `key` must be [valid] non-null pointers; the iterator must satisfy
+/// the lifetime and key immutability requirements of [`RLookup_Iter`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_IterMut<'a>(lookup: *mut OpaqueRLookup) -> RLookupIteratorMut<'a> {
-    // Safety: ensured by caller (1.)
-    let lookup =
-        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
-    #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_IterMut");
-
-    let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
-        ptr::from_mut(
-            // Safety: ensured by caller (2., 3.)
-            // Both this function and the caller guarantee that the value behind the pointer is never moved.
-            unsafe { Pin::into_inner_unchecked(c) },
-        )
-    });
-
-    RLookupIteratorMut { current }
-}
-
-/// An iterator over the keys in an `RLookup`, returning mutable pointers.
-#[repr(C)]
-pub struct RLookupIteratorMut<'a> {
-    pub current: *mut RLookupKey<'a>,
+pub unsafe extern "C" fn RLookupIterator_Next<'a>(
+    iterator: *mut RLookupIterator<'a>,
+    key: *mut *const RLookupKey<'a>,
+) -> bool {
+    // SAFETY: the caller owns the iterator and output slot.
+    let iterator = unsafe { &mut *iterator };
+    if iterator.remaining == 0 {
+        return false;
+    }
+    // SAFETY: the lookup outlives the iterator; by-name appends use shared access.
+    let lookup = unsafe { &*iterator.lookup };
+    let ptr = lookup
+        .key_at(iterator.next as u16)
+        .expect("iterator slot must exist");
+    // SAFETY: the caller provides a valid output slot.
+    unsafe { *key = ptr.as_ptr() };
+    iterator.next += 1;
+    iterator.remaining -= 1;
+    true
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

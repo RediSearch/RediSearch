@@ -57,15 +57,10 @@ typedef struct LoadIndividualKeysOptions {
  * An iterator over the keys in an `RLookup`, returning immutable pointers.
  */
 typedef struct RLookupIterator {
-  const RLookupKey *current;
+  const struct RLookup *lookup;
+  size_t next;
+  size_t remaining;
 } RLookupIterator;
-
-/**
- * An iterator over the keys in an `RLookup`, returning mutable pointers.
- */
-typedef struct RLookupIteratorMut {
-  RLookupKey *current;
-} RLookupIteratorMut;
 
 /**
  * [`RSSortingVector`] acts as a cache for sortable fields in a document.
@@ -113,6 +108,17 @@ typedef struct RSSortingVectorSlice {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Advance a [`RLookupIterator`] without retaining the lookup's vector storage.
+ *
+ * # Safety
+ * `iterator` and `key` must be [valid] non-null pointers; the iterator must satisfy
+ * the lifetime and key immutability requirements of [`RLookup_Iter`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupIterator_Next(struct RLookupIterator *iterator, const RLookupKey * *key);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -555,25 +561,12 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. Existing keys must not be mutated while iterating. Concurrent by-name appends
+ *    are allowed; the iterator visits only the slots present at creation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
-
-/**
- * Return an iterator over an [`RLookup`]'s key list with editing operations.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. The returned iterator must only be used as long as the `lookup` remains valid.
- * 3. The caller must treat the returned `current` pointer as pinned. Specifically
- *    a. Not move (memcpy/memmove) out of the pointer.
- *    b. The pointed-to value must remain at its original address in memory and never be relocated.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Load values from the document `dmd` into `dst_row`
@@ -639,6 +632,20 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *looku
  * Returns a newly created [`RLookup`].
  */
 struct RLookup RLookup_New(void);
+
+/**
+ * Seal the lookup at the end of pipeline construction: from now on it is
+ * append-only. Creating new keys stays legal (document loaders and the
+ * coordinator append keys during execution), but overriding or mutating an
+ * existing key panics. Idempotent.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_Seal(struct RLookup *lookup);
 
 /**
  * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an

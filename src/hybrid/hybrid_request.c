@@ -230,6 +230,17 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
         req->requests[i]->pipeline.qctx.skipIndexResultDeepCopy = false;
       }
     }
+    if (rc == REDISMODULE_OK) {
+      // The tail is final: at execution time the merger and loaders may only
+      // append keys to its lookups; changing an existing key panics in the
+      // Rust core. Seal both ends of the tail plan (they differ when the tail
+      // has its own GROUP BY).
+      RLookup_Seal(tailLookup);
+      RLookup *lastLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_LAST);
+      if (lastLookup && lastLookup != tailLookup) {
+        RLookup_Seal(lastLookup);
+      }
+    }
     return rc;
 }
 

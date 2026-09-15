@@ -331,6 +331,7 @@ static int rpnetCreateIterator(RPNet *nc) {
   }
 
   nc->it = it;
+  RPNet_PublishIterator(nc);
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
@@ -651,6 +652,9 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
+  // The dist plan is final: RPNet only appends unseen shard fields to this
+  // lookup at execution time; changing an existing key panics in the Rust core.
+  RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
@@ -713,9 +717,12 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    RPNetReply batch = rpnet->current;
+    rpnet->current = (RPNetReply){0};
     do {
-      MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+      MRReply_Free(batch.root);
+      batch = (RPNetReply){0};
+    } while (getNextReply(rpnet, &batch) != RS_RESULT_EOF);
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);

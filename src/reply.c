@@ -547,86 +547,86 @@ char *escapeSimpleString(const char *str) {
   return escaped;
 }
 
-/* Based on the value type, serialize the RSValue into redis client response */
-int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  v = RSValue_Dereference(v);
-  uint32_t len = 0;
+/* Based on the value type, serialize the RSValue into redis client response.
+ * The value is resolved (references followed, trios collapsed) and its payload
+ * fetched in a single FFI call. */
+static int replyRSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags,
+                        RSValueTrioSelection trioSelection) {
+  RSValueView view = RSValue_GetReplyView(v, trioSelection);
 
-  switch (RSValue_Type(v)) {
-    case RSValueType_String:
-      {
-        const char* str = RSValue_String_Get(v, &len);
-        return RedisModule_Reply_StringBuffer(reply, str, len);
-      }
+  switch (view.view_type) {
+    case RSValueViewType_String:
+      return RedisModule_Reply_StringBuffer(reply, view.str_ptr, view.str_len);
 
-    case RSValueType_RedisString:
-      return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
-
-    case RSValueType_Number: {
+    case RSValueViewType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
         if (flags & SENDREPLY_FLAG_TYPED) {
           if (reply->resp3) {
-            return RedisModule_Reply_Double(reply, RSValue_Number_Get(v));
+            return RedisModule_Reply_Double(reply, view.num);
           } else {
              // In RESP2, RM_ReplyWithDouble() does not tag the response as
              // double, it's just a plain string. So we send it as simple string
              // that is converted to double by MRReply_ToValue().
             char buf[32];
-            RSValue_NumToString(v, buf, sizeof(buf));
+            RSValue_NumToString(view.resolved, buf, sizeof(buf));
             return RedisModule_Reply_Error(reply, buf);
           }
         } else {
           char buf[32];
-          size_t len = RSValue_NumToString(v, buf, sizeof(buf));
+          size_t len = RSValue_NumToString(view.resolved, buf, sizeof(buf));
           return RedisModule_Reply_StringBuffer(reply, buf, len);
         }
       } else {
-        double numval = RSValue_Number_Get(v);
-        long long ll = numval;
-        if (ll == numval) {
+        long long ll = view.num;
+        if (ll == view.num) {
           return RedisModule_Reply_LongLong(reply, ll);
         } else {
-          return RedisModule_Reply_Double(reply, numval);
+          return RedisModule_Reply_Double(reply, view.num);
         }
       }
     }
 
-    case RSValueType_Null:
+    case RSValueViewType_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValueType_Trio: {
-      return RedisModule_Reply_RSValue(reply, RSValue_Trio_GetMiddle(v), flags);
-    }
-
-    case RSValueType_Array:
+    case RSValueViewType_Array:
       RedisModule_Reply_Array(reply);
-      for (uint32_t i = 0; i < RSValue_ArrayLen(v); i++) {
-        RedisModule_Reply_RSValue(reply, RSValue_ArrayItem(v, i), flags);
+      for (uint32_t i = 0; i < view.len; i++) {
+        replyRSValue(reply, RSValue_ArrayItem(view.resolved, i), flags,
+                     RSValueTrioSelection_Middle);
       }
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
 
-    case RSValueType_Map:
+    case RSValueViewType_Map:
       // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
       RedisModule_Reply_Map(reply);
-      for (uint32_t i = 0; i < RSValue_Map_Len(v); i++) {
+      for (uint32_t i = 0; i < view.len; i++) {
         RSValue *key, *val;
-        RSValue_Map_GetEntry(v, i, &key, &val);
-        RedisModule_Reply_RSValue(reply, key, flags);
-        RedisModule_Reply_RSValue(reply, val, flags);
+        RSValue_Map_GetEntry(view.resolved, i, &key, &val);
+        replyRSValue(reply, key, flags, RSValueTrioSelection_Middle);
+        replyRSValue(reply, val, flags, RSValueTrioSelection_Middle);
       }
       RedisModule_Reply_MapEnd(reply);
       break;
-
-    default:
-      RedisModule_Reply_Null(reply);
   }
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+  return replyRSValue(reply, v, flags, RSValueTrioSelection_Middle);
+}
+
 int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, const RLookupRow *row,
-                                 uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags,
-                                 unsigned int apiVersion) {
+                                 uint32_t requiredFlags, uint32_t excludeFlags,
+                                 SendReplyFlags flags, unsigned int apiVersion) {
+  RSValueTrioSelection trioSelection = RSValueTrioSelection_Left;
+  if (flags & SENDREPLY_FLAG_EXPAND) {
+    trioSelection = RSValueTrioSelection_Right;
+  } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+    trioSelection = RSValueTrioSelection_Middle;
+  }
+
   RLOOKUP_FOREACH(kk, lk, {
     const uint32_t kflags = RLookupKey_GetFlags(kk);
     if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) ||
@@ -638,16 +638,7 @@ int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, co
       continue;
     }
     RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
-    if (RSValue_IsTrio(v)) {
-      if (flags & SENDREPLY_FLAG_EXPAND) {
-        v = RSValue_Trio_GetRight(v);
-      } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-        v = RSValue_Trio_GetMiddle(v); // multi-value form
-      } else {
-        v = RSValue_Trio_GetLeft(v); // single-value form
-      }
-    }
-    RedisModule_Reply_RSValue(reply, v, flags);
+    replyRSValue(reply, v, flags, trioSelection);
   });
   return REDISMODULE_OK;
 }
