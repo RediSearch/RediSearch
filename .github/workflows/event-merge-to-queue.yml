@@ -34,6 +34,13 @@ jobs:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
+  # Unconditional, unlike the pull request flow: the queue does no change
+  # detection, so there is no SWAMP_CHANGED to gate on here.
+  swamp-tests:
+    permissions:
+      contents: read # actions/checkout, and nothing else
+    uses: ./.github/workflows/task-swamp-tests.yml
+
   build-unique-oses:
     needs: get-latest-redis-tag
     permissions:
@@ -123,6 +130,7 @@ jobs:
     needs:
       - get-latest-redis-tag
       - lint
+      - swamp-tests
       - build-unique-oses
       - test-ubuntu-master
       - test-ubuntu-release-branch

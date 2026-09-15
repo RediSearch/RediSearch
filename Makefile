@@ -200,6 +200,8 @@ Development:
   make lint          Run linters
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
+  make swamp-tests   Check formatting and run the swamp extension model tests
+    SWAMP_DENO=path    Use a specific deno binary
 
 Packaging:
   make pack          Create installation packages
@@ -389,6 +391,120 @@ license-check:
 	@echo "Checking license headers..."
 	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 
+# Deno for the swamp extension tests. Prefer the copy swamp bundles, which is
+# not on PATH, and fall back to one the environment provides (CI installs it).
+SWAMP_DENO ?= $(shell if [ -x "$(HOME)/.swamp/deno/deno" ]; then \
+	echo "$(HOME)/.swamp/deno/deno"; else command -v deno; fi)
+
+# The deno half: everything that gates a pull request. Kept separate from the
+# definition check below so that it can be run from inside a swamp workflow,
+# where invoking `swamp` again would be a swamp run driving a swamp run.
+swamp-extension-tests:
+ifeq ($(strip $(SWAMP_DENO)),)
+	@echo "No deno found. Install swamp, or install deno and put it on PATH," >&2
+	@echo "or point at one explicitly: make swamp-tests SWAMP_DENO=/path/to/deno" >&2
+	@exit 1
+else
+	@echo "Checking swamp extension formatting..."
+	@cd $(ROOT)/swamp/extensions && $(SWAMP_DENO) fmt --check models/ reports/
+	@echo "Running swamp extension tests..."
+# Not --allow-all, which additionally disables the sandbox. What is left is what
+# the suite needs and no more: temp directories to work in (read/write), the fake
+# executables the execute tests drive instead of real builds (run), and the
+# environment those fakes are configured through (env).
+#
+# `--allow-run` is the one that cannot be narrowed: the fakes are generated per
+# test into temporary directories, so there is no set of paths to allow, and a
+# subprocess runs outside the sandbox whatever it is. A test could therefore
+# still spawn something that reaches the network. That is why the CI job running
+# this holds nothing worth reaching — see the swamp-tests job in
+# .github/workflows/task-lint.yml, which has `contents: read` and no more. The
+# job is the boundary; these flags only keep the default path narrow.
+	@cd $(ROOT)/swamp/extensions && $(SWAMP_DENO) test \
+		--allow-read --allow-write --allow-run --allow-env models/ reports/
+endif
+
+# The tests above cover the model sources. This covers the definitions that are
+# actually invoked: an instance or a workflow can be malformed, or reference an
+# argument or expression path that does not exist, while every TypeScript test
+# passes — and the first anyone would hear of it is a workflow refusing to run.
+#
+# The work list is built by walking the files, not by grepping for the field
+# being validated. Deriving it from `name:` means a definition whose name is
+# missing or misspelled contributes no entry at all — so the one file that is
+# certainly broken is the one nothing checks. Walking the files makes a missing
+# name a failure in its own right.
+#
+# Warnings are failures here. `swamp workflow validate` reports a step naming a
+# model that does not exist as a warning and still exits 0, which is exactly the
+# breakage this is meant to catch.
+#
+# Workflows are evaluated as well as validated. Validation is structural — schema,
+# dependencies, whether a step's inputs cover the method's required arguments —
+# and says nothing about the expressions.
+#
+# Evaluation is not a gate on its own: swamp reports an expression it could not
+# resolve as a *warning* and exits 0, so `swamp workflow evaluate` succeeds on a
+# workflow whose guard refers to `inputs.coverageFilse`. The gate script reads
+# those warnings. It cannot simply fail on all of them — evaluating without
+# inputs warns about every declared input that has no value, and `run` and the
+# async data lookups do not exist until there is a run — so it fails only on
+# warnings that are none of those, which is what a typo looks like.
+#
+# What it cannot see: anything inside an expression that reads `data`, because
+# those are never resolved at evaluation. Those are left to the run.
+#
+# Skipped rather than failed when swamp is absent, so that a contributor without
+# it can still run the rest — but not in CI, where skipping would be silent and
+# this is the only gate that reads the definitions at all. A pull request that
+# changes nothing but `workflows/` would otherwise pass every check while
+# carrying a guard that cannot evaluate. Set SWAMP_REQUIRED=1 to turn the skip
+# into a failure; the CI job that installs swamp does.
+swamp-definitions-check:
+	@if command -v swamp >/dev/null 2>&1; then \
+		echo "Validating swamp model and workflow definitions..."; \
+		entries=""; \
+		for file in $(ROOT)/swamp/models/*/*/*.yaml $(ROOT)/swamp/workflows/*.yaml; do \
+			case "$$file" in *"/workflows/"*) kind=workflow;; *) kind=model;; esac; \
+			name="$$(sed -n 's/^name: *//p' "$$file" | head -1)"; \
+			if [ -z "$$name" ]; then \
+				echo "$$file has no top-level name; nothing would validate it." >&2; \
+				exit 1; \
+			fi; \
+			entries="$$entries $$kind:$$name"; \
+		done; \
+		for entry in $$entries; do \
+			kind="$${entry%%:*}"; name="$${entry#*:}"; \
+			out="$$(swamp $$kind validate "$$name" --repo-dir $(ROOT)/swamp 2>&1)" || \
+				{ echo "$$out" >&2; exit 1; }; \
+			case "$$out" in \
+				*warning*|*Warning*|*WARNING*) \
+					echo "$$out" >&2; \
+					echo "$$kind $$name validated with warnings; treating as a failure." >&2; \
+					exit 1;; \
+			esac; \
+		done; \
+		python3 $(ROOT)/swamp/scripts/swamp_evaluate_gate.py $(ROOT)/swamp; \
+	elif [ -n "$(SWAMP_REQUIRED)" ]; then \
+		echo "swamp is not on PATH and SWAMP_REQUIRED is set." >&2; \
+		echo "This is the only gate that reads the workflow definitions, so" >&2; \
+		echo "skipping it would let a broken guard or input expression through." >&2; \
+		exit 1; \
+	else \
+		echo "swamp not on PATH; skipping model and workflow validation."; \
+	fi
+
+# Definitions first, deliberately. The extension tests are PR-controlled code
+# running with --allow-write and --allow-run, so a test file could edit
+# workflows/ or models/ — or replace the swamp binary on PATH — and the check
+# that reads those definitions would then be validating whatever the tests left
+# behind. Validating first means the definitions are checked as they arrived.
+#
+# Make runs prerequisites left to right for a serial build, which is what CI
+# does; the CI job also runs the two as separate steps so the order does not
+# depend on that.
+swamp-tests: swamp-definitions-check swamp-extension-tests
+
 pack: build
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
@@ -501,6 +617,6 @@ test-linkcheck:
 	@python3 scripts/test_link_checker.py
 
 .PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests archive-rust-tests rust-tests-from-archive pytest
-.PHONY: run lint fmt license-check pack upload-artifacts
+.PHONY: run lint fmt swamp-tests swamp-extension-tests swamp-definitions-check license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck
