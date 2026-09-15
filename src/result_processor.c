@@ -3524,19 +3524,72 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
  *  where background processing is not needed or not desired.
  *******************************************************************************************************************/
 typedef struct {
-  ResultProcessor base;            // Base result processor struct
-  arrayof(SearchResult *) results; // Array of pointers to SearchResult
-  size_t cur_idx;                  // Current index for yielding results
-  RPStatus last_rc;                // Last return code from upstream
-  uint32_t depleted_results;       // Total number of results depleted
-  rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
+  ResultProcessor base;              // Base result processor struct
+  arrayof(SearchResult *) results;   // Array of pointers to SearchResult
+  size_t cur_idx;                    // Current index for yielding results
+  RPStatus last_rc;                  // Last return code from upstream
+  uint32_t depleted_results;         // Total number of results depleted
+  rs_wall_clock_ns_t depletionTime;  // Time spent depleting upstream results
+  atomic_bool bufferLock;
+  bool draining;
 } RPDepleter;
+
+static void rpDepleterLock(RPDepleter *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  while (atomic_exchange_explicit(&self->bufferLock, true, memory_order_acquire)) {
+  }
+}
+
+static void rpDepleterUnlock(RPDepleter *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  atomic_store_explicit(&self->bufferLock, false, memory_order_release);
+}
+
+static bool rpDepleterCommit(RPDepleter *self, SearchResult *row) {
+  rpDepleterLock(self);
+  if (self->draining) {
+    rpDepleterUnlock(self);
+    return false;
+  }
+  SearchResult **old = NULL;
+  if ((!self->base.parent || self->base.parent->timeoutPolicy == TimeoutPolicy_ReturnStrict) &&
+      array_hdr(self->results)->remain_cap == 0) {
+    old = self->results;
+    uint32_t length = array_len(old);
+    rpDepleterUnlock(self);
+    uint32_t growth = MIN(MAX(length, 1), UINT16_MAX);
+    RS_ASSERT(length <= UINT32_MAX - growth);
+    SearchResult **grown = array_newlen(SearchResult *, length + growth);
+    // Claims advance cur_idx without changing slots. Even after takeover,
+    // copying these pointer values is safe; a losing copy is never dereferenced.
+    memcpy(grown, old, length * sizeof(*grown));
+    array_set_len(grown, length);
+    rpDepleterLock(self);
+    if (self->draining) {
+      rpDepleterUnlock(self);
+      array_free(grown);
+      return false;
+    }
+    self->results = grown;
+  }
+  array_append(self->results, row);
+  rpDepleterUnlock(self);
+  if (old) array_free(old);
+  return true;
+}
 
 /**
  * Synchronous depletion function: consumes all results from upstream and stores
  * them in the results array.
  */
 static void RPDepleter_Deplete(RPDepleter *self) {
+  rpDepleterLock(self);
+  bool draining = self->draining;
+  rpDepleterUnlock(self);
+  if (draining) {
+    self->last_rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
@@ -3550,7 +3603,10 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     // Buffered SearchResults outlive the source iterator's `it->current`
     // slot; preserve or drop the borrowed RSIndexResult before buffering.
     SearchResult_BufferIndexResult(&self->base, r);
-    array_append(self->results, r);
+    if (!rpDepleterCommit(self, r)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
@@ -3570,9 +3626,14 @@ static void RPDepleter_Deplete(RPDepleter *self) {
  */
 static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
-
+  rpDepleterLock(self);
+  if (self->draining) {
+    rpDepleterUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
   // Check if we've yielded all results
   if (self->cur_idx >= array_len(self->results)) {
+    rpDepleterUnlock(self);
     // Return the last code from upstream (EOF or TIMEDOUT)
     int ret = self->last_rc;
     self->last_rc = RS_RESULT_EOF;
@@ -3580,12 +3641,25 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   }
 
   // Return the next result from the array
-  SearchResult *current = self->results[self->cur_idx];
+  SearchResult *current = self->results[self->cur_idx++];
+  rpDepleterUnlock(self);
   SearchResult_Override(r, current);
   rm_free(current);
-  self->results[self->cur_idx] = NULL;
-  self->cur_idx++;
   return RS_RESULT_OK;
+}
+
+static RPDrainStatus RPDepleter_Drain(ResultProcessor *base, SearchResult *r) {
+  RPDepleter *self = (RPDepleter *)base;
+  if (!self->draining) {
+    rpDepleterLock(self);
+    self->draining = true;
+    rpDepleterUnlock(self);
+  }
+  if (self->cur_idx >= array_len(self->results)) return RP_DRAIN_EOF;
+  SearchResult *current = self->results[self->cur_idx++];
+  SearchResult_Override(r, current);
+  rm_free(current);
+  return RP_DRAIN_OK;
 }
 
 /**
@@ -3600,8 +3674,7 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT &&
-      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_TIMEDOUT && base->parent->timeoutPolicy != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_TIMEDOUT;
   }
@@ -3618,17 +3691,21 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
  */
 static void RPDepleter_Free(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
-  array_free_ex(self->results, srDtor(*(SearchResult**)ptr));
+  for (size_t i = self->cur_idx; i < array_len(self->results); ++i) {
+    srDtor(self->results[i]);
+  }
+  array_free(self->results);
   rm_free(self);
 }
 
 ResultProcessor *RPDepleter_New() {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
-  ret->results = array_new(SearchResult*, 0);
+  ret->results = array_new(SearchResult *, 0);
   ret->base.Next = RPDepleter_Next_Accumulate;
   ret->base.Free = RPDepleter_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPDepleter_Drain;
   ret->base.type = RP_DEPLETER;
+  atomic_init(&ret->bufferLock, false);
   ret->depleted_results = 0;
   return &ret->base;
 }
