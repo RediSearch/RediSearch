@@ -809,10 +809,10 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
             status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TRAINING_THRESHOLD), rc);
         return 0;
       }
-      if (*threshold > HNSW_SQ8_MAX_TRAINING_THRESHOLD) {
+      if (*threshold > HNSW_QUANT_MAX_TRAINING_THRESHOLD) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                                          "TRAINING_THRESHOLD cannot exceed %d",
-                                         HNSW_SQ8_MAX_TRAINING_THRESHOLD);
+                                         HNSW_QUANT_MAX_TRAINING_THRESHOLD);
         return 0;
       }
       trainingThresholdSet = true;
@@ -874,7 +874,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
   if (hnswParams->quantType != VecSimQuant_NONE && !trainingThresholdSet) {
     tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize =
-        HNSW_SQ8_DEFAULT_TRAINING_THRESHOLD;
+        HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD;
   }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
@@ -2751,7 +2751,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_HNSW_SQ8_VERSION) {
+    if (encver >= INDEX_HNSW_QUANT_VERSION) {
       if (VecSim_RdbLoad_v5(rdb, &f->vectorOpts.vecSimParams, sp_ref,
                             HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;

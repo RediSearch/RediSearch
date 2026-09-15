@@ -1151,7 +1151,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
   const InvalidParams cases[] = {
       {2, 0, VecSimType_FLOAT32, 0},
       {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
-      {VecSimQuant_SQ8, HNSW_SQ8_MAX_TRAINING_THRESHOLD + 1, VecSimType_FLOAT32, 0},
+      {VecSimQuant_SQ8, HNSW_QUANT_MAX_TRAINING_THRESHOLD + 1, VecSimType_FLOAT32, 0},
       {VecSimQuant_SQ8, uint64_t{1} << 32, VecSimType_FLOAT32, 0},
       {VecSimQuant_NONE, 1, VecSimType_FLOAT32, 0},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT64, 0},
