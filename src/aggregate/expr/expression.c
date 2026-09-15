@@ -462,12 +462,20 @@ int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *expr) {
 /**
  * ResultProcessor type which evaluates expressions
  */
+// Main-thread-only scratch; never copied from the execution-mutated Next evaluator.
+typedef struct {
+  ExprEval eval;
+  QueryError error;
+  RSValue *val;
+} RPEvaluatorDrain;
+
 typedef struct RPEvaluator {
   ResultProcessor base;
   ExprEval eval;
   RSValue *val;
   const RLookupKey *outkey;
   int isFilter;
+  RPEvaluatorDrain *drain;
 } RPEvaluator;
 
 #define RESULT_EVAL_ERR RS_RESULT_MAX + 1
@@ -506,6 +514,38 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   RLookup_WriteOwnKey(pc->outkey, SearchResult_GetRowDataMut(r), pc->val);
   pc->val = NULL;
   return RS_RESULT_OK;
+}
+
+static RPDrainStatus rpevalDrain_project(ResultProcessor *rp, SearchResult *r) {
+  RPEvaluator *pc = (RPEvaluator *)rp;
+  RPDrainStatus rc = rp->upstream->Drain(rp->upstream, r);
+  if (rc != RP_DRAIN_OK) return rc;
+  if (!pc->drain) {
+    pc->drain = rm_calloc(1, sizeof(*pc->drain));
+    pc->drain->error = QueryError_Default();
+    pc->drain->eval.err = &pc->drain->error;
+    pc->drain->eval.mode = EVAL_MODE_QUERY;
+    pc->drain->eval.lookup = pc->eval.lookup;
+    pc->drain->eval.root = pc->eval.root;
+    BlkAlloc_Init(&pc->drain->eval.stralloc);
+  }
+  RPEvaluatorDrain *drain = pc->drain;
+  drain->eval.res = r;
+  drain->eval.srcrow = SearchResult_GetRowData(r);
+  if (!drain->val) drain->val = RSValue_NewUndefined();
+  if (ExprEval_Eval(&drain->eval, drain->val) != EXPR_EVAL_OK) return RP_DRAIN_ERROR;
+  RLookup_WriteOwnKey(pc->outkey, SearchResult_GetRowDataMut(r), drain->val);
+  drain->val = NULL;
+  return RP_DRAIN_OK;
+}
+
+bool RPEvaluator_TakeDrainError(ResultProcessor *rp, QueryError *error) {
+  RS_ASSERT(rp->type == RP_PROJECTOR || rp->type == RP_FILTER);
+  RPEvaluatorDrain *drain = ((RPEvaluator *)rp)->drain;
+  if (!drain || QueryError_IsOk(&drain->error)) return false;
+  QueryError_CloneFrom(&drain->error, error);
+  QueryError_ClearError(&drain->error);
+  return true;
 }
 
 static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
@@ -547,6 +587,12 @@ static void rpevalFree(ResultProcessor *rp) {
     RSValue_DecrRef(ee->val);
   }
   BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
+  if (ee->drain) {
+    if (ee->drain->val) RSValue_DecrRef(ee->drain->val);
+    BlkAlloc_FreeAll(&ee->drain->eval.stralloc, NULL, NULL, 0);
+    QueryError_ClearError(&ee->drain->error);
+    rm_free(ee->drain);
+  }
   rm_free(ee);
 }
 static ResultProcessor *RPEvaluator_NewCommon(RSExpr *ast, const RLookup *lookup,
@@ -554,7 +600,7 @@ static ResultProcessor *RPEvaluator_NewCommon(RSExpr *ast, const RLookup *lookup
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
-  rp->base.Drain = RPDrain_EOF;
+  rp->base.Drain = isFilter ? RPDrain_EOF : rpevalDrain_project;
   rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
   rp->eval.mode = EVAL_MODE_QUERY;
   rp->eval.lookup = lookup;
