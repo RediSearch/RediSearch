@@ -472,6 +472,9 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
   rpRoot->lookup = lookup;
+  // The dist plan is final: RPNet only appends unseen shard fields to this
+  // lookup at execution time; changing an existing key panics in the Rust core.
+  RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;

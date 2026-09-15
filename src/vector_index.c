@@ -74,6 +74,26 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 // Contract documented on the declaration in vector_index.h.
+// Names for the refusal codes, so a log line reads as the reason rather than as a number.
+// A table rather than a switch: the mapping is data, and a `case` per code would leave every
+// code a given run does not reach permanently uncovered.
+static const char *const relabelCodeNames[] = {
+    [VecSimRelabel_OK] = "OK",
+    [VecSimRelabel_OldLabelMissing] = "OldLabelMissing",
+    [VecSimRelabel_NewLabelTaken] = "NewLabelTaken",
+    [VecSimRelabel_SameLabel] = "SameLabel",
+    [VecSimRelabel_Unsupported] = "Unsupported",
+};
+
+static const char *relabelCodeName(VecSimRelabelCode rc) {
+  // Cast before comparing so a negative code wraps into the out-of-range branch rather than
+  // indexing behind the table.
+  const size_t i = (size_t)rc;
+  return i < sizeof(relabelCodeNames) / sizeof(*relabelCodeNames) && relabelCodeNames[i]
+             ? relabelCodeNames[i]
+             : "unknown";
+}
+
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
   const VecSimRelabelCode rc = VecSimIndex_RelabelVector(vecsim, oldDocId, newDocId);
   // `SameLabel` is a success for this caller, not a refusal. Memory mode never hits it
@@ -84,11 +104,13 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
   }
 
   VecSimIndex_DeleteVector(vecsim, oldDocId);
-  if (rc == VecSimRelabel_NewLabelTaken) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "Vector relabel %llu -> %llu refused: target label already in use",
-                    (unsigned long long)oldDocId, (unsigned long long)newDocId);
-  }
+  // Every refusal is reported, not just the colliding one: a refusal silently costs the
+  // caller a delete and a re-add, and until this covered all of them a relabel that never
+  // engaged was indistinguishable from one that was never attempted.
+  RedisModule_Log(RSDummyContext, rc == VecSimRelabel_NewLabelTaken ? "warning" : "verbose",
+                  "Vector relabel %llu -> %llu refused: %s",
+                  (unsigned long long)oldDocId, (unsigned long long)newDocId,
+                  relabelCodeName(rc));
   return false;
 }
 

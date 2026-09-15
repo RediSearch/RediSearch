@@ -3726,10 +3726,6 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
   if (!(spec->flags & Index_HasVecSim)) {
     return;
   }
-  if (spec->diskSpec) {
-    // not supported for disk until MOD-18101 is done.
-    return;
-  }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
