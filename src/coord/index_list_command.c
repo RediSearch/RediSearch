@@ -11,7 +11,6 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "hiredis/sds.h"
@@ -306,24 +305,7 @@ typedef struct {
   arrayof(const char *) nodeIds;
 } ClusterStateSchemaGroup;
 
-static int compareNodeIds(const void *left, const void *right) {
-  return strcmp(*(const char *const *)left, *(const char *const *)right);
-}
-
-static int compareSchemaGroups(const void *left, const void *right) {
-  const ClusterStateSchemaGroup *a = left, *b = right;
-  const uint32_t aLen = array_len(a->nodeIds), bLen = array_len(b->nodeIds);
-  for (uint32_t i = 0; i < aLen && i < bLen; ++i) {
-    const int cmp = strcmp(a->nodeIds[i], b->nodeIds[i]);
-    if (cmp) {
-      return cmp;
-    }
-  }
-  return (aLen > bLen) - (aLen < bLen);
-}
-
-// Fingerprints establish agreement only within the same comparison gates. Borrow
-// IDs from the replies, and sort by IDs so arrival order never affects the output.
+// Fingerprints establish agreement only within the same comparison gates.
 static arrayof(ClusterStateSchemaGroup)
     schemaGroups(const ClusterStateIndexInfo *info, const ClusterStateReports *reports) {
   arrayof(ClusterStateSchemaGroup) groups = NULL;
@@ -345,13 +327,6 @@ static arrayof(ClusterStateSchemaGroup)
     if (!idInArray(id, groups[group].nodeIds, array_len(groups[group].nodeIds))) {
       groups[group].nodeIds = array_ensure_append_1(groups[group].nodeIds, id);
     }
-  }
-  for (uint32_t i = 0; i < array_len(groups); ++i) {
-    qsort(groups[i].nodeIds, array_len(groups[i].nodeIds), sizeof(*groups[i].nodeIds),
-          compareNodeIds);
-  }
-  if (array_len(groups) > 1) {
-    qsort(groups, array_len(groups), sizeof(*groups), compareSchemaGroups);
   }
   return groups;
 }

@@ -37,6 +37,9 @@ def cluster_state(env, token='WITHCLUSTERSTATE'):
             for key in ('missing_from_shards', 'unreachable_shards'):
                 if key in entry['status']:
                     entry['status'][key] = sorted(entry['status'][key])
+            if 'schema_groups' in entry['status']:
+                entry['status']['schema_groups'] = sorted(
+                    sorted(group) for group in entry['status']['schema_groups'])
         entries[entry['index']] = entry
     return entries
 
@@ -412,7 +415,8 @@ def test_cluster_state_resp3(env):
     status = entries['idx_diverged']['status']
     env.assertIsInstance(status, dict, message=status)
     env.assertEqual(set(status.keys()), {'warning', 'schema_groups'})
-    env.assertEqual(status['schema_groups'], [[node] for node in sorted(node_ids)])
+    env.assertEqual(sorted(sorted(group) for group in status['schema_groups']),
+                    [[node] for node in sorted(node_ids)])
     env.assertTrue(status['warning'].startswith(INCONSISTENT), message=status)
 
 
@@ -664,12 +668,14 @@ def test_schema_agreement_groups(env):
         'schema_groups': sorted([sorted(node_ids[:2]), [node_ids[2]]]),
     }}}
     env.assertEqual(cluster_state(env), expected)
-    # Every coordinator must produce the same ordering, independently of arrival order.
+    # Every coordinator must report the same groups, independently of arrival order.
     for shard in range(1, 4):
         reply = env.getConnection(shard).execute_command('FT._LIST', 'WITHCLUSTERSTATE')
         env.assertEqual(len(reply), 1, message=reply)
         entry = to_dict(reply[0])
         entry['status'] = to_dict(entry['status'])
+        entry['status']['schema_groups'] = sorted(
+            sorted(group) for group in entry['status']['schema_groups'])
         env.assertEqual(entry, expected['idx'])
 
 
