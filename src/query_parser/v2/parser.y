@@ -734,7 +734,9 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
     QueryNode_Free(C);
   } else if (C) {
-    A = NewTagNode(B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewTagNode(ctx->sctx->spec ? B.fs : NULL);
     QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
     // Set the children count on C to 0 so they won't get recursively free'd

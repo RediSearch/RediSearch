@@ -108,8 +108,12 @@ pub enum QueryNode<'a> {
     Wildcard,
     /// A tag-field exact-match node.
     Tag {
-        /// The [`ffi::FieldSpec`] of the tag field being queried.
-        fs: &'a ffi::FieldSpec,
+        /// Stable index of the tag field being queried, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this against the spec held at
+        /// evaluation time, rather than caching a pointer from parse time,
+        /// which a concurrent `FT.ALTER` could leave dangling under
+        /// `WORKERS>0` (see MOD-18356).
+        field_index: rqe_core::FieldIndex,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -329,12 +333,9 @@ impl QueryNodeRef {
             QueryNodeType::Wildcard => QueryNode::Wildcard,
             QueryNodeType::Tag => {
                 // SAFETY: `type_` is `Tag`, so the union holds a `QueryTagNode`.
-                // Invariant (1) of `new` guarantees `tag.fs` is a valid,
-                // non-null pointer.
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
                 QueryNode::Tag {
-                    // SAFETY: Invariant (1) of `new` guarantees `tag.fs` is valid and non-null.
-                    fs: unsafe { &*tag.fs },
+                    field_index: tag.fieldIndex,
                 }
             }
             QueryNodeType::Fuzzy => {

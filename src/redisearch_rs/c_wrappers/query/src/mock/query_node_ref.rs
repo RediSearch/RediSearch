@@ -161,11 +161,6 @@ impl MockQueryNode {
             // mock can be used without extra setup.
             let union_ptr = &raw mut (*node).__bindgen_anon_1;
             match type_ {
-                QueryNodeType::Tag => {
-                    let (fs, alloc) = alloc_zeroed_aux::<ffi::FieldSpec>();
-                    aux.push(alloc);
-                    (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs;
-                }
                 QueryNodeType::Missing => {
                     let (fs, alloc) = alloc_zeroed_aux::<ffi::FieldSpec>();
                     aux.push(alloc);
@@ -438,18 +433,22 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the `fs` field of the tag-node union variant, replacing the zeroed
-    /// placeholder [`new`](MockQueryNode::new) leaves there.
+    /// Set the tag-node union variant's `fieldIndex`, mirroring `NewTagNode`
+    /// (`query.c`).
     ///
-    /// `fs` must outlive this `MockQueryNode`: evaluating the node opens the
-    /// field's tag index and reads its case-sensitivity flag out of it.
-    pub fn set_tag_field_spec(&mut self, fs: *const ffi::FieldSpec) {
+    /// # Safety
+    ///
+    /// `fs` must be non-null and point to a valid `FieldSpec` whose `index` is
+    /// safe to read.
+    pub unsafe fn set_tag_field_spec(&mut self, fs: *const ffi::FieldSpec) {
         self.debug_assert_type(QueryNodeType::Tag);
+        // SAFETY: forwarded from this method's own safety contract.
+        let field_index = unsafe { (*fs).index };
         // SAFETY: `self.node` is valid and exclusively owned; the node type is
         // Tag, per the assertion above, so the `tag` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs.cast_mut();
+            (*union_ptr.cast::<ffi::QueryTagNode>()).fieldIndex = field_index;
         }
     }
 }
