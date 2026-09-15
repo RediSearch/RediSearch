@@ -39,6 +39,16 @@ pub(crate) fn eval<'index>(
         return None;
     }
 
+    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node).
+    let field_index = unsafe { (*gf).fieldIndex };
+    // `fieldIndex` is `RS_INVALID_FIELD_INDEX` when this node was parsed with no
+    // local spec (e.g. a coordinator shard); nothing upstream stops it from
+    // reaching evaluation against a different, spec-bearing context.
+    assert!(
+        field_index < ctx.spec().numFields,
+        "fieldIndex must be within the spec's current field count"
+    );
+
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise geo iterator instead of opening the in-memory range tree.
     //
@@ -52,9 +62,7 @@ pub(crate) fn eval<'index>(
         // SAFETY: `gf` is valid and, during single-threaded evaluation,
         // exclusively owned for `'index`, so a `&'index mut` is sound.
         let gf_ref = unsafe { &mut *gf };
-        // SAFETY: a well-formed geo node has a valid, non-null `fieldSpec`, so
-        // reading its `index` is sound.
-        let field_index = unsafe { (*gf_ref.fieldSpec).index };
+        let field_index = gf_ref.fieldIndex;
         // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
         // invariants 1/2) and single-threaded query evaluation gives us the only
         // live reference to it; the enterprise iterators are registered whenever
@@ -80,7 +88,7 @@ pub(crate) fn eval<'index>(
     // SAFETY: `build_geo_range_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
-    // 2. `gf.fieldSpec` is a valid, non-null `FieldSpec` for a geo field
+    // 2. `gf.fieldIndex` is within `sctx.spec`'s current field count
     //    (well-formed geo node).
     // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
     //    populated/owned by `gf`, freed by `GeoFilter_Free`.
