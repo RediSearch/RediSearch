@@ -110,6 +110,8 @@ typedef struct {
   bool queryOOM;
   bool timedOut;
 
+  bool serializeReply;
+  bool replySerialized;
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 

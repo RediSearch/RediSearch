@@ -51,6 +51,7 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+static void serializeStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 // Wrapper for AREQ_DecrRef to match BlockedClientFreePrivDataCB signature
 static void AREQ_DecrRefWrapper(void *privdata) {
@@ -128,6 +129,9 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
 
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("DuringRowSerialization");
+#endif
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   size_t count0 = RedisModule_Reply_LocalCount(reply);
@@ -413,12 +417,10 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
-
 /**
  * Store pipeline results for reply_callback path.
  * Called after startPipeline when using reply_callback mode (FAIL policy with workers).
- * Stores results in req->storedReplyState so serializeAndReplyResults can be called
- * from the reply_callback on the main thread.
+ * Stores results for the worker serializer or the legacy STRICT reply callback.
  *
  * @param req The aggregate request
  * @param results Pipeline results (ownership transferred to storedReplyState)
@@ -429,7 +431,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-  // Store results in AREQ for reply_callback to use
+  // Transfer ownership to the stored-result serializer.
   req->storedReplyState.results = results;
   req->storedReplyState.rc = rc;
   req->storedReplyState.cv = cv;
@@ -983,6 +985,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     sendChunk_Resp2(req, reply, limit, cv);
   }
 
+  if (req->useReplyCallback && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+      req->storedReplyState.hasStoredResults && !AREQ_TimedOut(req)) {
+    serializeStoredResults(reply->ctx, req);
+    req->storedReplyState.replySerialized = true;
+  }
+
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
   }
@@ -1490,7 +1498,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 // Timeout callback for AREQ execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (FAIL policy only).
 // Simply sets the timeout flag and replies with error - no synchronization needed
-// because AREQ uses reply_callback pattern (background thread does not reply directly).
+// because Redis discards the worker reply buffer after the timeout callback replies.
 static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1515,15 +1523,14 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   return REDISMODULE_OK;
 }
 
-// Reply with stored results from Coord/Shard reply callback (called on main thread).
-void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
+// Serialize stored results on the worker for FAIL, or from the legacy STRICT callback.
+static void serializeStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ResultProcessor *rp = qctx->endProc;
   ChunkReplyState *stored = &req->storedReplyState;
 
-  // Point qctx->err to the stored error so serializeAndReplyResults/finishSendChunk can access it.
-  // This is the end of the request lifecycle, so no need to restore.
+  QueryError *previousError = qctx->err;
   qctx->err = &stored->err;
 
   // Build ChunkSerializeState from stored results
@@ -1553,25 +1560,32 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
 
   // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
   finishSendChunk(req, state.results, NULL, state.cursor_done);
+  qctx->err = previousError;
+}
 
-  // Handle cursor lifecycle now that QEXEC_S_ITERDONE has been set by finishSendChunk.
-  // runCursor stored the cursor handle here instead of pausing/freeing it immediately,
-  // because finishSendChunk (which sets QEXEC_S_ITERDONE) runs in the reply_callback.
-  if (stored->cursor) {
+void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
+  ChunkReplyState *stored = &req->storedReplyState;
+  if (!stored->replySerialized) {
+    serializeStoredResults(ctx, req);
+  }
+  Cursor *cursor = stored->cursor;
+  stored->cursor = NULL;
+  stored->replySerialized = false;
+  if (cursor) {
     if (req->stateflags & QEXEC_S_ITERDONE) {
-      Cursor_Free(stored->cursor);
+      Cursor_Free(cursor);
     } else {
-      Cursor_Pause(stored->cursor);
+      Cursor_Pause(cursor);
     }
-    stored->cursor = NULL;
   }
 }
 
 // Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in req->storedReplyState, which we use to build the reply.
+// Successful FAIL replies are already serialized; see ChunkReplyState.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
-// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this callback.
+// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this
+// callback.
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1587,7 +1601,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   AREQ *req = (AREQ *)node->privdata;
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!req->storedReplyState.hasStoredResults && !req->storedReplyState.replySerialized) {
     // Background thread didn't store results - some early error occurred.
     // Use the stored error if available, otherwise generic error.
     if (QueryError_HasError(&req->storedReplyState.err)) {
@@ -1650,7 +1664,7 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
 
   AREQ *req = (AREQ *)node->privdata;
 
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!req->storedReplyState.hasStoredResults && !req->storedReplyState.replySerialized) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&req->storedReplyState.err)) {
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
@@ -1866,9 +1880,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
-    // In reply_callback path, sendChunk returns early after storing results.
-    // QEXEC_S_ITERDONE is not set yet (it's set by finishSendChunk in the reply_callback).
-    // Store the cursor handle so the reply_callback can pause/free it after finishSendChunk.
+    // Cursor publication stays in the reply callback after worker serialization.
     req->storedReplyState.cursor = cursor;
     return;
   }
