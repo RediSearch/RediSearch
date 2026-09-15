@@ -483,12 +483,8 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
     if (!idInArray(expectedIds[i], reports.shardIds, array_len(reports.shardIds)))
       array_append(unreachableIds, expectedIds[i]);
 
-  // Shards asked with no usable payload back, including rejections (their error took
-  // no slot). Keeps nSilent below from underflowing: never fewer than the rejection tally.
-  const size_t nNotReporting = array_len(unreachableIds);
-  // Rejections are alive shards, so subtracted from silent rather than counted as silent.
   RS_ASSERT(nReporting + reports.nRejected <= expectedCount);
-  RS_ASSERT(nNotReporting >= reports.nRejected);
+  const size_t nNotReporting = expectedCount - nReporting;
   const size_t nSilent = nNotReporting - reports.nRejected;
   // >1 gate group means shards disagree on the recipe; some fingerprints aren't comparable.
   const bool versionSkew = array_len(reports.gateGroups) > 1;
@@ -504,9 +500,9 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
     return REDISMODULE_OK;
   }
 
-  // Error replies have no node identity. Naming all absent IDs would incorrectly
-  // label reachable rejecting shards as unreachable, including in mixed failures.
-  const bool canNameUnreachable = reports.nRejected == 0;
+  // Rejections and unmatched/duplicate reporting IDs prevent reliable attribution.
+  const bool canNameUnreachable =
+      reports.nRejected == 0 && array_len(unreachableIds) == nNotReporting;
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   RedisModule_Reply_Array(reply);

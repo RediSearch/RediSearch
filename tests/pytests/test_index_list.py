@@ -48,8 +48,8 @@ def shard_node_ids(env):
     """Wait for every shard to have a topology, then return their Redis Cluster node
     ids in shard order — the ids the reply names shards by.
 
-    Until a shard has a topology it reports an empty node id, which the reducer counts
-    as a shard that did not report, so every assertion on a status map needs this first.
+    Until a shard has a topology it reports an empty node id, so tests that assert
+    node attribution wait for initialization first.
     """
     ids = []
     for shardId in range(1, env.shardsCount + 1):
@@ -589,21 +589,22 @@ def test_malformed_shard_payload_is_not_an_empty_report(env):
     ids = shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
-    # The envelope is valid, but an integer cannot be an index name.
-    response = (f'*4\r\n${len(ids[1])}\r\n{ids[1]}\r\n'
-                ':3\r\n:1\r\n*1\r\n*2\r\n:42\r\n:1\r\n').encode()
     try:
-        with rejecting_shard(env, 2, response):
-            expected = {'warning': INCONSISTENT +
-                        ' cannot be determined: 1 of 3 shards did not reply.',
-                        'unreachable_shards': [ids[1]]}
+        # Exercise name and fingerprint validation independently.
+        for entry in (b':42\r\n:1\r\n', b'$3\r\nidx\r\n$3\r\nbad\r\n'):
+            response = (f'*4\r\n${len(ids[1])}\r\n{ids[1]}\r\n'
+                        ':3\r\n:1\r\n*1\r\n*2\r\n').encode() + entry
+            with rejecting_shard(env, 2, response):
+                expected = {'warning': INCONSISTENT +
+                            ' cannot be determined: 1 of 3 shards did not reply.',
+                            'unreachable_shards': [ids[1]]}
 
-            def has_incomplete_report():
-                status = cluster_state(env)['idx']['status']
-                return status == expected, status
+                def has_incomplete_report():
+                    status = cluster_state(env)['idx']['status']
+                    return status == expected, status
 
-            wait_for_condition(has_incomplete_report, 'malformed report was not excluded')
-            env.assertEqual(cluster_state(env)['idx']['status'], expected)
+                wait_for_condition(has_incomplete_report, 'malformed report was not excluded')
+                env.assertEqual(cluster_state(env)['idx']['status'], expected)
     finally:
         env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
 
@@ -709,3 +710,132 @@ def test_unavailable_fingerprint_is_excluded_from_schema_groups(env):
             env.assertEqual(cluster_state(env)['idx']['status'], expected)
     finally:
         env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_reporting_shard_identity_does_not_determine_silence(env):
+    """Empty/stale/duplicate IDs count as replies but cannot identify silent peers."""
+    if env.useTLS:
+        env.skip()
+    node_ids = shard_node_ids(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    _, recipe, version, entries = internal_payload(env, 2)
+    fingerprint = dict(entries)['idx']
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    try:
+        for reported_id in ('', 'stale-node-id', node_ids[0]):
+            response = (f'*4\r\n${len(reported_id)}\r\n{reported_id}\r\n'
+                        f':{recipe}\r\n:{version}\r\n*1\r\n*2\r\n$3\r\nidx\r\n:{fingerprint}\r\n').encode()
+            with rejecting_shard(env, 2, response):
+                with stopped_shard(env, 3):
+                    expected = {'idx': {'index': 'idx', 'status': {
+                        'warning': INCONSISTENT + ' cannot be determined: 1 of 3 shards did not reply.',
+                    }}}
+
+                    def has_unattributed_silence():
+                        result = cluster_state(env)
+                        return result == expected, result
+
+                    wait_for_condition(has_unattributed_silence, 'reply identity changed silent count')
+                    env.assertEqual(cluster_state(env), expected)
+                env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': 'ok'}})
+    finally:
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_empty_id_preserves_divergence_and_empty_cluster(env):
+    """Unnamed valid reports prove divergence and completeness without joining named groups."""
+    if env.useTLS:
+        env.skip()
+    node_ids = shard_node_ids(env)
+    create_diverged_index(env, 'idx')
+    _, recipe, version, entries = internal_payload(env, 3)
+    fingerprint = dict(entries)['idx']
+    response = (f'*4\r\n$0\r\n\r\n:{recipe}\r\n:{version}\r\n'
+                f'*1\r\n*2\r\n$3\r\nidx\r\n:{fingerprint}\r\n').encode()
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    try:
+        with rejecting_shard(env, 3, response):
+            expected = {'idx': {'index': 'idx', 'status': {
+                'warning': INCONSISTENT + ': the shards that have it hold 3 different schemas.'
+                           ' Drop the index and recreate it so that all shards agree.',
+                'schema_groups': [[node] for node in sorted(node_ids[:2])],
+            }}}
+
+            def has_unnamed_divergence():
+                result = cluster_state(env)
+                return result == expected, result
+
+            wait_for_condition(has_unnamed_divergence, 'unnamed report did not preserve divergence')
+            env.assertEqual(cluster_state(env), expected)
+        env.expect('FT.DROPINDEX', 'idx').ok()
+        response = f'*4\r\n$0\r\n\r\n:{recipe}\r\n:{version}\r\n*0\r\n'.encode()
+        with rejecting_shard(env, 3, response):
+            def has_complete_empty_report():
+                try:
+                    result = cluster_state(env)
+                    return result == {}, result
+                except redis_exceptions.ResponseError as error:
+                    if 'incomplete shard reports' not in str(error):
+                        raise
+                    return False, str(error)
+
+            wait_for_condition(has_complete_empty_report, 'coordinator did not receive empty report')
+            env.assertEqual(cluster_state(env), {})
+    finally:
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_schema_groups_wire_types(env):
+    """Check RESP markers directly: redis-py decodes both sets and arrays as lists."""
+    node_ids = shard_node_ids(env)
+    create_diverged_index(env, 'idx')
+
+    def read_wire(stream):
+        line = stream.readline()
+        env.assertTrue(line.endswith(b'\r\n'), message=line)
+        marker, value = line[:1], line[1:-2]
+        if marker in (b'*', b'~', b'%'):
+            count = int(value) * (2 if marker == b'%' else 1)
+            return marker, [read_wire(stream) for _ in range(count)]
+        if marker == b'$':
+            value = stream.read(int(value))
+            env.assertEqual(stream.read(2), b'\r\n')
+        else:
+            env.assertTrue(marker in (b'+', b':'), message=line)
+        return marker, value
+
+    def fields(reply):
+        values = reply[1]
+        return {values[i][1]: values[i + 1] for i in range(0, len(values), 2)}
+
+    pool = env.getConnection(1).connection_pool
+    for protocol in (2, 3):
+        connection = pool.get_connection('FT._LIST')
+        try:
+            with connection._sock.makefile('rb') as stream:
+                connection.send_command('HELLO', protocol)
+                read_wire(stream)
+                connection.send_command('FT._LIST', 'WITHCLUSTERSTATE')
+                reply = read_wire(stream)
+            env.assertEqual(reply[0], b'*')
+            env.assertEqual(len(reply[1]), 1)
+            entry = reply[1][0]
+            env.assertEqual(entry[0], b'%' if protocol == 3 else b'*')
+            env.assertEqual(fields(entry)[b'index'][1], b'idx')
+            status = fields(entry)[b'status']
+            env.assertEqual(status[0], b'%' if protocol == 3 else b'*')
+            groups = fields(status)[b'schema_groups']
+            marker = b'~' if protocol == 3 else b'*'
+            env.assertEqual(groups[0], marker)
+            env.assertEqual([group[0] for group in groups[1]], [marker] * 3)
+            env.assertEqual(sorted(sorted(node[1] for node in group[1]) for group in groups[1]),
+                            [[node.encode()] for node in sorted(node_ids)])
+        finally:
+            connection.disconnect()
+            pool.release(connection)
