@@ -62,5 +62,5 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GeoFilter_FreeNumericFilters(filters: *mut *mut ffi::NumericFilter) {
     // SAFETY: the safety contract is forwarded to `free_geo_numeric_filters`.
-    unsafe { free_geo_numeric_filters(filters.cast()) };
+    unsafe { free_geo_numeric_filters(NonNull::new(filters.cast())) };
 }

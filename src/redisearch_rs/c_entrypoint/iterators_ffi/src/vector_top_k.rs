@@ -128,18 +128,18 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
         unsafe { patch_vtable(ptr, |h| h.SkipTo = None) }
     };
     match reduced {
-        NewVectorTopK::ReducedEmpty => RQEIteratorWrapper::boxed_new(rqe_iterators::Empty),
+        NewVectorTopK::ReducedEmpty => RQEIteratorWrapper::boxed_new(rqe_iterators::Empty).as_ptr(),
         NewVectorTopK::Unfiltered(it) => {
             let ptr = RQEIteratorWrapper::boxed_new(it);
             clear_skip_to(ptr);
-            ptr
+            ptr.as_ptr()
         }
         NewVectorTopK::Filtered(it) => {
             // `boxed_new_compound` registers the `ProfileChildren` callback so
             // `FT.PROFILE` recurses into and counts the filter subtree.
             let ptr = RQEIteratorWrapper::boxed_new_compound(it);
             clear_skip_to(ptr);
-            ptr
+            ptr.as_ptr()
         }
     }
 }
@@ -149,7 +149,7 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
 ///
 /// # Safety
 ///
-/// 1. `iter` is non-null, [valid], and was returned by [`NewVectorTopKIterator`]
+/// 1. `iter` is [valid] and was returned by [`NewVectorTopKIterator`]
 ///    for a query that did not reduce to `Empty`, so its `type_` is
 ///    [`IteratorType::Hybrid`].
 /// 2. No other reference to the wrapper is live for the duration of the returned
@@ -159,10 +159,13 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn wrapper_mut(
-    iter: *mut QueryIterator,
+    iter: NonNull<QueryIterator>,
 ) -> &'static mut RQEIteratorWrapper<VectorTopKIterator<'static>> {
     // SAFETY: guaranteed by 1.
-    debug_assert!(matches!(unsafe { (*iter).type_ }, IteratorType::Hybrid));
+    debug_assert!(matches!(
+        unsafe { iter.as_ref().type_ },
+        IteratorType::Hybrid
+    ));
     // SAFETY: 1 pins the inner type ; `NewVectorTopKIterator` boxes only
     // `VectorTopKIterator` with a `FieldExpirationChecker` ; 2 gives the unique
     // handle ; 3 makes the `'static` inner lifetime sound.
@@ -181,6 +184,8 @@ unsafe fn wrapper_mut(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetOwnKeyRef(it: *mut QueryIterator) -> *mut *mut RLookupKey {
     debug_assert!(!it.is_null());
+    // SAFETY: `it` is non-null per 1.
+    let it = unsafe { NonNull::new_unchecked(it) };
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { wrapper_mut(it) };
     // `own_key` boxes a `*mut RLookupKey<'static>`; return the address of the
@@ -206,6 +211,8 @@ pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
     handle: *mut RLookupKeyHandle,
 ) {
     debug_assert!(!it.is_null());
+    // SAFETY: `it` is non-null per 1.
+    let it = unsafe { NonNull::new_unchecked(it) };
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { wrapper_mut(it) };
     wrapper.inner.source_mut().key_handle = handle;

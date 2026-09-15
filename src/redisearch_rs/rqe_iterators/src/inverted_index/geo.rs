@@ -122,23 +122,28 @@ pub unsafe fn build_geo_numeric_filters<'index>(
 /// the `iterators_ffi` `GeoFilter_FreeNumericFilters` wrapper — instead of
 /// `rm_free`, so the container is freed with the right allocator in every binary.
 ///
-/// Does nothing when `filters` is NULL.
+/// Does nothing when `filters` is [`None`].
 ///
 /// # Safety
 ///
-/// `filters` must be NULL, or the exact pointer [`build_geo_numeric_filters`]
+/// `filters` must be [`None`], or the exact pointer [`build_geo_numeric_filters`]
 /// wrote into `gf.numericFilters` (a `Box::into_raw` of
 /// `[*mut NumericFilter; GEO_RANGE_COUNT]`), not yet freed. After this call that
 /// pointer is dangling and must not be used again.
-pub unsafe fn free_geo_numeric_filters(filters: *mut *mut NumericFilter) {
-    if filters.is_null() {
+pub unsafe fn free_geo_numeric_filters(filters: Option<NonNull<*mut NumericFilter>>) {
+    let Some(filters) = filters else {
         return;
-    }
+    };
     // SAFETY: per the contract, `filters` is the `Box::into_raw` of a
     // `[*mut NumericFilter; GEO_RANGE_COUNT]`, so reclaiming it with
     // `Box::from_raw` matches the original allocation exactly.
-    let array =
-        unsafe { Box::from_raw(filters as *mut [*mut NumericFilter; geo::GEO_RANGE_COUNT]) };
+    let array = unsafe {
+        Box::from_raw(
+            filters
+                .cast::<[*mut NumericFilter; geo::GEO_RANGE_COUNT]>()
+                .as_ptr(),
+        )
+    };
     for &filt_ptr in array.iter() {
         if !filt_ptr.is_null() {
             // SAFETY: each non-null entry is a live `NumericFilter` from
