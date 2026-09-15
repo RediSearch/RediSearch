@@ -3285,6 +3285,11 @@ static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
   rm_free(base);
 }
 
+static RPDrainStatus RPTimeoutAfterCount_Drain(ResultProcessor *base, SearchResult *result) {
+  // Timeout injection and its counter belong exclusively to Next.
+  return base->upstream->Drain(base->upstream, result);
+}
+
 static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx,
                                                 bool clockOnly) {
   RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
@@ -3295,7 +3300,7 @@ static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sc
   ret->base.type = RP_TIMEOUT;
   ret->base.Next = RPTimeoutAfterCount_Next;
   ret->base.Free = RPTimeoutAfterCount_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPTimeoutAfterCount_Drain;
 
   return &ret->base;
 }
