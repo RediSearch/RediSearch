@@ -839,3 +839,31 @@ def test_schema_groups_wire_types(env):
         finally:
             connection.disconnect()
             pool.release(connection)
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_empty_synonym_update_does_not_diverge(env):
+    """A no-term update on one shard stays equivalent to absent synonyms after reload."""
+    shard_node_ids(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    before = local_fingerprint(env, 'idx')
+    con = env.getConnection(1)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    env.assertEqual(con.execute_command('_FT.SYNUPDATE', 'idx', 'group', 'SKIPINITIALSCAN'), 'OK')
+    for _ in env.reloadingIterator():
+        shard_node_ids(env)
+        env.assertEqual([local_fingerprint(env, 'idx', shard) for shard in range(1, 4)],
+                        [before] * 3)
+        env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': 'ok'}})
+    con = env.getConnection(1)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    env.assertEqual(con.execute_command('_FT.SYNUPDATE', 'idx', 'group', 'SKIPINITIALSCAN',
+                                       'hello', 'hi'), 'OK')
+    env.assertNotEqual(local_fingerprint(env, 'idx'), before)
+    node_ids = shard_node_ids(env)
+    env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': {
+        'warning': INCONSISTENT + ': the shards that have it hold 2 different schemas.'
+                   ' Drop the index and recreate it so that all shards agree.',
+        'schema_groups': sorted([[node_ids[0]], sorted(node_ids[1:])]),
+    }}})

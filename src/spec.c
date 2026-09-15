@@ -3605,9 +3605,9 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
   }
 }
 
-static void fingerprintField(Sha1Context *hash, const FieldSpec *field) {
+static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isDisk) {
   fingerprintHiddenString(hash, field->fieldName);
-  fingerprintHiddenString(hash, field->fieldPath);
+  fingerprintHiddenString(hash, field->fieldPath ? field->fieldPath : field->fieldName);
   Sha1_UpdateU64(hash, field->types);
   Sha1_UpdateU64(hash, field->options);
   Sha1_UpdateU64(hash, (uint64_t)(int64_t)field->sortIdx);
@@ -3622,7 +3622,7 @@ static void fingerprintField(Sha1Context *hash, const FieldSpec *field) {
   if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
     Sha1_UpdateU64(hash, field->vectorOpts.expBlobSize);
     fingerprintVectorParams(hash, &field->vectorOpts.vecSimParams);
-    if (field->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+    if (isDisk && field->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
         field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo ==
             VecSimAlgo_HNSWLIB) {
       Sha1_UpdateU64(hash, field->vectorOpts.diskCtx.rerank);
@@ -3654,18 +3654,16 @@ static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
 static void schemaFingerprint(Sha1Context *hash, const void *value) {
   const IndexSpec *sp = value;
   Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_VERSION);
-  Sha1_UpdateU64(hash, sp->flags);
+  Sha1_UpdateU64(hash, sp->flags & ~Index_HasSmap);
   Sha1_UpdateU64(hash, sp->numFields);
   for (int i = 0; i < sp->numFields; ++i) {
-    fingerprintField(hash, &sp->fields[i]);
+    fingerprintField(hash, &sp->fields[i], sp->diskSpec != NULL);
   }
   fingerprintRule(hash, sp->rule);
   if (sp->flags & Index_HasCustomStopwords) {
     Sha1_UpdateU64(hash, StopWordList_Fingerprint(sp->stopwords));
   }
-  if (sp->flags & Index_HasSmap) {
-    Sha1_UpdateU64(hash, SynonymMap_Fingerprint(sp->smap));
-  }
+  Sha1_UpdateU64(hash, sp->smap ? SynonymMap_Fingerprint(sp->smap) : 0);
   if (sp->flags & Index_Temporary) {
     Sha1_UpdateU64(hash, sp->timeout);
   }

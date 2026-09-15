@@ -230,3 +230,49 @@ TEST(SchemaHashEncoding, SignedZeroHashesEqually) {
   const double positive = 0.0, negative = -0.0;
   ASSERT_EQ(Sha1_ComputeValue(visit, &positive), Sha1_ComputeValue(visit, &negative));
 }
+
+TEST_F(SchemaFingerprintTest, ImplicitLegacyFieldPathMatchesFieldName) {
+  IndexSpec *sp = parse("idx_legacy_path", {"SCHEMA", "title", "TEXT"});
+  ASSERT_NE(sp, nullptr);
+  const uint64_t explicitPath = fp(sp);
+  HiddenString *path = sp->fields[0].fieldPath;
+  sp->fields[0].fieldPath = nullptr;
+  const uint64_t implicitPath = fp(sp);
+  sp->fields[0].fieldPath = path;
+  ASSERT_EQ(explicitPath, implicitPath);
+  ASSERT_NE(explicitPath,
+            fp(parse("idx_aliased_path", {"SCHEMA", "source", "AS", "title", "TEXT"})));
+}
+
+TEST_F(SchemaFingerprintTest, EmptySynonymMapMatchesAbsentMap) {
+  IndexSpec *sp = parse("idx_empty_synonyms", {"SCHEMA", "t", "TEXT"});
+  ASSERT_NE(sp, nullptr);
+  ASSERT_EQ(sp->smap, nullptr);
+  const uint64_t absent = fp(sp);
+  IndexSpec_InitializeSynonym(sp);
+  ASSERT_TRUE(sp->flags & Index_HasSmap);
+  ASSERT_EQ(absent, fp(sp));
+  const char *terms[] = {"hello", "hi"};
+  SynonymMap_Add(sp->smap, "group", terms, 2);
+  ASSERT_NE(absent, fp(sp));
+}
+
+TEST_F(SchemaFingerprintTest, RerankOnlyAffectsDiskBackedHnsw) {
+  IndexSpec *sp = parse("idx_rerank", {"SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32",
+                                       "DIM", "8", "DISTANCE_METRIC", "L2"});
+  ASSERT_NE(sp, nullptr);
+  ASSERT_EQ(sp->diskSpec, nullptr);
+  auto &rerank = sp->fields[0].vectorOpts.diskCtx.rerank;
+  rerank = false;
+  const uint64_t memoryWithoutRerank = fp(sp);
+  rerank = true;
+  ASSERT_EQ(memoryWithoutRerank, fp(sp));
+
+  // Fingerprinting only tests diskSpec for nullness; no storage is accessed.
+  sp->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
+  const uint64_t diskWithRerank = fp(sp);
+  rerank = false;
+  const uint64_t diskWithoutRerank = fp(sp);
+  sp->diskSpec = nullptr;
+  ASSERT_NE(diskWithRerank, diskWithoutRerank);
+}
