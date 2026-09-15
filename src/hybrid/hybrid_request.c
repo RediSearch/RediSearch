@@ -9,6 +9,9 @@
 
 #include "hybrid/hybrid_request.h"
 #include "config.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -564,6 +567,9 @@ void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
 }
 
 void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_WAIT);
+#endif
   pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   while (!req->base.async.aggregateResultsDone) {
     pthread_cond_wait(&req->base.async.aggregateResultsCond,
