@@ -94,6 +94,8 @@ typedef struct MRCtx {
    * send commands and base on the response send more commands
    * and do more aggregations. Only the last command/commands sent
    * needs to unblock the client.
+   * Coordinator SEARCH also ends timing in its main-thread callbacks, since
+   * Redis reads that non-atomic duration after a timeout callback returns.
    */
   MRReduceFunc fn;
 
@@ -308,12 +310,10 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
-      if (!timedOut) {
-        RedisModuleBlockedClient *bc = ctx->bc;
-        RS_ASSERT(bc);
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModule_UnblockClient(bc, ctx);
-      }
+      RedisModuleBlockedClient *bc = ctx->bc;
+      RS_ASSERT(bc);
+      if (!ctx->fn) RedisModule_BlockedClientMeasureTimeEnd(bc);
+      RedisModule_UnblockClient(bc, ctx);
     }
     MRCtx_DecrRef(ctx);
   }
@@ -335,12 +335,10 @@ static void uvFanoutRequest(void *p) {
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so fanoutCallback() will never fire.
     IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!MRCtx_IsTimedOut(mrctx)) {
-      RedisModuleBlockedClient *bc = mrctx->bc;
-      RS_ASSERT(bc);
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
-      RedisModule_UnblockClient(bc, mrctx);
-    }
+    RedisModuleBlockedClient *bc = mrctx->bc;
+    RS_ASSERT(bc);
+    if (!mrctx->fn) RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     MRCtx_DecrRef(mrctx);
   }
 }

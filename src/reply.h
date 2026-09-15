@@ -62,6 +62,9 @@ void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply);
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
 int RedisModule_EndReply(RedisModule_Reply *reply);
 
+// Move complete serialized elements into the current collection, retaining buffer scratch.
+int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer);
+
 int RedisModule_Reply_LongLong(RedisModule_Reply *reply, long long val);
 int RedisModule_Reply_Double(RedisModule_Reply *reply, double val);
 int RedisModule_Reply_SimpleString(RedisModule_Reply *reply, const char *val);

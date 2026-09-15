@@ -53,6 +53,9 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   // executes it), so no other client can take it before the cycle fully ended.
   RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
+  request->reply.rows = RedisModule_NewReply(RedisModule_GetReplyBufferContext(bc));
+  request->reply.returnReplyStarted = false;
+  request->reply.initialTotal = 0;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
   request->registryInfo.cycle_start = time(NULL);
