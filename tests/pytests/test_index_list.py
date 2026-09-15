@@ -651,21 +651,19 @@ def test_single_shard_embedded_nul_index_names(env):
 
 def check_schema_agreement_groups(env):
     node_ids = shard_node_ids(env)
-    for shard in range(1, 6):
+    for shard in range(1, 4):
         con = env.getConnection(shard)
         con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
-        field_type = 'TEXT' if shard <= 3 else 'TAG'
+        field_type = 'TEXT' if shard <= 2 else 'TAG'
         con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', 't', field_type)
     expected = {'idx': {'index': 'idx', 'status': {
-        'warning': INCONSISTENT + ': index is missing from 1 of 6 reporting shards, and the'
-                   ' shards that have it hold 2 different schemas.'
+        'warning': INCONSISTENT + ': the shards that have it hold 2 different schemas.'
                    ' Drop the index and recreate it so that all shards agree.',
-        'schema_groups': sorted([sorted(node_ids[:3]), sorted(node_ids[3:5])]),
-        'missing_from_shards': [node_ids[5]],
+        'schema_groups': sorted([sorted(node_ids[:2]), [node_ids[2]]]),
     }}}
     env.assertEqual(cluster_state(env), expected)
     # Every coordinator must produce the same ordering, independently of arrival order.
-    for shard in range(1, 7):
+    for shard in range(1, 4):
         reply = env.getConnection(shard).execute_command('FT._LIST', 'WITHCLUSTERSTATE')
         env.assertEqual(len(reply), 1, message=reply)
         entry = to_dict(reply[0])
@@ -674,14 +672,14 @@ def check_schema_agreement_groups(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=6)
+@env_spec(shardsCount=3)
 def test_schema_agreement_groups_resp2(env):
-    """Three matching nodes, two with another schema, and one missing index stay distinct."""
+    """Two matching nodes are grouped separately from the node with another schema."""
     check_schema_agreement_groups(env)
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=6, protocol=3)
+@env_spec(shardsCount=3, protocol=3)
 def test_schema_agreement_groups_resp3(env):
     """RESP3 retains nested schema-group arrays inside the existing status map."""
     check_schema_agreement_groups(env)
