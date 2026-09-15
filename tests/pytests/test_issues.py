@@ -1087,9 +1087,13 @@ def test_mod_4375(env):
   res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
   env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
 
-  conn.execute_command(config_cmd(), 'set', 'union_iterator_heap', '1')
-  res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
-  env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
+  default = env.cmd(config_cmd(), 'GET', 'UNION_ITERATOR_HEAP')[0][1]
+  try:
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', '1')
+    res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
+    env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
+  finally:
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', default)
 
 @skip(cluster=False) # This test is only relevant for cluster
 def test_mod_6557(env: Env):
