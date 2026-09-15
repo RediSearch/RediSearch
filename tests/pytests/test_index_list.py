@@ -126,14 +126,14 @@ def test_consistent_index_is_ok(env):
 
 @skip(cluster=False)
 @env_spec(shardsCount=3)
-def test_diverged_schemas_are_counted_never_attributed(env):
-    """Divergence is counted and no shard is named for it: without a majority there is
-    no defensible way to say which shards hold the wrong schema."""
-    shard_node_ids(env)
+def test_diverged_schemas_include_agreement_groups(env):
+    """Each distinct definition names its agreeing nodes without selecting a correct group."""
+    node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
     status = cluster_state(env)['idx']['status']
-    env.assertEqual(set(status.keys()), {'warning'})
+    env.assertEqual(set(status.keys()), {'warning', 'schema_groups'})
+    env.assertEqual(status['schema_groups'], [[node] for node in sorted(node_ids)])
     env.assertEqual(status['warning'],
                     INCONSISTENT + ': the shards that have it hold 3 different schemas.'
                     ' Drop the index and recreate it so that all shards agree.')
@@ -167,7 +167,8 @@ def test_index_both_missing_and_diverged(env):
         con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', 'a', 'TEXT', *extra)
 
     status = cluster_state(env)['idx']['status']
-    env.assertEqual(set(status.keys()), {'warning', 'missing_from_shards'})
+    env.assertEqual(set(status.keys()), {'warning', 'schema_groups', 'missing_from_shards'})
+    env.assertEqual(status['schema_groups'], [[node] for node in sorted(node_ids[:2])])
     env.assertEqual(status['missing_from_shards'], [node_ids[-1]])
     env.assertEqual(status['warning'],
                     INCONSISTENT + ': index is missing from 1 of 3 reporting shards, and the'
@@ -286,7 +287,8 @@ def test_divergence_and_uncertainty_are_reported_together(env):
     try:
         with stopped_shard(env, env.shardsCount):
             status = cluster_state(env)['idx']['status']
-            env.assertEqual(set(status.keys()), {'warning', 'unreachable_shards'})
+            env.assertEqual(set(status.keys()), {'warning', 'schema_groups', 'unreachable_shards'})
+            env.assertEqual(status['schema_groups'], [[node] for node in sorted(node_ids[:2])])
             env.assertEqual(status['unreachable_shards'], [node_ids[-1]])
             # Divergence is proven by the two shards that answered, and the third
             # shard's silence is reported alongside it rather than instead of it.
@@ -327,14 +329,15 @@ def test_divergence_is_proven_within_a_gate_group(env):
     """A shard whose gates differ cannot mask a divergence between the shards whose
     gates agree. Fingerprints are compared inside each group of gate-agreeing shards,
     so the answer does not depend on which shard's reply arrived first."""
-    shard_node_ids(env)
+    node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
     # Emulate a peer with a different fingerprint version.
     if env.useTLS:
         env.skip()
     node_id, _, version, entries = internal_payload(env, env.shardsCount)
-    fingerprint = dict(entries)['idx']
+    # Matching bytes from an incompatible version do not establish agreement.
+    fingerprint = local_fingerprint(env, 'idx', 1)
     response = (f'*4\r\n${len(node_id)}\r\n{node_id}\r\n'
                 f':2\r\n:{version}\r\n*1\r\n*2\r\n$3\r\nidx\r\n:{fingerprint}\r\n').encode()
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
@@ -344,7 +347,8 @@ def test_divergence_is_proven_within_a_gate_group(env):
                         INCONSISTENT + ': the shards that have it hold 2 different'
                         ' schemas. Drop the index and recreate it so that all shards'
                         ' agree. The rest of the picture cannot be determined: shards'
-                        ' are running incompatible versions or configurations.'}
+                        ' are running incompatible versions or configurations.',
+                        'schema_groups': [[node] for node in sorted(node_ids)]}
 
             def has_different_version():
                 status = cluster_state(env)['idx']['status']
@@ -400,7 +404,7 @@ def test_only_withclusterstate_needs_to_block(env):
 def test_cluster_state_resp3(env):
     """RESP3: the entry and a non-"ok" status are real maps, an "ok" status is still the
     plain string."""
-    shard_node_ids(env)
+    node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx_diverged')
     env.expect('FT.CREATE', 'idx_same', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -408,7 +412,8 @@ def test_cluster_state_resp3(env):
     env.assertEqual(entries['idx_same'], {'index': 'idx_same', 'status': 'ok'})
     status = entries['idx_diverged']['status']
     env.assertIsInstance(status, dict, message=status)
-    env.assertEqual(set(status.keys()), {'warning'})
+    env.assertEqual(set(status.keys()), {'warning', 'schema_groups'})
+    env.assertEqual(status['schema_groups'], [[node] for node in sorted(node_ids)])
     env.assertTrue(status['warning'].startswith(INCONSISTENT), message=status)
 
 
@@ -642,3 +647,73 @@ def test_embedded_nul_index_names_resp3(env):
 def test_single_shard_embedded_nul_index_names(env):
     """The single-shard shortcut also preserves names containing NUL bytes."""
     check_embedded_nul_index_names(env)
+
+
+def check_schema_agreement_groups(env):
+    node_ids = shard_node_ids(env)
+    for shard in range(1, 6):
+        con = env.getConnection(shard)
+        con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        field_type = 'TEXT' if shard <= 3 else 'TAG'
+        con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', 't', field_type)
+    expected = {'idx': {'index': 'idx', 'status': {
+        'warning': INCONSISTENT + ': index is missing from 1 of 6 reporting shards, and the'
+                   ' shards that have it hold 2 different schemas.'
+                   ' Drop the index and recreate it so that all shards agree.',
+        'schema_groups': sorted([sorted(node_ids[:3]), sorted(node_ids[3:5])]),
+        'missing_from_shards': [node_ids[5]],
+    }}}
+    env.assertEqual(cluster_state(env), expected)
+    # Every coordinator must produce the same ordering, independently of arrival order.
+    for shard in range(1, 7):
+        reply = env.getConnection(shard).execute_command('FT._LIST', 'WITHCLUSTERSTATE')
+        env.assertEqual(len(reply), 1, message=reply)
+        entry = to_dict(reply[0])
+        entry['status'] = to_dict(entry['status'])
+        env.assertEqual(entry, expected['idx'])
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=6)
+def test_schema_agreement_groups_resp2(env):
+    """Three matching nodes, two with another schema, and one missing index stay distinct."""
+    check_schema_agreement_groups(env)
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=6, protocol=3)
+def test_schema_agreement_groups_resp3(env):
+    """RESP3 retains nested schema-group arrays inside the existing status map."""
+    check_schema_agreement_groups(env)
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_unavailable_fingerprint_is_excluded_from_schema_groups(env):
+    """A reporting shard without a fingerprint cannot claim agreement with any schema."""
+    if env.useTLS:
+        env.skip()
+    node_ids = shard_node_ids(env)
+    create_diverged_index(env, 'idx')
+    node_id, recipe, version, _ = internal_payload(env, 3)
+    response = (f'*4\r\n${len(node_id)}\r\n{node_id}\r\n'
+                f':{recipe}\r\n:{version}\r\n*1\r\n*2\r\n$3\r\nidx\r\n$-1\r\n').encode()
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    try:
+        with rejecting_shard(env, 3, response):
+            expected = {
+                'warning': INCONSISTENT + ': the shards that have it hold 2 different schemas.'
+                           ' Drop the index and recreate it so that all shards agree.'
+                           ' The rest of the picture cannot be determined: 1 of the reporting'
+                           ' shards could not compute a schema fingerprint.',
+                'schema_groups': [[node] for node in sorted(node_ids[:2])],
+            }
+
+            def has_unavailable_fingerprint():
+                status = cluster_state(env)['idx']['status']
+                return status == expected, status
+
+            wait_for_condition(has_unavailable_fingerprint, 'coordinator did not receive null fingerprint')
+            env.assertEqual(cluster_state(env)['idx']['status'], expected)
+    finally:
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()

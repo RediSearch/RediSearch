@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "hiredis/sds.h"
@@ -29,6 +30,7 @@
 #define FT_LIST_CS_KEY_WARNING "warning"
 #define FT_LIST_CS_KEY_MISSING "missing_from_shards"
 #define FT_LIST_CS_KEY_UNREACHABLE "unreachable_shards"
+#define FT_LIST_CS_KEY_SCHEMA_GROUPS "schema_groups"
 #define FT_LIST_CS_STATUS_OK "ok"
 
 typedef struct {
@@ -271,7 +273,7 @@ static arrayof(const char *) shardsMissingIndex(const ClusterStateIndexInfo *inf
 
 // Most distinct schemas held by any one gate-agreeing group for this index. Per-group
 // counting keeps the result order-independent: incomparable groups never count against
-// each other. Which shards are "wrong" isn't decidable, so this is a count only.
+// each other. No group is designated as the authoritative schema.
 static uint32_t distinctSchemaCount(const ClusterStateIndexInfo *info, uint32_t nGroups) {
   const uint32_t n = array_len(info->fps);
   uint32_t worst = 0;
@@ -296,6 +298,74 @@ static uint32_t distinctSchemaCount(const ClusterStateIndexInfo *info, uint32_t 
     }
   }
   return worst;
+}
+
+typedef struct {
+  uint32_t gateGroup;
+  long long fingerprint;
+  arrayof(const char *) nodeIds;
+} ClusterStateSchemaGroup;
+
+static int compareNodeIds(const void *left, const void *right) {
+  return strcmp(*(const char *const *)left, *(const char *const *)right);
+}
+
+static int compareSchemaGroups(const void *left, const void *right) {
+  const ClusterStateSchemaGroup *a = left, *b = right;
+  const uint32_t aLen = array_len(a->nodeIds), bLen = array_len(b->nodeIds);
+  for (uint32_t i = 0; i < aLen && i < bLen; ++i) {
+    const int cmp = strcmp(a->nodeIds[i], b->nodeIds[i]);
+    if (cmp) {
+      return cmp;
+    }
+  }
+  return (aLen > bLen) - (aLen < bLen);
+}
+
+// Fingerprints establish agreement only within the same comparison gates. Borrow
+// IDs from the replies, and sort by IDs so arrival order never affects the output.
+static arrayof(ClusterStateSchemaGroup)
+    schemaGroups(const ClusterStateIndexInfo *info, const ClusterStateReports *reports) {
+  arrayof(ClusterStateSchemaGroup) groups = NULL;
+  for (uint32_t i = 0; i < array_len(info->fps); ++i) {
+    const ClusterStateFingerprint *fp = &info->fps[i];
+    const char *id = reports->shardIds[fp->slot];
+    if (!fp->valid || !id[0]) {
+      continue;
+    }
+    uint32_t group = 0;
+    while (group < array_len(groups) &&
+           (groups[group].gateGroup != fp->group || groups[group].fingerprint != fp->fp)) {
+      ++group;
+    }
+    if (group == array_len(groups)) {
+      const ClusterStateSchemaGroup newGroup = {.gateGroup = fp->group, .fingerprint = fp->fp};
+      groups = array_ensure_append_1(groups, newGroup);
+    }
+    if (!idInArray(id, groups[group].nodeIds, array_len(groups[group].nodeIds))) {
+      groups[group].nodeIds = array_ensure_append_1(groups[group].nodeIds, id);
+    }
+  }
+  for (uint32_t i = 0; i < array_len(groups); ++i) {
+    qsort(groups[i].nodeIds, array_len(groups[i].nodeIds), sizeof(*groups[i].nodeIds),
+          compareNodeIds);
+  }
+  if (array_len(groups) > 1) {
+    qsort(groups, array_len(groups), sizeof(*groups), compareSchemaGroups);
+  }
+  return groups;
+}
+
+static void replySchemaGroups(RedisModule_Reply *reply, arrayof(ClusterStateSchemaGroup) groups) {
+  RedisModule_ReplyKV_Array(reply, FT_LIST_CS_KEY_SCHEMA_GROUPS);
+  for (uint32_t i = 0; i < array_len(groups); ++i) {
+    RedisModule_Reply_Array(reply);
+    for (uint32_t j = 0; j < array_len(groups[i].nodeIds); ++j) {
+      RedisModule_Reply_SimpleString(reply, groups[i].nodeIds[j]);
+    }
+    RedisModule_Reply_ArrayEnd(reply);
+  }
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 static void replyShardIds(RedisModule_Reply *reply, const char *key, arrayof(const char *) ids) {
@@ -380,8 +450,8 @@ static void replyClusterStateWarning(RedisModule_Reply *reply, const ClusterStat
 // it - the single-shard path and the reducer can't drift. NULL verdict means consistent.
 static void replyClusterStateEntry(RedisModule_Reply *reply, const char *name, size_t nameLen,
                                    const ClusterStateVerdict *verdict,
-                                   arrayof(const char *) missing,
-                                   arrayof(const char *) unreachable) {
+                                   arrayof(const char *) missing, arrayof(const char *) unreachable,
+                                   arrayof(ClusterStateSchemaGroup) groups) {
   RedisModule_Reply_Map(reply);
   RedisModule_ReplyKV_StringBuffer(reply, FT_LIST_CS_KEY_INDEX, name, nameLen);
   if (!verdict) {
@@ -389,6 +459,9 @@ static void replyClusterStateEntry(RedisModule_Reply *reply, const char *name, s
   } else {
     RedisModule_ReplyKV_Map(reply, FT_LIST_CS_KEY_STATUS);
     replyClusterStateWarning(reply, verdict);
+    if (verdict->nSchemas > 1) {
+      replySchemaGroups(reply, groups);
+    }
     replyShardIds(reply, FT_LIST_CS_KEY_MISSING, missing);
     replyShardIds(reply, FT_LIST_CS_KEY_UNREACHABLE, unreachable);
     RedisModule_Reply_MapEnd(reply);
@@ -400,7 +473,7 @@ static void replySpecStatusOk(IndexSpec *sp, void *ud) {
   RedisModule_Reply *reply = ud;
   size_t nameLen;
   const char *name = HiddenString_GetUnsafe(sp->specName, &nameLen);
-  replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL);
+  replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL, NULL);
 }
 
 // Reducer for FT._LIST WITHCLUSTERSTATE: one map per index across the shards'
@@ -487,10 +560,12 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
           .errorText = reports.firstError ? MRReply_String(reports.firstError, NULL) : NULL,
           .versionSkew = versionSkew,
       };
+      arrayof(ClusterStateSchemaGroup) groups = nSchemas > 1 ? schemaGroups(info, &reports) : NULL;
       replyClusterStateEntry(reply, name, nameLen, &verdict, missing,
-                             canNameUnreachable ? unreachableIds : NULL);
+                             canNameUnreachable ? unreachableIds : NULL, groups);
+      array_free_ex(groups, array_free(((ClusterStateSchemaGroup *)ptr)->nodeIds));
     } else {
-      replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL);
+      replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL, NULL);
     }
 
     array_free(missing);
