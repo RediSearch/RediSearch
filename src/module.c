@@ -3441,6 +3441,8 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
+  // The worker owns blocked-client completion even when timeout owns the reply.
+  RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), mc);
   MRCtx_DecrRef(mc);
 }
 
@@ -3476,12 +3478,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 #ifdef ENABLE_ASSERT
   if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
 #endif
-  // A timeout owns the reply, but the worker still owns completion of the
-  // blocked-client handle once its background work has finished.
   // If called from timeout callback, we already own reducing (claimed before calling).
   bool ownsReducing = fromTimeout || MRCtx_TryClaimReducing(mc);
   if (!ownsReducing) {
-    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), mc);
     return REDISMODULE_OK;
   }
 
@@ -3656,9 +3655,6 @@ cleanup:
   }
 
   MRCtx_SignalReducerComplete(mc);
-  if (!fromTimeout) {
-    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), mc);
-  }
 
   return REDISMODULE_OK;
 }
