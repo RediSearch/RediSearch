@@ -5,15 +5,20 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
-
+ */
 
 #include "result_processor.h"
+#include "query_request.h"
+#include "common.h"
 #include "query.h"
 #include "value_ffi.h"
 #include "gtest/gtest.h"
 #include "search_result_ffi.h"
 #include "search_result.h"
+#include "spec.h"
+
+#include <atomic>
+#include <thread>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -32,8 +37,21 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
 
   SearchResult_SetDocId(res, ++p->counter);
   SearchResult_SetScore(res, (double)SearchResult_GetDocId(res));
-  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RSValue_NewNumber(SearchResult_GetDocId(res)));
+  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res),
+                      RSValue_NewNumber(SearchResult_GetDocId(res)));
   return RS_RESULT_OK;
+}
+
+static RPDrainStatus p1_Drain(ResultProcessor *rp, SearchResult *res) {
+  processor1Ctx *p = static_cast<processor1Ctx *>(rp);
+  if (p->counter >= NUM_RESULTS) return RP_DRAIN_EOF;
+
+  SearchResult_SetDocId(res, ++p->counter);
+  return RP_DRAIN_OK;
+}
+
+static RPDrainStatus drainError(ResultProcessor *, SearchResult *) {
+  return RP_DRAIN_ERROR;
 }
 
 static int p2_Next(ResultProcessor *rp, SearchResult *res) {
@@ -52,6 +70,34 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
 }
 
 class ResultProcessorTest : public ::testing::Test {};
+
+struct BlockingQueryIterator {
+  QueryIterator base = {};
+  std::atomic_bool entered = false;
+  std::atomic_bool release = false;
+  bool yieldResult = false;
+
+  explicit BlockingQueryIterator(bool yieldResult = false) : yieldResult(yieldResult) {
+    if (yieldResult) {
+      base.current = NewVirtualResult(1, RS_FIELDMASK_ALL);
+      base.current->docId = base.lastDocId = 1;
+    }
+    base.Read = [](QueryIterator *base) {
+      auto *self = reinterpret_cast<BlockingQueryIterator *>(base);
+      self->entered.store(true, std::memory_order_release);
+      while (!self->release.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      if (self->yieldResult) return ITERATOR_OK;
+      base->atEOF = true;
+      return ITERATOR_EOF;
+    };
+    base.Free = [](QueryIterator *base) {
+      if (base->current) IndexResult_Free(base->current);
+      delete reinterpret_cast<BlockingQueryIterator *>(base);
+    };
+  }
+};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
   QueryProcessingCtx qitr = {0};
@@ -92,6 +138,131 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   RLookup_Cleanup(&lk);
 }
 
+TEST_F(ResultProcessorTest, drainCallsProcessorImplementationDirectly) {
+  processor1Ctx processor;
+  processor.Drain = p1_Drain;
+  SearchResult result = SearchResult_New();
+  for (t_docId expected = 1; expected <= NUM_RESULTS; ++expected) {
+    ASSERT_EQ(RP_DRAIN_OK, processor.Drain(&processor, &result));
+    ASSERT_EQ(expected, SearchResult_GetDocId(&result));
+    SearchResult_Clear(&result);
+  }
+  ASSERT_EQ(RP_DRAIN_EOF, processor.Drain(&processor, &result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, pushInstallsEofDrainWhileProcessorIsNotMigrated) {
+  QueryProcessingCtx qitr = {0};
+  processor1Ctx processor;
+  QITR_PushRP(&qitr, &processor);
+  SearchResult result = SearchResult_New();
+  ASSERT_NE(nullptr, processor.Drain);
+  ASSERT_EQ(RP_DRAIN_EOF, processor.Drain(&processor, &result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, profileConstructorProvidesDrainWithoutChainInsertion) {
+  QueryProcessingCtx qitr = {0};
+  processor1Ctx source;
+  source.Drain = p1_Drain;
+  ResultProcessor *profile = RPProfile_New(&source, &qitr);
+  SearchResult result = SearchResult_New();
+  ASSERT_NE(nullptr, profile->Drain);
+  EXPECT_EQ(RP_DRAIN_EOF, profile->Drain(profile, &result));
+  EXPECT_EQ(0, RPProfile_GetCount(profile));
+  profile->Free(profile);
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, drainPropagatesErrors) {
+  processor1Ctx processor;
+  processor.Drain = drainError;
+
+  SearchResult result = SearchResult_New();
+  ASSERT_EQ(RP_DRAIN_ERROR, processor.Drain(&processor, &result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
+  IndexSpec spec = {0};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  sctx.timeout = &timeout;
+  sctx.lock_state = SPEC_LOCK_READ_BORROWED;
+
+  auto *iterator = new BlockingQueryIterator();
+  ResultProcessor *rp = RPQueryIterator_New(&iterator->base, nullptr, 0, &sctx);
+
+  int nextStatus = RS_RESULT_MAX;
+  std::thread nextThread([&]() {
+    SearchResult nextResult = SearchResult_New();
+    nextStatus = rp->Next(rp, &nextResult);
+    SearchResult_Destroy(&nextResult);
+  });
+
+  const bool nextEntered =
+      RS::WaitForCondition([&]() { return iterator->entered.load(std::memory_order_acquire); }, 5);
+
+  SearchResult drainResult = SearchResult_New();
+  RPDrainStatus firstDrain = RP_DRAIN_ERROR;
+  RPDrainStatus secondDrain = RP_DRAIN_ERROR;
+  if (nextEntered) {
+    firstDrain = rp->Drain(rp, &drainResult);
+    secondDrain = rp->Drain(rp, &drainResult);
+    EXPECT_FALSE(iterator->release.load(std::memory_order_relaxed));
+  }
+  SearchResult_Destroy(&drainResult);
+
+  iterator->release.store(true, std::memory_order_release);
+  nextThread.join();
+  ASSERT_TRUE(nextEntered);
+  ASSERT_EQ(RP_DRAIN_EOF, firstDrain);
+  ASSERT_EQ(RP_DRAIN_EOF, secondDrain);
+  ASSERT_EQ(RS_RESULT_EOF, nextStatus);
+  rp->Free(rp);
+}
+
+TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext) {
+  IndexSpec spec = {};
+  spec.docs = DocTable_New(1);
+  auto *dmd =
+      DocTable_Put(&spec.docs, "late", 4, 1, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  DMD_Return(dmd);  // Keep only the table's reference before Next borrows the document.
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  sctx.timeout = &timeout;
+  sctx.lock_state = SPEC_LOCK_READ_BORROWED;
+  QueryProcessingCtx qctx = {};
+  auto *iterator = new BlockingQueryIterator(true);
+  ResultProcessor *rp = RPQueryIterator_New(&iterator->base, nullptr, 0, &sctx);
+  rp->parent = &qctx;
+  SearchResult next = SearchResult_New(), drained = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = rp->Next(rp, &next); });
+  const bool entered =
+      RS::WaitForCondition([&] { return iterator->entered.load(std::memory_order_acquire); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+  iterator->release.store(true, std::memory_order_release);
+  worker.join();
+  ASSERT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(1, SearchResult_GetDocId(&next));
+  EXPECT_EQ(dmd, SearchResult_GetDocumentMetadata(&next));
+  EXPECT_EQ(iterator->base.current, SearchResult_GetIndexResult(&next));
+  EXPECT_EQ(2, dmd->ref_count);
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &drained));
+  SearchResult_Destroy(&next);
+  EXPECT_EQ(1, dmd->ref_count);
+  SearchResult_Destroy(&drained);
+  rp->Free(rp);
+  DocTable_Free(&spec.docs);
+}
+
 /*
  * Test SearchResult_mergeFlags function with no flags set
  */
@@ -110,7 +281,7 @@ TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
 TEST_F(ResultProcessorTest, testmergeFlags_ExpiredDoc) {
   SearchResult a = SearchResult_New();
   SearchResult b = SearchResult_New();
-  SearchResult_SetFlags(&b, Result_ExpiredDoc); // Source has expired flag
+  SearchResult_SetFlags(&b, Result_ExpiredDoc);  // Source has expired flag
 
   // Test merging expired flag
   SearchResult_MergeFlags(&a, &b);

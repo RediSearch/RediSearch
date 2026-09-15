@@ -140,6 +140,16 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+/** Possible return values from Drain(). */
+typedef enum {
+  // Result is filled with valid data.
+  RP_DRAIN_OK = 0,
+  // Result is empty, and Drain will not return another result.
+  RP_DRAIN_EOF,
+  // Result production failed, and Drain will not return another result.
+  RP_DRAIN_ERROR,
+} RPDrainStatus;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -164,6 +174,9 @@ typedef struct ResultProcessor {
    * Users can use SearchResult_Clear() to reset the structure without freeing
    * it.
    *
+   * `res` must point to initialized storage that is exclusively accessible for
+   * the duration of the call. A concurrent Drain call must use distinct storage.
+   *
    * The populated structure (if RS_RESULT_OK is returned) does contain references
    * to document data. Callers *MUST* ensure they are eventually freed.
    */
@@ -171,13 +184,63 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
+
+  /**
+   * Populates `res` with the next result that can be produced without waiting
+   * for background progress. The result ownership convention is the same as
+   * for Next().
+   * Transparent processors pull upstream Drain and apply their normal output
+   * semantics. Accumulators yield only locally committed, valid state without
+   * replenishing from upstream. Sources without ready output return EOF.
+   *
+   * RETURN-STRICT may run Drain on the main thread concurrently with at most
+   * one BG call active in the Next chain. RETURN invokes Drain inline only
+   * after Next fully unwinds. FAIL returns an error without invoking Drain.
+   * The caller guarantees that the processor chain remains alive until both
+   * calls return and that `res` points to initialized, exclusively accessible
+   * storage distinct from the concurrent Next call's result. Implementations
+   * must not wait for the Next call, background work, I/O, condition variables,
+   * or global runtime locks. Synchronization needed only for RETURN-STRICT
+   * should have minimal cost for RETURN/FAIL; policy-specialized entry is
+   * allowed when the execution configuration guarantees sequential access.
+   *
+   * The RETURN-STRICT caller sets the request timeout flag before entering
+   * Drain. This does not make an earlier Next timeout check a mutation guard:
+   * an in-flight call can still return from upstream after local draining ends.
+   * Published-buffer admission and drain ownership transfer must be serialized locally;
+   * unfinished worker-private buffers may remain inaccessible to Drain.
+   * a late result is discarded by its owner, never published after drain EOF.
+   * No ownership guard may span upstream calls, conversion, cleanup or the GIL.
+   * Distinct result storage also requires safe ownership of reachable payloads.
+   *
+   * Drain neither reads nor modifies live Next query bookkeeping. The caller
+   * owns a separately published reply snapshot, result budget and metadata;
+   * processor metadata is transferred only into that caller-owned state.
+   * Paging applies committed OFFSET progress once and conservatively reserves
+   * LIMIT capacity for in-flight output. The caller owns the remaining reply
+   * budget; late Next completion must not reopen a finished drain.
+   *
+   * Constructors must initialize this callback. Processors without a custom
+   * implementation use RPDrain_EOF. Chain insertion also supplies that default
+   * for externally provided processors during migration.
+   */
+  RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
 
-/** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+/**
+ * Terminal Drain implementation for processors that cannot safely produce a
+ * result while Next is active.
+ *
+ * Used until a processor provides a custom Drain implementation.
+ */
+RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res);
 
-ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                              const ScoringFunctionArgs *fnargs,
+/** `sctx` must carry the owning request's non-NULL timeout state. */
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx);
+
+ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs, const ScoringFunctionArgs *fnargs,
                               const RLookupKey *rlk);
 
 ResultProcessor *RPMetricsLoader_New();
