@@ -362,6 +362,16 @@ def report(ctx: dict) -> int:
                 rows[index] = existing_row(ctx, row["target"], created) or row
             except (OSError, ValueError, subprocess.CalledProcessError):
                 pass
+    # An existing PR proves publication, not that auto-merge was enabled. Retry
+    # here with the publication token, including PRs reused by preflight.
+    for row in rows:
+        if row["status"] in ("clean", "already open") or row["status"].startswith("conflicts("):
+            url = row["detail"]
+            try:
+                common.gh("pr", "merge", url, "--auto", "--merge")
+            except (OSError, subprocess.CalledProcessError):
+                row["status"] = "error"
+                row["detail"] = f"auto-merge failed for {url}; retry with /backport {row['target']}"
     body = apply_create.summary_comment(ctx["pr"], ctx["sha"], rows)
     run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     marker = f"<!-- unified-backport:{os.environ['GITHUB_RUN_ID']}:{os.environ['GITHUB_RUN_ATTEMPT']} -->"
