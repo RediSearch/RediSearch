@@ -145,9 +145,12 @@ typedef union IndexDecoderCtx {
  */
 typedef struct NumericFilter {
   /**
-   * The field specification which this filter is acting on
+   * Stable index of the field this filter acts on, into `IndexSpec.fields`.
+   * Re-derive the `FieldSpec` from this at evaluation time - a raw pointer
+   * captured when the filter was built could dangle across a concurrent
+   * `FT.ALTER` under `WORKERS>0` (MOD-18361).
    */
-  const FieldSpec *fieldSpec;
+  t_fieldIndex fieldIndex;
   /**
    * Beginning of the range
    */
