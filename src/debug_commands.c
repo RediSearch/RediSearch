@@ -2070,6 +2070,8 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
     START_POSTPONED_LEN_ARRAY(num_stats_fields);
     REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
     REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("numJobsInProgress", stats.num_jobs_in_progress,
+                         ARRAY_LEN_VAR(num_stats_fields));
     END_POSTPONED_LEN_ARRAY(num_stats_fields);
     return REDISMODULE_OK;
   } else {

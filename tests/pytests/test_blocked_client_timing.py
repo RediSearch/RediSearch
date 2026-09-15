@@ -99,6 +99,9 @@ def assert_background_duration(env, command, sync_point, force_timeout, expected
         # Timeout replies can precede loader cleanup, which still needs the GIL.
         wait_for_condition(lambda: pool_is_idle(getWorkersThpoolStats),
                            f'Workers did not finish {command_name}', timeout=10)
+        if env.isCluster():
+            wait_for_condition(lambda: pool_is_idle(getCoordThpoolStats),
+                               f'Coordinator did not finish {command_name}', timeout=10)
     env.assertEqual(env.cmd('INFO', 'COMMANDSTATS')[stat_key]['usec'] - before, duration)
     return replies[0]
 
@@ -297,7 +300,6 @@ def test_cursor_timeout_commits_background_duration():
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
 
 
-@skip(cluster=True)
 def test_cursor_worker_error_commits_background_duration():
     """A cursor read that loses its index publishes its worker duration exactly once."""
     # Disable timeouts so the dropped-index worker endpoint finalizes the interval.
@@ -328,7 +330,6 @@ def test_cursor_worker_error_commits_background_duration():
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
 
 
-@skip(cluster=True)
 def test_cursor_completion_commits_background_duration():
     """Successful cursor reads publish fresh worker intervals under every policy."""
     # Disable timeouts so only the worker can finish each measured interval.
@@ -357,5 +358,32 @@ def test_cursor_completion_commits_background_duration():
                     env.assertEqual(reply, [expected_result, cursor])
             finally:
                 env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
+    finally:
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
+
+@skip(cluster=False)
+def test_coordinator_cursor_timeout_commits_background_duration():
+    """Coordinator cursor callbacks commit their worker interval under both timeout policies."""
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0', protocol=3)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 't', 'hello')
+    previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        for policy, hook in (
+            ('fail', 'BeforeSpecLock'),
+            ('return-strict', 'BeforeSpecLock'),
+            ('return-strict', 'BeforeCoordCursorReadFinish'),
+        ):
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy)
+            _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+            env.assertNotEqual(cursor, 0)
+            _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 1)
+            env.assertNotEqual(cursor, 0)
+            assert_timeout_duration(env, ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 1],
+                                    hook)
     finally:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
