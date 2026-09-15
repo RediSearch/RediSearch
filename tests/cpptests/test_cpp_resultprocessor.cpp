@@ -868,6 +868,102 @@ TEST(SearchResultComparisonTest, legacyFieldComparatorPreservesFallbackAndErrors
   RLookup_Cleanup(&lookup);
 }
 
+// Next retains a different DMD from the rows owned by the inherited Drain cursor.
+struct KeyNameDrainSource : LoaderDrainSource {
+  std::atomic<bool> entered{false}, release{true};
+  KeyNameDrainSource() {
+    Next = [](ResultProcessor *base, SearchResult *result) -> int {
+      auto *self = static_cast<KeyNameDrainSource *>(base);
+      ++self->nextCalls;
+      self->entered.store(true, std::memory_order_release);
+      while (!self->release.load(std::memory_order_acquire)) std::this_thread::yield();
+      auto *dmd = self->documents.back();
+      DMD_Incref(dmd);
+      SearchResult_SetDocumentMetadata(result, dmd);
+      return RS_RESULT_OK;
+    };
+  }
+};
+
+class KeyNameDrainTest : public LoaderDrainTest {
+ protected:
+  KeyNameDrainSource keySource;
+  bool previousUnstable = false;
+  const RLookupKey *key = nullptr;
+
+  void SetUp() override {
+    LoaderDrainTest::SetUp();
+    previousUnstable = RSGlobalConfig.enableUnstableFeatures;
+    RSGlobalConfig.enableUnstableFeatures = true;
+    key = RLookup_GetKey_Load(&lookup, "key_alias", "__key", 0);
+    uint32_t state = 0;
+    loader = RPLoader_New(&sctx, QEXEC_F_RUN_IN_BACKGROUND, &lookup, &key, 1, false, &state);
+    ASSERT_EQ(RP_KEY_NAME_LOADER, loader->type);
+    EXPECT_EQ(0, state);
+    loader->upstream = &keySource;
+    RLookup_Seal(&lookup);
+  }
+  void TearDown() override {
+    RSGlobalConfig.enableUnstableFeatures = previousUnstable;
+    LoaderDrainTest::TearDown();
+  }
+};
+
+TEST_F(KeyNameDrainTest, copiesBinaryKeyAndPreservesUnrelatedResultData) {
+  const char name[] = "doc\0key";
+  auto *dmd = DocTable_Put(&spec.docs, name, sizeof(name) - 1, 1, Document_DefaultFlags, nullptr, 0,
+                           DocumentType_Hash);
+  DMD_Return(dmd);
+  keySource.documents = {dmd};
+  SearchResult_SetScore(&result, 7);
+  RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(&result), RSValue_NewNumber(-1));
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  const RSValue *value = RLookupRow_Get(key, SearchResult_GetRowData(&result));
+  ASSERT_NE(nullptr, value);
+  size_t len = 0;
+  const char *copied = RSValue_StringPtrLen(value, &len);
+  EXPECT_EQ(std::string(name, sizeof(name) - 1), std::string(copied, len));
+  EXPECT_NE(dmd->keyPtr, copied);
+  EXPECT_EQ(7, SearchResult_GetScore(&result));
+  EXPECT_EQ(dmd->id, SearchResult_GetDocId(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(0, keySource.nextCalls);
+}
+
+TEST_F(KeyNameDrainTest, propagatesTerminalStatusesWithoutReadingDmd) {
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  keySource.terminal = RP_DRAIN_ERROR;
+  EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
+  EXPECT_EQ(0, keySource.nextCalls);
+}
+
+TEST_F(KeyNameDrainTest, drainsWhileNextIsParkedAndKeepsItsOwnKey) {
+  keySource.documents = {document("drained", nullptr), document("next", nullptr)};
+  keySource.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return keySource.entered.load(); }, 5);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    expectValue(key, "drained");
+  }
+  keySource.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  const RSValue *nextValue = RLookupRow_Get(key, SearchResult_GetRowData(&next));
+  ASSERT_NE(nullptr, nextValue);
+  size_t len = 0;
+  const char *data = RSValue_StringPtrLen(nextValue, &len);
+  EXPECT_EQ(std::string("next"), std::string(data, len));
+  expectValue(key, "drained");
+  SearchResult_Destroy(&next);
+}
+
 // Independent source payloads let a parked Next coexist with upstream Drain.
 struct MetricsDrainSource : ResultProcessor {
   RSIndexResult *nextIndex = NewVirtualResult(1, RS_FIELDMASK_ALL);
