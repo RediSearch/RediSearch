@@ -15,8 +15,8 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{
-    QueryIterator, RLookupKey, RLookupKeyHandle, RedisSearchCtx, VecSimIndex, VecSimQueryParams,
-    timespec,
+    QueryIterator, QueryRequestTimeout, RLookupKey, RLookupKeyHandle, RedisSearchCtx, VecSimIndex,
+    VecSimQueryParams,
 };
 use field::FieldFilterContext;
 use rqe_iterators::{
@@ -55,6 +55,7 @@ use vector_score_source::{NewVectorTopK, VectorTopKIterator, new_vector_top_k};
 ///    duration of this call.
 /// 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
 ///    `spec`, both outliving the returned iterator.
+/// 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -66,8 +67,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     k: usize,
     can_trim_deep_results: bool,
     child: *mut QueryIterator,
-    timeout: timespec,
-    skip_timeout_checks: bool,
+    timeout: *mut QueryRequestTimeout,
     sctx: *mut RedisSearchCtx,
     filter_ctx: *const FieldFilterContext,
 ) -> *mut QueryIterator {
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // check uses `FieldMaskOrIndex::Index`, not the mask path.
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
-    // SAFETY: `index` and `query_vector` are guaranteed by 1 and 2.
+    // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
     let reduced = unsafe {
         new_vector_top_k(
             index,
@@ -107,7 +107,6 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
             query_params,
             k,
             timeout,
-            skip_timeout_checks,
             can_trim_deep_results,
             checker,
             child,

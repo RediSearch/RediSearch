@@ -537,16 +537,20 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   }
 }
 
-// Probe the Blocked Client Timeout flag for a query iterator. Called from
-// Rust via a direct `extern "C"` declaration when a NOT iterator is wired
-// to an AREQ; the sync point makes the check deterministically pauseable
-// in assert builds for race tests.
-bool AREQ_CheckTimedOut(AREQ *areq) {
-  RS_LOG_ASSERT(areq, "AREQ_CheckTimedOut called with NULL areq");
+// Keep the query-iterator sync point out of the source-neutral timeout API.
 #ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
+static bool queryIteratorTimedOut(void *arg) {
+  const QueryRequestTimeout *timeout = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
 #endif
-  return AREQ_TimedOut(areq);
+
+bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
+  RS_LOG_ASSERT(timeout, "QueryIterator_IsBlockedClientTimedOut called with NULL timeout");
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, queryIteratorTimedOut, (void *)timeout);
+#endif
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
 /**
@@ -595,6 +599,11 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   *len = length;
 }
 
+static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
+  return q->sctx->timeout &&
+         q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+}
+
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn, double weight,
                                               int withSuffixTrie, t_fieldIndex fieldIndex,
@@ -626,8 +635,8 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
-    if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+    if (shouldCheckClockTimeout(q)) {
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
@@ -656,9 +665,11 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     TrieMapIterator_Free(it);
   } else {  // TAG field has suffix triemap
-    arrayof(char **) arr =
-        TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
-                               q->sctx->time.skipTimeoutChecks);
+    bool skipClockChecks = !shouldCheckClockTimeout(q);
+    struct timespec timeout = skipClockChecks ? (struct timespec){0}
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
+    arrayof(char **) arr = TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix,
+                                                     timeout, skipClockChecks);
     if (!arr) {
       rm_free(its);
       return NULL;
@@ -717,9 +728,12 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
+    bool skipClockChecks = !shouldCheckClockTimeout(q);
+    struct timespec timeout = skipClockChecks ? (struct timespec){0}
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
     arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
-        idx, tok->str, tok->len, q->sctx->time.timeout, q->config->maxPrefixExpansions,
-        q->sctx->time.skipTimeoutChecks);
+        idx, tok->str, tok->len, timeout, q->config->maxPrefixExpansions,
+        skipClockChecks);
     if (!arr) {
       // No matching terms
       rm_free(its);
@@ -751,8 +765,8 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     // brute force wildcard query
     TrieMapIterator *it =
         TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
-    if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+    if (shouldCheckClockTimeout(q)) {
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     char *s;
@@ -784,6 +798,18 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
+// Appends the words of `phrase` joined by single spaces, writing the `emptyWord` argument in
+// place of any zero-length word.
+static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *emptyWord) {
+  for (size_t i = 0; i < QueryNode_NumChildren(phrase); ++i) {
+    const QueryNode *word = phrase->children[i];
+    RS_ASSERT(word->type == QN_TOKEN);
+    if (i > 0) buf = sdscatlen(buf, " ", 1);
+    buf = word->tn.len ? sdscatlen(buf, word->tn.str, word->tn.len) : sdscat(buf, emptyWord);
+  }
+  return buf;
+}
+
 static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               double weight, const FieldSpec *fs) {
   QueryIterator *ret = NULL;
@@ -811,15 +837,11 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
 
     case QN_PHRASE: {
-      char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
-        // tag phrase children are always tokens from query syntax
-        RS_ASSERT(n->children[i]->type == QN_TOKEN);
         tag_strtolower(&(n->children[i]->tn.str), &n->children[i]->tn.len, caseSensitive);
-        terms[i] = n->children[i]->tn.str;
       }
 
-      sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
+      sds s = tagPhraseAppendValue(sdsempty(), n, "");
 
       ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), effective_weight, fs->index, q->status);
       sdsfree(s);
@@ -1359,7 +1381,16 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%s {\n", HiddenString_GetUnsafe(qs->tag.fs->fieldName, NULL));
-      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
+        const QueryNode *child = qs->children[ii];
+        if (child->type == QN_PHRASE) {
+          s = doPad(s, depth + 1);
+          s = tagPhraseAppendValue(s, child, "\"\"");
+          s = sdscat(s, "\n");
+        } else {
+          s = QueryNode_DumpSds(s, spec, child, depth + 1);
+        }
+      }
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;

@@ -125,7 +125,10 @@ impl<Data> TrieMap<Data> {
     /// The value is obtained by calling the provided callback function.
     /// If the key already exists, the existing value is passed to the callback,
     /// otherwise `f(None)` is inserted.
-    pub fn insert_with<F>(&mut self, key: &[u8], f: F)
+    ///
+    /// Returns `true` if the key was newly inserted, `false` if it was
+    /// already present.
+    pub fn insert_with<F>(&mut self, key: &[u8], f: F) -> bool
     where
         F: FnOnce(Option<Data>) -> Data,
     {
@@ -149,6 +152,7 @@ impl<Data> TrieMap<Data> {
         if has_cardinality_increased {
             self.n_unique_keys += 1;
         }
+        has_cardinality_increased
     }
 
     #[cfg(feature = "test_utils")]
@@ -282,6 +286,9 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
+    ///
+    /// The iterator borrows `target`; call
+    /// [`ContainsIter::into_owned`] to detach it from that borrow.
     pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }

@@ -1346,6 +1346,88 @@ def test_hybrid_query_non_vector_score():
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop():
+    """A filtered KNN query scores its text prefilter as if the matched terms
+    were adjacent: the scorer receives the prefilter alongside the distance
+    metric, and the slop walk pairs only top-level siblings, so the terms' real
+    offset distance never reaches the divisor."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    # Each doc carries both terms once, so they share TF, IDF and max term
+    # frequency; the gap between the terms is the only input that differs.
+    conn.execute_command('HSET', 'adjacent', 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'separated', 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    def scores(query, scorer):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'SCORER', scorer, 'WITHSCORES',
+                      'NOCONTENT', 'PARAMS', 2, 'vec_param', query_vec)
+        return {res[i]: float(res[i + 1]) for i in range(1, len(res), 2)}
+
+    for scorer in ('TFIDF', 'BM25'):
+        text_only = scores('@t:(hello world)', scorer)
+        hybrid = scores('(@t:(hello world))=>[KNN 2 @v $vec_param]', scorer)
+
+        env.assertEqual(sorted(hybrid.keys()), ['adjacent', 'separated'],
+                        message=[scorer, hybrid])
+
+        # Adjacent terms are a distance of one apart, so `adjacent` is scored
+        # undivided and any score read against it recovers its own divisor.
+        undivided = text_only['adjacent']
+        env.assertAlmostEqual(undivided / text_only['separated'], 3.0, 0.01,
+                              message=[scorer, text_only])
+        env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
+                              message=[scorer, hybrid])
+        # Under a KNN the gap between the terms is invisible, so the divisor
+        # falls back to a distance of one rather than the distance they are at.
+        env.assertAlmostEqual(undivided / hybrid['separated'], 1.0, 0.01,
+                              message=[scorer, hybrid])
+
+
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop_ranking():
+    """The ranking a filtered KNN query replies with: a boosted document whose
+    matched terms are far apart outranks a tighter, unboosted one, because under
+    a KNN the distance between the terms is not charged against it. The same
+    prefilter on its own ranks the two the other way round."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'boost', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'tight', 'boost', 1, 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'boosted', 'boost', 2, 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    # No SORTBY, so both replies are ordered by relevance score. TFIDF is one of
+    # the scorers that divides by the slop; the default one does not.
+    env.expect('FT.SEARCH', 'idx', '@t:(hello world)', 'SCORER', 'TFIDF',
+               'NOCONTENT').equal([2, 'tight', 'boosted'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted', 'tight'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted'])
+    # `k` selects candidates by vector distance before any scoring, so the
+    # nearest vector is the answer whatever the relevance ranking says.
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
+
+
 @skip(cluster=False)
 def test_single_entry():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')

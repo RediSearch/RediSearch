@@ -141,7 +141,7 @@ impl ExpirationChecker for FieldExpirationChecker {
             return false;
         }
 
-        let current_time = &sctx.time.current;
+        let current_time = &sctx.currentTime;
         let doc_id = result.doc_id;
 
         let ttl = spec.docs.ttl as *const ttl_table::TimeToLiveTable;

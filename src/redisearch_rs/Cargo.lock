@@ -1851,16 +1851,19 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "dict",
  "ffi",
  "field",
  "geo",
  "hidden_string",
  "index_result",
  "inverted_index",
+ "inverted_index_ffi",
  "proptest",
  "query",
  "query_error",
  "query_eval",
+ "query_flags",
  "query_term",
  "query_types",
  "redis-module",
@@ -2174,6 +2177,7 @@ dependencies = [
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
  "syn 2.0.118",
+ "term_dictionary_ffi",
  "term_suffix_index_ffi",
  "toml",
  "trie_rdb_ffi",
@@ -2488,10 +2492,12 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field",
  "geo",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -3096,6 +3102,29 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "term_dictionary"
+version = "0.0.1"
+dependencies = [
+ "string_utils",
+ "term_dictionary",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "redis_mock",
+ "redisearch_rs",
+ "term_dictionary",
+ "term_dictionary_ffi",
+ "workspace_hack",
 ]
 
 [[package]]

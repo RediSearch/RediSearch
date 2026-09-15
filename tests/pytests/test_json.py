@@ -131,36 +131,6 @@ def testSearchUpdatedContent(env):
 # TODO: Check arrays
 # TODO: Check Object/Map
 
-@skip()
-def testHandleUnindexedTypes(env):
-    # TODO: Ignore and resume indexing when encountering an Object/Array/null
-    # TODO: Except for array of only scalars which is defined as a TAG in the schema
-    # ... FT.CREATE idx SCHEMA $.arr TAG
-
-    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
-
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-                        '$.string', 'AS', 'string', 'TEXT',
-                        '$.null', 'AS', 'nil', 'TEXT',
-                        '$.boolT', 'AS', 'boolT', 'TAG',
-                        '$.boolN', 'AS', 'boolN', 'NUMERIC',
-                        '$.int', 'AS', 'int', 'NUMERIC',
-                        '$.flt', 'AS', 'flt', 'NUMERIC',
-                        '$.geo', 'AS', 'geo', 'GEO',
-                        '$.obj', 'AS', 'obj', 'TEXT',
-                        '$.complex_arr', 'AS', 'complex_arr', 'TEXT',
-                        '$.scalar_arr', 'AS', 'scalar_arr', 'TAG',
-                        '$.int_arr', 'AS', 'int_arr', 'TAG',
-                        '$.vector', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'
-                        ).ok()
-    waitForIndex(env, 'idx')
-# FIXME: Why does the following search return zero results?
-    env.expect('ft.search', 'idx', '*', 'RETURN', '2', 'string', 'int_arr')\
-        .equal([1, 'doc:1', ['string', '"gotcha1"', 'int_arr', ["a", "b", "c", "d", "e", "f", "gotcha6"]]])
-
-    # TODO: test TAGVALS ?
-    pass
-
 @skip(msan=True, no_json=True)
 def testReturnAllTypes(env):
     # Test returning all JSON types

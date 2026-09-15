@@ -292,6 +292,15 @@ impl<M: TagIndexMode> TagIndex<M> {
         self.suffix.is_some()
     }
 
+    /// Bytes the [suffix index](TagSuffixIndex) occupies, or `0` when the index was
+    /// created without `WITHSUFFIXTRIE`.
+    const fn suffix_mem_usage(&self) -> usize {
+        match &self.suffix {
+            Some(suffix) => suffix.mem_usage(),
+            None => 0,
+        }
+    }
+
     /// Register `tags` in the [suffix index](TagSuffixIndex), when enabled.
     fn add_tags_to_suffix(&mut self, tags: &[Tag<'_>]) {
         let Some(suffix) = &mut self.suffix else {
@@ -388,6 +397,11 @@ impl TagIndex<InMemoryMode> {
     /// How many distinct tags the index holds.
     pub const fn n_tags(&self) -> usize {
         self.mode.values.n_unique_keys()
+    }
+
+    /// Bytes the index's tries occupy, the `FT.INFO` overhead figure.
+    pub const fn mem_usage(&self) -> usize {
+        self.mode.values.mem_usage() + self.suffix_mem_usage()
     }
 
     /// Index `doc_id` under each tag in `tags`, writing the postings inline into
@@ -1045,6 +1059,41 @@ mod expansion_deadline_tests {
         assert!(
             deadline <= Instant::now(),
             "an elapsed deadline must stop the walk on its first clock probe"
+        );
+    }
+}
+
+#[cfg(test)]
+mod mem_usage_tests {
+    use super::*;
+
+    #[test]
+    fn mem_usage_adds_the_suffix_trie_exactly_once() {
+        let tags: Vec<Tag<'_>> = [b"hello".as_slice(), b"world"]
+            .iter()
+            .map(|t| Tag::new(t).expect("test literal is NUL-free"))
+            .collect();
+
+        // Both indexes are indexed *and* committed, so the values trie is non-empty on
+        // each side: were it missing from one of the two sums, the delta would not match.
+        let mut with_suffix = TagIndex::<InMemoryMode>::new(true);
+        with_suffix.index(&tags, 1, false);
+        with_suffix.commit(&tags);
+
+        let mut without_suffix = TagIndex::<InMemoryMode>::new(false);
+        without_suffix.index(&tags, 1, false);
+        without_suffix.commit(&tags);
+
+        let mut suffix_alone = TagSuffixIndex::new();
+        for tag in &tags {
+            suffix_alone.add(*tag);
+        }
+
+        assert_eq!(
+            with_suffix.mem_usage() - without_suffix.mem_usage(),
+            suffix_alone.mem_usage(),
+            "the suffix trie must contribute its bytes once, and the suffix flag must \
+             leave the values trie untouched"
         );
     }
 }

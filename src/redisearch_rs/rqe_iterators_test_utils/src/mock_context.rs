@@ -9,7 +9,7 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule};
+use ffi::{QueryEvalCtx, QueryRequestTimeout, RedisSearchCtx, SchemaRule};
 use field::FieldMaskOrIndex;
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
@@ -26,6 +26,7 @@ use rqe_core::DocId;
 pub struct MockContext {
     rule: *mut SchemaRule,
     spec: *mut ffi::IndexSpec,
+    timeout: *mut QueryRequestTimeout,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -55,6 +56,10 @@ impl Drop for MockContext {
                 std::alloc::Layout::new::<ffi::IndexSpec>(),
             );
             std::alloc::dealloc(
+                self.timeout as *mut u8,
+                std::alloc::Layout::new::<QueryRequestTimeout>(),
+            );
+            std::alloc::dealloc(
                 self.sctx as *mut u8,
                 std::alloc::Layout::new::<RedisSearchCtx>(),
             );
@@ -81,6 +86,9 @@ impl MockContext {
         // Create boxes and immediately convert to raw pointers
         let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<ffi::IndexSpec>() }));
+        let timeout_ptr = Box::into_raw(Box::new(unsafe {
+            std::mem::zeroed::<QueryRequestTimeout>()
+        }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
@@ -114,6 +122,8 @@ impl MockContext {
 
             // Initialize RedisSearchCtx
             (*sctx_ptr).spec = spec_ptr;
+            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx_ptr).timeout = timeout_ptr;
 
             // Initialize QueryEvalCtx
             (*qctx_ptr).sctx = sctx_ptr;
@@ -123,6 +133,7 @@ impl MockContext {
             Self {
                 rule: rule_ptr,
                 spec: spec_ptr,
+                timeout: timeout_ptr,
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
@@ -294,7 +305,7 @@ impl MockContext {
         // Set the current time to the future so expiration checks see these as expired
         // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
         unsafe {
-            (*self.sctx).time.current = ffi::t_expirationTimePoint {
+            (*self.sctx).currentTime = ffi::t_expirationTimePoint {
                 tv_sec: 100,
                 tv_nsec: 100,
             };

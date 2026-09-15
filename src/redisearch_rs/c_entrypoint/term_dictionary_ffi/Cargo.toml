@@ -1,0 +1,31 @@
+[package]
+name = "term_dictionary_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+unittest = []
+
+[build-dependencies]
+build_utils = { path = "../../build_utils" }
+
+[dependencies]
+cheadergen.workspace = true
+term_dictionary = { workspace = true }
+workspace_hack.workspace = true
+
+[dev-dependencies]
+# Crate required to invoke C symbols
+term_dictionary_ffi = { path = ".", features = ["unittest"] }
+# `mock_allocator` disables the `RedisAlloc` global allocator so the mock's
+# allocation shim does not recurse back into itself through `rm_alloc_impl`.
+redisearch_rs = { path = "../redisearch_rs", features = ["mock_allocator"] }
+redis_mock.workspace = true
+
+[target.'cfg(miri)'.dependencies]
+redis_mock.workspace = true

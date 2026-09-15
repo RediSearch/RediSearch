@@ -475,6 +475,106 @@ def testProfileVector(env):
   env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
+def testProfileVectorZeroK(env):
+  """`KNN 0` is not short-circuited: it builds a vector iterator, attaches any
+  filter child without ever reading it, and issues an index query that returns
+  no neighbours but still sets the index's last search mode.
+  """
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+  conn.execute_command('hset', '1', 'v', 'bababaca', 't', 'hello')
+  conn.execute_command('hset', '2', 'v', 'babababa', 't', 'hello')
+
+  def prime_search_mode():
+    # Leave the index in a mode no zero-K query can produce, so the search-mode
+    # assertion tells a fresh query apart from a mode left by an earlier one.
+    conn.execute_command('ft.profile', 'idx', 'search', 'query',
+                         '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                         'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
+                    'RANGE_QUERY')
+
+  knn_profile = ['Type', 'VECTOR', 'Number of reading operations', 0,
+                 'Vector search mode', 'STANDARD_KNN']
+  # A filter child is built and attached to the iterator, then never read.
+  filtered_profile = knn_profile + [
+      'Child iterator',
+      ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0,
+       'Estimated number of matches', 2]]
+
+  # Bare, filtered, and distance-yielding zero-K queries.
+  for query, expected_profile in [('*=>[KNN 0 @v $vec]', knn_profile),
+                                  ('(@t:hello)=>[KNN 0 @v $vec]', filtered_profile),
+                                  ('*=>[KNN 0 @v $vec AS dist]', knn_profile)]:
+    prime_search_mode()
+    actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', query,
+                                      'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+    env.assertEqual(actual_res[0], [0], message=query)
+    actual_profile = to_dict(actual_res[1][1][0])
+    env.assertEqual(actual_profile['Iterators profile'], expected_profile, message=query)
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
+                    'STANDARD_KNN', message=query)
+
+@skip(cluster=True)
+def testProfileVectorBatchSizeAfterSparseBatch(env):
+  """Batch sizing after a batch denser than the running child estimate.
+
+  Refinement is capped at the previous estimate, so the estimate only ever
+  decreases: sparse batches halve it and a later hit cannot raise it back up.
+  The batch trajectory asserted here is what that cap produces."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  n = 1500
+  # Position of the only doc passing the filter in the distance-ordered scan.
+  # It has to land in a batch that neither fills K nor ends the scan; any rank
+  # in 374..744 does.
+  match_rank = 600
+  # Per-tag doc count. The intersection estimates the smaller of the two tags
+  # while yielding a single doc, and that overestimate is what lets the running
+  # estimate fall far below the initial one.
+  tag_docs = 300
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+             'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+  # The two tags overlap only at `match_rank`, so the intersection yields one doc.
+  tag1_docs = {match_rank} | set(range(1000, 1000 + tag_docs - 1))
+  tag2_docs = {match_rank} | set(range(700, 700 + tag_docs - 1))
+  with conn.pipeline(transaction=False) as p:
+    for i in range(n):
+      # Doc i sits at distance i^2 from the query vector, so its scan rank is i.
+      p.execute_command('HSET', i, 'v', np.array([i, 0], dtype=np.float32).tobytes(),
+                        'tag1', 'a' if i in tag1_docs else 'z',
+                        'tag2', 'b' if i in tag2_docs else 'z')
+    p.execute()
+
+  query_vec = np.array([0, 0], dtype=np.float32).tobytes()
+  # BATCHES is pinned without a batch size so the sizes stay dynamic and the
+  # policy is never re-evaluated into ad-hoc mid-scan.
+  actual_res = conn.execute_command(
+      'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+      '(@tag1:{a} @tag2:{b})=>[KNN 10 @v $vec HYBRID_POLICY BATCHES]',
+      'SORTBY', '__v_score', 'PARAMS', '2', 'vec', query_vec, 'NOCONTENT', 'DIALECT', '2')
+  env.assertEqual(actual_res[0], [1, str(match_rank)])
+
+  iterators_profile = to_dict(to_dict(actual_res[1][1][0])['Iterators profile'])
+  env.assertEqual(iterators_profile['Type'], 'VECTOR')
+  env.assertEqual(iterators_profile['Vector search mode'], 'HYBRID_BATCHES')
+  # Each sparse batch halves the estimate, and the hit at `match_rank` leaves it
+  # unchanged rather than raising it, so the sizes keep doubling to the end of
+  # the scan. Were refinement capped at the initial estimate instead, the hit
+  # would raise it and the scan would take 7 batches peaking at 587.
+  env.assertEqual(iterators_profile['Batches number'], 6, message=iterators_profile)
+  env.assertEqual(iterators_profile['Largest batch size'], 751, message=iterators_profile)
+  env.assertEqual(iterators_profile['Largest batch iteration (zero based)'], 5,
+                  message=iterators_profile)
+
+@skip(cluster=True)
 def testProfileHybridRangeMetricSortedByScore(env):
   """Hybrid RANGE query with YIELD_SCORE_AS creates a METRIC SORTED BY SCORE iterator."""
   conn = getConnectionByEnv(env)

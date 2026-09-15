@@ -460,6 +460,180 @@ def testHDel(env):
     env.expect('FT.SEARCH idx bar').equal([0])
 
 @skip(cluster=True)
+def testPartialIndexedDocsIsANoOp(env):
+    """`PARTIAL_INDEXED_DOCS` is accepted and changes nothing.
+
+    It used to switch on the command filter that reported which fields a write touched. That
+    now comes from subkey notifications and needs no configuration, so the config survives
+    only because removing a registered one stops the server from starting.
+
+    Both halves have to be run to claim it is inert. Asserting only the enabled case would
+    pass just as well against an implementation that still gated the optimization on the
+    flag -- and that is the case `testPartial` already covers. The one that matters here is
+    the flag *absent*, which is the new default.
+
+    Standalone only, for the same reason `testPartial` and `testHDel` are: `DOCIDTOID` takes
+    no key, so it answers from whichever shard receives it, while `HSET doc1` is routed by
+    hash slot. In a cluster the two would not be talking about the same shard.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+
+    def docid_progression(module_args):
+        """(subkeys, first, after a non-schema write, after a schema write) for one server."""
+        server = Env(moduleArgs=module_args) if module_args else Env()
+        subkeys = server.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+        conn = getConnectionByEnv(server)
+        server.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+        conn.execute_command('HSET', 'doc1', 'test', 'foo')
+        first = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+        # Outside the schema: nothing indexed can have changed.
+        conn.execute_command('HSET', 'doc1', 'testtest', 'foo')
+        unindexed = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+        # In the schema: has to be reindexed.
+        conn.execute_command('HSET', 'doc1', 'test', 'bar')
+        indexed = server.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+        server.stop()
+        return (subkeys, first, unindexed, indexed)
+
+    default = docid_progression(None)
+    enabled = docid_progression('PARTIAL_INDEXED_DOCS 1')
+
+    # The equality holds on any server: whatever the channel, the deprecated argument must not
+    # change the outcome. That is the claim this test is named for.
+    env.assertEqual(default, enabled,
+                    message=f'the deprecated argument changed behaviour: {default} vs {enabled}')
+
+    subkeys, first, unindexed, indexed = default
+    if subkeys:
+        env.assertEqual(unindexed, first,
+                        message='a write touching no indexed field should not reindex by default')
+    else:
+        # No change set to reason from, so the skip correctly declines and the whole document is
+        # reindexed. Asserting an unchanged doc-id here would fail on correct behaviour.
+        env.assertGreater(unindexed, first,
+                          message='without subkey notifications every write reindexes')
+    env.assertGreater(indexed, first,
+                      message='a write to a schema field must still reindex')
+
+@skip(cluster=True)
+def testAliasedFieldWriteIsQueryable(env):
+    """A write to an aliased field's hash path must reach the index, not just the doc table.
+
+    A change set names the hash field the command wrote -- the field's path. The schema knows
+    the field by its `AS` alias, so matching the alias instead finds nothing, the write looks
+    like it touched nothing indexed, and the reindex is skipped. The document then answers
+    queries with its previous value.
+
+    The doc-id is checked because that is what the skip decision moves, and the search result
+    because that is what a user sees. Neither alone says enough: a new doc-id with stale terms
+    would pass the first, and the second could be satisfied by a reindex that happened for an
+    unrelated reason.
+
+    Standalone only, as with the other `DOCIDTOID` assertions in this file.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'AS', 'renamed', 'TEXT').ok()
+
+    conn.execute_command('HSET', 'doc1', 'title', 'hello')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+    env.expect('FT.SEARCH', 'idx', '@renamed:hello', 'NOCONTENT').equal([1, 'doc1'])
+
+    # The command writes `title`; the schema calls the field `renamed`.
+    conn.execute_command('HSET', 'doc1', 'title', 'goodbye')
+
+    env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                      message='writing an aliased field must reindex the document')
+    env.expect('FT.SEARCH', 'idx', '@renamed:goodbye', 'NOCONTENT').equal([1, 'doc1'])
+    env.expect('FT.SEARCH', 'idx', '@renamed:hello', 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
+def testPlainHashNotificationsFallback(env):
+    """The degraded path still indexes, and the probe admits to being on it.
+
+    A server without subkey notifications takes hash events over the plain channel with no
+    change set, so every write reindexes the whole document. That is what an older Redis does
+    in production, and no CI lane can reach it -- every one of them runs a Redis that has the
+    API. `_FT.DEBUG FORCE_PLAIN_HASH_NOTIFICATIONS` selects that channel anyway so it can be
+    tested. It has to be set before the first index, which is when the channel is chosen.
+
+    Two claims. The probe reports the path actually taken rather than the server's capability,
+    which is what lets a test tell the two apart at all. And on the plain channel a write
+    touching no indexed field still reindexes -- the skip needs a change set, and correctly
+    declines to skip without one.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+
+    # (A) On the subkey channel: the probe says so, and a write to no indexed field is skipped.
+    subkey_env = Env()
+    subkey_env.assertEqual(subkey_env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1,
+                           message='CI runs a Redis with the API, so the subkey channel must be in use')
+    conn = getConnectionByEnv(subkey_env)
+    subkey_env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    conn.execute_command('HSET', 'doc1', 'test', 'foo')
+    first = subkey_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+    conn.execute_command('HSET', 'doc1', 'untouched_by_the_index', 'x')
+    subkey_env.assertEqual(subkey_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                           message='with a change set, a write to no indexed field is skipped')
+    subkey_env.stop()
+
+    # (B) Forced onto the plain channel: no change set, so the same write reindexes.
+    # `freshEnv` because the lever is now a debug command rather than a module argument: with
+    # identical arguments RLTest hands back the server from (A), whose channel is already chosen
+    # and whose index already exists.
+    plain_env = Env(freshEnv=True)
+    plain_env.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '1').ok()
+    plain_env.assertEqual(plain_env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 0,
+                          message='forced onto the plain channel, the probe must not claim otherwise')
+    conn = getConnectionByEnv(plain_env)
+    plain_env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+
+    # Too late to change the channel now, and saying so is the point: a silently ignored set
+    # would leave a later test believing it was on the plain channel when it was not.
+    plain_env.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '0').error().contains(
+        'already subscribed')
+    conn.execute_command('HSET', 'doc1', 'test', 'foo')
+    first = plain_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1')
+
+    conn.execute_command('HSET', 'doc1', 'untouched_by_the_index', 'x')
+    plain_env.assertGreater(plain_env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc1'), first,
+                            message='without a change set there is nothing to skip on')
+    # And the document is still correctly indexed afterwards, which is the point of the fallback.
+    plain_env.expect('FT.SEARCH', 'idx', 'foo', 'NOCONTENT').equal([1, 'doc1'])
+
+    conn.execute_command('HSET', 'doc1', 'test', 'bar')
+    plain_env.expect('FT.SEARCH', 'idx', 'bar', 'NOCONTENT').equal([1, 'doc1'])
+    plain_env.expect('FT.SEARCH', 'idx', 'foo', 'NOCONTENT').equal([0])
+    plain_env.stop()
+
+@skip(cluster=True, no_json=True)
+def testJsonWriteIsNeverSkipped(env):
+    """A JSON write reindexes the whole document, whatever it touched.
+
+    Subkey notifications are registered for `REDISMODULE_NOTIFY_HASH` alone, so JSON keeps
+    arriving over the plain channel with no change set, and the skip correctly declines without
+    one. `absentChangeSetNeverSkips` in the C++ tests covers the gate's half of that; what it
+    cannot see is which channel a JSON write actually reaches. Subscribing the subkey callback
+    to `REDISMODULE_NOTIFY_MODULE` as well would leave that test green while JSON writes started
+    being skipped, and the document would answer queries with its previous value.
+
+    Standalone only, as with the other `DOCIDTOID` assertions in this file.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
+
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"t":"hello","other":"world"}')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+    env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # A path outside the schema. The equivalent hash write is the one that gets skipped.
+    conn.execute_command('JSON.SET', 'doc:1', '$.other', '"changed"')
+    env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                      message='a JSON write must reindex even when no indexed path changed')
+    env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
 def testRestore(env):
     if env.env == 'existing-env':
         env.skip()

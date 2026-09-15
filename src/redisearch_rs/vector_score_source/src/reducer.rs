@@ -12,7 +12,7 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams, timespec};
+use ffi::{QueryRequestTimeout, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
 use top_k::TopKIterator;
@@ -68,14 +68,15 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 /// 1. `index` must be valid for `'index`, which outlives the returned iterator.
 /// 2. `query_vector` must satisfy the [`VectorScoreSource`] query-vector length
 ///    invariant for `index`.
+/// 3. `timeout` must be non-null, remain valid for the returned iterator's lifetime, and satisfy
+///    the [`VectorScoreSource`] source-transition and serialization contract.
 #[expect(clippy::too_many_arguments)]
 pub unsafe fn new_vector_top_k<'index, E>(
     index: NonNull<VecSimIndex>,
     query_vector: Vec<u8>,
     query_params: VecSimQueryParams,
     k: usize,
-    timeout: timespec,
-    skip_timeout_checks: bool,
+    timeout: *mut QueryRequestTimeout,
     can_trim_deep_results: bool,
     expiration: E,
     child: Option<CRQEIterator>,
@@ -83,6 +84,7 @@ pub unsafe fn new_vector_top_k<'index, E>(
 where
     E: ExpirationChecker + 'index,
 {
+    let timeout = NonNull::new(timeout).expect("vector query requires request timeout state");
     let Some(k) = NonZeroUsize::new(k) else {
         return NewVectorTopK::ReducedEmpty;
     };
@@ -103,7 +105,6 @@ where
                     query_params,
                     k.get(),
                     timeout,
-                    skip_timeout_checks,
                     0, // no child
                     0, // dynamic batch size
                     expiration,
@@ -121,7 +122,6 @@ where
                     query_params,
                     k.get(),
                     timeout,
-                    skip_timeout_checks,
                     child_est,
                     // Honor an explicit `BATCH_SIZE` (0 means dynamic).
                     query_params.batchSize,
