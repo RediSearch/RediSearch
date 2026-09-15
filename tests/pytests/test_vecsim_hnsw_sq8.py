@@ -548,6 +548,39 @@ def test_hnsw_sq8_reload_retrains_after_deletions():
     assert_sq8_documents(env, ['doc0', 'doc1', 'doc2', 'doc3'])
 
 
+@skip(cluster=True)
+def test_hnsw_sq8_alter_add_field_backfills_and_trains():
+    """FT.ALTER shares the HNSW parser: reject bad SQ8 options, then backfill, train, and reload."""
+    # WORKERS enables the background training job that the post-alter backfill triggers.
+    env = Env(moduleArgs='WORKERS 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    docs = [f'doc{i}' for i in range(6)]
+    for i, doc in enumerate(docs):
+        conn.execute_command('HSET', doc, 'tag', 'keep', 'v', sq8_vector(i + 1))
+
+    rejected = hnsw_params('FLOAT64', 'COMPRESSION', 'SQ8')
+    env.expect(
+        'FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'HNSW', len(rejected), *rejected,
+    ).error().contains('COMPRESSION is only supported for FLOAT32 and FLOAT16')
+    env.assertEqual(
+        [to_dict(attribute)['identifier'] for attribute in index_info(env, 'idx')['attributes']],
+        ['tag'])
+
+    added = hnsw_params('FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4)
+    env.expect(
+        'FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'HNSW', len(added), *added,
+    ).ok()
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+        info = to_dict(index_info(env, 'idx')['attributes'][1])
+        env.assertEqual(info['compression'], 'SQ8')
+        env.assertEqual(info['training_threshold'], 4)
+        assert_sq8_storage(env, 0, len(docs))
+        assert_sq8_documents(env, docs)
+
+
 @skip(cluster=False, min_shards=2)
 def test_hnsw_sq8_cluster_mixed_training_states():
     """Merge flat and compressed shard results before and after rebuilding from RDB."""
