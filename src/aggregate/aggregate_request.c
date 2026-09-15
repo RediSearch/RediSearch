@@ -20,6 +20,9 @@
 
 #include "aggregate.h"
 #include "aggregate_debug.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
 #include "extension.h"
@@ -1180,6 +1183,9 @@ void AREQ_SignalAggregateResultsComplete(AREQ *req) {
 }
 
 void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_WAIT);
+#endif
   pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   while (!req->base.async.aggregateResultsDone) {
     pthread_cond_wait(&req->base.async.aggregateResultsCond,

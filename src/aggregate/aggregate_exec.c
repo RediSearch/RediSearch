@@ -2260,6 +2260,10 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
  * always run the read, replying inline through the thread-safe ctx. */
 static void coordCursorRead_ctx(void *p) {
   CursorReadCtx *cr_ctx = p;
+  BlockedClientTiming_Start(&cr_ctx->cursor->query->timing);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   Cursor *cursor = cr_ctx->cursor;
   AREQ *req = Cursor_AREQ(cursor);
@@ -2286,7 +2290,10 @@ static void coordCursorRead_ctx(void *p) {
     AREQ_CursorEndOfCycle(req, cursor, true);
   }
   RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_CURSOR_READ_FINISH);
+#endif
+  BlockedClientTiming_Finish(&req->base.timing);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
   RedisModule_UnblockClient(cr_ctx->bc, privdata);
   rm_free(cr_ctx);
@@ -2321,7 +2328,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   if (req->base.async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(req);
   }
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  BlockedClientTiming_Begin(&req->base.timing, bc);
   CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
   cr_ctx->bc = bc;
   cr_ctx->cursor = cursor;
