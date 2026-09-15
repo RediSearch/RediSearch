@@ -1035,7 +1035,7 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
 static void replySpecNameAndFingerprint(IndexSpec *sp, RedisModule_Reply *reply) {
   RedisModule_Reply_Array(reply);
   size_t nameLen;
-  const char *specName = IndexSpec_GetClusterStateName(sp, &nameLen);
+  const char *specName = HiddenString_GetUnsafe(sp->specName, &nameLen);
   RedisModule_Reply_StringBuffer(reply, specName, nameLen);
   RedisModule_Reply_LongLong(reply, (long long)IndexSpec_SchemaFingerprint(sp));
   RedisModule_Reply_ArrayEnd(reply);

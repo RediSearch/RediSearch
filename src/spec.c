@@ -3530,17 +3530,6 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   IndexSpec_RdbSave(rdb, value, contextFlags);
 }
 
-const char *IndexSpec_GetClusterStateName(const IndexSpec *sp, size_t *len) {
-  const char *name = HiddenString_GetUnsafe(sp->specName, len);
-  // Existing FT._LIST replies stop at the first NUL. Retain that contract while
-  // using the stored extent to bound the scan.
-  const char *end = memchr(name, '\0', *len);
-  if (end) {
-    *len = end - name;
-  }
-  return name;
-}
-
 static void fingerprintHiddenString(Sha1Context *hash, const HiddenString *value) {
   Sha1_UpdateU64(hash, value != NULL);
   if (value) {

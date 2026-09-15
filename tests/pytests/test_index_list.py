@@ -610,3 +610,35 @@ def test_long_index_names_do_not_collide(env):
         env.expect('FT.CREATE', name, 'SCHEMA', 't', 'TEXT').ok()
     env.assertEqual(cluster_state(env),
                     {name: {'index': name, 'status': 'ok'} for name in names})
+
+
+def check_embedded_nul_index_names(env):
+    if env.isCluster():
+        shard_node_ids(env)
+    names = ['idx', 'idx\0suffix', 'idx\0longer-suffix']
+    for name in names:
+        env.expect('FT.CREATE', name, 'SCHEMA', 't', 'TEXT').ok()
+    env.assertEqual(cluster_state(env),
+                    {name: {'index': name, 'status': 'ok'} for name in names})
+    shard_count = env.shardsCount if env.isCluster() else 1
+    for shard in range(1, shard_count + 1):
+        env.assertEqual(sorted(dict(internal_payload(env, shard)[3])), sorted(names))
+
+
+@env_spec(shardsCount=3)
+def test_embedded_nul_index_names_resp2(env):
+    """Local payloads and diagnostic replies retain bytes after NUL without merging names."""
+    check_embedded_nul_index_names(env)
+
+
+@env_spec(shardsCount=3, protocol=3)
+def test_embedded_nul_index_names_resp3(env):
+    """RESP3 maps preserve the full names in both standalone and distributed replies."""
+    check_embedded_nul_index_names(env)
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=1)
+def test_single_shard_embedded_nul_index_names(env):
+    """The single-shard shortcut also preserves names containing NUL bytes."""
+    check_embedded_nul_index_names(env)

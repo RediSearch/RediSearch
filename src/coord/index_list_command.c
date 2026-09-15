@@ -396,12 +396,10 @@ static void replyClusterStateEntry(RedisModule_Reply *reply, const char *name, s
   RedisModule_Reply_MapEnd(reply);
 }
 
-// Uses the same lossy C-string name form as the shard payload, so single- and
-// multi-shard replies render an index identically.
 static void replySpecStatusOk(IndexSpec *sp, void *ud) {
   RedisModule_Reply *reply = ud;
   size_t nameLen;
-  const char *name = IndexSpec_GetClusterStateName(sp, &nameLen);
+  const char *name = HiddenString_GetUnsafe(sp->specName, &nameLen);
   replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL);
 }
 

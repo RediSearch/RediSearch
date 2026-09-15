@@ -851,9 +851,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
 */
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 
-// Diagnostic names retain the existing C-string reply semantics.
-const char *IndexSpec_GetClusterStateName(const IndexSpec *sp, size_t *len);
-
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
