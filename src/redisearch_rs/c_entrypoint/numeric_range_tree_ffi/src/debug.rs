@@ -14,6 +14,8 @@
 //! - DUMP_NUMIDX: Index entries dump
 //! - DUMP_NUMIDXTREE: Tree structure dump
 
+use std::ptr::NonNull;
+
 use numeric_range_tree::NumericRangeTree;
 use redis_module::RedisModuleCtx;
 
@@ -32,6 +34,8 @@ pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
     t: *const NumericRangeTree,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    // SAFETY: `ctx` is a valid Redis module context per the function docs, so non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: Caller ensures `t` is either NULL or a valid pointer.
     let tree = unsafe { t.as_ref() };
     // SAFETY: ctx is valid per function docs
@@ -57,6 +61,8 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     with_headers: bool,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    // SAFETY: `ctx` is a valid Redis module context per the function docs, so non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: Caller ensures `t` is either NULL or a valid pointer.
     let tree = unsafe { t.as_ref() };
     // SAFETY: ctx is valid per function docs
@@ -82,6 +88,8 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     minimal: bool,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    // SAFETY: `ctx` is a valid Redis module context per the function docs, so non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: Caller ensures `t` is either NULL or a valid pointer.
     let tree = unsafe { t.as_ref() };
     // SAFETY: ctx is valid per function docs
