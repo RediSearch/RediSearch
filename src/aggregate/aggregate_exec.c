@@ -1225,7 +1225,7 @@ static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
 
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
+  BlockedClientTiming_Finish(&BCRctx->req->base.timing);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
 
@@ -1259,6 +1259,7 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+  BlockedClientTiming_Start(&req->base.timing);
   // The lock state must be clean from the previous cycle before this one may take it.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
@@ -1527,6 +1528,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   // Signal timeout to background thread (will notice and skip storing results)
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/true);
+  BlockedClientTiming_Finish(&request->timing);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -1581,6 +1583,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
     // Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
+    BlockedClientTiming_Finish(&request->timing);
     return REDISMODULE_OK;
   }
 
@@ -1589,6 +1592,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // the worker finishes once we release the GIL. See aggregate.h.
   if (QueryRequest_TimeoutPreemptSafeLoaderGIL(&req->base)) {
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
+    BlockedClientTiming_Finish(&request->timing);
     return REDISMODULE_OK;
   }
 
@@ -1607,6 +1611,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
+  BlockedClientTiming_Finish(&request->timing);
   return REDISMODULE_OK;
 }
 
