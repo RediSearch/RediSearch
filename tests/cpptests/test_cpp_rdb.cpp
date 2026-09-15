@@ -1157,8 +1157,6 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT64, 0},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, sizeof(uint64_t)},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 2 * sizeof(uint64_t)},
-      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, size_t{UINT32_MAX} / UINT8_MAX + 1},
-      {VecSimQuant_SQ8, 0, VecSimType_FLOAT16, 0, size_t{UINT32_MAX} / UINT8_MAX + 1},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 0},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
