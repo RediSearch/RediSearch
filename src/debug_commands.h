@@ -128,7 +128,7 @@ void SyncPoint_ClearAll(void);
 void SyncPoint_Wait(const char *name);
 
 // Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
-// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// `count` shard dispatches (including fanout sends) to fail, so DebugSendError_Consume
 // returns true that many times. Exercises the no-reply error path.
 void DebugSendError_Arm(int count);
 // Consume one armed failure; returns true if the caller should treat the send as
