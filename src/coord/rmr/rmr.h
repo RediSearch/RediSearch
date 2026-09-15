@@ -24,8 +24,6 @@ extern "C" {
 #include "util/references.h"
 #include <unistd.h>
 
-typedef struct QueryError QueryError;
-
 // Error detail returned to the client when a query cannot be dispatched to the
 // cluster (pre-fanout connection-validation / send failure). Shared by the MR
 // iterator no-reply path (rmr.c) and the hybrid cursor-mapping error callback;
@@ -47,14 +45,13 @@ void iterExpandShellsCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
-typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
+void MR_Init(size_t num_io_threads, size_t conn_pool_size);
 
 /* @brief Set a new topology for the cluster and refresh local slots information.
  * @param newTopology The new cluster topology, consumed by this function.
@@ -99,8 +96,11 @@ long long MR_Debug_GetPendingRequests();
 
 void MR_FreeCluster();
 
-/* Get the user stored private data from the context */
+/* Borrowed callback data, also passed to UnblockClient when non-NULL. */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
+
+/* Install before fanout. The flag must remain alive until terminal unblock. */
+void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) *abortFlag);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
@@ -110,27 +110,20 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
 int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
 
-QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
 void MRCtx_IncrRef(struct MRCtx *ctx);
 void MRCtx_DecrRef(struct MRCtx *ctx);
-void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 
 /* Set the blocked client for the context (used when MRCtx is created before blocking) */
 void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
-
-/* Timeout and reducing state management for partial timeout support */
-void MRCtx_SetTimedOut(struct MRCtx *ctx);
-bool MRCtx_IsTimedOut(struct MRCtx *ctx);
-bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
-void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
-void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
+void MRCtx_UnblockClient(struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
-struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata, int replyCap);
+struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc,
+                           void *privdata, int replyCap);
 
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;

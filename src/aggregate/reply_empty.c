@@ -79,9 +79,7 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 
     // Handle known errors supported by empty reply module
     req.queryOOM = errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY;
-    req.timedOut = errCode == QUERY_ERROR_CODE_TIMED_OUT;
-
-    sendSearchResults_EmptyResults(reply, &req);
+    sendSearchResults_EmptyResults(reply, &req, errCode == QUERY_ERROR_CODE_TIMED_OUT);
 
     RedisModule_EndReply(reply);
     return REDISMODULE_OK;

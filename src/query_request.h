@@ -60,6 +60,7 @@ typedef struct {
 typedef enum {
   QUERY_REQUEST_KIND_AREQ,
   QUERY_REQUEST_KIND_HYBRID,
+  QUERY_REQUEST_KIND_COORD_SEARCH,
 } QueryRequestKind;
 
 typedef enum {
@@ -317,6 +318,13 @@ void QueryRequestAsyncState_RegisterAbortWakeChannel(QueryRequestAsyncState *sta
                                                      struct MRChannel *channel);
 void QueryRequestAsyncState_UnregisterAbortWakeChannel(QueryRequestAsyncState *state);
 void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
+
+/* Claim and completion handshake shared by result producers and blocked-client
+ * timeout callbacks. The winner of TryClaimResults owns result production;
+ * waiters may consume the results only after SignalResultsComplete. */
+bool QueryRequest_TryClaimResults(QueryRequestAsyncState *state);
+void QueryRequest_SignalResultsComplete(QueryRequestAsyncState *state);
+void QueryRequest_WaitForResultsComplete(QueryRequestAsyncState *state);
 
 /* Lifetime management.
  *

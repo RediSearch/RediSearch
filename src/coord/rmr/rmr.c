@@ -34,7 +34,6 @@
 #include "asm_state_machine.h"
 #include "VecSim/vec_sim_common.h"
 #include "hiredis/read.h"
-#include "query_error_ffi.h"
 #include "result_processor.h"
 #include "rmalloc.h"
 #include "rmr/command.h"
@@ -63,9 +62,6 @@ extern size_t NumShards;
 // thread upon replying to a query - hence it is synchronized reference counting)
 static NodeIdRef *local_node_id_g = NULL;
 
-/* Coordination request timeout */
-long long timeout_g = 5000; // unused value. will be set in MR_Init
-
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
   _Atomic(int) refcount;
@@ -76,11 +72,11 @@ typedef struct MRCtx {
   MRReply **replies;
   MRReduceFunc reducer;
   void *privdata;
+  const RS_Atomic(bool) *abortFlag;  // Borrowed until terminal unblock; never written here.
   RedisModuleCtx *redisCtx;
   RedisModuleBlockedClient *bc;
   MRCommand cmd;
   IORuntimeCtx *ioRuntime;
-  QueryError status;
 
   /* If true, the command should validate that all connections
    are up before sending the command to the cluster */
@@ -97,17 +93,11 @@ typedef struct MRCtx {
    */
   MRReduceFunc fn;
 
-  /* State tracking for partial timeout support */
-  _Atomic(bool) timedOut;
-  _Atomic(bool) reducing;
-  bool reducerDone;
-  MRCtxFreePrivDataCB freePrivDataCB;
-  pthread_mutex_t reducingLock;
-  pthread_cond_t reducingCond;
 } MRCtx;
 
 /* Create a new MapReduce context */
-MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata, int replyCap) {
+MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata,
+                    int replyCap) {
   RS_ASSERT(cluster_g);
   MRCtx *ret = rm_calloc(1, sizeof(MRCtx));
   atomic_init(&ret->refcount, 1);
@@ -123,33 +113,11 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
-  ret->status = QueryError_Default();
-
-  atomic_init(&ret->timedOut, false);
-  atomic_init(&ret->reducing, false);
-  ret->reducerDone = false;
-  ret->freePrivDataCB = NULL;
-  pthread_mutex_init(&ret->reducingLock, NULL);
-  pthread_cond_init(&ret->reducingCond, NULL);
-
   return ret;
 }
 
-QueryError *MRCtx_GetStatus(MRCtx *ctx) {
-  return &ctx->status;
-}
-
-void MRCtx_SetFreePrivDataCB(MRCtx *ctx, MRCtxFreePrivDataCB cb) {
-  ctx->freePrivDataCB = cb;
-}
-
 static void MRCtx_FreeInternal(MRCtx *ctx) {
-  if (ctx->freePrivDataCB) {
-    ctx->freePrivDataCB(ctx);
-  }
-
   MRCommand_Free(&ctx->cmd);
-  QueryError_ClearError(&ctx->status);
 
   for (int i = 0; i < ctx->numReplied; i++) {
     if (ctx->replies[i] != NULL) {
@@ -158,10 +126,6 @@ static void MRCtx_FreeInternal(MRCtx *ctx) {
     }
   }
   rm_free(ctx->replies);
-
-  // Destroy state tracking synchronization primitives
-  pthread_mutex_destroy(&ctx->reducingLock);
-  pthread_cond_destroy(&ctx->reducingCond);
 
   // free the context
   rm_free(ctx);
@@ -183,9 +147,12 @@ void MRCtx_DecrRef(MRCtx *ctx) {
   }
 }
 
-/* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
+}
+
+void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) *abortFlag) {
+  ctx->abortFlag = abortFlag;
 }
 
 int MRCtx_GetNumReplied(struct MRCtx *ctx) {
@@ -216,17 +183,11 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
   ctx->bc = bc;
 }
 
-void MRCtx_SetTimedOut(struct MRCtx *ctx) {
-  atomic_store(&ctx->timedOut, true);
-}
-
-bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
-  return atomic_load(&ctx->timedOut);
-}
-
-bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
-  bool expected = false;
-  return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
+void MRCtx_UnblockClient(struct MRCtx *ctx) {
+  RedisModuleBlockedClient *bc = ctx->bc;
+  RS_ASSERT(bc);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, ctx->privdata ? ctx->privdata : ctx);
 }
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
@@ -237,22 +198,6 @@ bool MRCtx_GetValidateConnections(struct MRCtx *ctx) {
   return ctx->validateConnections;
 }
 
-void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
-  pthread_mutex_lock(&ctx->reducingLock);
-  ctx->reducerDone = true;
-  // A context has at most one main-thread waiter for reducer completion.
-  pthread_cond_signal(&ctx->reducingCond);
-  pthread_mutex_unlock(&ctx->reducingLock);
-}
-
-void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
-  pthread_mutex_lock(&ctx->reducingLock);
-  while (!ctx->reducerDone) {
-    pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
-  }
-  pthread_mutex_unlock(&ctx->reducingLock);
-}
-
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   UNUSED(ctx);
   if (p) {
@@ -260,11 +205,6 @@ static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
     /* RQ completion is owned by the libuv fanout-completion paths. */
     MRCtx_DecrRef(mc);
   }
-}
-
-static int timeoutHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_Log(ctx, "notice", "Timed out coordination request");
-  return RedisModule_ReplyWithError(ctx, "Timeout calling command");
 }
 
 /* handler for unblocking redis commands, that calls the actual reducer */
@@ -285,8 +225,9 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   // Check if timed out or incomplete fanout - discard reply.
   // Timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
   // Incomplete fanout means not all shards were reached during the fanout send loop.
-  bool timedOut = MRCtx_IsTimedOut(ctx);
-  if (timedOut) {
+  bool cancelled =
+      ctx->abortFlag && RS_AtomicBoolLoadRelaxed(ctx->abortFlag);
+  if (cancelled) {
     if (r) {
       MRReply_Free(r);
     }
@@ -305,24 +246,18 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
     IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!timedOut && ctx->fn) {
+    if (!cancelled && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
-      if (!timedOut) {
-        RedisModuleBlockedClient *bc = ctx->bc;
-        RS_ASSERT(bc);
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModule_UnblockClient(bc, ctx);
-      }
+      MRCtx_UnblockClient(ctx);
     }
     MRCtx_DecrRef(ctx);
   }
 }
 
 /* Initialize the MapReduce engine with a node provider */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) {
+void MR_Init(size_t num_io_threads, size_t conn_pool_size) {
   cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads);
-  timeout_g = timeoutMS;
 }
 
 /* The fanout request received in the event loop in a thread safe manner */
@@ -335,12 +270,7 @@ static void uvFanoutRequest(void *p) {
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so fanoutCallback() will never fire.
     IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!MRCtx_IsTimedOut(mrctx)) {
-      RedisModuleBlockedClient *bc = mrctx->bc;
-      RS_ASSERT(bc);
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
-      RedisModule_UnblockClient(bc, mrctx);
-    }
+    MRCtx_UnblockClient(mrctx);
     MRCtx_DecrRef(mrctx);
   }
 }
@@ -350,8 +280,7 @@ static void uvFanoutRequest(void *p) {
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
   if (block) {
     RS_ASSERT(!mrctx->bc);
-    mrctx->bc = RedisModule_BlockClient(
-        mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+    mrctx->bc = RedisModule_BlockClient(mrctx->redisCtx, unblockHandler, NULL, freePrivDataCB, 0);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
   }
   //Is possible that mrctx->fn may already be there and reducer to be null

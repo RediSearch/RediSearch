@@ -2924,7 +2924,7 @@ int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status
  * COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT (-2): pause after acquiring the
  *         REDUCING state but before reducer context setup (used to test the
  *         edge case where the background reducer starts, but a timeout fires
- *         before it can finish setting up req->rctx)
+ *         before it can finish setting up the reducer state)
  * COORD_REDUCE_PAUSE_AFTER_LAST_RESULT (-1): pause after the last result is reduced
  * N>0: pause before the Nth result is reduced (1-based)
  */

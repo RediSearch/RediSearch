@@ -19,6 +19,7 @@
 #include "rs_wall_clock.h"
 #include "thpool/thpool.h"
 #include "profile/options.h"
+#include "query_request.h"
 
 #include "util/stringify.h"
 #include "util/rs_atomic.h"
@@ -101,7 +102,9 @@ static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
-typedef struct {
+typedef struct searchRequestCtx {
+  QueryRequest base;
+
   char *queryString;
   size_t queryStringLen;
   long long offset;
@@ -126,12 +129,18 @@ typedef struct {
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   void *reducer;
   bool queryOOM;
-  bool timedOut;
-  // QueryTimeoutStage marker for the FT.SEARCH MR coordinator path.
-  RS_Atomic(int) execPhase;
-
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
+
+#ifdef __cplusplus
+static_assert(offsetof(searchRequestCtx, base) == 0,
+              "QueryRequest must be the first searchRequestCtx field");
+#else
+_Static_assert(offsetof(searchRequestCtx, base) == 0,
+               "QueryRequest must be the first searchRequestCtx field");
+#endif
+
+void SearchRequestCtx_Free(searchRequestCtx *req);
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
@@ -147,13 +156,11 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
-bool should_return_error(QueryErrorCode errCode);
-
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 
 int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);
 
-void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
+void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req, bool timedOut);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv);
 
