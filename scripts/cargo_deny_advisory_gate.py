@@ -31,8 +31,9 @@ def cargo_deny(repo: Path, output: Path, manifest: str) -> int:
         "--audit-compatible-output",
         "advisories",
     ]
+    # Keep diagnostic stderr in the CI log so concurrent writes cannot corrupt audit JSON.
     with output.open("w", encoding="utf-8") as fh:
-        return subprocess.run(cmd, cwd=repo, stdout=fh, stderr=subprocess.STDOUT, text=True).returncode
+        return subprocess.run(cmd, cwd=repo, stdout=fh, text=True).returncode
 
 
 def finding_from_object(value: dict[str, Any]) -> tuple[str, str, str] | None:
