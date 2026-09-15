@@ -624,18 +624,6 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   }
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
   size_t elementSize = VecSimIndex_EstimateElementSize(estimateParams);
-  if (params->algo == VecSimAlgo_TIERED && hnswParams->quantType == VecSimQuant_SQ8) {
-    // Both tiers share a block size, but the frontend retains full-precision vectors even when
-    // training is disabled. The tiered estimator accounts only for the compressed backend.
-    VecSimParams frontendParams = {
-        .algo = VecSimAlgo_BF,
-        .algoParams.bfParams = {.type = hnswParams->type,
-                                .dim = hnswParams->dim,
-                                .metric = hnswParams->metric,
-                                .multi = hnswParams->multi},
-    };
-    elementSize = MAX(elementSize, VecSimIndex_EstimateElementSize(&frontendParams));
-  }
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   hnswParams->blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
