@@ -8,7 +8,7 @@
 */
 
 use libc::size_t;
-use query_error::QueryError;
+use query_error::{QueryError, QueryErrorCode};
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     cmp::Ordering,
@@ -16,7 +16,7 @@ use std::{
     mem::{self, ManuallyDrop},
     ptr, slice,
 };
-use value::comparison::cmp_fields;
+use value::comparison::cmp_fields_with_policy;
 use value_ffi::{
     RSValue,
     util::{as_rs_value, as_shared_value, into_shared_value},
@@ -450,7 +450,7 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
 /// Compares two search results by the given sort keys, returning a negative, zero, or positive
 /// value.
 ///
-/// The comparison loop runs entirely in Rust via [`cmp_fields`], avoiding per-key FFI
+/// The comparison loop runs entirely in Rust via [`cmp_fields_with_policy`], avoiding per-key FFI
 /// crossings for value lookups. When all fields are equal, breaks the tie by document ID using
 /// the last key's ascending flag.
 ///
@@ -468,17 +468,67 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     ascend_map: u64,
     qerr: *mut QueryError,
 ) -> c_int {
+    let mut conversion_error = false;
+    // SAFETY: the row/key requirements are identical and the diagnostic flag is exclusive.
+    let result = unsafe {
+        SearchResult_CmpByFieldsWithPolicy(
+            keys,
+            nkeys,
+            h1,
+            h2,
+            ascend_map,
+            qerr.is_null(),
+            &mut conversion_error,
+        )
+    };
+    if conversion_error {
+        // SAFETY: a conversion diagnostic implies fallback was disabled by a non-null qerr.
+        let qerr = unsafe { qerr.as_mut().unwrap() };
+        qerr.set_code_and_message(
+            QueryErrorCode::NumericValueInvalid,
+            Some(c"Error converting string".to_owned()),
+        );
+    }
+    result
+}
+
+/// Compare owned results without allocating diagnostics or borrowing a live [`QueryError`].
+///
+/// Ordering matches [`SearchResult_CmpByFields`]. `string_fallback` selects its null-error
+/// policy explicitly; numeric conversion failure sets `conversion_error` without clearing it.
+///
+/// # Safety
+///
+/// 1. `keys` points to at least `nkeys` [valid], non-null immutable [`RLookupKey`] pointers.
+/// 2. `h1` and `h2` point to [valid] immutable [`search_result::SearchResult`] values.
+/// 3. `conversion_error` points to a [valid], initialized, exclusively accessible boolean.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SearchResult_CmpByFieldsWithPolicy(
+    keys: *const *const RLookupKey,
+    nkeys: size_t,
+    h1: *const search_result::SearchResult<'_>,
+    h2: *const search_result::SearchResult<'_>,
+    ascend_map: u64,
+    string_fallback: bool,
+    conversion_error: *mut bool,
+) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
+    debug_assert!(!keys.is_null());
     // SAFETY: caller (1.) guarantees `keys` points to `nkeys` valid, non-null
     // `RLookupKey` pointers; `*const RLookupKey` and `&RLookupKey` share the
     // same layout, and the non-null invariant makes the reference niche sound.
     let keys: &[&RLookupKey] = unsafe { slice::from_raw_parts(keys.cast::<&RLookupKey>(), nkeys) };
+    debug_assert!(!h1.is_null());
     // SAFETY: ensured by caller (2.)
     let h1 = unsafe { &*h1 };
+    debug_assert!(!h2.is_null());
     // SAFETY: ensured by caller (2.)
     let h2 = unsafe { &*h2 };
+    debug_assert!(!conversion_error.is_null());
     // SAFETY: ensured by caller (3.)
-    let qerr = unsafe { qerr.as_mut() };
+    let conversion_error = unsafe { &mut *conversion_error };
 
     let row1 = h1.row_data();
     let row2 = h2.row_data();
@@ -486,7 +536,7 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
         .iter()
         .map(|&k| (row1.get(k).map(|v| &**v), row2.get(k).map(|v| &**v)));
 
-    let ord = cmp_fields(pairs, ascend_map, qerr);
+    let ord = cmp_fields_with_policy(pairs, ascend_map, string_fallback, conversion_error);
 
     match ord {
         Ordering::Less => -1,

@@ -210,7 +210,10 @@ typedef struct ResultProcessor {
    * Published-buffer admission and drain ownership transfer must be serialized locally;
    * unfinished worker-private buffers may remain inaccessible to Drain.
    * a late result is discarded by its owner, never published after drain EOF.
-   * No ownership guard may span upstream calls, conversion, cleanup or the GIL.
+   * No ownership guard may span upstream calls, loading/reply conversion, cleanup
+   * or the GIL. Specialized nonblocking heap comparisons over owned values,
+   * including numeric parsing, may run under the heap guard without allocating
+   * diagnostics or accessing live query state. This is not a hard real-time bound.
    * Distinct result storage also requires safe ownership of reachable payloads.
    *
    * Drain neither reads nor modifies live Next query bookkeeping. The caller
@@ -259,6 +262,10 @@ ResultProcessor *RPMetricsLoader_New();
  * keys will be freed by the arrange step dtor.
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
+
+// Transfers a Drain comparison diagnostic into caller-owned initialized storage.
+// Call after the last Drain (including LIMIT stops); never overlap another Drain call.
+bool RPSorter_TakeDrainError(ResultProcessor *sorter, QueryError *error);
 
 /**
  * Creates a sorter result processor that sorts by score.

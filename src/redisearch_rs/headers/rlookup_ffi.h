@@ -706,7 +706,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, struct RLookupRow *row, struct R
  * Compares two search results by the given sort keys, returning a negative, zero, or positive
  * value.
  *
- * The comparison loop runs entirely in Rust via [`cmp_fields`], avoiding per-key FFI
+ * The comparison loop runs entirely in Rust via [`cmp_fields_with_policy`], avoiding per-key FFI
  * crossings for value lookups. When all fields are equal, breaks the tie by document ID using
  * the last key's ascending flag.
  *
@@ -717,6 +717,22 @@ void RLookup_WriteOwnKey(const RLookupKey *key, struct RLookupRow *row, struct R
  * 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
  */
 int SearchResult_CmpByFields(const RLookupKey *const *keys, size_t nkeys, const struct SearchResult *h1, const struct SearchResult *h2, uint64_t ascend_map, struct QueryError *qerr);
+
+/**
+ * Compare owned results without allocating diagnostics or borrowing a live [`QueryError`].
+ *
+ * Ordering matches [`SearchResult_CmpByFields`]. `string_fallback` selects its null-error
+ * policy explicitly; numeric conversion failure sets `conversion_error` without clearing it.
+ *
+ * # Safety
+ *
+ * 1. `keys` points to at least `nkeys` [valid], non-null immutable [`RLookupKey`] pointers.
+ * 2. `h1` and `h2` point to [valid] immutable [`search_result::SearchResult`] values.
+ * 3. `conversion_error` points to a [valid], initialized, exclusively accessible boolean.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int SearchResult_CmpByFieldsWithPolicy(const RLookupKey *const *keys, size_t nkeys, const struct SearchResult *h1, const struct SearchResult *h2, uint64_t ascend_map, bool string_fallback, bool *conversion_error);
 
 #ifdef __cplusplus
 }  // extern "C"

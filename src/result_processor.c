@@ -733,14 +733,51 @@ typedef struct {
   // When set, score ties are broken by this key's value instead of the doc id.
   const RLookupKey *scoreTieBreakKey;
 
+  // Only the active cycle's STRICT executor can race a drain. Heap ownership is
+  // monotonic once taken; pooledResult and legacy timeout dispatch stay Next-owned.
+  atomic_bool heapLock;
+  bool draining;
+  bool compareStringFallback;
+  bool comparisonError;
+  bool drainComparisonError;
+
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
 
+static void sorterLock(RPSorter *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  while (atomic_exchange_explicit(&self->heapLock, true, memory_order_acquire)) {
+  }
+}
+
+static void sorterUnlock(RPSorter *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  atomic_store_explicit(&self->heapLock, false, memory_order_release);
+}
+
+// Called only after releasing the heap guard, against the calling path's error context.
+static void sorterReportComparisonError(QueryError *error, bool failed) {
+  if (failed && QueryError_IsOk(error)) {
+    QueryError_SetError(error, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Error converting string");
+    // The legacy Rust comparator stores both messages verbatim, without the code prefix.
+    QueryError_SetDetail(error, "Error converting string");
+  }
+}
+
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
+  sorterLock(self);
+  if (self->draining) {
+    sorterUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
   SearchResult *cur_best = mmh_pop_max(self->pq);
+  bool failed = self->comparisonError;
+  self->comparisonError = false;
+  sorterUnlock(self);
+  sorterReportComparisonError(self->base.parent->err, failed);
 
   if (cur_best) {
     SearchResult_Override(r, cur_best);
@@ -750,6 +787,32 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
   self->timedOut = false;
   return ret;
+}
+
+// The taken heap is an accumulator boundary: never replenish it from upstream.
+static RPDrainStatus rpsortDrain(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  if (!self->draining) {
+    sorterLock(self);
+    self->draining = true;
+    sorterUnlock(self);
+  }
+  SearchResult *best = mmh_pop_max(self->pq);
+  self->drainComparisonError |= self->comparisonError;
+  self->comparisonError = false;
+  if (!best) return RP_DRAIN_EOF;
+  SearchResult_Override(r, best);
+  rm_free(best);
+  return RP_DRAIN_OK;
+}
+
+bool RPSorter_TakeDrainError(ResultProcessor *rp, QueryError *error) {
+  RS_ASSERT(rp->type == RP_SORTER);
+  RPSorter *self = (RPSorter *)rp;
+  if (!self->drainComparisonError) return false;
+  self->drainComparisonError = false;
+  sorterReportComparisonError(error, true);
+  return true;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
@@ -797,58 +860,83 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
-  // If the queue is not full - we just push the result into it
-  if (self->pq->count < self->pq->size) {
-
-    // The pooled result currently borrows `it->current` from the source
-    // iterator; the next Read() overwrites that slot, so the borrow would
-    // dangle once the SearchResult lives in the heap across reads. Preserve it
-    // as an owned deep copy when something downstream needs it, otherwise drop
-    // the borrow.
-    SearchResult_BufferIndexResult(rp, self->pooledResult);
-    mmh_insert(self->pq, self->pooledResult);
-    if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
-      rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
-    }
-    // we need to allocate a new result for the next iteration
-    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-    *self->pooledResult = SearchResult_New();
-  } else {
-    // find the min result
-    SearchResult *minh = mmh_peek_min(self->pq);
-
-    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (SearchResult_GetScore(minh) > rp->parent->minScore) {
-      rp->parent->minScore = SearchResult_GetScore(minh);
-    }
-
-    // if needed - pop it and insert a new result
-    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      // Preserve or drop the borrowed RSIndexResult before the SearchResult
-      // enters the heap; see the matching insert path above for the rationale.
-      SearchResult_BufferIndexResult(rp, self->pooledResult);
-      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
-    }
-    // clear the result in preparation for the next iteration
+  sorterLock(self);
+  if (self->draining) {
+    sorterUnlock(self);
     SearchResult_Clear(self->pooledResult);
+    return RS_RESULT_TIMEDOUT;
   }
+  bool full = self->pq->count == self->pq->size;
+  SearchResult *minimum = full ? mmh_peek_min(self->pq) : NULL;
+  double threshold = SearchResult_GetScore(full ? minimum : self->pooledResult);
+  bool accept = !full || self->cmp(self->pooledResult, minimum, self->cmpCtx) > 0;
+  bool failed = self->comparisonError;
+  self->comparisonError = false;
+  sorterUnlock(self);
+  sorterReportComparisonError(self->base.parent->err, failed);
+
+  if ((full && threshold > rp->parent->minScore) || (!full && threshold < rp->parent->minScore)) {
+    rp->parent->minScore = threshold;
+  }
+  if (!accept) {
+    SearchResult_Clear(self->pooledResult);
+    return RESULT_QUEUED;
+  }
+
+  // With one writer, preparation can only lose to takeover. Preserve the existing
+  // reject-before-copy path and allocate a replacement only for heap growth.
+  SearchResult_BufferIndexResult(rp, self->pooledResult);
+  SearchResult *replacement = NULL;
+  if (!full) {
+    replacement = rm_malloc(sizeof(*replacement));
+    *replacement = SearchResult_New();
+  }
+  sorterLock(self);
+  if (self->draining) {
+    sorterUnlock(self);
+    rm_free(replacement);
+    SearchResult_Clear(self->pooledResult);
+    return RS_RESULT_TIMEDOUT;
+  }
+  if (full) {
+    self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
+  } else {
+    // Capacity is fixed at construction, so this insertion cannot allocate.
+    RS_ASSERT(self->pq->count < self->pq->size);
+    mmh_insert(self->pq, self->pooledResult);
+    self->pooledResult = replacement;
+  }
+  failed = self->comparisonError;
+  self->comparisonError = false;
+  sorterUnlock(self);
+  sorterReportComparisonError(self->base.parent->err, failed);
+  if (full) SearchResult_Clear(self->pooledResult);
   return RESULT_QUEUED;
 }
 
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  sorterLock(self);
+  if (self->draining) {
+    sorterUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
+  // Preserve the legacy comparison policy, independently of either path's diagnostics.
+  self->compareStringFallback = rp->parent->err == NULL;
+  sorterUnlock(self);
   uint32_t chunkLimit = rp->parent->resultLimit;
-  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  rp->parent->resultLimit = UINT32_MAX;  // we want to accumulate all results
   int rc;
   while ((rc = rpsortNext_innerLoop(rp, r)) == RESULT_QUEUED) {
     // Do nothing.
   }
-  rp->parent->resultLimit = chunkLimit; // restore the limit
+  rp->parent->resultLimit = chunkLimit;  // restore the limit
   return rc;
 }
 
 /* Compare results for the heap by score */
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
-  const RPSorter *self = udata;
+  RPSorter *self = (RPSorter *)udata;
   const SearchResult *h1 = e1, *h2 = e2;
 
   if (SearchResult_GetScore(h1) < SearchResult_GetScore(h2)) {
@@ -859,8 +947,8 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   // Tie-break via the by-fields comparator over the key (ascendMap=1 -> ascending key,
   // lower-doc-id-first, matching the no-key path below).
   if (self->scoreTieBreakKey) {
-    QueryError *qerr = (self->base.parent) ? self->base.parent->err : NULL;
-    return SearchResult_CmpByFields(&self->scoreTieBreakKey, 1, h1, h2, /*ascendMap=*/1, qerr);
+    return SearchResult_CmpByFieldsWithPolicy(&self->scoreTieBreakKey, 1, h1, h2, 1,
+                                              self->compareStringFallback, &self->comparisonError);
   }
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
@@ -868,20 +956,15 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
 /* Compare results for the heap by sorting key.
  *
  * The field comparison loop lives in Rust (RLookupRow_CmpByFields) to avoid
- * per-key FFI crossings for RLookupRow_Get. This wrapper handles the qerr
- * setup and docid tiebreak. */
+ * per-key FFI crossings for RLookupRow_Get. Diagnostics remain allocation-free
+ * while the heap guard is held. */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
-  const RPSorter *self = udata;
+  RPSorter *self = (RPSorter *)udata;
   const SearchResult *h1 = e1, *h2 = e2;
 
-  QueryError *qerr = NULL;
-  if (self && self->base.parent && self->base.parent->err) {
-    qerr = self->base.parent->err;
-  }
-
-  return SearchResult_CmpByFields(
-      self->fieldcmp.keys, self->fieldcmp.nkeys,
-      h1, h2, self->fieldcmp.ascendMap, qerr);
+  return SearchResult_CmpByFieldsWithPolicy(self->fieldcmp.keys, self->fieldcmp.nkeys, h1, h2,
+                                            self->fieldcmp.ascendMap, self->compareStringFallback,
+                                            &self->comparisonError);
 }
 
 static void srDtor(void *p) {
@@ -894,6 +977,7 @@ static void srDtor(void *p) {
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
 
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
+  atomic_init(&ret->heapLock, false);
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
@@ -905,7 +989,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = rpsortDrain;
   ret->base.type = RP_SORTER;
   return &ret->base;
 }
