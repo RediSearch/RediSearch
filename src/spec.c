@@ -3666,7 +3666,9 @@ static void schemaFingerprint(Sha1Context *hash, const void *value) {
   if (sp->flags & Index_HasSmap) {
     Sha1_UpdateU64(hash, SynonymMap_Fingerprint(sp->smap));
   }
-  Sha1_UpdateU64(hash, sp->timeout);
+  if (sp->flags & Index_Temporary) {
+    Sha1_UpdateU64(hash, sp->timeout);
+  }
 }
 
 uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp) {

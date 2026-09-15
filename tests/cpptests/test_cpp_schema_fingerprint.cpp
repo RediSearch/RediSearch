@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #include "gtest/gtest.h"
 #include "common.h"
@@ -202,4 +202,31 @@ TEST_F(SchemaFingerprintTest, FlatAndSvsVectorDefinitionsAreCovered) {
   params.search_window_size--;
   tiered.specificParams.tieredSVSParams.trainingTriggerThreshold++;
   ASSERT_NE(before, fp(svs));
+}
+
+TEST_F(SchemaFingerprintTest, OnlyTemporaryTimeoutAffectsFingerprint) {
+  IndexSpec *permanent = parse("idx_permanent", {"SCHEMA", "t", "TEXT"});
+  ASSERT_NE(permanent, nullptr);
+  ASSERT_FALSE(permanent->flags & Index_Temporary);
+  const uint64_t fingerprint = fp(permanent);
+  permanent->timeout = -1;  // Pre-v13 RDB sentinel for the same permanent schema.
+  ASSERT_EQ(fingerprint, fp(permanent));
+  permanent->timeout = 0;
+  ASSERT_EQ(fingerprint, fp(permanent));
+
+  IndexSpec *temporary = parse("idx_temporary", {"TEMPORARY", "60", "SCHEMA", "t", "TEXT"});
+  ASSERT_NE(temporary, nullptr);
+  ASSERT_TRUE(temporary->flags & Index_Temporary);
+  const uint64_t temporaryFingerprint = fp(temporary);
+  ASSERT_NE(fingerprint, temporaryFingerprint);
+  temporary->timeout += 1000;
+  ASSERT_NE(temporaryFingerprint, fp(temporary));
+}
+
+TEST(SchemaHashEncoding, SignedZeroHashesEqually) {
+  const auto visit = [](Sha1Context *hash, const void *value) {
+    Sha1_UpdateDouble(hash, *static_cast<const double *>(value));
+  };
+  const double positive = 0.0, negative = -0.0;
+  ASSERT_EQ(Sha1_ComputeValue(visit, &positive), Sha1_ComputeValue(visit, &negative));
 }
