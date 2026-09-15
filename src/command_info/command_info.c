@@ -953,7 +953,7 @@ int SetFt_ListInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns a list of all existing indexes",
-    .complexity = "O(1)",
+    .complexity = "Without WITHCLUSTERSTATE: O(N), where N is the number of local indexes. With WITHCLUSTERSTATE: O(B + (I + 1) * S^2) total work, where S is the shard count, I is the number of distinct indexes, and B is the total schema content processed across shards, including index names, fields, stopwords, and synonym memberships. Each shard hashes its local schema content on its Redis thread; the coordinator compares shard reports.",
     .args = (RedisModuleCommandArg[]){
       {
         .name = "withclusterstate",
