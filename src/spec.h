@@ -152,6 +152,15 @@ typedef struct {
   // `total_inverted_index_blocks`. Writes must go through `IndexStats_BlockCountAdd` (signed
   // delta, atomic). Reads must use `__atomic_load_n`.
   size_t totalInvertedIndexBlocks;
+  // Number of inline tail-block repairs performed on the write path, and the net bytes they
+  // reclaimed. Both stay 0 unless INLINE_GC_BLOCK_REPAIR_THRESHOLD is set. Separate from the
+  // fork GC's `bytes_collected` so the two reclaim paths can be compared rather than summed.
+  //
+  // `inlineBytesCollected` is signed for the same reason as `InfoGCStats.totalCollectedBytes`:
+  // re-encoding a repaired block can allocate more than it frees, so the net is not
+  // necessarily positive and unsigned arithmetic would wrap.
+  size_t inlineRepairs;
+  ssize_t inlineBytesCollected;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   uint32_t activeQueries;
