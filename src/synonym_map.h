@@ -15,6 +15,7 @@
 #include "util/arr.h"
 #include "util/strconv.h"
 #include <stdbool.h>
+#include "hiredis/sds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,8 +35,8 @@ typedef enum {
  *  ids - array of synonyms group ids that the term is belong to
  */
 typedef struct {
-  char* term;
-  char** groupIds;
+  sds term;
+  arrayof(sds) groupIds;
 } TermData;
 
 /**

@@ -486,7 +486,7 @@ def test_empty_cluster_returns_empty_list(env):
 
 
 @contextmanager
-def rejecting_shard(env, shard_id):
+def rejecting_shard(env, shard_id, response=b"-ERR unknown command '_FT._LIST'\r\n"):
     """Replace a stopped shard with an endpoint that rejects the new internal command.
 
     A real internal connection bypasses ACLs, so revoking a user's permission would
@@ -509,7 +509,7 @@ def rejecting_shard(env, shard_id):
                         self.rfile.read(2)
                     command = args[0].upper()
                     if command == b'_FT._LIST':
-                        self.wfile.write(b"-ERR unknown command '_FT._LIST'\r\n")
+                        self.wfile.write(response)
                     elif command == b'PING':
                         self.wfile.write(b'+PONG\r\n')
                     else:
@@ -569,3 +569,43 @@ def test_rejecting_shard_is_not_named_unreachable(env):
                     "1 of 3 shards rejected the request (ERR unknown command '_FT._LIST')."})
     finally:
         env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_malformed_shard_payload_is_not_an_empty_report(env):
+    """An invalid entry cannot count as proof that an index is missing on that shard."""
+    if env.useTLS:
+        env.skip()
+    ids = shard_node_ids(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    # The envelope is valid, but an integer cannot be an index name.
+    response = (f'*4\r\n${len(ids[1])}\r\n{ids[1]}\r\n'
+                ':3\r\n:1\r\n*1\r\n*2\r\n:42\r\n:1\r\n').encode()
+    try:
+        with rejecting_shard(env, 2, response):
+            expected = {'warning': INCONSISTENT +
+                        ' cannot be determined: 1 of 3 shards did not reply.',
+                        'unreachable_shards': [ids[1]]}
+
+            def has_incomplete_report():
+                status = cluster_state(env)['idx']['status']
+                return status == expected, status
+
+            wait_for_condition(has_incomplete_report, 'malformed report was not excluded')
+            env.assertEqual(cluster_state(env)['idx']['status'], expected)
+    finally:
+        env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_long_index_names_do_not_collide(env):
+    """Exact-name lookup retains lengths beyond the former trie-map key width."""
+    shard_node_ids(env)
+    names = ['x' * 65536 + 'a', 'x' * 65536 + 'b']
+    for name in names:
+        env.expect('FT.CREATE', name, 'SCHEMA', 't', 'TEXT').ok()
+    env.assertEqual(cluster_state(env),
+                    {name: {'index': name, 'status': 'ok'} for name in names})

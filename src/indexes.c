@@ -1041,8 +1041,9 @@ static void replySpecNameAndFingerprint(IndexSpec *sp, void *ud) {
   const FingerprintReplyCtx *ctx = ud;
   RedisModule_Reply *reply = ctx->reply;
   RedisModule_Reply_Array(reply);
-  const char *specName = IndexSpec_FormatName(sp, false);
-  RedisModule_Reply_StringBuffer(reply, specName, strlen(specName));
+  size_t nameLen;
+  const char *specName = IndexSpec_GetClusterStateName(sp, &nameLen);
+  RedisModule_Reply_StringBuffer(reply, specName, nameLen);
   uint64_t fingerprint;
   if (ctx->comparable && IndexSpec_SchemaFingerprint(sp, &fingerprint)) {
     RedisModule_Reply_LongLong(reply, (long long)fingerprint);

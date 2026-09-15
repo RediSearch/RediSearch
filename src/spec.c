@@ -3579,6 +3579,17 @@ int IndexSpec_RegisterSchemaFingerprintType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+const char *IndexSpec_GetClusterStateName(const IndexSpec *sp, size_t *len) {
+  const char *name = HiddenString_GetUnsafe(sp->specName, len);
+  // Existing FT._LIST replies stop at the first NUL. Retain that contract while
+  // using the stored extent to bound the scan.
+  const char *end = memchr(name, '\0', *len);
+  if (end) {
+    *len = end - name;
+  }
+  return name;
+}
+
 bool IndexSpec_SchemaFingerprint(const IndexSpec *sp, uint64_t *out) {
   RedisModuleString *repr =
       RedisModule_SaveDataTypeToString(NULL, (IndexSpec *)sp, SchemaFingerprintType);

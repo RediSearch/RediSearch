@@ -9,6 +9,7 @@
 #include "index_list_command.h"
 
 #include <stdbool.h>
+#include <limits.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -20,7 +21,9 @@
 #include "rmalloc.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
-#include "triemap_ffi.h"
+#include "util/dict/dict.h"
+#include "config.h"
+#include "rmutil/strings.h"
 #include "util/arr/arr.h"
 
 #define FT_LIST_CS_KEY_INDEX "index"
@@ -30,14 +33,54 @@
 #define FT_LIST_CS_KEY_UNREACHABLE "unreachable_shards"
 #define FT_LIST_CS_STATUS_OK "ok"
 
-// An unreadable setting must not silently default to a comparable fingerprint recipe.
+typedef struct {
+  arrayof(char *) shardNodeIds;
+} IndexListRequest;
+
+static void clearShardNodeIds(IndexListRequest *request) {
+  array_free_ex(request->shardNodeIds, rm_free(*(char **)ptr));
+  request->shardNodeIds = NULL;
+}
+
+static void captureShardNodeIds(struct MRCtx *ctx, const MRClusterTopology *topology) {
+  IndexListRequest *request = MRCtx_GetPrivData(ctx);
+  clearShardNodeIds(request);
+  if (!topology) {
+    return;
+  }
+  request->shardNodeIds = array_new(char *, topology->numShards);
+  for (uint32_t i = 0; i < topology->numShards; ++i) {
+    array_append(request->shardNodeIds, rm_strdup(topology->shards[i].node.id));
+  }
+}
+
+static void freeIndexListRequest(struct MRCtx *ctx) {
+  IndexListRequest *request = MRCtx_GetPrivData(ctx);
+  clearShardNodeIds(request);
+  rm_free(request);
+}
+
+struct MRCtx *IndexList_CreateRequest(RedisModuleCtx *ctx, int replyCap) {
+  IndexListRequest *request = rm_malloc(sizeof(*request));
+  *request = (IndexListRequest){0};
+  struct MRCtx *mc = MR_CreateCtx(ctx, NULL, request, replyCap);
+  MRCtx_SetBeforeFanoutCB(mc, captureShardNodeIds);
+  MRCtx_SetFreePrivDataCB(mc, freeIndexListRequest);
+  return mc;
+}
+
 int IndexList_ReplyLocalPayload(RedisModuleCtx *ctx) {
-  int compression = 0;
-  const bool comparable =
-      RedisModule_ConfigGetBool(ctx, "rdbcompression", &compression) == REDISMODULE_OK;
+  // A failed read cannot safely choose a default: that could label different
+  // serialization recipes as comparable.
+  RedisModuleString *setting = getRedisConfigValue(ctx, "rdbcompression");
+  const bool comparable = setting != NULL;
+  const bool compression = setting && RMUtil_StringEqualsCaseC(setting, "yes");
+  if (setting) {
+    RedisModule_FreeString(ctx, setting);
+  }
   char *nodeId = MR_DuplicateLocalNodeId();
   RedisModule_Reply reply = RedisModule_NewReply(ctx);
-  Indexes_ReplyWithClusterStatePayload(&reply, nodeId, SchemaFingerprint_Recipe(compression != 0),
+  Indexes_ReplyWithClusterStatePayload(&reply, nodeId, SchemaFingerprint_Recipe(compression),
                                        comparable);
   rm_free(nodeId);
   return REDISMODULE_OK;
@@ -52,19 +95,19 @@ typedef struct {
 // One reported fingerprint, tagged with the gate group that produced it.
 typedef struct {
   uint32_t group;
+  uint32_t slot;
   long long fp;
+  bool valid;
 } ClusterStateFingerprint;
 
 // Per-index accumulator for IndexListClusterStateReducer.
 typedef struct {
-  arrayof(uint32_t) presentSlots;  // indices into ClusterStateReports.shardIds
   arrayof(ClusterStateFingerprint) fps;
   size_t noFingerprint;
 } ClusterStateIndexInfo;
 
-static void ClusterStateIndexInfo_Free(void *p) {
+static void ClusterStateIndexInfo_Free(void *unused, void *p) {
   ClusterStateIndexInfo *info = p;
-  array_free(info->presentSlots);
   array_free(info->fps);
   rm_free(info);
 }
@@ -79,20 +122,31 @@ static bool idInArray(const char *id, const char **ids, uint32_t n) {
   return false;
 }
 
-static bool slotInArray(uint32_t slot, const uint32_t *slots, uint32_t n) {
-  for (uint32_t i = 0; i < n; i++) {
-    if (slots[i] == slot) {
-      return true;
-    }
-  }
-
-  return false;
+// Keys borrow the name reply, including its length, for the reducer's lifetime.
+static uint64_t indexNameHash(const void *key) {
+  size_t len;
+  const char *name = MRReply_String(key, &len);
+  RS_ASSERT(len <= INT_MAX);
+  return dictGenHashFunction(name, len);
 }
+
+static int indexNameEqual(void *unused, const void *left, const void *right) {
+  size_t leftLen, rightLen;
+  const char *a = MRReply_String(left, &leftLen);
+  const char *b = MRReply_String(right, &rightLen);
+  return leftLen == rightLen && !memcmp(a, b, leftLen);
+}
+
+static dictType indexNames = {
+    .hashFunction = indexNameHash,
+    .keyCompare = indexNameEqual,
+    .valDestructor = ClusterStateIndexInfo_Free,
+};
 
 // The shard payloads folded into one picture. Strings are borrowed from the
 // replies, which outlive the reducer call.
 typedef struct {
-  TrieMap *byName;  // index name -> ClusterStateIndexInfo
+  dict *byName;  // index name -> ClusterStateIndexInfo
   // One slot per usable payload: shard's node id, or "" if none. Slots, not ids, are
   // the key, so an unnamed shard still counts.
   arrayof(const char *) shardIds;
@@ -105,9 +159,44 @@ typedef struct {
 } ClusterStateReports;
 
 static void ClusterStateReports_Clear(ClusterStateReports *reports) {
-  TrieMap_Free(reports->byName, ClusterStateIndexInfo_Free);
+  dictRelease(reports->byName);
   array_free(reports->shardIds);
   array_free(reports->gateGroups);
+}
+
+// Peer data is a runtime boundary, not an assertion boundary. Validate the
+// complete payload before counting this shard as reporting any indexes.
+static bool validShardPayload(const MRReply *reply) {
+  if (!reply || MRReply_Type(reply) != MR_REPLY_ARRAY || MRReply_Length(reply) != 4) {
+    return false;
+  }
+  const MRReply *id = MRReply_ArrayElement(reply, 0);
+  if (MRReply_Type(id) != MR_REPLY_STRING && MRReply_Type(id) != MR_REPLY_STATUS) {
+    return false;
+  }
+  if (MRReply_Type(MRReply_ArrayElement(reply, 1)) != MR_REPLY_INTEGER ||
+      MRReply_Type(MRReply_ArrayElement(reply, 2)) != MR_REPLY_INTEGER) {
+    return false;
+  }
+  const MRReply *entries = MRReply_ArrayElement(reply, 3);
+  if (MRReply_Type(entries) != MR_REPLY_ARRAY) {
+    return false;
+  }
+  for (size_t i = 0; i < MRReply_Length(entries); ++i) {
+    const MRReply *pair = MRReply_ArrayElement(entries, i);
+    if (MRReply_Type(pair) != MR_REPLY_ARRAY || MRReply_Length(pair) != 2) {
+      return false;
+    }
+    const MRReply *name = MRReply_ArrayElement(pair, 0);
+    const MRReply *fp = MRReply_ArrayElement(pair, 1);
+    size_t nameLen;
+    MRReply_String(name, &nameLen);
+    if (MRReply_Type(name) != MR_REPLY_STRING || nameLen > INT_MAX ||
+        (MRReply_Type(fp) != MR_REPLY_INTEGER && MRReply_Type(fp) != MR_REPLY_NIL)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Folds one shard payload into the picture. An error or malformed reply gets no
@@ -121,26 +210,13 @@ static void ClusterStateReports_AddShard(ClusterStateReports *reports, MRReply *
     return;
   }
 
-  if (!r || MRReply_Type(r) != MR_REPLY_ARRAY || MRReply_Length(r) != 4) {
+  if (!validShardPayload(r)) {
     return;
   }
-
   const MRReply *recipe = MRReply_ArrayElement(r, 1);
   const MRReply *encVer = MRReply_ArrayElement(r, 2);
   const MRReply *entries = MRReply_ArrayElement(r, 3);
-  if (MRReply_Type(recipe) != MR_REPLY_INTEGER || MRReply_Type(encVer) != MR_REPLY_INTEGER ||
-      MRReply_Type(entries) != MR_REPLY_ARRAY)
-    return;
-
-  // Validate every entry before taking a slot: skipping just the bad one would count
-  // the shard as reporting while dropping an index it listed, reading as missing.
   const size_t nEntries = MRReply_Length(entries);
-  for (size_t j = 0; j < nEntries; j++) {
-    const MRReply *pair = MRReply_ArrayElement(entries, j);
-    if (MRReply_Type(pair) != MR_REPLY_ARRAY || MRReply_Length(pair) != 2) {
-      return;
-    }
-  }
 
   size_t idLen = 0;
   const char *id = MRReply_String(MRReply_ArrayElement(r, 0), &idLen);
@@ -163,30 +239,20 @@ static void ClusterStateReports_AddShard(ClusterStateReports *reports, MRReply *
 
   for (size_t j = 0; j < nEntries; j++) {
     const MRReply *pair = MRReply_ArrayElement(entries, j);
-    size_t nameLen = 0;
-    const char *name = MRReply_String(MRReply_ArrayElement(pair, 0), &nameLen);
-    // Name may already be NUL-truncated by the payload, and tm_len_t narrows again;
-    // either can merge two distinct indexes into one entry.
-    const tm_len_t keyLen = (tm_len_t)nameLen;
-    if (!name || !keyLen) {
-      continue;
+    const MRReply *name = MRReply_ArrayElement(pair, 0);
+    ClusterStateIndexInfo *info = dictFetchValue(reports->byName, name);
+    if (!info) {
+      info = rm_malloc(sizeof(*info));
+      *info = (ClusterStateIndexInfo){0};
+      int added = dictAdd(reports->byName, (void *)name, info);
+      RS_ASSERT(added == DICT_OK);
     }
-
-    ClusterStateIndexInfo *info = TrieMap_Find(reports->byName, name, keyLen);
-    if (info == TRIEMAP_NOTFOUND) {
-      info = rm_calloc(1, sizeof(*info));
-      TrieMap_Add(reports->byName, (char *)name, keyLen, info, NULL);
-    }
-    info->presentSlots = array_ensure_append_1(info->presentSlots, slot);
-    // MRReply_Integer skips the type check; hiredis callocs replies, so a non-integer
-    // would read as 0 and compare equal to every other one.
     const MRReply *fp = MRReply_ArrayElement(pair, 1);
-    if (MRReply_Type(fp) == MR_REPLY_INTEGER) {
-      const ClusterStateFingerprint reported = {.group = group, .fp = MRReply_Integer(fp)};
-      info->fps = array_ensure_append_1(info->fps, reported);
-    } else {
-      info->noFingerprint++;
-    }
+    const bool valid = MRReply_Type(fp) == MR_REPLY_INTEGER;
+    const ClusterStateFingerprint reported = {
+        .group = group, .slot = slot, .fp = valid ? MRReply_Integer(fp) : 0, .valid = valid};
+    info->fps = array_ensure_append_1(info->fps, reported);
+    info->noFingerprint += !valid;
   }
 }
 
@@ -198,7 +264,11 @@ static arrayof(const char *) shardsMissingIndex(const ClusterStateIndexInfo *inf
   arrayof(const char *) missing = array_new(const char *, nSlots);
   *count = 0;
   for (uint32_t slot = 0; slot < nSlots; slot++) {
-    if (slotInArray(slot, info->presentSlots, array_len(info->presentSlots))) {
+    bool present = false;
+    for (uint32_t i = 0; i < array_len(info->fps); ++i) {
+      present |= info->fps[i].slot == slot;
+    }
+    if (present) {
       continue;
     }
 
@@ -219,13 +289,13 @@ static uint32_t distinctSchemaCount(const ClusterStateIndexInfo *info, uint32_t 
   for (uint32_t g = 0; g < nGroups; g++) {
     uint32_t distinct = 0;
     for (uint32_t i = 0; i < n; i++) {
-      if (info->fps[i].group != g) {
+      if (!info->fps[i].valid || info->fps[i].group != g) {
         continue;
       }
 
       bool seen = false;
       for (uint32_t j = 0; j < i; j++) {
-        if (info->fps[j].group == g && info->fps[j].fp == info->fps[i].fp) {
+        if (info->fps[j].valid && info->fps[j].group == g && info->fps[j].fp == info->fps[i].fp) {
           seen = true;
           break;
         }
@@ -341,8 +411,9 @@ static void replyClusterStateEntry(RedisModule_Reply *reply, const char *name, s
 // multi-shard replies render an index identically.
 static void replySpecStatusOk(IndexSpec *sp, void *ud) {
   RedisModule_Reply *reply = ud;
-  const char *name = IndexSpec_FormatName(sp, false);
-  replyClusterStateEntry(reply, name, strlen(name), NULL, NULL, NULL);
+  size_t nameLen;
+  const char *name = IndexSpec_GetClusterStateName(sp, &nameLen);
+  replyClusterStateEntry(reply, name, nameLen, NULL, NULL, NULL);
 }
 
 // Reducer for FT._LIST WITHCLUSTERSTATE: one map per index across the shards'
@@ -350,7 +421,7 @@ static void replySpecStatusOk(IndexSpec *sp, void *ud) {
 int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   ClusterStateReports reports = {
-      .byName = NewTrieMap(),
+      .byName = dictCreate(&indexNames, NULL),
       .shardIds = array_new(const char *, count),
   };
   for (int i = 0; i < count; i++) {
@@ -370,8 +441,9 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
 
   // Shards the fanout asked, not current topology - one that joined since would
   // wrongly show as not having replied.
-  size_t expectedCount = 0;
-  const char **expectedIds = MRCtx_GetShardNodeIds(mc, &expectedCount);
+  const IndexListRequest *request = MRCtx_GetPrivData(mc);
+  const size_t expectedCount = array_len(request->shardNodeIds);
+  const char *const *expectedIds = (const char *const *)request->shardNodeIds;
   arrayof(const char *) unreachableIds = array_new(const char *, expectedCount);
   for (size_t i = 0; i < expectedCount; i++)
     if (!idInArray(expectedIds[i], reports.shardIds, array_len(reports.shardIds)))
@@ -381,13 +453,15 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
   // no slot). Keeps nSilent below from underflowing: never fewer than the rejection tally.
   const size_t nNotReporting = array_len(unreachableIds);
   // Rejections are alive shards, so subtracted from silent rather than counted as silent.
+  RS_ASSERT(nReporting + reports.nRejected <= expectedCount);
+  RS_ASSERT(nNotReporting >= reports.nRejected);
   const size_t nSilent = nNotReporting - reports.nRejected;
   // >1 gate group means shards disagree on the recipe; some fingerprints aren't comparable.
   const bool versionSkew = array_len(reports.gateGroups) > 1;
   const bool uncertain = nNotReporting > 0 || versionSkew;
 
   // An empty union cannot carry a per-index warning about an unobserved shard.
-  if (nNotReporting > 0 && TrieMap_NUniqueKeys(reports.byName) == 0) {
+  if (nNotReporting > 0 && dictSize(reports.byName) == 0) {
     RedisModule_ReplyWithError(ctx, INCONSISTENT_INDEX_STATE
                                " cannot be determined: incomplete shard reports; "
                                "the index list may be incomplete.");
@@ -403,12 +477,12 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   RedisModule_Reply_Array(reply);
 
-  TrieMapIterator *it = TrieMap_Iterate(reports.byName);
-  char *name;
-  tm_len_t nameLen;
-  void *ptr;
-  while (TrieMapIterator_Next(it, &name, &nameLen, &ptr)) {
-    const ClusterStateIndexInfo *info = ptr;
+  dictIterator *it = dictGetIterator(reports.byName);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    size_t nameLen;
+    const char *name = MRReply_String(dictGetKey(entry), &nameLen);
+    const ClusterStateIndexInfo *info = dictGetVal(entry);
     size_t nMissing = 0;
     arrayof(const char *) missing = shardsMissingIndex(info, &reports, &nMissing);
     const uint32_t nSchemas = distinctSchemaCount(info, array_len(reports.gateGroups));
@@ -434,7 +508,7 @@ int IndexListClusterStateReducer(struct MRCtx *mc, int count, MRReply **replies)
 
     array_free(missing);
   }
-  TrieMapIterator_Free(it);
+  dictReleaseIterator(it);
 
   RedisModule_Reply_ArrayEnd(reply);
   RedisModule_EndReply(reply);

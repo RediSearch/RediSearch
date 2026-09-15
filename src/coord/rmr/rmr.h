@@ -132,16 +132,10 @@ void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
 
-/* @brief Ask the fanout to record the node ids of the shards it targets. They are taken
- * on the IO thread from the topology the fanout uses, so a reducer can name the shards
- * that did not reply without racing a topology update.
- */
-void MRCtx_SetCaptureShardNodeIds(struct MRCtx *ctx);
-
-/* @brief Node ids recorded by MRCtx_SetCaptureShardNodeIds(), owned by the context.
- * @param count Out: the number of node ids returned.
- */
-const char **MRCtx_GetShardNodeIds(const struct MRCtx *ctx, size_t *count);
+// Runs on the IO thread immediately before dispatch. The topology is borrowed
+// only for the callback; retain any needed snapshot in the command's private data.
+typedef void (*MRCtxBeforeFanoutCB)(struct MRCtx *ctx, const MRClusterTopology *topology);
+void MRCtx_SetBeforeFanoutCB(struct MRCtx *ctx, MRCtxBeforeFanoutCB cb);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */

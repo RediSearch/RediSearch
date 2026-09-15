@@ -101,3 +101,24 @@ It uses the same array structure in RESP2 and RESP3. Older shards may reject thi
 new internal command; those replies are reported as uncertainty, not as schema
 divergence. The Enterprise package excludes the internal command from its public
 command list.
+
+### Fingerprint implementation
+
+The fingerprint hashes a schema-only RDB serialization. A dedicated module type
+provides the save callback required by `SaveDataTypeToString`; it is never stored
+as a Redis key. The ordinary index type cannot substitute for it because that
+serializer also includes the index name, aliases, and data-dependent state.
+Removing this type would require a separate schema encoder or a Redis API that
+accepts a save callback directly.
+
+RDB **compression**, rather than compaction, matters because the same schema can
+produce different serialized bytes when `rdbcompression` differs. Its setting is
+therefore part of the comparison recipe. If the config helper cannot read it,
+the payload uses null fingerprints to avoid claiming equality under an unknown
+recipe. The node ID may be empty in standalone mode or before topology arrives.
+
+The coordinator owns the target-node snapshot in the list command's private
+request data. A generic callback captures it on the IO thread immediately before
+fanout. The reducer uses an exact-name dictionary whose keys borrow the shard
+replies, retaining their lengths without copying names. It validates complete
+peer payloads before accumulating them; malformed payloads are incomplete reports.

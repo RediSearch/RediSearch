@@ -3717,9 +3717,7 @@ int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, GetNumShards_UnSafe());
-  // The reducer names the shards that did not reply, so it needs the ones asked.
-  MRCtx_SetCaptureShardNodeIds(mrctx);
+  struct MRCtx *mrctx = IndexList_CreateRequest(ctx, GetNumShards_UnSafe());
   MR_Fanout(mrctx, IndexListClusterStateReducer, cmd, true);
   return REDISMODULE_OK;
 }
