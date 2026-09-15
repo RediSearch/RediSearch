@@ -305,13 +305,15 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     // the next RDB save would persist that divergence. Match the post-commit
     // policy used by `applyDocTable` for `DocIdMeta_Set` failure.
     RS_LOG_ASSERT_ALWAYS(vecsim, "openVectorIndex returned NULL after a successful disk commit");
+    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     // Safe here and not before `commitDocument`: the batch is durable, so the
     // vector index cannot end up pointing at an unpersisted doc-id.
     if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
         VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
+      FieldSpec_AddIndexingTime(&spec->fields[fs->index], FIELD_INDEXING_APPLY,
+                                rs_wall_clock_now_ns() - start);
       continue;
     }
-    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     const char *curr_vec = fdata->vector;
     for (size_t i = 0; i < fdata->numVec; i++) {
       VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
