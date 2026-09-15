@@ -447,6 +447,46 @@ def testInfoFieldIndexingTime(env):
         env.assertGreater(int(field_stats['indexing_apply_time_ns']), 0)
         env.assertGreater(int(field_stats['indexing_apply_max_time_ns']), 0)
 
+@skip(cluster=False)
+def testInfoFieldIndexingTimeClusterAggregation():
+    # The coordinator combines per-field indexing-time stats across shards by summing
+    # `count`/`*_time_ns` and taking the max of `*_max_time_ns`
+    # (`FieldIndexingPhaseStats_Combine` in `field_spec_info.c`). Asserting only `> 0`
+    # on the coordinator's aggregated `FT.INFO` wouldn't catch the reducer using the
+    # wrong operator for any of those three, so check the arithmetic directly against
+    # each shard's own local `_FT.INFO`.
+    env = Env(shardsCount=2)
+    conn = getConnectionByEnv(env)
+
+    def field_indexing_stats(res):
+        return {to_dict(field)['attribute']: to_dict(field)
+                for field in to_dict(res)['field statistics']}
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT')
+
+    for i in range(200):
+        conn.execute_command('HSET', f'doc:{i}', 'txt', f'hello world {i}')
+
+    coord_stats = field_indexing_stats(env.cmd('FT.INFO', 'idx'))['txt']
+
+    per_shard_stats = []
+    for shard in range(1, env.shardsCount + 1):
+        shard_conn = env.getConnection(shard)
+        shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        per_shard_stats.append(field_indexing_stats(shard_conn.execute_command('_FT.INFO', 'idx'))['txt'])
+
+    # Every shard must have done some of the work, or the sum-vs-max distinction below
+    # is untestable (a single nonzero shard makes sum and max coincide).
+    env.assertTrue(all(int(s['indexing_index_count']) > 0 for s in per_shard_stats))
+
+    for phase in ('preprocess', 'index'):
+        count_key = f'indexing_{phase}_count'
+        time_key = f'indexing_{phase}_time_ns'
+        max_time_key = f'indexing_{phase}_max_time_ns'
+        env.assertEqual(int(coord_stats[count_key]), sum(int(s[count_key]) for s in per_shard_stats))
+        env.assertEqual(int(coord_stats[time_key]), sum(int(s[time_key]) for s in per_shard_stats))
+        env.assertEqual(int(coord_stats[max_time_key]), max(int(s[max_time_key]) for s in per_shard_stats))
+
 def testInfoFieldIndexingTimeIndexMissing(env):
     # `writeMissingFieldDocs` records FIELD_INDEXING_INDEX on its own, outside the
     # normal per-field preprocess/index/apply pipeline, so it needs its own coverage.
