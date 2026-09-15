@@ -38,6 +38,7 @@ fn node_type_reflects_each_variant() {
         QueryNodeType::Wildcard,
         QueryNodeType::Tag,
         QueryNodeType::Fuzzy,
+        QueryNodeType::LexRange,
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Null,
@@ -199,6 +200,16 @@ fn as_enum_prefix() {
         };
         assert_eq!(mode, expected);
     }
+}
+
+/// A lex range is a real node type, so representing it must not panic even
+/// though C is what evaluates it.
+#[test]
+fn as_enum_lex_range_is_opaque() {
+    let mock = MockQueryNode::new(QueryNodeType::LexRange);
+    // SAFETY: `mock` outlives the reference and is a valid, exclusively-held node.
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    assert!(matches!(node.as_enum(), QueryNode::LexRange));
 }
 
 #[test]
