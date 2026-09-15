@@ -69,13 +69,14 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets: inherit
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env }}
       san: ${{ inputs.job-type == 'sanitize' && 'address' || 'none' }}
 
   build:
-    name: Build (${{ inputs.job-type }})
+    name: Build ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image]
     # build-image is skipped for non-container platforms; without this guard a
     # skipped need would skip this job (and the whole pipeline) instead of
@@ -106,6 +107,7 @@ jobs:
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       enable-lto: ${{ inputs.enable-lto != '' && inputs.enable-lto || needs.get-config.outputs.enable_lto }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   # redis-server and RedisJSON are external to this repo but must be built with
@@ -113,7 +115,7 @@ jobs:
   # independent of the module build, so they run concurrently with it rather than
   # inside it; both are cache-restored on the common path.
   build-redis:
-    name: Build Redis (${{ inputs.job-type }})
+    name: Redis ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image]
     # Same build-image guard as `build` above.
     if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
@@ -121,6 +123,7 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/task-build-redis.yml
+    secrets: inherit
     with:
       redis-ref: ${{ inputs.redis-ref }}
       coverage: ${{ inputs.job-type == 'coverage' }}
@@ -134,10 +137,11 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   build-rejson:
-    name: Build RedisJSON (${{ inputs.job-type }})
+    name: RedisJSON ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image]
     # Same build-image guard as `build` above.
     if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
@@ -145,6 +149,7 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/task-build-rejson.yml
+    secrets: inherit
     with:
       platform: ${{ inputs.platform }}
       coverage: ${{ inputs.job-type == 'coverage' }}
@@ -159,10 +164,11 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-unit:
-    name: ${{ inputs.job-type }} (Unit)
+    name: Unit ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image, build]
     if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
@@ -192,10 +198,11 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-standalone:
-    name: ${{ inputs.job-type }} (Standalone)
+    name: Standalone ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image, build, build-redis, build-rejson]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
@@ -230,10 +237,11 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-coordinator:
-    name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ strategy.job-total }})
+    name: Coordinator ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }}) (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: [get-config, build-image, build, build-redis, build-rejson]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     # Coordinator tests are the slowest flow suite (cluster setup, inter-shard
@@ -280,4 +288,5 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
