@@ -23,7 +23,8 @@ def create_query_timing_index(env):
 
 def assert_background_duration(env, command, sync_point, force_timeout, expected_reply=None,
                                expected_error=None, while_paused=None, command_name=None,
-                               timeout_releases_worker=False):
+                               timeout_releases_worker=False,
+                               timeout_sync_point=None):
     """Check elapsed work; sync_point=None pauses after storing results, before signalling."""
     if command_name is None:
         command_name = command[0] + ('|' + command[1] if command[0] == 'FT.CURSOR' else '')
@@ -66,7 +67,9 @@ def assert_background_duration(env, command, sync_point, force_timeout, expected
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
         worker.join(timeout=10)
         if force_timeout and not timeout_releases_worker:
-            env.assertEqual(is_paused(), 1)
+            paused = is_paused() if timeout_sync_point is None else env.cmd(
+                debug_cmd(), 'SYNC_POINT', 'IS_WAITING', timeout_sync_point)
+            env.assertEqual(paused, 1)
         env.assertFalse(worker.is_alive())
         env.assertEqual(len(replies), 1)
         if expected_reply is not None:
@@ -385,5 +388,67 @@ def test_coordinator_cursor_timeout_commits_background_duration():
             env.assertNotEqual(cursor, 0)
             assert_timeout_duration(env, ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 1],
                                     hook)
+    finally:
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
+
+@skip(cluster=False)
+def test_coordinator_query_timeout_commits_background_duration():
+    """Coordinator completion and timeouts publish one dispatcher/deferred interval."""
+    # Explicit unblocks select timeout ordering; RESP3 preserves stored-result maps.
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0', protocol=3)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    vector = struct.pack('ff', 1, 2)
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 't', 'hello', 'v', vector)
+    aggregate_reply = {
+        'attributes': [], 'warning': [], 'total_results': 1, 'format': 'STRING',
+        'results': [{'extra_attributes': {'t': 'hello'}, 'values': []}],
+    }
+    hybrid_reply = {
+        'total_results': 1, 'results': [{'__key': '{doc}:1', '__score': ANY}],
+        'warnings': [], 'execution_time': ANY,
+    }
+    commands = (
+        (['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t'],
+         'BeforeSpecLock', None, aggregate_reply),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t'],
+         'BeforeCoordAggregateFinish', 'AfterCoordAggregateFinish', aggregate_reply),
+        (['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
+          'PARAMS', '2', 'BLOB', vector],
+         'BeforeCoordHybridFinish', 'AfterCoordHybridFinish', hybrid_reply),
+    )
+    previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        for policy in ('fail', 'return-strict', 'return'):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+            for command, completion_hook, finished_hook, expected_reply in commands:
+                assert_background_duration(env, command, completion_hook, force_timeout=False,
+                                           expected_reply=expected_reply)
+                if policy == 'return':
+                    continue
+                assert_timeout_duration(env, command, 'BeforeSpecLock')
+                if finished_hook is not None:
+                    # Completion is published before these hooks, so RETURN_STRICT
+                    # returns the complete stored reply while the worker stays paused.
+                    assert_background_duration(
+                        env, command, completion_hook, force_timeout=True,
+                        expected_reply=expected_reply if policy == 'return-strict' else None)
+
+                    def finish_before_timeout():
+                        # Keep the client blocked after measurement ends so the
+                        # timeout callback must retain the worker's completed interval.
+                        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', finished_hook).ok()
+                        env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', completion_hook).ok()
+                        wait_for_condition(
+                            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING',
+                                             finished_hook) == 1, {}),
+                            f'Worker did not reach {finished_hook}', timeout=10)
+
+                    assert_background_duration(
+                        env, command, completion_hook, force_timeout=True,
+                        expected_reply=expected_reply if policy == 'return-strict' else None,
+                        while_paused=finish_before_timeout, timeout_sync_point=finished_hook)
     finally:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)

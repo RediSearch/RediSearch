@@ -16,6 +16,9 @@
 #include "info/info_redis/block_client.h"
 #include "rmalloc.h"
 #include "util/arr/arr.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -84,13 +87,18 @@ size_t ConcurrentSearchPool_HighPriorityPendingJobsCount() {
 
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
+  QueryRequest *request = RedisModule_BlockClientGetPrivateData(ctx->bc);
+  BlockedClientTiming_Start(&request->timing);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
 
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
 
   RedisModule_FreeThreadSafeContext(ctx->ctx);
 
   if (!(ctx->options & CMDCTX_KEEP_BC)) {
-    RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
+    BlockedClientTiming_Finish(&request->timing);
     void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
     RedisModule_UnblockClient(ctx->bc, privdata);
   }
@@ -132,6 +140,7 @@ int ConcurrentCmdCtx_GetPoolId(const ConcurrentCmdCtx *cctx) {
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
+  RS_ASSERT(handlerCtx->bcCtx.request);
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
   // If timeoutMS is not 0, both timeout callback and reply callback must be set
@@ -139,16 +148,11 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
             (handlerCtx->bcCtx.timeout_callback != NULL && handlerCtx->bcCtx.reply_callback != NULL));
 
   cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback,
-                                       handlerCtx->bcCtx.timeout_callback,
-                                       handlerCtx->bcCtx.request ? QueryRequest_OnFree : NULL,
+                                       handlerCtx->bcCtx.timeout_callback, QueryRequest_OnFree,
                                        handlerCtx->bcCtx.timeoutMS);
 
-  if (handlerCtx->bcCtx.request) {
-    // Safe against the just-armed timer: the timeout callback runs on this
-    // same thread.
-    QueryRequest_BeginCycle(handlerCtx->bcCtx.request, cmdCtx->bc,
-                            handlerCtx->bcCtx.reply_callback);
-  }
+  // The timeout callback runs on this thread, after the request is published.
+  QueryRequest_BeginCycle(handlerCtx->bcCtx.request, cmdCtx->bc, handlerCtx->bcCtx.reply_callback);
 
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;
@@ -165,7 +169,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
     cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
   }
 
-  RedisModule_BlockedClientMeasureTimeStart(cmdCtx->bc);
+  BlockedClientTiming_Begin(&handlerCtx->bcCtx.request->timing, cmdCtx->bc);
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;

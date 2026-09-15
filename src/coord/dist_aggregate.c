@@ -459,7 +459,13 @@ static void executeAggregateDeferred(void *arg) {
   }
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(weak_ref);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_AGGREGATE_FINISH);
+#endif
+  BlockedClientTiming_Finish(&r->base.timing);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_AFTER_COORD_AGGREGATE_FINISH);
+#endif
   void *privdata = RedisModule_BlockClientGetPrivateData(bc);
   RedisModule_UnblockClient(bc, privdata);
 }
@@ -1103,6 +1109,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
     // aggregation phase so it stores/signals the timed-out state for partial-result handling.
     // Reply with empty results
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    BlockedClientTiming_Finish(&request->timing);
     return REDISMODULE_OK;
   }
 
@@ -1125,6 +1132,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
+  BlockedClientTiming_Finish(&request->timing);
   return REDISMODULE_OK;
 }
 
