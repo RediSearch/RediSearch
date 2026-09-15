@@ -185,8 +185,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_read_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -237,8 +237,8 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_read_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -281,8 +281,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_write_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -332,8 +332,8 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_write_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -382,8 +382,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_load_ptr(name, field_name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -439,8 +439,8 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_load_ptr(name, field_name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
@@ -565,7 +565,9 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
     let lookup =
         unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_Cleanup");
+    // Key names and paths may be borrowed from pipeline steps that are destroyed before the
+    // lookup, so cleanup can only validate invariants that do not dereference borrowed data.
+    lookup.assert_structure_valid("RLookup_Cleanup");
 
     // Safety: ensured by caller (2.)
     unsafe { ptr::drop_in_place(lookup) };
@@ -925,6 +927,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 3. `lookup` must not be mutated until the returned iterator is exhausted.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -934,15 +937,16 @@ pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLook
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_Iter");
 
-    let current = lookup.cursor().current().map_or(ptr::null(), ptr::from_ref);
+    let (current, remaining) = lookup.raw_key_ptrs();
 
-    RLookupIterator { current }
+    RLookupIterator { current, remaining }
 }
 
 /// An iterator over the keys in an `RLookup`, returning immutable pointers.
 #[repr(C)]
 pub struct RLookupIterator<'a> {
-    pub current: *const RLookupKey<'a>,
+    pub current: *const *const RLookupKey<'a>,
+    pub remaining: size_t,
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
