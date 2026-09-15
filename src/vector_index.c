@@ -74,6 +74,18 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 // Contract documented on the declaration in vector_index.h.
+// Names for the refusal codes, so a log line reads as the reason rather than as a number.
+static const char *relabelCodeName(VecSimRelabelCode rc) {
+  switch (rc) {
+    case VecSimRelabel_OK: return "OK";
+    case VecSimRelabel_OldLabelMissing: return "OldLabelMissing";
+    case VecSimRelabel_NewLabelTaken: return "NewLabelTaken";
+    case VecSimRelabel_SameLabel: return "SameLabel";
+    case VecSimRelabel_Unsupported: return "Unsupported";
+  }
+  return "unknown";
+}
+
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
   const VecSimRelabelCode rc = VecSimIndex_RelabelVector(vecsim, oldDocId, newDocId);
   // `SameLabel` is a success for this caller, not a refusal. Memory mode never hits it
@@ -84,11 +96,13 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
   }
 
   VecSimIndex_DeleteVector(vecsim, oldDocId);
-  if (rc == VecSimRelabel_NewLabelTaken) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "Vector relabel %llu -> %llu refused: target label already in use",
-                    (unsigned long long)oldDocId, (unsigned long long)newDocId);
-  }
+  // Every refusal is reported, not just the colliding one: a refusal silently costs the
+  // caller a delete and a re-add, and until this covered all of them a relabel that never
+  // engaged was indistinguishable from one that was never attempted.
+  RedisModule_Log(RSDummyContext, rc == VecSimRelabel_NewLabelTaken ? "warning" : "verbose",
+                  "Vector relabel %llu -> %llu refused: %s",
+                  (unsigned long long)oldDocId, (unsigned long long)newDocId,
+                  relabelCodeName(rc));
   return false;
 }
 
