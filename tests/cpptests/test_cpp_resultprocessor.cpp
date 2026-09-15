@@ -113,6 +113,40 @@ class LoaderDrainTest : public ::testing::Test {
   }
 };
 
+class CrashDrainTest : public LoaderDrainTest {
+ protected:
+  void SetUp() override {
+    LoaderDrainTest::SetUp();
+    loader = RPCrash_New(CRASH_IN_C);
+    loader->upstream = &source;
+  }
+};
+
+TEST_F(CrashDrainTest, forwardsOwnedResultsWithoutInjectingCrash) {
+  auto *dmd = document("crash:drain", nullptr);
+  source.documents = {dmd};
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  EXPECT_EQ(dmd, SearchResult_GetDocumentMetadata(&result));
+  EXPECT_EQ(dmd->id, SearchResult_GetDocId(&result));
+  EXPECT_EQ(2, dmd->ref_count);
+  EXPECT_EQ(0, source.nextCalls);
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(dmd, SearchResult_GetDocumentMetadata(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ(1, dmd->ref_count);
+}
+
+TEST_F(CrashDrainTest, forwardsErrorAndEofWithoutTouchingOutput) {
+  SearchResult_SetScore(&result, 17);
+  source.terminal = RP_DRAIN_ERROR;
+  EXPECT_EQ(RP_DRAIN_ERROR, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(17, SearchResult_GetScore(&result));
+  EXPECT_EQ(0, source.nextCalls);
+}
+
 TEST_F(LoaderDrainTest, loadAllDoesNotApplyExplicitKeyCacheHint) {
   EXPECT_EQ(nullptr, create(true, 0, false, true));
   EXPECT_NE(nullptr, loader);
