@@ -553,15 +553,20 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
+static bool isSupportedHnswQuantDataType(VecSimType type) {
+  return type == VecSimType_FLOAT32 || type == VecSimType_FLOAT16;
+}
+
+static bool isSupportedHnswQuantMetric(VecSimMetric metric) {
+  return metric == VecSimMetric_L2 || metric == VecSimMetric_IP || metric == VecSimMetric_Cosine;
+}
+
 static bool VecSimHnswQuantParams_AreValid(const HNSWParams *params, size_t trainingThreshold) {
   if (params->quantType == VecSimQuant_NONE) {
     return trainingThreshold == 0;
   }
-  return params->quantType == VecSimQuant_SQ8 &&
-         (params->type == VecSimType_FLOAT32 || params->type == VecSimType_FLOAT16) &&
-         params->dim > 0 &&
-         (params->metric == VecSimMetric_L2 || params->metric == VecSimMetric_IP ||
-          params->metric == VecSimMetric_Cosine) &&
+  return params->quantType == VecSimQuant_SQ8 && isSupportedHnswQuantDataType(params->type) &&
+         params->dim > 0 && isSupportedHnswQuantMetric(params->metric) &&
          trainingThreshold <= HNSW_QUANT_MAX_TRAINING_THRESHOLD;
 }
 
