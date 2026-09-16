@@ -1060,8 +1060,9 @@ def test_mod_4374(env):
   # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
   print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
 
-@skip()
 def test_mod_4375(env):
+  # UNION_ITERATOR_HEAP used to change the result set of a NOT-union combined with an
+  # intersection, e.g. `(-@t:even | @n:[0 5])`. Verify the two configs still agree.
   conn = getConnectionByEnv(env)
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
@@ -1072,12 +1073,18 @@ def test_mod_4375(env):
     else:
       conn.execute_command('HSET', i, 't', 'odd', 'n', i)
 
-  # Expected results are: ['0', '2', '4', '1', '3', '5', '6', '8']
-  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+  expected = [8, '0', '1', '2', '3', '4', '5', '7', '9']
 
-  # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-  conn.execute_command(config_cmd(), 'set', 'union_iterator_heap', '1')
-  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+  res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
+  env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
+
+  default = env.cmd(config_cmd(), 'GET', 'UNION_ITERATOR_HEAP')[0][1]
+  try:
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', '1')
+    res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
+    env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
+  finally:
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', default)
 
 @skip(cluster=False) # This test is only relevant for cluster
 def test_mod_6557(env: Env):
@@ -1399,15 +1406,7 @@ def test_mod_6786(env:Env):
 
 @skip(cluster=False)
 def test_mod_7609(env:Env):
-  # Create the same named index on all shards, but with different schemas
-  for i in range(1, env.shardsCount + 1):
-    con = env.getConnection(i)
-    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
-    schema = []
-    for j in range(i):
-      schema.extend(['f'+str(j), 'TEXT'])
-    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
-
+  create_diverged_index(env, 'idx')
   env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
 
 @skip(cluster=True)
