@@ -49,6 +49,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
+#include "util/misc.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
@@ -2973,6 +2974,8 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   return true;
 }
 
+// A new top-level schema-defining member saved here must be mirrored in
+// schemaFingerprint.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3359,6 +3362,135 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
   IndexSpec_RdbSave(rdb, value, contextFlags);
+}
+
+static void fingerprintHiddenString(Sha1Context *hash, const HiddenString *value) {
+  Sha1_UpdateU64(hash, value != NULL);
+  if (value) {
+    size_t len;
+    const char *bytes = HiddenString_GetUnsafe(value, &len);
+    Sha1_UpdateBuffer(hash, bytes, len);
+  }
+}
+
+static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *params) {
+  Sha1_UpdateU64(hash, params->algo);
+  switch (params->algo) {
+    case VecSimAlgo_BF: {
+      const BFParams *p = &params->algoParams.bfParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      break;
+    }
+    case VecSimAlgo_TIERED: {
+      const TieredIndexParams *p = &params->algoParams.tieredParams;
+      RS_ASSERT(p->primaryIndexParams);
+      if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+      } else {
+        RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
+        Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
+      }
+      fingerprintVectorParams(hash, p->primaryIndexParams);
+      break;
+    }
+    case VecSimAlgo_HNSWLIB: {
+      const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->M);
+      Sha1_UpdateU64(hash, p->efConstruction);
+      Sha1_UpdateU64(hash, p->efRuntime);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+    case VecSimAlgo_SVS: {
+      const SVSParams *p = &params->algoParams.svsParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->quantBits);
+      Sha1_UpdateU64(hash, p->graph_max_degree);
+      Sha1_UpdateU64(hash, p->construction_window_size);
+      Sha1_UpdateU64(hash, p->leanvec_dim);
+      Sha1_UpdateU64(hash, p->search_window_size);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+  }
+}
+
+static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isDisk) {
+  fingerprintHiddenString(hash, field->fieldName);
+  fingerprintHiddenString(hash, field->fieldPath ? field->fieldPath : field->fieldName);
+  Sha1_UpdateU64(hash, field->types);
+  Sha1_UpdateU64(hash, field->options);
+  Sha1_UpdateU64(hash, (uint64_t)(int64_t)field->sortIdx);
+  if (FIELD_IS(field, INDEXFLD_T_FULLTEXT) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->ftId);
+    Sha1_UpdateDouble(hash, field->ftWeight);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_TAG) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->tagOpts.tagFlags);
+    Sha1_UpdateU64(hash, (unsigned char)field->tagOpts.tagSep);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
+    Sha1_UpdateU64(hash, field->vectorOpts.expBlobSize);
+    fingerprintVectorParams(hash, &field->vectorOpts.vecSimParams);
+    if (isDisk && field->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo ==
+            VecSimAlgo_HNSWLIB) {
+      Sha1_UpdateU64(hash, field->vectorOpts.diskCtx.rerank);
+    }
+  }
+  if (FIELD_IS(field, INDEXFLD_T_GEOMETRY) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->geometryOpts.geometryCoords);
+  }
+}
+
+static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
+  Sha1_UpdateU64(hash, rule->type);
+  Sha1_UpdateU64(hash, array_len(rule->prefixes));
+  for (uint32_t i = 0; i < array_len(rule->prefixes); ++i) {
+    size_t len;
+    const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], &len);
+    Sha1_UpdateBuffer(hash, prefix, len);
+  }
+  fingerprintHiddenString(hash, rule->filter_exp_str);
+  Sha1_UpdateCString(hash, rule->lang_field);
+  Sha1_UpdateCString(hash, rule->score_field);
+  Sha1_UpdateCString(hash, rule->payload_field);
+  Sha1_UpdateDouble(hash, rule->score_default);
+  Sha1_UpdateU64(hash, rule->lang_default);
+  Sha1_UpdateU64(hash, rule->index_all);
+}
+
+// Hash values individually: raw structs contain padding, pointers, and live index state.
+static void schemaFingerprint(Sha1Context *hash, const void *value) {
+  const IndexSpec *sp = value;
+  Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_VERSION);
+  Sha1_UpdateU64(hash, sp->flags & ~Index_HasSmap);
+  Sha1_UpdateU64(hash, sp->numFields);
+  for (int i = 0; i < sp->numFields; ++i) {
+    fingerprintField(hash, &sp->fields[i], sp->diskSpec != NULL);
+  }
+  fingerprintRule(hash, sp->rule);
+  if (sp->flags & Index_HasCustomStopwords) {
+    Sha1_UpdateU64(hash, StopWordList_Fingerprint(sp->stopwords));
+  }
+  Sha1_UpdateU64(hash, sp->smap ? SynonymMap_Fingerprint(sp->smap) : 0);
+  if (sp->flags & Index_Temporary) {
+    Sha1_UpdateU64(hash, sp->timeout);
+  }
+}
+
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp) {
+  return Sha1_ComputeValue(schemaFingerprint, sp);
 }
 
 /**
