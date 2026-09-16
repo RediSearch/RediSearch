@@ -1135,8 +1135,7 @@ def testLoadAllManyDynamicFields(env):
     env.assertEqual(rows, exp)
 
 def testLoadAllWideCoordinatorRow(env):
-    """LOAD * a row wide enough for by-name writes to promote the RLookup name
-    index lazily, while preserving every dynamic field."""
+    """LOAD * preserves every dynamic field in a wide coordinator row."""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'marker', 'TEXT').ok()
     fields = {f'field{i}': i for i in range(24)}

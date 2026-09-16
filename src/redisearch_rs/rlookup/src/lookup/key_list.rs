@@ -76,29 +76,35 @@ impl KeyStore<'_> {
         }
     }
 
-    fn find_slot(&self, name: &CStr) -> Option<u16> {
+    fn find_indexed_slot(&self, index: &NameIndex, name: &[u8]) -> Option<u16> {
+        let hash = index.hash_builder.hash_one(name);
+        index
+            .slots
+            .find(hash, |slot| {
+                self.live[usize::from(*slot)]
+                    .get()
+                    .name()
+                    .as_ref()
+                    .to_bytes()
+                    == name
+            })
+            .copied()
+    }
+
+    fn find_slot(&self, name: &[u8]) -> Option<u16> {
         if let Some(index) = &self.by_name {
-            let hash = index.hash_builder.hash_one(name);
-            return index
-                .slots
-                .find(hash, |slot| {
-                    self.live[usize::from(*slot)].get().name().as_ref() == name
-                })
-                .copied();
+            return self.find_indexed_slot(index, name);
         }
 
         let slot = self
             .live
             .iter()
-            .position(|key| key.get().name().as_ref() == name)?;
+            .position(|key| key.get().name().as_ref().to_bytes() == name)?;
         Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
     }
 
     fn enable_name_index(&mut self) {
-        if self.by_name.is_some() {
-            return;
-        }
-
+        debug_assert!(self.by_name.is_none());
         self.by_name = Some(NameIndex {
             slots: HashTable::with_capacity(self.live.len()),
             hash_builder: RandomState::new(),
@@ -111,13 +117,22 @@ impl KeyStore<'_> {
     }
 
     fn index_slot_first_wins(&mut self, slot: u16) {
-        let name = self.live[usize::from(slot)].get().name().as_ref();
+        let name = self.live[usize::from(slot)]
+            .get()
+            .name()
+            .as_ref()
+            .to_bytes();
         let index = self.by_name.as_ref().unwrap();
         let hash = index.hash_builder.hash_one(name);
         if index
             .slots
             .find(hash, |existing| {
-                self.live[usize::from(*existing)].get().name().as_ref() == name
+                self.live[usize::from(*existing)]
+                    .get()
+                    .name()
+                    .as_ref()
+                    .to_bytes()
+                    == name
             })
             .is_some()
         {
@@ -129,7 +144,7 @@ impl KeyStore<'_> {
         index.slots.insert_unique(hash, slot, |slot| {
             index
                 .hash_builder
-                .hash_one(live[usize::from(*slot)].get().name().as_ref())
+                .hash_one(live[usize::from(*slot)].get().name().as_ref().to_bytes())
         });
     }
 }
@@ -187,13 +202,15 @@ impl<'a> KeyList<'a> {
         u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
     }
 
-    pub(crate) fn promote_name_index_if_wide(&mut self) {
-        let Some(store) = self.store.as_mut() else {
-            return;
-        };
+    pub(crate) fn find_slot_for_write(&mut self, name: &[u8]) -> Option<u16> {
+        let store = self.store.as_mut()?;
+        if let Some(index) = &store.by_name {
+            return store.find_indexed_slot(index, name);
+        }
         if store.live.len() >= NAME_INDEX_MIN_KEYS {
             store.enable_name_index();
         }
+        store.find_slot(name)
     }
 
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
@@ -269,7 +286,7 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn find_slot(&self, name: &CStr) -> Option<u16> {
-        self.store.as_ref()?.find_slot(name)
+        self.store.as_ref()?.find_slot(name.to_bytes())
     }
 
     pub(crate) fn get(&self, slot: u16) -> Option<&RLookupKey<'a>> {
@@ -525,6 +542,53 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn write_key_by_name_promotes_wide_lookup() {
+        use crate::{RLookup, RLookupRow};
+        use value::SharedValue;
+
+        let mut lookup = RLookup::new();
+        let mut row = RLookupRow::new();
+        let mut names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        names.extend([
+            CString::new(b"".as_slice()).unwrap(),
+            CString::new(b"\xfffield".as_slice()).unwrap(),
+        ]);
+
+        for (index, name) in names.iter().enumerate() {
+            row.write_key_by_name_bytes(
+                &mut lookup,
+                name.to_bytes(),
+                SharedValue::new_num(index as f64),
+            );
+        }
+
+        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_some());
+        assert_eq!(row.len(), names.len());
+        for (index, name) in names.iter().enumerate() {
+            row.write_key_by_name_bytes(
+                &mut lookup,
+                name.to_bytes(),
+                SharedValue::new_num((index + 1) as f64),
+            );
+            let key = lookup
+                .find_key_by_name(name)
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert_eq!(
+                row.get(key).and_then(|value| value.as_num()),
+                Some((index + 1) as f64)
+            );
+        }
+    }
+
+    #[test]
     fn name_index_is_promoted_only_for_wide_key_stores() {
         let names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
             .map(|index| CString::new(format!("key{index}")).unwrap())
@@ -534,7 +598,7 @@ mod tests {
             keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
         }
 
-        keys.promote_name_index_if_wide();
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
         assert!(keys.store.as_ref().unwrap().by_name.is_none());
 
         keys.push(RLookupKey::new(
@@ -543,8 +607,8 @@ mod tests {
         ));
         assert!(keys.store.as_ref().unwrap().by_name.is_none());
 
-        keys.promote_name_index_if_wide();
-        keys.promote_name_index_if_wide();
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
         keys.push(RLookupKey::new(
             names[NAME_INDEX_MIN_KEYS].as_c_str(),
             RLookupKeyFlags::empty(),
@@ -583,7 +647,7 @@ mod tests {
             keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
         }
 
-        keys.promote_name_index_if_wide();
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
         assert!(keys.store.as_ref().unwrap().by_name.is_some());
         assert_eq!(keys.find_slot(c"pre"), Some(0));
 

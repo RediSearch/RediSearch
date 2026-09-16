@@ -182,6 +182,21 @@ impl<'a> RLookupRow<'a> {
         val: SharedValue,
     ) {
         let name = name.into();
+        self.write_key_by_name_bytes(rlookup, name.to_bytes(), val);
+    }
+
+    /// Like [`Self::write_key_by_name`], accepting name bytes without a NUL terminator.
+    /// Existing names need no [`CStr`] validation; new names are copied into the lookup.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` contains a NUL byte.
+    pub fn write_key_by_name_bytes(
+        &mut self,
+        rlookup: &mut RLookup<'a>,
+        name: &[u8],
+        val: SharedValue,
+    ) {
         let key = rlookup.get_or_create_key_by_name(name);
         self.write_key(key, val);
     }

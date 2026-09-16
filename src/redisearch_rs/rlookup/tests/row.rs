@@ -609,33 +609,31 @@ fn write_multiple_different_keys() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn write_key_by_name_promotes_wide_lookup() {
+fn write_key_by_name_bytes_owns_binary_and_empty_names() {
     let mut lookup = RLookup::new();
     let mut row = RLookupRow::new();
-    let names: Vec<_> = (0..25)
-        .map(|index| CString::new(format!("key{index}")).unwrap())
-        .collect();
-
-    for (index, name) in names.iter().enumerate() {
-        row.write_key_by_name(
-            &mut lookup,
-            name.to_owned(),
-            SharedValue::new_num(index as f64),
-        );
-    }
-
-    assert_eq!(row.len(), names.len());
-    for (index, name) in names.iter().enumerate() {
+    for name in [b"".as_slice(), b"\xfffield"] {
+        let mut source = name.to_vec();
+        row.write_key_by_name_bytes(&mut lookup, &source, SharedValue::new_num(1.0));
+        source.fill(b'x');
+        row.write_key_by_name_bytes(&mut lookup, name, SharedValue::new_num(2.0));
+        let name = CString::new(name).unwrap();
         let key = lookup
-            .find_key_by_name(name)
+            .find_key_by_name(&name)
             .unwrap()
             .into_current()
             .unwrap();
-        assert_eq!(
-            row.get(key).and_then(|value| value.as_num()),
-            Some(index as f64)
-        );
+        assert_eq!(row.get(key).and_then(|value| value.as_num()), Some(2.0));
     }
+    assert_eq!(row.len(), 2);
+}
+
+#[test]
+#[should_panic(expected = "field names cannot contain NUL")]
+fn write_key_by_name_bytes_rejects_interior_nul() {
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+    row.write_key_by_name_bytes(&mut lookup, b"field\0suffix", SharedValue::null_static());
 }
 
 fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {

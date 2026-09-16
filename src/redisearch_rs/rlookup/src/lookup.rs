@@ -23,7 +23,12 @@ use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
 use redis_json_api::RedisJsonApi;
 use redis_module::RedisString;
-use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr::NonNull};
+use std::{
+    borrow::Cow,
+    ffi::{CStr, CString},
+    pin::Pin,
+    ptr::NonNull,
+};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut, Iter, IterMut};
@@ -199,15 +204,17 @@ impl<'a> RLookup<'a> {
     }
 
     /// Resolve a writable key by name, lazily indexing wide lookups before the search.
-    pub(crate) fn get_or_create_key_by_name(&mut self, name: Cow<'a, CStr>) -> &RLookupKey<'a> {
-        self.keys.promote_name_index_if_wide();
-        let slot = if let Some(slot) = self.keys.find_slot(&name) {
+    pub(crate) fn get_or_create_key_by_name(&mut self, name: &[u8]) -> &RLookupKey<'a> {
+        let slot = if let Some(slot) = self.keys.find_slot_for_write(name) {
             slot
         } else {
             // By-name callers only promise that the source string is valid for this call. Existing
             // keys merely compare against it, but a newly inserted key must outlive that buffer.
-            self.get_key_write_slot(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("a missing key must be writable")
+            self.get_key_write_slot(
+                CString::new(name).expect("field names cannot contain NUL"),
+                RLookupKeyFlags::empty(),
+            )
+            .expect("a missing key must be writable")
         };
         self.keys.get(slot).unwrap()
     }
