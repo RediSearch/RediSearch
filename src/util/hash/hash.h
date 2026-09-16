@@ -37,15 +37,9 @@ void Sha1_UpdateCString(Sha1Context *ctx, const char *value);
 // Prints to buffer the hash, the buffer's length is assumed to be at least SHA1_TEXT_MAX_LENGTH + 1
 void Sha1_FormatIntoBuffer(const Sha1 *sha1, char *buffer);
 
-// The leading 8 bytes of the hash as a 64-bit value, most significant byte first. Built byte
-// by byte rather than memcpy'd, so it reads the same on either endianness and can therefore
-// be compared across hosts.
+// The leading two SHA-1 words as a host-independent 64-bit value.
 static inline uint64_t Sha1_LeadingU64(const Sha1 *sha1) {
-  uint64_t out = 0;
-  for (size_t i = 0; i < sizeof(out); i++) {
-    out = (out << 8) | (uint64_t)sha1->hash[i];
-  }
-  return out;
+  return ((uint64_t)sha1->hash[0] << 32) | sha1->hash[1];
 }
 
 #ifdef __cplusplus
