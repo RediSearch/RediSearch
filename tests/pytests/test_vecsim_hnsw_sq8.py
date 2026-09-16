@@ -225,11 +225,13 @@ def test_hnsw_sq8_resize_limit_includes_backend_normalization():
             env.assertEqual(to_dict(info['BACKEND_INDEX'])['BLOCK_SIZE'], 1, message=info)
             env.expect('FT.DROPINDEX', 'idx').ok()
         else:
+            load_error = None
             try:
                 env.dumpAndReload()
-                env.assertTrue(False, message='Expected RDB rejection for backend normalization')
             except ResponseError as error:
+                load_error = error
                 env.assertContains('Error trying to load the RDB dump', str(error))
+            env.assertIsNotNone(load_error, message='Expected RDB rejection for backend normalization')
     env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 0).ok()
 
 
@@ -242,13 +244,15 @@ def test_hnsw_sq8_reload_rejects_full_precision_resize_limit():
         'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4,
     ])
     env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 2000).ok()
+    load_error = None
     try:
         env.dumpAndReload()
-        env.assertTrue(False, message='Expected SQ8 RDB loading to reject the resize limit')
     except ResponseError as error:
+        load_error = error
         env.assertContains('Error trying to load the RDB dump', str(error))
     finally:
         env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', 0).ok()
+    env.assertIsNotNone(load_error, message='Expected SQ8 RDB loading to reject the resize limit')
 
 
 def sq8_vector(value, data_type='FLOAT32'):

@@ -13,6 +13,7 @@
 #include "redismock/redismock.h"
 #include "synonym_map.h"
 #include "trie/trie.h"
+#include <array>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 
 extern "C" {
@@ -1060,19 +1061,18 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
 }
 
 TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
-  const char *args[] = {
+  std::array args{
       "SCHEMA", "v",  "VECTOR",          "HNSW", "10",          "TYPE", "FLOAT32",
       "DIM",    "64", "DISTANCE_METRIC", "L2",   "COMPRESSION", "SQ8",  "TRAINING_THRESHOLD",
       "2048",
   };
   QueryError err = QueryError_Default();
-  StrongRef originalRef =
-      IndexSpec_ParseC(NULL, "hnsw_sq8_idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef originalRef = IndexSpec_ParseC(nullptr, "hnsw_sq8_idx", args.data(), args.size(), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  IndexSpec *original = (IndexSpec *)StrongRef_Get(originalRef);
+  auto *original = static_cast<IndexSpec *>(StrongRef_Get(originalRef));
   ASSERT_TRUE(original != nullptr);
   std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> originalPtr(
-      original, [](IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
+      original, [](const IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
 
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_TRUE(io != nullptr);
@@ -1087,11 +1087,11 @@ TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
   IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
   ASSERT_TRUE(loaded != nullptr) << QueryError_GetUserError(&status);
   std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
-      loaded, [](IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
+      loaded, [](const IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
 
   int loadedFieldIndex = findVectorField(loaded);
   ASSERT_GE(loadedFieldIndex, 0);
-  TieredIndexParams *loadedTiered =
+  const TieredIndexParams *loadedTiered =
       &loaded->fields[loadedFieldIndex].vectorOpts.vecSimParams.algoParams.tieredParams;
   EXPECT_EQ(VecSimQuant_SQ8, loadedTiered->primaryIndexParams->algoParams.hnswParams.quantType);
   EXPECT_EQ(2048u, loadedTiered->specificParams.tieredHnswParams.QuantNormalizationSetSize);
@@ -1117,7 +1117,7 @@ TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
 
   VecSimParams legacyParams = {};
   ASSERT_EQ(REDISMODULE_OK, VecSim_RdbLoad_v4(legacyIo, &legacyParams, originalRef, "v"));
-  HNSWParams *legacyHnsw =
+  const HNSWParams *legacyHnsw =
       &legacyParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams;
   EXPECT_EQ(VecSimQuant_NONE, legacyHnsw->quantType);
   EXPECT_EQ(0u, legacyParams.algoParams.tieredParams.specificParams.tieredHnswParams
@@ -1127,17 +1127,16 @@ TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
 }
 
 TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
-  const char *args[] = {
+  std::array args{
       "SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "64", "DISTANCE_METRIC", "L2",
   };
   QueryError err = QueryError_Default();
-  StrongRef specRef =
-      IndexSpec_ParseC(NULL, "hnsw_sq8_invalid", args, sizeof(args) / sizeof(*args), &err);
+  StrongRef specRef = IndexSpec_ParseC(nullptr, "hnsw_sq8_invalid", args.data(), args.size(), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   auto *spec = static_cast<IndexSpec *>(StrongRef_Get(specRef));
   ASSERT_NE(spec, nullptr);
   std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
-      spec, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+      spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
 
   struct InvalidParams {
     uint64_t compression;
@@ -1148,7 +1147,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     VecSimMetric metric = VecSimMetric_L2;
     bool disk = false;
   };
-  const InvalidParams cases[] = {
+  const std::array<InvalidParams, 12> cases{{
       {2, 0, VecSimType_FLOAT32, 0},
       {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
       {VecSimQuant_SQ8, HNSW_QUANT_MAX_TRAINING_THRESHOLD + 1, VecSimType_FLOAT32, 0},
@@ -1161,7 +1160,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
-  };
+  }};
   for (const auto &test : cases) {
     SCOPED_TRACE(::testing::Message()
                  << "compression=" << test.compression << " threshold=" << test.threshold

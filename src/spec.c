@@ -618,7 +618,7 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
                         "COMPRESSION is not supported for disk-based vector indexes");
     return 0;
   }
-  VecSimParams *estimateParams = primaryParams;
+  const VecSimParams *estimateParams = primaryParams;
   if (hnswParams->quantType == VecSimQuant_SQ8) {
     estimateParams = params;
   }
