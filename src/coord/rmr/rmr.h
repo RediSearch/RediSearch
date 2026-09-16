@@ -59,9 +59,10 @@ void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRang
 void MR_InitLocalNodeId();
 
 /* @brief Set the local node ID for this shard while holding the write lock.
- * @param node_id The node ID string to set. Will be duplicated internally.
+ * @param node_id The node ID bytes to copy, or NULL to clear the ID.
+ * @param len The number of bytes to copy; no terminating NUL is required.
  */
-void MR_SetLocalNodeId(const char *node_id);
+void MR_SetLocalNodeId(const char *node_id, size_t len);
 
 /* @brief Get the local node ID for this shard.
  * The caller must call MR_ReleaseLocalNodeIdReadLock() when done using the returned string.
