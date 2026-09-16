@@ -3503,7 +3503,6 @@ bool should_return_error(QueryErrorCode errCode) {
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout) {
   RedisModuleBlockedClient *bc = NULL;
-  RedisModuleCtx *ctx = NULL;
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx *rCtx = NULL;
   int profile = 0;
@@ -3541,7 +3540,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   }
 
   bc = MRCtx_GetBlockedClient(mc);
-  ctx = RedisModule_GetThreadSafeContext(bc);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
 
@@ -3610,7 +3608,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 
   if (!profile) {
     for (int i = 0; i < count; ++i) {
-      rCtx->processReply(replies[i], rCtx, ctx);
+      rCtx->processReply(replies[i], rCtx, RSDummyContext);
       if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
         goto cleanup;
       }
@@ -3630,7 +3628,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
-      rCtx->processReply(mr_reply, rCtx, ctx);
+      rCtx->processReply(mr_reply, rCtx, RSDummyContext);
       if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
         goto cleanup;
       }
@@ -3679,10 +3677,6 @@ cleanup:
   if (bc && !fromTimeout && !QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
   }
-  if (ctx) {
-    RedisModule_FreeThreadSafeContext(ctx);
-  }
-
   QueryRequest_SignalResultsComplete(&req->base);
 
   return REDISMODULE_OK;
@@ -4554,8 +4548,7 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
   UNUSED(ctx);
   QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
-  searchRequestCtx *req = QueryRequet_GetSearch(request);
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestTimeout_MarkTimedOut(&request->timeout);
 }
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
