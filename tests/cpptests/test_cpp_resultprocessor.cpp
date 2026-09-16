@@ -741,6 +741,83 @@ TEST_F(DepleterDrainTest, nextPrefixAndDrainedOwnershipSurviveRemainingBufferCle
   EXPECT_NE(nullptr, SearchResult_GetScoreExplain(&result));
 }
 
+TEST_F(DepleterDrainTest, nextAndDrainClaimOrdersPreserveExclusivePayloadOwnership) {
+  RLookup lookup = RLookup_New();
+  source.key = RLookup_GetKey_Write(&lookup, "payload", RLOOKUP_F_NOFLAGS);
+  RLookup_Seal(&lookup);
+  source.scores = {1, 2, 3};
+  source.values = {RSValue_NewNumber(1), RSValue_NewNumber(2), RSValue_NewNumber(3)};
+  for (bool nextFirst : {false, true}) {
+    SCOPED_TRACE(nextFirst);
+    if (!depleter) {
+      depleter = RPDepleter_New();
+      depleter->parent = &qctx;
+      depleter->upstream = &source;
+      source.position = 0;
+    }
+    ASSERT_EQ(RS_RESULT_OK, depleter->Next(depleter, &result));
+    EXPECT_EQ(1, SearchResult_GetDocId(&result));
+    SearchResult_Clear(&result);
+
+    static thread_local bool pauseFree = false;
+    static std::atomic<bool> entered;
+    static std::atomic<bool> release;
+    static decltype(RedisModule_Free) originalFree;
+    entered.store(false);
+    release.store(false);
+    originalFree = RedisModule_Free;
+    RedisModule_Free = [](void *ptr) {
+      if (pauseFree) {
+        pauseFree = false;
+        entered.store(true);
+        while (!release.load()) std::this_thread::yield();
+      }
+      originalFree(ptr);
+    };
+    SearchResult next = SearchResult_New();
+    SearchResult remainder = SearchResult_New();
+    int status = RS_RESULT_MAX;
+    std::jthread worker([this, nextFirst, &next, &status] {
+      if (nextFirst) {
+        // The container free occurs after Yield has claimed and transferred the row.
+        pauseFree = true;
+      } else {
+        entered.store(true);
+        while (!release.load()) std::this_thread::yield();
+      }
+      status = depleter->Next(depleter, &next);
+      pauseFree = false;
+    });
+    bool paused = RS::WaitForCondition([] { return entered.load(); }, 5);
+    if (paused) {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+      EXPECT_EQ(nextFirst ? 3 : 2, SearchResult_GetDocId(&result));
+    }
+    release.store(true);
+    worker.join();
+    RedisModule_Free = originalFree;
+    EXPECT_TRUE(paused);
+    EXPECT_EQ(nextFirst ? RS_RESULT_OK : RS_RESULT_TIMEDOUT, status);
+    if (nextFirst) {
+      EXPECT_EQ(2, SearchResult_GetDocId(&next));
+    } else {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &remainder));
+      EXPECT_EQ(3, SearchResult_GetDocId(&remainder));
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &remainder));
+    depleter->Free(depleter);
+    depleter = nullptr;
+    EXPECT_EQ(1, RSValue_Refcount(source.values[0]));
+    EXPECT_EQ(2, RSValue_Refcount(source.values[1]));
+    EXPECT_EQ(2, RSValue_Refcount(source.values[2]));
+    SearchResult_Destroy(&next);
+    SearchResult_Destroy(&remainder);
+    SearchResult_Clear(&result);
+    for (auto *value : source.values) EXPECT_EQ(1, RSValue_Refcount(value));
+  }
+  RLookup_Cleanup(&lookup);
+}
+
 TEST_F(DepleterDrainTest, returnAndFailKeepTheirExistingTimeoutBehavior) {
   source.scores = {1, 2};
   source.terminal = RS_RESULT_TIMEDOUT;
