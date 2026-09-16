@@ -14,6 +14,7 @@
 #include "config.h"
 #include "coord/rmr/chan.h"
 #include "hybrid/hybrid_request.h"
+#include "module.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
@@ -191,6 +192,9 @@ void QueryRequest_Free(QueryRequest *request) {
       return;
     case QUERY_REQUEST_KIND_HYBRID:
       HybridRequest_Free((HybridRequest *)request);
+      return;
+    case QUERY_REQUEST_KIND_COORD_SEARCH:
+      searchRequestCtx_Free((searchRequestCtx *)request);
       return;
     default:
       RS_ABORT_ALWAYS("Invalid query request kind");

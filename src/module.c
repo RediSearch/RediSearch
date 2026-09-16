@@ -2241,7 +2241,7 @@ static searchRequestCtx* searchRequestCtx_New(void) {
   return rm_calloc(1, sizeof(searchRequestCtx));
 }
 
-static void searchRequestCtx_Free(searchRequestCtx *r) {
+void searchRequestCtx_Free(searchRequestCtx *r) {
   if(r->queryString) {
     rm_free(r->queryString);
   }
@@ -2256,6 +2256,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
   if(r->requiredFields) {
     array_free(r->requiredFields);
   }
+  QueryRequest_Destroy(&r->base);
   rm_free(r);
 }
 
@@ -2379,17 +2380,13 @@ cleanup:
   return NULL;
 }
 
-searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
-
-  searchRequestCtx *req = searchRequestCtx_New();
-
+int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, QueryError *status) {
   rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     // Missing QUERY keyword is the only error that can occur in rscParseProfile
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
-    searchRequestCtx_Free(req);
-    return NULL;
+    return REDISMODULE_ERR;
   }
 
   int argvOffset = 2 + req->profileArgs;
@@ -2456,8 +2453,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       } else {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Error parsing arguments");
       }
-      searchRequestCtx_Free(req);
-      return NULL;
+      return REDISMODULE_ERR;
     }
   }
 
@@ -2481,11 +2477,10 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   if (req->limit < 0 || req->offset < 0) {
     // Report the same error the shard's parser (`handleCommonArgs`) produces for a negative
     // LIMIT: it reads the values with AC_GetU64, which rejects negatives as non-numeric. Without
-    // setting the error here, `rscParseRequest` returns NULL with an empty status and the caller
+    // setting the error here, `rscParseRequest` returns an error with an empty status and the caller
     // replies success for a malformed command.
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
-    searchRequestCtx_Free(req);
-    return NULL;
+    return REDISMODULE_ERR;
   }
   if (req->limit == 0 && req->offset != 0) {
     // `LIMIT <non-zero offset> 0` is rejected here rather than by the shards: the fan-out below
@@ -2494,8 +2489,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     // the reply identical to standalone (`handleCommonArgs`) without a round trip to the shards.
     QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
                         "The `offset` of the LIMIT must be 0 when `num` is 0");
-    searchRequestCtx_Free(req);
-    return NULL;
+    return REDISMODULE_ERR;
   }
   req->requestedResultsCount = req->limit + req->offset;
 
@@ -2505,8 +2499,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     // Get the sort field name
     const char *sortKey = AC_GetStringNC(&sortbyArgs, NULL);
     if (!sortKey) {
-      searchRequestCtx_Free(req);
-      return NULL;
+      return REDISMODULE_ERR;
     }
     // Create sortby context
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -2542,8 +2535,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
   if (AC_IsInitialized(&dialectArgs) && dialectArgs.argc >= 1) {
     if (parseDialect(&dialect, &dialectArgs, status) != REDISMODULE_OK) {
-      searchRequestCtx_Free(req);
-      return NULL;
+      return REDISMODULE_ERR;
     }
   }
 
@@ -2553,8 +2545,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, req->queryStringLen,
                                                        argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
-        searchRequestCtx_Free(req);
-        return NULL;
+        return REDISMODULE_ERR;
       }
       if (knnCtx != NULL) {
         setKNNSpecialCase(req, knnCtx);
@@ -2565,8 +2556,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   // Parse FORMAT
   if (AC_IsInitialized(&formatArgs) && formatArgs.argc >= 1) {
     if (parseValueFormat(&req->format, &formatArgs, status) != REDISMODULE_OK) {
-      searchRequestCtx_Free(req);
-      return NULL;
+      return REDISMODULE_ERR;
     }
   }
 
@@ -2610,6 +2600,25 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     }
   }
 
+  return REDISMODULE_OK;
+}
+
+static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc, int parseArgc,
+                                              size_t queryTimeoutMS, QueryError *status) {
+  searchRequestCtx *req = searchRequestCtx_New();
+  RequestConfig requestConfig = RSGlobalConfig.requestConfigParams;
+  requestConfig.queryTimeoutMS = (long long)MIN(queryTimeoutMS, (size_t)LLONG_MAX);
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_COORD_SEARCH, &requestConfig, argv, argc);
+  req->base.args.parseArgc = parseArgc;
+
+  if (rscParseRequest(req, argv, parseArgc, status) != REDISMODULE_OK) {
+    searchRequestCtx_Free(req);
+    return NULL;
+  }
+
+  req->base.args.queryOffset = 2 + req->profileArgs;
+  req->base.async.requiresAggregateResultsSync =
+      requestConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
   return req;
 }
 
@@ -4831,7 +4840,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Allocate searchRequestCtx on main thread for partial timeout support.
   // This ensures the timeout callback can always access it (even if parsing hasn't completed).
   // queryString == NULL indicates parsing hasn't completed yet.
-  searchRequestCtx *req = rscParseRequest(argv, parse_argc, &status);
+  searchRequestCtx *req = initSearchRequestCtx(argv, argc, parse_argc, queryTimeoutMS, &status);
   if (!req) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);

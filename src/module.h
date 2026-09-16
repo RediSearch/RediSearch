@@ -103,6 +103,8 @@ static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
 struct searchReducerCtx;
 
 typedef struct {
+  QueryRequest base;
+
   char *queryString;
   size_t queryStringLen;
   long long offset;
@@ -133,6 +135,16 @@ typedef struct {
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
+
+#ifdef __cplusplus
+static_assert(offsetof(searchRequestCtx, base) == 0,
+              "QueryRequest must be the first searchRequestCtx field");
+#else
+_Static_assert(offsetof(searchRequestCtx, base) == 0,
+               "QueryRequest must be the first searchRequestCtx field");
+#endif
+
+void searchRequestCtx_Free(searchRequestCtx *r);
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 

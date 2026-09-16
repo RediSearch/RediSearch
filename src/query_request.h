@@ -60,6 +60,7 @@ typedef struct {
 typedef enum {
   QUERY_REQUEST_KIND_AREQ,
   QUERY_REQUEST_KIND_HYBRID,
+  QUERY_REQUEST_KIND_COORD_SEARCH
 } QueryRequestKind;
 
 typedef enum {
