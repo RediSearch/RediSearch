@@ -506,6 +506,12 @@ int isRdbLoading(RedisModuleCtx *ctx);
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status);
 
+// Bump whenever the schema members or their hash encoding change.
+#define SCHEMA_FINGERPRINT_VERSION 1
+
+// Deterministic hash of schema values, independent of RDB settings and shard data.
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp);
+
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
@@ -693,6 +699,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 * @return the formatted name of the index
 */
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
@@ -713,7 +720,19 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+// Callback for Indexes_ForEachSpec: one spec, plus the caller's opaque user data.
+typedef void (*IndexesSpecVisitor)(IndexSpec *sp, void *ud);
+
+// Visit every spec in the global registry, in registry order. Sets and clears
+// the crash-report thread-local (CurrentThread_SetIndexSpec) around each call,
+// so callbacks must not.
+void Indexes_ForEachSpec(IndexesSpecVisitor visit, void *ud);
+
 void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
+
+// Replies with this shard's internal _FT._LIST WITHCLUSTERSTATE payload. node_id may be NULL when
+// unknown. Fingerprints are compared only within matching recipe/version groups.
+void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id);
 
 //---------------------------------------------------------------------------------------------
 

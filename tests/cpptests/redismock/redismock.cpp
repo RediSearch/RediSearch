@@ -583,6 +583,10 @@ int RMCK_CreateCommand(RedisModuleCtx *ctx, const char *s, RedisModuleCmdFunc ha
   return REDISMODULE_OK;
 }
 
+static int RMCK_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
+  return REDISMODULE_OK;
+}
+
 RedisModuleCommand *RMCK_GetCommand(RedisModuleCtx *ctx, const char *s) {
   auto it = RedisModuleCommand::commands.find(s);
   if (it == RedisModuleCommand::commands.end()) {
@@ -1354,6 +1358,7 @@ static void registerApis() {
 
   REGISTER_API(CreateCommand);
   REGISTER_API(GetCommand);
+  REGISTER_API(SetCommandInfo);
   REGISTER_API(CreateSubcommand);
   REGISTER_API(CreateDataType);
   REGISTER_API(ModuleTypeSetValue);

@@ -61,6 +61,7 @@
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
+#include "coord/index_list_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
 #include "fast_float/fast_float_strtod.h"
@@ -1104,14 +1105,24 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+// Shard-side _FT._LIST; WITHCLUSTERSTATE replies the diagnostic payload the reducer consumes.
+int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  Indexes_List(&_reply, false);
-  return REDISMODULE_OK;
+  if (argc < 2) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    Indexes_List(&_reply, false);
+    return REDISMODULE_OK;
+  }
+
+  // argc == 2
+  if (!RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+    return RedisModule_ReplyWithError(ctx, "Unknown argument");
+  }
+
+  return IndexList_ReplyLocalPayload(ctx);
 }
 
 #define RM_TRY_F(f, ...)                                                       \
@@ -1351,8 +1362,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       return REDISMODULE_ERR;
   }
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_INDEX_LIST_CMD, IndexList, "readonly",
-         0, 0, 0, "slow admin", false))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_INDEX_LIST_CMD_INTERNAL, IndexListInternal, "readonly", 0, 0,
+                               0, "", true))
+  const RedisModuleCommandInfo listInternalInfo = {
+      .version = REDISMODULE_COMMAND_INFO_VERSION,
+      .tips = "dont_cache",
+      .arity = -1,
+  };
+  RM_TRY(RedisModule_SetCommandInfo(RedisModule_GetCommand(ctx, RS_INDEX_LIST_CMD_INTERNAL),
+                                    &listInternalInfo));
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand,
          "write deny-oom", INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
@@ -3049,6 +3067,43 @@ static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *c
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
 }
 
+// FT._LIST on the coordinator. The no-token form precedes every cluster and
+// blocking check: it must keep working inside MULTI/Lua and when the cluster is down.
+int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc > 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (argc == 2 && !RMUtil_StringEqualsCaseC(argv[1], "WITHCLUSTERSTATE")) {
+    return RedisModule_ReplyWithError(ctx, "Unknown argument");
+  }
+
+  if (argc == 1) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    Indexes_List(&_reply, false);
+    return REDISMODULE_OK;
+  }
+
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    return IndexList_ReplySingleShard(ctx);
+  }
+
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand_SetProtocol(&cmd, ctx);
+  MRCommand_SetPrefix(&cmd, "_FT");
+  struct MRCtx *mrctx = IndexList_CreateRequest(ctx, GetNumShards_UnSafe());
+  MR_Fanout(mrctx, IndexListClusterStateReducer, cmd, true);
+  return REDISMODULE_OK;
+}
+
 static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
@@ -3925,6 +3980,15 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
          SafeCmd(DistAggregateCommand), "readonly", 0, 0, 0, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, 0, "", false))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_INDEX_LIST_CMD_PUBLIC, SafeCmd(IndexListCommandHandler),
+                               "readonly", 0, 0, 0, "slow admin", false))
+  const RedisModuleCommandInfo listInfo = {
+      .version = REDISMODULE_COMMAND_INFO_VERSION,
+      .tips = "nondeterministic_output_order dont_cache",
+      .arity = -1,
+  };
+  RM_TRY(
+      RedisModule_SetCommandInfo(RedisModule_GetCommand(ctx, RS_INDEX_LIST_CMD_PUBLIC), &listInfo));
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, 0, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, 0, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, 0, "read", false))
@@ -3987,6 +4051,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+  MR_FreeLocalNodeId();
   if (config_ext_load) {
     RedisModule_FreeString(ctx, config_ext_load);
     config_ext_load = NULL;
