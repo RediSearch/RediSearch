@@ -15,7 +15,7 @@ from common import *
 from test_blocked_client_timeout import is_client_blocked
 
 
-def _exercise_cleanup(stage, debug_query=False):
+def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
     # Force each cancellation at a particular coordinator ownership transition.
     env = Env(moduleArgs='WORKERS 1 TIMEOUT 0', protocol=3)
     skipIfNoEnableAssert(env)
@@ -28,6 +28,7 @@ def _exercise_cleanup(stage, debug_query=False):
     }
     point = points.get(stage)
     cleanup_point = 'CoordSearchFreePrivData'
+    worker_done_point = 'CoordSearchWorkerDone'
     policies = ('return',) if debug_query else ('return', 'fail', 'return-strict')
     for policy in policies:
         cancellations = ('disconnect',) if policy == 'return' else ('timeout', 'disconnect')
@@ -55,6 +56,8 @@ def _exercise_cleanup(stage, debug_query=False):
 
             # The callback runs on main, so the observation point must self-release.
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', cleanup_point, 1).ok()
+            if hold_worker:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', worker_done_point).ok()
             coord_paused = stage == 'queued'
             if coord_paused:
                 env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -112,8 +115,14 @@ def _exercise_cleanup(stage, debug_query=False):
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', cleanup_point) == 1, {}),
                     'Redis never freed the completed blocked query', timeout=5)
+                if hold_worker:
+                    wait_for_condition(
+                        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', worker_done_point), {}),
+                        'Worker did not retain its transport reference through request cleanup', timeout=5)
                 env.assertTrue(env.cmd('PING'))
             finally:
+                if hold_worker:
+                    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', worker_done_point)
                 if coord_paused:
                     env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
                 elif stage == 'reduce':
@@ -170,3 +179,15 @@ def test_timeout_cleanup_during_reduce():
 def test_disconnect_cleanup_debug_before_dispatch():
     """The debug SEARCH entry must also complete a cancelled queued query."""
     _exercise_cleanup('queued', debug_query=True)
+
+
+@skip(cluster=False)
+def test_request_cleanup_before_worker_release():
+    """The worker may release its MRCtx reference after the request has been freed."""
+    _exercise_cleanup('queued', hold_worker=True)
+
+
+@skip(cluster=False)
+def test_request_cleanup_before_debug_worker_release():
+    """The debug worker must also finish without accessing the freed request."""
+    _exercise_cleanup('queued', debug_query=True, hold_worker=True)

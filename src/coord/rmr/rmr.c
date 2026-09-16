@@ -323,7 +323,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
       if (!timedOut) {
         RedisModule_BlockedClientMeasureTimeEnd(bc);
       }
-      RedisModule_UnblockClient(bc, ctx);
+      RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
     }
     MRCtx_DecrRef(ctx);
   }
@@ -357,7 +357,7 @@ static void uvFanoutRequest(void *p) {
     if (!MRCtx_IsTimedOut(mrctx)) {
       RedisModule_BlockedClientMeasureTimeEnd(bc);
     }
-    RedisModule_UnblockClient(bc, mrctx);
+    RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
     MRCtx_DecrRef(mrctx);
   }
 }
@@ -369,6 +369,8 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
     RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
         mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+    // Completion preserves the private data chosen by whoever blocked the client.
+    RedisModule_BlockClientSetPrivateData(mrctx->bc, mrctx);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
   }
   //Is possible that mrctx->fn may already be there and reducer to be null

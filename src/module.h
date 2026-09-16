@@ -106,7 +106,7 @@ struct searchReducerCtx;
 typedef struct {
   QueryRequest base;
 
-  struct MRCtx *mrctx;
+  struct MRCtx *mrctx;  // Owns the initial reference; workers and fanout retain their own.
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;
 
@@ -146,6 +146,12 @@ static_assert(offsetof(searchRequestCtx, base) == 0,
 _Static_assert(offsetof(searchRequestCtx, base) == 0,
                "QueryRequest must be the first searchRequestCtx field");
 #endif
+
+static inline searchRequestCtx *QueryRequest_GetSearch(QueryRequest *request) {
+  RS_ASSERT(request != NULL);
+  RS_ASSERT(request->kind == QUERY_REQUEST_KIND_COORD_SEARCH);
+  return (searchRequestCtx *)request;
+}
 
 void searchRequestCtx_Free(searchRequestCtx *r);
 
