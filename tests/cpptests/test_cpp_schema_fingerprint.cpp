@@ -26,7 +26,7 @@ class SchemaFingerprintTest : public ::testing::Test {
   }
 
   IndexSpec *parse(const char *name, std::initializer_list<const char *> args) {
-    QueryError err = {0};
+    QueryError err = {};
     std::vector<const char *> argv(args);
     StrongRef ref = IndexSpec_ParseC(name, argv.data(), argv.size(), &err);
     IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
