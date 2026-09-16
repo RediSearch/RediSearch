@@ -383,6 +383,59 @@ TEST_F(HybridMergerTest, DrainedPayloadSurvivesCleanupAndOverlappingFieldsAreRel
   }
 }
 
+TEST_F(HybridMergerTest, DrainUsesLatestSameSourceDuplicateAndReleasesDisplacedPayload) {
+  struct Source : MockUpstream {
+    const RLookupKey *key = nullptr;
+    RSValue *oldValue = RSValue_NewNumber(11);
+    RSValue *newValue = RSValue_NewNumber(22);
+    Source() : MockUpstream(0, {2.0, 8.0}, {1, 1}, 0, 2) {
+      Next = [](ResultProcessor *base, SearchResult *row) {
+        auto *self = static_cast<Source *>(base);
+        int rc = MockUpstream::NextFn(base, row);
+        if (rc == RS_RESULT_OK) {
+          auto *value = self->counter == 1 ? self->oldValue : self->newValue;
+          RSValue_IncrRef(value);
+          RLookup_WriteOwnKey(self->key, SearchResult_GetRowDataMut(row), value);
+        }
+        return rc;
+      };
+    }
+    ~Source() {
+      RSValue_DecrRef(oldValue);
+      RSValue_DecrRef(newValue);
+    }
+  } source;
+  QueryProcessingCtx qctx = {};
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  auto *lookup = CreateDummyLookupContext(1);
+  source.key = RLookup_GetKey_Write(const_cast<RLookup *>(lookup->sourceLookups[0]), "payload",
+                                    RLOOKUP_F_NOFLAGS);
+  auto *tailKey = RLookup_GetKey_Write(lookup->tailLookup, "payload", RLOOKUP_F_NOFLAGS);
+  ResultProcessor **upstreams = nullptr;
+  ResultProcessor *upstream = &source;
+  array_ensure_append_1(upstreams, upstream);
+  double weight = 1.0;
+  auto *merger = CreateLinearHybridMerger(upstreams, 1, &weight, lookup);
+  QITR_PushRP(&qctx, merger);
+  SearchResult row = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_ERROR, merger->Next(merger, &row));
+  EXPECT_EQ(1, RSValue_Refcount(source.oldValue));
+  EXPECT_EQ(RP_DRAIN_OK, merger->Drain(merger, &row));
+  EXPECT_EQ(1, SearchResult_GetDocId(&row));
+  EXPECT_DOUBLE_EQ(8.0, SearchResult_GetScore(&row));
+  EXPECT_EQ(1, RPHybridMerger_GetDrainCount(merger));
+  const auto *payload = RLookupRow_Get(tailKey, SearchResult_GetRowData(&row));
+  EXPECT_EQ(source.newValue, payload);
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  CleanupDummyLookupContext(lookup);
+  QITR_FreeChain(&qctx);
+  EXPECT_EQ(1, RSValue_Refcount(source.oldValue));
+  EXPECT_EQ(2, RSValue_Refcount(source.newValue));
+  EXPECT_DOUBLE_EQ(22, RSValue_Number_Get(source.newValue));
+  SearchResult_Destroy(&row);
+  EXPECT_EQ(1, RSValue_Refcount(source.newValue));
+}
+
 TEST_F(HybridMergerTest, DrainBeforeNextClosesPublicationWithoutReadingUpstream) {
   QueryProcessingCtx qitr = {0};
   qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
