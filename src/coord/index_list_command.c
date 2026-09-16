@@ -21,7 +21,7 @@
 #include "rmalloc.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
-#include "util/dict/dict.h"
+#include "util/dict.h"
 #include "util/arr/arr.h"
 
 #define FT_LIST_CS_KEY_INDEX "index"
