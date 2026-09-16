@@ -8,6 +8,7 @@
 */
 
 #include "hash.h"
+#include <boost/version.hpp>
 #include <boost/uuid/detail/sha1.hpp>
 #include <cstring>
 
