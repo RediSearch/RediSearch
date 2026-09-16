@@ -333,9 +333,11 @@ const char* MR_GetLocalNodeId(void) {
 }
 
 char *MR_DuplicateLocalNodeId(void) {
-  const char *id = MR_GetLocalNodeId();
-  char *copy = id ? rm_strdup(id) : NULL;
-  MR_ReleaseLocalNodeIdReadLock();
+  NodeIdRef *localNode = local_node_id_g;
+  RS_ASSERT(localNode != NULL);
+  pthread_rwlock_rdlock(&localNode->lock);
+  char *copy = localNode->node_id ? rm_strdup(localNode->node_id) : NULL;
+  pthread_rwlock_unlock(&localNode->lock);
   return copy;
 }
 
