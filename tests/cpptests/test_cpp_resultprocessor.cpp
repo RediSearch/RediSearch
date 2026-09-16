@@ -2438,6 +2438,57 @@ TEST_F(ResultProcessorTest, profileDrainPreservesStatusesAndSeparatesCompletedNe
   }
 }
 
+TEST_F(ResultProcessorTest, profileAccumulatesTimingWithoutCrossLaneUpdates) {
+  struct Source : ResultProcessor {
+    static void advanceClock() {
+      // Force a measurable interval without relying on sleep accuracy or an upper time bound.
+      rs_wall_clock start;
+      rs_wall_clock_init(&start);
+      while (rs_wall_clock_elapsed_ns(&start) < 1000) std::this_thread::yield();
+    }
+    Source() {
+      *static_cast<ResultProcessor *>(this) = {};
+      Next = [](ResultProcessor *, SearchResult *) {
+        advanceClock();
+        return RS_RESULT_OK;
+      };
+      Drain = [](ResultProcessor *, SearchResult *) {
+        advanceClock();
+        return RP_DRAIN_OK;
+      };
+    }
+  } source;
+  auto *profile = RPProfile_New(&source, nullptr);
+  SearchResult row = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_OK, profile->Next(profile, &row));
+  auto first = RPProfile_GetDrainSnapshot(profile);
+  EXPECT_EQ(1, first.nextCount);
+  EXPECT_GE(first.nextTime, 1000);
+  EXPECT_EQ(0, first.drainCount);
+  EXPECT_EQ(0, first.drainTime);
+  EXPECT_EQ(RP_DRAIN_OK, profile->Drain(profile, &row));
+  auto drained = RPProfile_GetDrainSnapshot(profile);
+  EXPECT_EQ(first.nextTime, drained.nextTime);
+  EXPECT_EQ(first.nextCount, drained.nextCount);
+  EXPECT_EQ(1, drained.drainCount);
+  EXPECT_GE(drained.drainTime, 1000);
+  EXPECT_EQ(RS_RESULT_OK, profile->Next(profile, &row));
+  auto next = RPProfile_GetDrainSnapshot(profile);
+  EXPECT_EQ(2, next.nextCount);
+  EXPECT_GE(next.nextTime, first.nextTime + 1000);
+  EXPECT_EQ(drained.drainTime, next.drainTime);
+  EXPECT_EQ(drained.drainCount, next.drainCount);
+  EXPECT_EQ(RP_DRAIN_OK, profile->Drain(profile, &row));
+  auto final = RPProfile_GetDrainSnapshot(profile);
+  EXPECT_EQ(next.nextTime, final.nextTime);
+  EXPECT_EQ(next.nextCount, final.nextCount);
+  EXPECT_EQ(2, final.drainCount);
+  EXPECT_GE(final.drainTime, drained.drainTime + 1000);
+  EXPECT_EQ(first.nextTime, drained.nextTime);
+  profile->Free(profile);
+  SearchResult_Destroy(&row);
+}
+
 TEST_F(ResultProcessorTest, profileDrainAndSnapshotDoNotWaitForInFlightNext) {
   struct Source : ResultProcessor {
     std::atomic<bool> entered{false}, release{false};
