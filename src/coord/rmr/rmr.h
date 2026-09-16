@@ -60,12 +60,13 @@ void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRang
 void MR_InitLocalNodeId();
 
 /* @brief Set the local node ID for this shard while holding the write lock.
- * @param node_id The node ID string to set. Will be duplicated internally.
+ * @param node_id The node ID bytes to copy, or NULL to clear the ID.
+ * @param len The number of bytes to copy; no terminating NUL is required.
  */
-void MR_SetLocalNodeId(const char *node_id);
+void MR_SetLocalNodeId(const char *node_id, size_t len);
 
 /* @brief Get the local node ID for this shard.
- * The caller must call MR_ReleaseLocalNodeId() when done using the returned string.
+ * The caller must call MR_ReleaseLocalNodeIdReadLock() when done using the returned string.
  */
 const char* MR_GetLocalNodeId(void);
 
@@ -73,6 +74,10 @@ const char* MR_GetLocalNodeId(void);
  * Must be called after MR_GetLocalNodeId() to release the read lock.
  */
 void MR_ReleaseLocalNodeIdReadLock();
+
+/* Copy the local node ID under its read lock. Returns NULL if unknown; the caller
+ * owns the copy and must release it with rm_free(). No lock remains held. */
+char *MR_DuplicateLocalNodeId(void);
 
 /* @brief Free the local node ID structure. */
 void MR_FreeLocalNodeId();
@@ -117,6 +122,11 @@ void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
+
+// Runs on the IO thread immediately before dispatch. The topology is borrowed
+// only for the callback; retain any needed snapshot in the command's private data.
+typedef void (*MRCtxBeforeFanoutCB)(struct MRCtx *ctx, const MRClusterTopology *topology);
+void MRCtx_SetBeforeFanoutCB(struct MRCtx *ctx, MRCtxBeforeFanoutCB cb);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
