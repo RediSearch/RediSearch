@@ -26,6 +26,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <array>
 
 #define NumberOfContexts 3
 
@@ -516,6 +517,68 @@ TEST_P(RPSafeDepleterTest, DrainPayloadOwnershipSurvivesCleanupAndRejectsLateRow
   if (transferred) EXPECT_DOUBLE_EQ(1, RSValue_Number_Get(transferred));
   SearchResult_Destroy(&result);
   EXPECT_EQ(1, RSValue_Refcount(source.values[0]));
+}
+
+TEST_P(RPSafeDepleterTest, NonOkPayloadIsReleasedWithoutPublishingIt) {
+  for (int terminal : {RS_RESULT_ERROR, RS_RESULT_TIMEDOUT}) {
+    for (bool drainWhilePending : {false, true}) {
+      SCOPED_TRACE(::testing::Message() << "terminal=" << terminal
+                                      << " drainWhilePending=" << drainWhilePending);
+      struct Source : MockUpstream {
+        RLookup lookup = RLookup_New();
+        const RLookupKey *key = RLookup_GetKey_Write(&lookup, "payload", 0);
+        std::array<RSValue *, 2> values = {RSValue_NewNumber(1), RSValue_NewNumber(2)};
+        std::atomic<bool> entered{false};
+        std::atomic<bool> release{false};
+
+        explicit Source(int terminal) : MockUpstream(1, terminal) {
+          RLookup_Seal(&lookup);
+          Next = [](ResultProcessor *base, SearchResult *row) {
+            auto *self = static_cast<Source *>(base);
+            int rc = MockUpstream::NextFn(base, row);
+            RSValue *value = self->values[rc == RS_RESULT_OK ? 0 : 1];
+            RSValue_IncrRef(value);
+            RLookup_WriteOwnKey(self->key, SearchResult_GetRowDataMut(row), value);
+            if (rc != RS_RESULT_OK) {
+              self->entered.store(true);
+              while (!self->release.load()) std::this_thread::yield();
+            }
+            return rc;
+          };
+        }
+        ~Source() {
+          for (auto *value : values) RSValue_DecrRef(value);
+          RLookup_Cleanup(&lookup);
+        }
+      } source(terminal);
+      QueryProcessingCtx qctx = {};
+      qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+      auto *depleter =
+          RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+      depleter->parent = &qctx;
+      depleter->upstream = &source;
+      RPSafeDepleter_StartDepletion(depleter);
+      bool entered = RS::WaitForCondition([&source] { return source.entered.load(); }, 5);
+      SearchResult result = SearchResult_New();
+      if (entered && drainWhilePending) {
+        EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+      }
+      source.release.store(true);
+      RPSafeDepleter_WaitForCompletion(depleter);
+      EXPECT_TRUE(entered);
+      EXPECT_EQ(1, RSValue_Refcount(source.values[1]));
+      if (entered && !drainWhilePending) {
+        EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+      }
+      EXPECT_EQ(source.values[0], RLookupRow_Get(source.key, SearchResult_GetRowData(&result)));
+      EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &result));
+      depleter->Free(depleter);
+      EXPECT_EQ(1, RSValue_Refcount(source.values[1]));
+      EXPECT_EQ(2, RSValue_Refcount(source.values[0]));
+      SearchResult_Destroy(&result);
+      EXPECT_EQ(1, RSValue_Refcount(source.values[0]));
+    }
+  }
 }
 
 // Instantiate the parameterized test with both true and false values
