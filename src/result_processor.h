@@ -221,8 +221,8 @@ typedef struct ResultProcessor {
    * budget; late Next completion must not reopen a finished drain.
    *
    * Constructors must initialize this callback. Processors without a custom
-   * implementation use RPDrain_EOF. Chain insertion also supplies that default
-   * for externally provided processors during migration.
+   * implementation use RPDrain_EOF. External providers must rebuild against
+   * this layout and initialize the callback before returning a processor.
    */
   RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
