@@ -4382,6 +4382,7 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   QueryError status = QueryError_Default();
 
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
     RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
@@ -5206,6 +5207,7 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   QueryError status = QueryError_Default();
 
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
     RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
