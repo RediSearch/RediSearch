@@ -4268,6 +4268,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
 
   // Append the prefixes of the index to the command
   StrongRef strong_ref = IndexSpecRef_Promote(spec_ref);
+  WeakRef_Release(spec_ref);
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
@@ -4297,9 +4298,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
   MRCommand_PrepareForDispatchTime(cmd, arg_pos);
   arg_pos += 2;
 
-  // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
-  WeakRef_Release(spec_ref);
 
   return REDISMODULE_OK;
 }
@@ -4309,6 +4308,7 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   QueryError status = QueryError_Default();
 
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
     RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
@@ -5094,6 +5094,7 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   QueryError status = QueryError_Default();
 
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
     RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
