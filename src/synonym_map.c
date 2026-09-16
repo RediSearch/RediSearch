@@ -8,6 +8,7 @@
 */
 #include "spec.h"
 #include "synonym_map.h"
+#include "util/hash/hash.h"
 #include "rmalloc.h"
 #include "fnv_ffi.h"
 #include "rmutil/rm_assert.h"
@@ -18,7 +19,7 @@
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
 
-static TermData* TermData_New(char* term) {
+static TermData* TermData_New(sds term) {
   TermData* t_data = rm_malloc(sizeof(TermData));
   t_data->term = term;
   t_data->groupIds = array_new(char*, INITIAL_CAPACITY);
@@ -26,9 +27,9 @@ static TermData* TermData_New(char* term) {
 }
 
 static void TermData_Free(TermData* t_data) {
-  rm_free(t_data->term);
+  sdsfree(t_data->term);
   for (size_t i = 0; i < array_len(t_data->groupIds); ++i) {
-    rm_free(t_data->groupIds[i]);
+    sdsfree(t_data->groupIds[i]);
   }
   array_free(t_data->groupIds);
   rm_free(t_data);
@@ -48,15 +49,14 @@ static SynonymMapResult TermData_AddId(TermData* t_data, const char* id) {
     if (unlikely(array_len(t_data->groupIds) >= MAX_SYNONYM_GROUP_IDS)) {
       return SYNONYM_MAP_ERR_MAX_GROUP_IDS;
     }
-    char* newId;
-    rm_asprintf(&newId, SYNONYM_PREFIX, id);
+    sds newId = sdscatprintf(sdsempty(), SYNONYM_PREFIX, id);
     array_append(t_data->groupIds, newId);
   }
   return SYNONYM_MAP_OK;
 }
 
 static TermData* TermData_Copy(TermData* t_data) {
-  TermData* copy = TermData_New(rm_strdup(t_data->term));
+  TermData* copy = TermData_New(sdsdup(t_data->term));
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
     SynonymMapResult ret = TermData_AddId(copy, t_data->groupIds[i] + 1 /*we do not need the ~*/);
     // If source is valid, copy should never fail (same number of group IDs)
@@ -67,11 +67,11 @@ static TermData* TermData_Copy(TermData* t_data) {
 
 // todo: fix
 static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
-  RedisModule_SaveStringBuffer(rdb, t_data->term, strlen(t_data->term) + 1);
+  RedisModule_SaveStringBuffer(rdb, t_data->term, sdslen(t_data->term) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(t_data->groupIds));
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
     RedisModule_SaveStringBuffer(rdb, t_data->groupIds[i] + 1 /* do not save the ~ */,
-                                 strlen(t_data->groupIds[i]));
+                                 sdslen(t_data->groupIds[i]));
   }
 }
 
@@ -82,7 +82,7 @@ TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
   uint64_t ids_len = 0;
 
   term = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-  t_data = TermData_New(rm_strdup(term));
+  t_data = TermData_New(sdsnew(term));
   RedisModule_Free(term);
   ids_len = LoadUnsigned_IOError(rdb, goto cleanup);
 
@@ -176,7 +176,7 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
   // Lowercase every input synonym up front. We will validate against the
   // limits before mutating the dictionary, so a failure leaves the map
   // unchanged.
-  char** lowered = rm_malloc(sizeof(char*) * size);
+  sds* lowered = rm_malloc(sizeof(*lowered) * size);
   for (size_t i = 0; i < size; i++) {
     char* s = rm_strdup(synonyms[i]);
     size_t len = strlen(s);
@@ -187,7 +187,8 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
     } else {
       s[len] = '\0';
     }
-    lowered[i] = s;
+    lowered[i] = sdsnewlen(s, len);
+    rm_free(s);
   }
 
   SynonymMapResult ret = SYNONYM_MAP_OK;
@@ -216,7 +217,7 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
 
   if (ret != SYNONYM_MAP_OK) {
     for (size_t i = 0; i < size; i++) {
-      rm_free(lowered[i]);
+      sdsfree(lowered[i]);
     }
     rm_free(lowered);
     return ret;
@@ -226,10 +227,10 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
   for (size_t i = 0; i < size; i++) {
     TermData* termData = dictFetchValue(smap->h_table, lowered[i]);
     if (termData) {
-      rm_free(lowered[i]);
+      sdsfree(lowered[i]);
     } else {
       termData = TermData_New(lowered[i]);
-      dictAdd(smap->h_table, lowered[i], termData);
+      dictAdd(smap->h_table, termData->term, termData);
     }
     SynonymMapResult r = TermData_AddId(termData, groupId);
     RS_LOG_ASSERT(r == SYNONYM_MAP_OK,
@@ -306,6 +307,33 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value) {
     TermData_RdbSave(rdb, val);
   }
   dictReleaseIterator(iter);
+}
+
+typedef struct {
+  const TermData* term;
+  uint32_t group;
+} SynonymFingerprintEntry;
+
+static void fingerprintSynonymEntry(Sha1Context* hash, const void* value) {
+  const SynonymFingerprintEntry* entry = value;
+  Sha1_UpdateBuffer(hash, entry->term->term, sdslen(entry->term->term));
+  const sds group = entry->term->groupIds[entry->group];
+  Sha1_UpdateBuffer(hash, group + 1, sdslen(group) - 1);
+}
+
+uint64_t SynonymMap_Fingerprint(const SynonymMap* smap) {
+  uint64_t acc = 0;
+  dictIterator* iter = dictGetIterator(smap->h_table);
+  const dictEntry* entry;
+  while ((entry = dictNext(iter))) {
+    const TermData* term = dictGetVal(entry);
+    for (uint32_t i = 0; i < array_len(term->groupIds); ++i) {
+      const SynonymFingerprintEntry pair = {.term = term, .group = i};
+      acc ^= Sha1_ComputeValue(fingerprintSynonymEntry, &pair);
+    }
+  }
+  dictReleaseIterator(iter);
+  return acc;
 }
 
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
