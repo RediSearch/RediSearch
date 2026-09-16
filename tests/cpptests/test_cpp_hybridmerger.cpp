@@ -30,6 +30,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <memory>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -249,6 +250,110 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 }
 
 class HybridMergerTest : public ::testing::Test {};
+
+class HybridMergerTimeoutTest : public ::testing::TestWithParam<RSTimeoutPolicy> {
+ protected:
+  struct Source : MockUpstream {
+    HybridMergerTimeoutTest *owner;
+    bool expireAtEof = false;
+    Source(HybridMergerTimeoutTest *owner, const std::vector<double> &scores)
+        : MockUpstream(0, scores), owner(owner) {
+      Next = [](ResultProcessor *rp, SearchResult *row) {
+        auto *self = static_cast<Source *>(rp);
+        int rc = MockUpstream::NextFn(rp, row);
+        if (rc == RS_RESULT_EOF && self->expireAtEof) self->owner->Expire();
+        return rc;
+      };
+    }
+  };
+
+  QueryProcessingCtx qitr = {};
+  QueryRequestTimeout timeout = {};
+  RedisSearchCtx sctx = {};
+  std::unique_ptr<Source> source;
+  HybridLookupContext *lookup = nullptr;
+  ResultProcessor *merger = nullptr;
+  RPStatus returnCodes[1] = {RS_RESULT_OK};
+  SearchResult row = SearchResult_New();
+  decltype(RedisModule_CreateTimer) originalCreateTimer = RedisModule_CreateTimer;
+
+  void SetUp() override {
+    // Clock checks are disabled by RS_IsMock unless the timer API is present.
+    RedisModule_CreateTimer = [](RedisModuleCtx *, mstime_t, RedisModuleTimerProc, void *) {
+      return RedisModuleTimerID{0};
+    };
+    qitr.timeoutPolicy = GetParam();
+    QueryRequestTimeout_Init(&timeout, GetParam(), 60000);
+    QueryRequestTimeout_BeginCycle(&timeout, GetParam() == TimeoutPolicy_ReturnStrict
+                                                 ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                                 : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    sctx.timeout = &timeout;
+  }
+
+  void Create(const std::vector<double> &scores) {
+    source = std::make_unique<Source>(this, scores);
+    ResultProcessor **upstreams = nullptr;
+    ResultProcessor *upstream = source.get();
+    array_ensure_append_1(upstreams, upstream);
+    double weights[] = {1.0};
+    lookup = CreateDummyLookupContext(1);
+    merger =
+        RPHybridMerger_New(&sctx, HybridScoringContext_NewLinear(weights, 1, HYBRID_DEFAULT_WINDOW),
+                           upstreams, 1, nullptr, nullptr, returnCodes, lookup, nullptr);
+    QITR_PushRP(&qitr, merger);
+  }
+
+  void Expire() {
+    if (GetParam() == TimeoutPolicy_ReturnStrict) {
+      QueryRequestTimeout_MarkTimedOut(&timeout);
+    } else {
+      *QueryRequestTimeout_GetClockDeadlineForUpdate(&timeout) = {0, 0};
+      timeout.source.clock.counter = QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT - 1;
+    }
+    EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  }
+
+  void TearDown() override {
+    SearchResult_Destroy(&row);
+    CleanupDummyLookupContext(lookup);
+    QITR_FreeChain(&qitr);
+    RedisModule_CreateTimer = originalCreateTimer;
+  }
+};
+
+TEST_P(HybridMergerTimeoutTest, ExhaustedNextKeepsEofAfterTimeout) {
+  Create({2.0});
+  ASSERT_EQ(RS_RESULT_OK, merger->Next(merger, &row));
+  SearchResult_Clear(&row);
+  Expire();
+  EXPECT_EQ(RS_RESULT_EOF, merger->Next(merger, &row));
+}
+
+TEST_P(HybridMergerTimeoutTest, EmptyNextKeepsEofWhenUpstreamExpiresTimeout) {
+  Create({});
+  source->expireAtEof = true;
+  EXPECT_EQ(RS_RESULT_EOF, merger->Next(merger, &row));
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+}
+
+TEST_P(HybridMergerTimeoutTest, PendingRowSurvivesNextTimeoutForDrain) {
+  Create({2.0, 4.0});
+  ASSERT_EQ(RS_RESULT_OK, merger->Next(merger, &row));
+  t_docId first = SearchResult_GetDocId(&row);
+  SearchResult_Clear(&row);
+  Expire();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &row));
+  if (GetParam() != TimeoutPolicy_Fail) {
+    ASSERT_EQ(RP_DRAIN_OK, merger->Drain(merger, &row));
+    EXPECT_NE(first, SearchResult_GetDocId(&row));
+    SearchResult_Clear(&row);
+    EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Policies, HybridMergerTimeoutTest,
+                         ::testing::Values(TimeoutPolicy_Return, TimeoutPolicy_Fail,
+                                           TimeoutPolicy_ReturnStrict));
 
 TEST_F(HybridMergerTest, DrainSkipsNextClaimWhileScorePreparationIsParked) {
   QueryProcessingCtx qitr = {0};

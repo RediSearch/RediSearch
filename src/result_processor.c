@@ -3165,14 +3165,18 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
  static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
-   if (hybridMergerIsDraining(self) || QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+   hybridMergerLock(self);
+   bool draining = self->draining;
+   bool exhausted = self->ready == NULL;
+   hybridMergerUnlock(self);
+   if (draining) return RS_RESULT_TIMEDOUT;
+   // Completed output keeps EOF precedence; a deadline must not consume a pending Drain row.
+   if (exhausted) return RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+   if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
      return RS_RESULT_TIMEDOUT;
    }
    HybridSearchResult *result = hybridMergerClaim(self, false);
-   if (!result) {
-     return hybridMergerIsDraining(self) || RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT
-                                                                          : RS_RESULT_EOF;
-   }
+   if (!result) return RS_RESULT_TIMEDOUT;
    hybridMergerYieldClaimed(self, result, r);
    return RS_RESULT_OK;
  }
