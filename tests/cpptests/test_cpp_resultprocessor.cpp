@@ -2450,7 +2450,7 @@ TEST_F(ResultProcessorTest, profileAccumulatesTimingWithoutCrossLaneUpdates) {
       *static_cast<ResultProcessor *>(this) = {};
       Next = [](ResultProcessor *, SearchResult *) {
         advanceClock();
-        return RS_RESULT_OK;
+        return static_cast<int>(RS_RESULT_OK);
       };
       Drain = [](ResultProcessor *, SearchResult *) {
         advanceClock();
