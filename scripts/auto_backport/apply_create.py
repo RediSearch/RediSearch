@@ -202,8 +202,7 @@ def apply_target(ctx: dict, git: common.PrivilegedGit, entry: dict) -> dict:
     if ctx.get("author") and not ctx["author"].endswith("[bot]"):
         common.gh("pr", "edit", url, "--add-reviewer", ctx["author"], check=False)
 
-    if status == "clean":
-        common.gh("pr", "merge", url, "--auto", "--merge", check=False)
+    common.gh("pr", "merge", url, "--auto", "--merge")
 
     row["status"] = status_label
     row["detail"] = url

@@ -1090,7 +1090,12 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
-    A->vn.vq->field = C.fs;
+    // `C.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — unset
+    // when the coordinator parses a KNN clause with no local spec, purely to read
+    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
+    // itself is never evaluated. Otherwise `C.fs` is uninitialised parser-stack garbage, not
+    // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
+    VectorQuery_SetField(A->vn.vq, ctx->sctx->spec ? C.fs : NULL);
     VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
@@ -1131,7 +1136,9 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
   } else if (C) {
-    C->vn.vq->field = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — see the
+    // `vector_command` rule above for when it is not.
+    VectorQuery_SetField(C->vn.vq, ctx->sctx->spec ? B.fs : NULL);
     A = C;
   }
 }

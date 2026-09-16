@@ -68,8 +68,11 @@ spending tokens on publication permissions and infrastructure failures. Clean
 backports of fork-sourced PRs can use the action; conflicts from these PRs still
 require manual backporting, preserving the existing agent eligibility rule.
 
-Clean PRs keep the classic action's author review request and auto-merge setting.
-Recovered conflict PRs request the original author but do not enable auto-merge.
+All opened backport PRs request the original author and enable auto-merge,
+including PRs with agent-resolved conflicts. They merge when required checks and
+approvals are satisfied.
+Final reporting retries auto-merge for opened or reused PRs and reports a failure
+if it cannot enable it.
 Both paths copy non-trigger labels and add `auto-backport`; recovered conflicts
 also receive `auto-backport-conflicts` and a reviewer-facing conflict log.
 
