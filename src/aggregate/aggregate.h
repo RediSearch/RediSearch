@@ -53,9 +53,9 @@ typedef struct {
 } cachedVars;
 
 /**
- * State needed for reply serialization in reply_callback path.
- * When using FAIL policy with workers, the background thread stores results here,
- * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ * Reply completion state shared with the blocked-client callback.
+ * FAIL serializes on the worker; the callback handles early errors and cursor
+ * publication. Results stay collected until the existing serializer consumes them.
  *
  * ## Cursor ↔ AREQ Ownership
  *
@@ -72,6 +72,7 @@ typedef struct {
 typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  bool replySerialized;    // Worker completed the reply in the blocked-client buffer.
   bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
   QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
   cachedVars cv;           // Cached lookup variables for result serialization
@@ -404,9 +405,7 @@ typedef struct AREQ {
 
   bool useReplyCallback;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
+  // See ChunkReplyState for the worker-to-callback handoff.
   ChunkReplyState storedReplyState;
 } AREQ;
 

@@ -2135,6 +2135,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout);
+static int replySearchResults(RedisModuleCtx *ctx, struct MRCtx *mrctx);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
@@ -3136,6 +3137,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
     for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
+#ifdef ENABLE_ASSERT
+      SyncPoint_Wait("DuringCoordRowSerialization");
+#endif
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 
@@ -3184,6 +3188,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
+#ifdef ENABLE_ASSERT
+      SyncPoint_Wait("DuringCoordRowSerialization");
+#endif
       searchResult *res = results[pos];
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
@@ -3489,6 +3496,13 @@ cleanup:
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
+    if (req->serializeReply) {
+#ifdef ENABLE_ASSERT
+      SyncPoint_Wait("BeforeCoordWorkerSerialization");
+#endif
+      replySearchResults(ctx, mc);
+      req->replySerialized = true;
+    }
     // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);
@@ -4238,6 +4252,14 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
   UNUSED(argv);
   UNUSED(argc);
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+  searchRequestCtx *req = mrctx ? MRCtx_GetPrivData(mrctx) : NULL;
+  if (req && req->replySerialized) {
+    return REDISMODULE_OK;
+  }
+  return replySearchResults(ctx, mrctx);
+}
+
+static int replySearchResults(RedisModuleCtx *ctx, struct MRCtx *mrctx) {
   if (mrctx) {
 
     // Check if we have an error and return it
@@ -4545,6 +4567,10 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
   MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
+
+  // Keep serialization ownership consistent with the timeout callback selected here.
+  req->serializeReply =
+      RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Return;
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
   RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
