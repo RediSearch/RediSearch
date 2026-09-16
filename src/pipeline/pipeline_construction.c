@@ -138,9 +138,6 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
  * @return the processor passed in `rp`.
  */
 static ResultProcessor *pushRP(QueryProcessingCtx *ctx, ResultProcessor *rp, ResultProcessor *rpUpstream) {
-  if (!rp->Drain) {
-    rp->Drain = RPDrain_EOF;
-  }
   rp->upstream = rpUpstream;
   rp->parent = ctx;
   ctx->endProc = rp;
