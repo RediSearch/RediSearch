@@ -75,6 +75,13 @@ def test_hnsw_sq8_create_validation_and_info(env):
         ],
     )
 
+    missing_compression = hnsw_params('FLOAT32', 'COMPRESSION')
+    env.expect(
+        'FT.CREATE', 'missing_compression',
+        'SCHEMA', 'v', 'VECTOR', 'HNSW', len(missing_compression), *missing_compression,
+    ).error().contains('vector similarity HNSW index `COMPRESSION`').contains(
+        'Expected an argument, but none provided')
+
     invalid_compression = hnsw_params('FLOAT32', 'COMPRESSION', 'SQ4')
     env.expect(
         'FT.CREATE', 'invalid_compression',
