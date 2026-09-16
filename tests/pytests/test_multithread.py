@@ -6,11 +6,40 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+import threading
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
     assert(moduleArgs != '')
     env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
     return env
+
+# Regression helper for MOD-18356: a query is parsed (capturing a field index) on the main
+# thread, but its job only runs later on a worker thread. A concurrent FT.ALTER can reallocate
+# IndexSpec.fields in between, so the query must resolve fields through their stable index at
+# run time rather than a pointer captured at parse time.
+def assert_query_survives_field_alter_race(env, idx, query_args, expected_count):
+    result = {}
+    def run_query():
+        conn = getConnectionByEnv(env)
+        result['res'] = conn.execute_command(*query_args)
+
+    with paused_workers(env):
+        thread = threading.Thread(target=run_query, name='alter-race-query', daemon=True)
+        thread.start()
+
+        # Wait for the query's job to be queued, so it captured its field index before the
+        # ALTER below runs, but cannot evaluate it until the workers are resumed.
+        wait_for_condition(
+            lambda: (getWorkersThpoolStats(env)['totalPendingJobs'] >= 1, getWorkersThpoolStats(env)),
+            'Timed out waiting for the query to queue on the paused worker pool',
+        )
+
+        # Grows IndexSpec.fields, which may move it via rm_realloc.
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', 'extra', 'TEXT').ok()
+
+    thread.join(timeout=10)
+    env.assertFalse(thread.is_alive(), message='query did not complete after workers resumed')
+    env.assertEqual(result['res'][0], expected_count)
 
 def testEmptyBuffer():
     env = initEnv()
@@ -124,6 +153,23 @@ def test_delete_index_while_indexing():
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     stats = getWorkersThpoolStats(env)
     env.assertEqual(n_local_vector, stats['totalJobsDone'], message=stats)
+
+
+# Regression test for MOD-18356: a KNN query is parsed (capturing the vector field) on the
+# main thread, but its job only runs later on a worker thread. A concurrent FT.ALTER can
+# reallocate IndexSpec.fields in between, so the query must resolve the field through its
+# stable index at run time rather than a pointer captured at parse time.
+@skip(cluster=True)
+def test_vector_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    dim = 4
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    query_vec = load_vectors_to_redis(env, n_vec=10, query_vec_index=0, vec_size=dim)
+
+    query_args = ('FT.SEARCH', 'idx', '*=>[KNN 3 @vector $blob]',
+                  'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
 
 
 def do_burst_threads_sanity(algo, data_type, test_name):

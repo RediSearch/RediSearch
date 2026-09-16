@@ -113,7 +113,8 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  const FieldSpec *field;             // the vector field
+  t_fieldIndex fieldIndex;            // stable index of the vector field into IndexSpec.fields;
+                                       // re-derive the FieldSpec* from this at evaluation time
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
@@ -169,6 +170,9 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq);
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen);
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
+// Sets `vq->fieldIndex` from `field`, or RS_INVALID_FIELD_INDEX if NULL — the coordinator's
+// plan-only KNN parse (prepareOptionalTopKCase) has no spec to resolve a field against.
+void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                                             VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status);

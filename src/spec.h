@@ -596,6 +596,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 */
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
+// Bump whenever the schema members or their hash encoding change.
+#define SCHEMA_FINGERPRINT_VERSION 1
+
+// Deterministic hash of schema values, independent of RDB settings and shard data.
+// Includes field definitions, indexing rules, custom stopwords, synonyms, and timeout;
+// excludes index names, aliases, documents, statistics, and live index state.
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp);
+
 /**
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
  * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.
@@ -860,6 +868,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
 * @return the formatted name of the index
 */
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
