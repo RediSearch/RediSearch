@@ -8,7 +8,13 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
+use ahash::RandomState;
+use hashbrown::HashTable;
 use std::{ffi::CStr, iter::FusedIterator, mem, pin::Pin, ptr::NonNull, slice};
+
+// Paired coordinator benchmarks show hashing wins once rows reach the mid-twenties. Promotion is
+// checked only for by-name writes, so wide lookups used solely by slot never pay for this index.
+const NAME_INDEX_MIN_KEYS: usize = 24;
 
 /// Owns a pinned key while keeping the key's address independent of vector reallocations.
 #[derive(Debug)]
@@ -51,6 +57,14 @@ struct KeyStore<'a> {
     live: Vec<OwnedKey<'a>>,
     /// Replaced keys whose addresses must remain valid for C consumers.
     retired: Vec<OwnedKey<'a>>,
+    /// Lazily created name index for wide lookups that receive by-name writes.
+    by_name: Option<NameIndex>,
+}
+
+#[derive(Debug)]
+struct NameIndex {
+    slots: HashTable<u16>,
+    hash_builder: RandomState,
 }
 
 impl KeyStore<'_> {
@@ -58,15 +72,80 @@ impl KeyStore<'_> {
         Self {
             live: Vec::new(),
             retired: Vec::new(),
+            by_name: None,
         }
     }
 
-    fn find_slot(&self, name: &CStr) -> Option<u16> {
+    fn find_indexed_slot(&self, index: &NameIndex, name: &[u8]) -> Option<u16> {
+        let hash = index.hash_builder.hash_one(name);
+        index
+            .slots
+            .find(hash, |slot| {
+                self.live[usize::from(*slot)]
+                    .get()
+                    .name()
+                    .as_ref()
+                    .to_bytes()
+                    == name
+            })
+            .copied()
+    }
+
+    fn find_slot(&self, name: &[u8]) -> Option<u16> {
+        if let Some(index) = &self.by_name {
+            return self.find_indexed_slot(index, name);
+        }
+
         let slot = self
             .live
             .iter()
-            .position(|key| key.get().name().as_ref() == name)?;
+            .position(|key| key.get().name().as_ref().to_bytes() == name)?;
         Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
+    }
+
+    fn enable_name_index(&mut self) {
+        debug_assert!(self.by_name.is_none());
+        self.by_name = Some(NameIndex {
+            slots: HashTable::with_capacity(self.live.len()),
+            hash_builder: RandomState::new(),
+        });
+        for slot in 0..self.live.len() {
+            self.index_slot_first_wins(
+                u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"),
+            );
+        }
+    }
+
+    fn index_slot_first_wins(&mut self, slot: u16) {
+        let name = self.live[usize::from(slot)]
+            .get()
+            .name()
+            .as_ref()
+            .to_bytes();
+        let index = self.by_name.as_ref().unwrap();
+        let hash = index.hash_builder.hash_one(name);
+        if index
+            .slots
+            .find(hash, |existing| {
+                self.live[usize::from(*existing)]
+                    .get()
+                    .name()
+                    .as_ref()
+                    .to_bytes()
+                    == name
+            })
+            .is_some()
+        {
+            return;
+        }
+
+        let live = &self.live;
+        let index = self.by_name.as_mut().unwrap();
+        index.slots.insert_unique(hash, slot, |slot| {
+            index
+                .hash_builder
+                .hash_one(live[usize::from(*slot)].get().name().as_ref().to_bytes())
+        });
     }
 }
 
@@ -123,11 +202,25 @@ impl<'a> KeyList<'a> {
         u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
     }
 
+    pub(crate) fn find_slot_for_write(&mut self, name: &[u8]) -> Option<u16> {
+        let store = self.store.as_mut()?;
+        if let Some(index) = &store.by_name {
+            return store.find_indexed_slot(index, name);
+        }
+        if store.live.len() >= NAME_INDEX_MIN_KEYS {
+            store.enable_name_index();
+        }
+        store.find_slot(name)
+    }
+
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
         let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
         let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
         key.dstidx = slot;
         store.live.push(OwnedKey::new(key));
+        if store.by_name.is_some() {
+            store.index_slot_first_wins(slot);
+        }
 
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push");
@@ -193,7 +286,7 @@ impl<'a> KeyList<'a> {
     }
 
     pub(crate) fn find_slot(&self, name: &CStr) -> Option<u16> {
-        self.store.as_ref()?.find_slot(name)
+        self.store.as_ref()?.find_slot(name.to_bytes())
     }
 
     pub(crate) fn get(&self, slot: u16) -> Option<&RLookupKey<'a>> {
@@ -368,6 +461,7 @@ mod tests {
     use super::*;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
+    use std::ffi::CString;
 
     #[test]
     fn append_and_lookup_preserve_row_order() {
@@ -390,6 +484,187 @@ mod tests {
         keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
 
         assert_eq!(keys.find_slot(c"same"), Some(0));
+    }
+
+    #[test]
+    fn only_row_writes_by_name_promote_wide_lookups() {
+        use crate::{RLookup, RLookupRow};
+        use value::SharedValue;
+
+        let names: Vec<_> = (0..NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("field{index}")).unwrap())
+            .collect();
+        let mut lookup = RLookup::new();
+        for name in &names {
+            lookup
+                .get_key_load(name.as_c_str(), name.as_c_str(), RLookupKeyFlags::empty())
+                .unwrap();
+        }
+        lookup
+            .get_key_write(c"constructed", RLookupKeyFlags::empty())
+            .unwrap();
+        assert!(lookup.find_key_by_name(c"constructed").is_some());
+        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_none());
+
+        lookup.seal();
+        let mut row = RLookupRow::new();
+        row.write_key_by_name(&mut lookup, names[0].as_c_str(), SharedValue::null_static());
+        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_some());
+        let key = lookup
+            .find_key_by_name(&names[0])
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert!(row.get(key).is_some());
+
+        lookup
+            .get_key_load(c"loaded_later", c"source", RLookupKeyFlags::empty())
+            .unwrap();
+        lookup
+            .get_key_write(c"written_later", RLookupKeyFlags::empty())
+            .unwrap();
+        for name in [c"loaded_later", c"written_later"] {
+            assert!(lookup.find_key_by_name(name).is_some());
+        }
+        assert_eq!(
+            lookup
+                .keys
+                .store
+                .as_ref()
+                .unwrap()
+                .by_name
+                .as_ref()
+                .unwrap()
+                .slots
+                .len(),
+            NAME_INDEX_MIN_KEYS + 3
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn write_key_by_name_promotes_wide_lookup() {
+        use crate::{RLookup, RLookupRow};
+        use value::SharedValue;
+
+        let mut lookup = RLookup::new();
+        let mut row = RLookupRow::new();
+        let mut names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        names.extend([
+            CString::new(b"".as_slice()).unwrap(),
+            CString::new(b"\xfffield".as_slice()).unwrap(),
+        ]);
+
+        for (index, name) in names.iter().enumerate() {
+            row.write_key_by_name_bytes(
+                &mut lookup,
+                name.to_bytes(),
+                SharedValue::new_num(index as f64),
+            );
+        }
+
+        assert!(lookup.keys.store.as_ref().unwrap().by_name.is_some());
+        assert_eq!(row.len(), names.len());
+        for (index, name) in names.iter().enumerate() {
+            row.write_key_by_name_bytes(
+                &mut lookup,
+                name.to_bytes(),
+                SharedValue::new_num((index + 1) as f64),
+            );
+            let key = lookup
+                .find_key_by_name(name)
+                .unwrap()
+                .into_current()
+                .unwrap();
+            assert_eq!(
+                row.get(key).and_then(|value| value.as_num()),
+                Some((index + 1) as f64)
+            );
+        }
+    }
+
+    #[test]
+    fn name_index_is_promoted_only_for_wide_key_stores() {
+        let names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        let mut keys = KeyList::new();
+        for name in &names[..NAME_INDEX_MIN_KEYS - 1] {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
+
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS - 1].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot).unwrap()));
+        }
+        assert_eq!(keys.find_slot(c"missing"), None);
+        assert_eq!(
+            keys.store
+                .as_ref()
+                .unwrap()
+                .by_name
+                .as_ref()
+                .unwrap()
+                .slots
+                .len(),
+            NAME_INDEX_MIN_KEYS + 1
+        );
+    }
+
+    // First-wins resolution must survive index promotion: duplicates that
+    // exist when the index is built, and duplicates appended through the
+    // indexed path afterward, must keep resolving to the earliest slot.
+    #[test]
+    fn promoted_index_keeps_duplicates_resolving_to_first_slot() {
+        let names: Vec<_> = (0..NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        let mut keys = KeyList::new();
+        // A duplicate pair already present when the index is built.
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        for name in &names {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
+
+        assert_eq!(keys.find_slot_for_write(b"missing"), None);
+        assert!(keys.store.as_ref().unwrap().by_name.is_some());
+        assert_eq!(keys.find_slot(c"pre"), Some(0));
+
+        // A duplicate appended through the indexed path must not displace the
+        // first carrier — neither of a pre-promotion name...
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        assert_eq!(keys.find_slot(c"pre"), Some(0));
+
+        // ...nor of a name first seen after promotion.
+        let post_slot = keys.push_slot(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        assert_eq!(keys.find_slot(c"post"), Some(post_slot));
+
+        // Unique names still resolve to their own slots through the index.
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot + 2).unwrap()));
+        }
     }
 
     #[test]

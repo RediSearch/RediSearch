@@ -493,21 +493,25 @@ fn get_item_priority_dynamic_over_static() {
 )]
 fn write_key_by_name_new_key() {
     // Test case: name is not yet part of the lookup and gets created
+    let key_name = CString::new("new_key").unwrap();
     let mut lookup = RLookup::new();
     let mut row = RLookupRow::new();
 
-    let key_name = CString::new("new_key").unwrap();
     let value = SharedValue::new_string(b"test_value".to_vec());
 
     // Initially, row should be empty
     assert_eq!(row.len(), 0);
 
     // Write the key
-    row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone());
+    row.write_key_by_name(&mut lookup, key_name.as_c_str(), value.clone());
 
     // Verify we can find the key by name
     let cursor = lookup.find_key_by_name(&key_name);
     assert!(cursor.is_some());
+    assert!(matches!(
+        cursor.unwrap().into_current().unwrap().name(),
+        std::borrow::Cow::Owned(_)
+    ));
 
     // Verify the rlookup row is in correct state
     assert_eq!(row.len(), 1);
@@ -598,6 +602,38 @@ fn write_multiple_different_keys() {
             value.as_str_bytes(),
         );
     }
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn write_key_by_name_bytes_owns_binary_and_empty_names() {
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+    for name in [b"".as_slice(), b"\xfffield"] {
+        let mut source = name.to_vec();
+        row.write_key_by_name_bytes(&mut lookup, &source, SharedValue::new_num(1.0));
+        source.fill(b'x');
+        row.write_key_by_name_bytes(&mut lookup, name, SharedValue::new_num(2.0));
+        let name = CString::new(name).unwrap();
+        let key = lookup
+            .find_key_by_name(&name)
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert_eq!(row.get(key).and_then(|value| value.as_num()), Some(2.0));
+    }
+    assert_eq!(row.len(), 2);
+}
+
+#[test]
+#[should_panic(expected = "field names cannot contain NUL")]
+fn write_key_by_name_bytes_rejects_interior_nul() {
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+    row.write_key_by_name_bytes(&mut lookup, b"field\0suffix", SharedValue::null_static());
 }
 
 fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {
