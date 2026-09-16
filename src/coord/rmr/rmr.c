@@ -11,6 +11,7 @@
 #include "reply_macros.h"
 #include "redismodule.h"
 #include "module.h"
+#include "debug_commands.h"
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"
