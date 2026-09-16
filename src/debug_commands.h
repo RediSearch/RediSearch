@@ -115,10 +115,14 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
+// A positive timeout lets main-thread waiters resume without processing SIGNAL.
+bool SyncPoint_ArmWithTimeout(const char* name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of armed hits since the last ARM.
+uint32_t SyncPoint_HitCount(const char* name);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
