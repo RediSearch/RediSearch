@@ -169,8 +169,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
-bool should_return_error(QueryErrorCode errCode);
-
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 
 int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);

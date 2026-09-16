@@ -54,7 +54,7 @@ typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
+void MR_Init(size_t num_io_threads, size_t conn_pool_size);
 
 /* @brief Set a new topology for the cluster and refresh local slots information.
  * @param newTopology The new cluster topology, consumed by this function.
@@ -115,7 +115,6 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 // Available before fanout when MR_CreateCtx received a RedisModuleCtx.
 int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
 
-QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
 void MRCtx_IncrRef(struct MRCtx *ctx);
 void MRCtx_DecrRef(struct MRCtx *ctx);
 void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
@@ -125,7 +124,7 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 
 /* Install before dispatch. The flag is borrowed until client unblocking;
  * remaining MRCtx reference releases must not access it. NULL disables aborts. */
-void MRCtx_SetAbortFlag(struct MRCtx *ctx, RS_Atomic(bool) * abortFlag);
+void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) * abortFlag);
 bool MRCtx_IsAborted(const struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
