@@ -22,6 +22,7 @@
 
 #include "util/stringify.h"
 #include "util/rs_atomic.h"
+#include "util/references.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -104,6 +105,10 @@ struct searchReducerCtx;
 
 typedef struct {
   QueryRequest base;
+
+  struct MRCtx *mrctx;
+  WeakRef spec_ref;
+  rs_wall_clock_ns_t coordStartTime;
 
   char *queryString;
   size_t queryStringLen;

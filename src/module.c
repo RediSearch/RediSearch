@@ -2256,6 +2256,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
   if(r->requiredFields) {
     array_free(r->requiredFields);
   }
+  if (r->spec_ref.rm) {
+    WeakRef_Release(r->spec_ref);
+  }
   QueryRequest_Destroy(&r->base);
   rm_free(r);
 }
@@ -4343,10 +4346,10 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   RedisModule_UnblockClient(bc, mrctx);
 }
 
-static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
+static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModuleString **argv,
+                          int argc, WeakRef spec_ref, QueryError *status) {
 
-  cmd->protocol = protocol;
+  cmd->protocol = MRCtx_GetCommandProtocol(req->mrctx);
 
   // Handle KNN with shard ratio optimization for both multi-shard and standalone
   if (req->specialCases) {
@@ -4427,15 +4430,16 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
   MRCommand_PrepareForDispatchTime(cmd, arg_pos);
   arg_pos += 2;
 
-  // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
-  WeakRef_Release(spec_ref);
 
   return REDISMODULE_OK;
 }
 
-int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
+static int FlatSearchCommandHandler(searchRequestCtx *req) {
+  struct MRCtx *mrctx = req->mrctx;
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
+  RedisModuleString **argv = req->base.args.argv;
+  int argc = req->base.args.argc;
   QueryError status = QueryError_Default();
 
   if (MRCtx_IsTimedOut(mrctx)) {
@@ -4446,17 +4450,11 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   SyncPoint_Wait("BeforeCoordSearchPrepare");
 #endif
 
-  // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
-  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-
-  // Copy coordinator queue time for profile output
-  req->coordQueueTime = handlerCtx->coordQueueTime;
-
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
 
   // Set coordinator start time for dispatch time tracking
-  cmd.coordStartTime = handlerCtx->coordStartTime;
-  int rc = prepareCommand(&cmd, req, protocol, argv, argc, handlerCtx->spec_ref, &status);
+  cmd.coordStartTime = req->coordStartTime;
+  int rc = prepareCommand(&cmd, req, argv, argc, req->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     bailOut(bc, &status);
     return REDISMODULE_OK;
@@ -4467,33 +4465,17 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   return REDISMODULE_OK;
 }
 
-typedef struct SearchCmdCtx {
-  RedisModuleString **argv;
-  int argc;
-  RedisModuleBlockedClient* bc;
-  struct MRCtx *mrctx;
-  int protocol;
-  ConcurrentSearchHandlerCtx handlerCtx;
-} SearchCmdCtx;
-
-static void DistSearchCommandHandler(void* pd) {
-  SearchCmdCtx* sCmdCtx = pd;
-  if (sCmdCtx->handlerCtx.isProfile) {
-    sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+static void DistSearchCommandHandler(void *pd) {
+  searchRequestCtx *req = pd;
+  if (req->profileArgs) {
+    req->coordQueueTime = rs_wall_clock_now_ns() - req->coordStartTime;
   }
-  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued, preserving the phase where the timeout was observed.
-  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
-  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
-    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
+  if (!MRCtx_IsTimedOut(req->mrctx)) {
+    searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
-  FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
-  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
-    RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
-  }
-  rm_free(sCmdCtx->argv);
-  MRCtx_DecrRef(sCmdCtx->mrctx);
-  rm_free(sCmdCtx);
+  FlatSearchCommandHandler(req);
+  // The worker reference keeps req alive; releasing it can destroy req too.
+  MRCtx_DecrRef(req->mrctx);
 }
 
 // Reply callback for distributed search.
@@ -4846,6 +4828,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  req->spec_ref = StrongRef_Demote(spec_ref);
+  req->coordStartTime = coordInitialTime;
+
   // Create MRCtx on main thread with searchRequestCtx as privdata.
   // NumShards is used as a hint for reply capacity - unsafe read is fine.
   struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
@@ -4853,6 +4838,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetValidateConnections(mrctx, true);
   MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
 
+  req->mrctx = mrctx;
   // Block client - MRCtx is set as privdata so timeout callback can access it
   RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
 
@@ -4863,23 +4849,10 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
   RedisModule_SetDisconnectCallback(bc, DistSearchDisconnectCallback);
 
-  SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
-  sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
-  sCmdCtx->handlerCtx.isProfile = isProfile;
-  sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
-  for (size_t i = 0 ; i < argc ; ++i) {
-    // We need to copy the argv because it will be freed in the callback (from another thread).
-    sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
-  }
-  sCmdCtx->argc = argc;
-  sCmdCtx->bc = bc;
-  sCmdCtx->mrctx = mrctx;
-  sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
   MRCtx_IncrRef(mrctx);
-  ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(dist_callback, req, DIST_THREADPOOL);
 
   return REDISMODULE_OK;
 }
@@ -5259,8 +5232,11 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 }
 /* ======================= DEBUG ONLY ======================= */
 
-static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
+static int DEBUG_FlatSearchCommandHandler(searchRequestCtx *req) {
+  struct MRCtx *mrctx = req->mrctx;
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
+  RedisModuleString **argv = req->base.args.argv;
+  int argc = req->base.args.argc;
   QueryError status = QueryError_Default();
 
   if (MRCtx_IsTimedOut(mrctx)) {
@@ -5270,12 +5246,6 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("BeforeCoordSearchPrepare");
 #endif
-
-  // Get pre-allocated searchRequestCtx from MRCtx privdata (allocated on main thread)
-  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-
-  // Copy coordinator queue time for profile output
-  req->coordQueueTime = handlerCtx->coordQueueTime;
 
   // Parse debug params to extract the debug argument count
   AREQ_Debug_params debug_params = parseAggregateDebugParamsCount(argv, argc, &status);
@@ -5290,8 +5260,8 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   int base_argc = argc - debug_argv_count;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  cmd.coordStartTime = handlerCtx->coordStartTime;
-  int rc = prepareCommand(&cmd, req, protocol, argv, argc, handlerCtx->spec_ref, &status);
+  cmd.coordStartTime = req->coordStartTime;
+  int rc = prepareCommand(&cmd, req, argv, argc, req->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     bailOut(bc, &status);
     return REDISMODULE_OK;
@@ -5310,23 +5280,14 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   return REDISMODULE_OK;
 }
 
-static void DEBUG_DistSearchCommandHandler(void* pd) {
-  SearchCmdCtx* sCmdCtx = pd;
-  if (sCmdCtx->handlerCtx.isProfile) {
-    sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+static void DEBUG_DistSearchCommandHandler(void *pd) {
+  searchRequestCtx *req = pd;
+  if (req->profileArgs) {
+    req->coordQueueTime = rs_wall_clock_now_ns() - req->coordStartTime;
   }
-  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued, preserving the phase where the timeout was observed.
-  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
-  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
-    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
+  if (!MRCtx_IsTimedOut(req->mrctx)) {
+    searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
-  // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
-  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
-    RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
-  }
-  rm_free(sCmdCtx->argv);
-  MRCtx_DecrRef(sCmdCtx->mrctx);
-  rm_free(sCmdCtx);
+  DEBUG_FlatSearchCommandHandler(req);
+  MRCtx_DecrRef(req->mrctx);
 }

@@ -123,8 +123,12 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->redisCtx = ctx;
   ret->bc = bc;
   RS_ASSERT(ctx || bc);
+  if (ctx) {
+    MRCommand_SetProtocol(&ret->cmd, ctx);
+  }
   ret->fn = NULL;
-  ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
+  ret->ioRuntime =
+      MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
 
   atomic_init(&ret->timedOut, false);

@@ -112,6 +112,7 @@ MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
+// Available before fanout when MR_CreateCtx received a RedisModuleCtx.
 int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
 
 QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
