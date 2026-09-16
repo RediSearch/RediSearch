@@ -105,6 +105,7 @@ int RedisModule_ReplyKV_SimpleStringf(RedisModule_Reply *reply, const char *key,
 int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const RedisModuleString *val);
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
+int RedisModule_ReplyKV_Set(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
 
 /*
