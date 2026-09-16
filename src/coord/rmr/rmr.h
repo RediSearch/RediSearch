@@ -123,12 +123,10 @@ void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 /* Set the blocked client for the context (used when MRCtx is created before blocking) */
 void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 
-/* Timeout and reducing state management for partial timeout support */
-void MRCtx_SetTimedOut(struct MRCtx *ctx);
-bool MRCtx_IsTimedOut(struct MRCtx *ctx);
-bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
-void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
-void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
+/* Install before dispatch. The flag is borrowed until client unblocking;
+ * remaining MRCtx reference releases must not access it. NULL disables aborts. */
+void MRCtx_SetAbortFlag(struct MRCtx *ctx, RS_Atomic(bool) * abortFlag);
+bool MRCtx_IsAborted(const struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);

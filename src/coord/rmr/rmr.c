@@ -99,13 +99,8 @@ typedef struct MRCtx {
    */
   MRReduceFunc fn;
 
-  /* State tracking for partial timeout support */
-  _Atomic(bool) timedOut;
-  _Atomic(bool) reducing;
-  bool reducerDone;
+  RS_Atomic(bool) * abortFlag;
   MRCtxFreePrivDataCB freePrivDataCB;
-  pthread_mutex_t reducingLock;
-  pthread_cond_t reducingCond;
 } MRCtx;
 
 /* Create a new MapReduce context */
@@ -131,12 +126,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
       MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
 
-  atomic_init(&ret->timedOut, false);
-  atomic_init(&ret->reducing, false);
-  ret->reducerDone = false;
+  ret->abortFlag = NULL;
   ret->freePrivDataCB = NULL;
-  pthread_mutex_init(&ret->reducingLock, NULL);
-  pthread_cond_init(&ret->reducingCond, NULL);
 
   return ret;
 }
@@ -168,10 +159,6 @@ static void MRCtx_FreeInternal(MRCtx *ctx) {
     }
   }
   rm_free(ctx->replies);
-
-  // Destroy state tracking synchronization primitives
-  pthread_mutex_destroy(&ctx->reducingLock);
-  pthread_cond_destroy(&ctx->reducingCond);
 
   // free the context
   rm_free(ctx);
@@ -226,17 +213,12 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
   ctx->bc = bc;
 }
 
-void MRCtx_SetTimedOut(struct MRCtx *ctx) {
-  atomic_store(&ctx->timedOut, true);
+void MRCtx_SetAbortFlag(struct MRCtx *ctx, RS_Atomic(bool) * abortFlag) {
+  ctx->abortFlag = abortFlag;
 }
 
-bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
-  return atomic_load(&ctx->timedOut);
-}
-
-bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
-  bool expected = false;
-  return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
+bool MRCtx_IsAborted(const struct MRCtx *ctx) {
+  return ctx->abortFlag && RS_AtomicBoolLoadRelaxed(ctx->abortFlag);
 }
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
@@ -245,22 +227,6 @@ void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
 
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx) {
   return ctx->validateConnections;
-}
-
-void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
-  pthread_mutex_lock(&ctx->reducingLock);
-  ctx->reducerDone = true;
-  // A context has at most one main-thread waiter for reducer completion.
-  pthread_cond_signal(&ctx->reducingCond);
-  pthread_mutex_unlock(&ctx->reducingLock);
-}
-
-void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
-  pthread_mutex_lock(&ctx->reducingLock);
-  while (!ctx->reducerDone) {
-    pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
-  }
-  pthread_mutex_unlock(&ctx->reducingLock);
 }
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
@@ -295,8 +261,8 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   // Check if timed out or incomplete fanout - discard reply.
   // Timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
   // Incomplete fanout means not all shards were reached during the fanout send loop.
-  bool timedOut = MRCtx_IsTimedOut(ctx);
-  if (timedOut) {
+  bool aborted = MRCtx_IsAborted(ctx);
+  if (aborted) {
     if (r) {
       MRReply_Free(r);
     }
@@ -315,12 +281,12 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
     IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!timedOut && ctx->fn) {
+    if (!aborted && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
-      if (!timedOut) {
+      if (!aborted) {
         RedisModule_BlockedClientMeasureTimeEnd(bc);
       }
       RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
@@ -354,7 +320,7 @@ static void uvFanoutRequest(void *p) {
     IORuntimeCtx_RequestCompleted(ioRuntime);
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
-    if (!MRCtx_IsTimedOut(mrctx)) {
+    if (!MRCtx_IsAborted(mrctx)) {
       RedisModule_BlockedClientMeasureTimeEnd(bc);
     }
     RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));

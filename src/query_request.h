@@ -278,9 +278,9 @@ bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout);
  * TODO($$$): Remove this temporary state after MOD-17486 is merged.
  */
 typedef struct QueryRequestAsyncState {
-  /* The CAS claim grants exclusive ownership of result production: the BG
-   * winner runs the pipeline and stores results, while the timeout-callback
-   * winner preempts BG and replies empty. The loser waits for completion.
+  /* The CAS claim grants exclusive ownership of result production. A timeout
+   * callback that needs the worker's results waits for completion; a timeout
+   * winner either produces partial results or preempts BG with an empty reply.
    * Gated by requiresAggregateResultsSync. MOD-17486 replaces this claim/wait
    * protocol with a timeout callback that never waits on BG state. */
   bool requiresAggregateResultsSync;   // Enable CAS/Signal/Wait around result production
@@ -360,6 +360,12 @@ typedef struct QueryRequest {
 /* Destroy the concrete request selected by `kind`. Owner-only: never call it
  * on a borrowed request (see the ownership contract on QueryRequest). */
 void QueryRequest_Free(QueryRequest *request);
+
+/* Claim exclusive result production. The winner signals completion; a caller
+ * that needs the produced results waits before reading them. */
+bool QueryRequest_TryClaimResults(QueryRequest *request);
+void QueryRequest_SignalResultsComplete(QueryRequest *request);
+void QueryRequest_WaitForResultsComplete(QueryRequest *request);
 
 static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
                                               ResultProcessor **endProcRef) {

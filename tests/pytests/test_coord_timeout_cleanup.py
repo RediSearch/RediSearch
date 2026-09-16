@@ -25,11 +25,14 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
         'fanout': 'BeforeCoordFanout',
         'empty_fanout': 'BeforeCoordFanout',
         'reducer_claim': 'BeforeCoordReducerClaim',
+        'claimed': 'CoordSearchReducerClaimed',
     }
     point = points.get(stage)
     cleanup_point = 'CoordSearchFreePrivData'
     worker_done_point = 'CoordSearchWorkerDone'
     policies = ('return',) if debug_query else ('return', 'fail', 'return-strict')
+    if stage == 'claimed':
+        policies = ('fail',)
     for policy in policies:
         cancellations = ('disconnect',) if policy == 'return' else ('timeout', 'disconnect')
         for cancellation in cancellations:
@@ -87,6 +90,9 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
                     env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
                 thread.join(timeout=5)
                 env.assertFalse(thread.is_alive())
+                if stage == 'claimed':
+                    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point).equal(True)
+                    env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', cleanup_point).equal(0)
                 if cancellation == 'disconnect':
                     env.assertEqual(results, [])
                     env.assertEqual(len(errors), 1)
@@ -112,6 +118,9 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
                     coord_paused = False
                 elif point:
                     env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+                elif stage == 'reduce' and policy == 'return':
+                    # RETURN has no abort flag; disconnected work finishes normally.
+                    resetCoordReduceDebug(env)
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', cleanup_point) == 1, {}),
                     'Redis never freed the completed blocked query', timeout=5)
@@ -191,3 +200,9 @@ def test_request_cleanup_before_worker_release():
 def test_request_cleanup_before_debug_worker_release():
     """The debug worker must also finish without accessing the freed request."""
     _exercise_cleanup('queued', debug_query=True, hold_worker=True)
+
+
+@skip(cluster=False)
+def test_fail_timeout_does_not_wait_for_reducer():
+    """FAIL replies while the reducer is parked; request cleanup waits for worker unblocking."""
+    _exercise_cleanup('claimed')
