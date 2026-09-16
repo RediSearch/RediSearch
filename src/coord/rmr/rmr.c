@@ -40,6 +40,8 @@
 
 /* Currently a single cluster is supported */
 static MRCluster *cluster_g = NULL;
+static pthread_rwlock_t localNodeIdLock = PTHREAD_RWLOCK_INITIALIZER;
+static char *localNodeId = NULL;
 static MRWorkQueue *rq_g = NULL;
 
 /* Coordination request timeout */
@@ -62,6 +64,9 @@ typedef struct MRCtx {
   /* If true, the command should validate that all connections
    are up before sending the command to the cluster */
   bool validateConnections;
+
+  MRCtxBeforeFanoutCB beforeFanout;
+  MRCtxFreePrivDataCB freePrivDataCB;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -98,7 +103,18 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   return ret;
 }
 
+void MRCtx_SetFreePrivDataCB(MRCtx *ctx, MRCtxFreePrivDataCB cb) {
+  ctx->freePrivDataCB = cb;
+}
+
+void MRCtx_SetBeforeFanoutCB(MRCtx *ctx, MRCtxBeforeFanoutCB cb) {
+  ctx->beforeFanout = cb;
+}
+
 void MRCtx_Free(MRCtx *ctx) {
+  if (ctx->freePrivDataCB) {
+    ctx->freePrivDataCB(ctx);
+  }
 
   MRCommand_Free(&ctx->cmd);
 
@@ -240,6 +256,9 @@ bool MR_CurrentTopologyExists() {
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
+  if (mrctx->beforeFanout) {
+    mrctx->beforeFanout(mrctx, cluster_g->topo);
+  }
 
   mrctx->numExpected =
       MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx,
@@ -307,8 +326,36 @@ static void uvUpdateTopologyRequest(void *p) {
 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
+  const char *id = NULL;
+  for (size_t i = 0; i < newTopo->numShards && !id; ++i) {
+    const MRClusterShard *shard = &newTopo->shards[i];
+    for (size_t j = 0; j < shard->numNodes; ++j) {
+      if (shard->nodes[j].flags & MRNode_Self) {
+        id = shard->nodes[j].id;
+        break;
+      }
+    }
+  }
+  pthread_rwlock_wrlock(&localNodeIdLock);
+  rm_free(localNodeId);
+  localNodeId = id ? rm_strdup(id) : NULL;
+  pthread_rwlock_unlock(&localNodeIdLock);
   // enqueue a request on the io thread, this can't be done from the main thread
   RQ_Push_Topology(uvUpdateTopologyRequest, newTopo);
+}
+
+char *MR_DuplicateLocalNodeId(void) {
+  pthread_rwlock_rdlock(&localNodeIdLock);
+  char *copy = localNodeId ? rm_strdup(localNodeId) : NULL;
+  pthread_rwlock_unlock(&localNodeIdLock);
+  return copy;
+}
+
+void MR_FreeLocalNodeId(void) {
+  pthread_rwlock_wrlock(&localNodeIdLock);
+  rm_free(localNodeId);
+  localNodeId = NULL;
+  pthread_rwlock_unlock(&localNodeIdLock);
 }
 
 /* Modifying the connection pools cannot be done from the main thread */

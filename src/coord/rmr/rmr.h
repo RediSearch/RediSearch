@@ -45,6 +45,10 @@ void MR_UpdateTopology(MRClusterTopology *newTopology);
 /* Get the current cluster topology */
 bool MR_CurrentTopologyExists();
 
+// Copies the local node ID under its read lock; caller owns the result, possibly NULL.
+char *MR_DuplicateLocalNodeId(void);
+void MR_FreeLocalNodeId(void);
+
 /* Get the current cluster topology connectivity status */
 int MR_CheckTopologyConnections(bool mastersOnly);
 
@@ -75,6 +79,14 @@ void MRCtx_Free(struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
+
+typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
+
+// Runs on the IO thread immediately before dispatch. The topology is borrowed
+// only for the callback; retain any needed snapshot in the command's private data.
+typedef void (*MRCtxBeforeFanoutCB)(struct MRCtx *ctx, const MRClusterTopology *topology);
+void MRCtx_SetBeforeFanoutCB(struct MRCtx *ctx, MRCtxBeforeFanoutCB cb);
+void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
