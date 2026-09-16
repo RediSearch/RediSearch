@@ -21,7 +21,7 @@
 #include "rmalloc.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
-#include "util/dict/dict.h"
+#include "util/dict.h"
 #include "util/arr/arr.h"
 
 #define FT_LIST_CS_KEY_INDEX "index"
@@ -52,7 +52,8 @@ static void captureShardNodeIds(struct MRCtx *ctx, const MRClusterTopology *topo
     const MRClusterShard *shard = &topology->shards[i];
     for (size_t j = 0; j < shard->numNodes; ++j) {
       if (shard->nodes[j].flags & MRNode_Master) {
-        array_ensure_append_1(request->shardNodeIds, rm_strdup(shard->nodes[j].id));
+        char *id = rm_strdup(shard->nodes[j].id);
+        array_ensure_append_1(request->shardNodeIds, id);
       }
     }
   }
