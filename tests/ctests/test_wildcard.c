@@ -192,9 +192,12 @@ int _testMatch(char *pattern, char *str, match_t expected) {
 
   // Wildcard_MatchRune implements the same algorithm over runes and must agree with
   // Wildcard_MatchChar on every input -- run every case through both.
-  rune patternRunes[64], strRunes[64];
+  rune patternRunes[65], strRunes[64];
   size_t patternLen = strlen(pattern), strLen = strlen(str);
   for (size_t i = 0; i < patternLen; ++i) patternRunes[i] = (rune)(unsigned char)pattern[i];
+  // Wildcard_MatchRune assumes a NUL-terminated pattern (see wildcard.h) -- a pattern ending
+  // in '*' reads one rune past patternLen after skipping the trailing star(s).
+  patternRunes[patternLen] = 0;
   for (size_t i = 0; i < strLen; ++i) strRunes[i] = (rune)(unsigned char)str[i];
   match_t actualRune = Wildcard_MatchRune(patternRunes, patternLen, strRunes, strLen);
   ASSERT_EQUAL(expected, actualRune);
