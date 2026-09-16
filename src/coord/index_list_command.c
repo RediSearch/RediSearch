@@ -16,7 +16,7 @@
 #include "hiredis/sds.h"
 #include "spec.h"
 #include "module.h"
-#include "query_error_ffi.h"
+#include "query_error.h"
 #include "reply.h"
 #include "rmalloc.h"
 #include "rmr/reply.h"

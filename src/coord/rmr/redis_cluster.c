@@ -233,7 +233,11 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
 
     // Store the local shard id
-    MR_SetLocalNodeId(RedisModule_GetMyClusterID());
+    // GetMyClusterID returns exactly REDISMODULE_NODE_ID_LEN bytes, without a terminator.
+    char localId[REDISMODULE_NODE_ID_LEN + 1];
+    memcpy(localId, RedisModule_GetMyClusterID(), REDISMODULE_NODE_ID_LEN);
+    localId[REDISMODULE_NODE_ID_LEN] = '\0';
+    MR_SetLocalNodeId(localId);
 
     // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
     MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));

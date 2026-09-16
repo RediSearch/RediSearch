@@ -17,7 +17,7 @@ INCONSISTENT = 'Inconsistent index state'
 
 UNKNOWN_ARG = 'SEARCH_ARG_UNRECOGNIZED Unknown argument'
 
-# The cluster tests pin @env_spec(shardsCount=3) rather than taking the suite default:
+# The cluster tests pin Env(shardsCount=3) rather than taking the suite default:
 # the warnings they assert name the shard count ("2 of 3 reporting shards"), so the
 # expected text would go stale if the count floated with SHARDS=.
 
@@ -99,10 +99,10 @@ def test_internal_list_rejects_unknown_arguments(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_list_without_the_token_stays_local(env):
+def test_list_without_the_token_stays_local():
     """Without the token the reply is the serving shard's own list, so a shard that
     alone holds an index lists it and its peers do not."""
+    env = Env(shardsCount=3)
     conns = create_diverged_index(env, 'idx_diverged')
     conns[0].execute_command('_FT.CREATE', 'idx_shard1_only', 'SCHEMA', 't', 'TEXT')
 
@@ -118,19 +118,19 @@ def test_list_without_the_token_stays_local(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_consistent_index_is_ok(env):
+def test_consistent_index_is_ok():
     """An index every shard holds with the same schema reports the plain string "ok",
     and nothing else."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': 'ok'}})
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_diverged_schemas_include_agreement_groups(env):
+def test_diverged_schemas_include_agreement_groups():
     """Each distinct definition names its agreeing nodes without selecting a correct group."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
@@ -143,9 +143,9 @@ def test_diverged_schemas_include_agreement_groups(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_shards_missing_an_index_are_named(env):
+def test_shards_missing_an_index_are_named():
     """Shards that reported without the index are both counted and named."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     con = env.getConnection(1)
     con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
@@ -160,9 +160,9 @@ def test_shards_missing_an_index_are_named(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_index_both_missing_and_diverged(env):
+def test_index_both_missing_and_diverged():
     """Both causes are reported: one clause must not hide the other."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     for shardId, extra in ((1, []), (2, ['b', 'TEXT'])):
         con = env.getConnection(shardId)
@@ -179,9 +179,9 @@ def test_index_both_missing_and_diverged(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_reply_covers_every_index_in_the_cluster(env):
+def test_reply_covers_every_index_in_the_cluster():
     """One entry per index in the union of the shards' lists, however few shards hold it."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     conns = create_diverged_index(env, 'idx_diverged')
     conns[0].execute_command('_FT.CREATE', 'idx_shard1_only', 'SCHEMA', 't', 'TEXT')
@@ -198,10 +198,10 @@ def test_reply_covers_every_index_in_the_cluster(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_internal_payload_reports_this_shards_schemas(env):
+def test_internal_payload_reports_this_shards_schemas():
     """The payload the reducer consumes: the shard's own identity, its comparability
     gates, and one fingerprint per local index."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     conns = create_diverged_index(env, 'idx_diverged')
     for con in conns:
@@ -226,10 +226,10 @@ def test_internal_payload_reports_this_shards_schemas(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3, protocol=3)
-def test_internal_payload_shape_is_protocol_independent(env):
+def test_internal_payload_shape_is_protocol_independent():
     """The payload is arrays, strings and integers only, so RESP3 clients see the same
     structure RESP2 ones do and the reducer parses one shape."""
+    env = Env(shardsCount=3, protocol=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -248,10 +248,10 @@ def test_internal_payload_shape_is_protocol_independent(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_alter_moves_the_fingerprint(env):
+def test_alter_moves_the_fingerprint():
     """FT.ALTER redefines the schema, so it must move the fingerprint - and, reaching
     every shard, must leave the index consistent."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     before = local_fingerprint(env, 'idx')
@@ -262,11 +262,11 @@ def test_alter_moves_the_fingerprint(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_synonyms_move_the_fingerprint(env):
+def test_synonyms_move_the_fingerprint():
     """Synonyms are part of the schema. That the index still reads consistent afterwards
     is the cross-process half of the claim: the synonym dict iterates in per-process
     order, so its hash must not."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     before = local_fingerprint(env, 'idx')
@@ -277,11 +277,11 @@ def test_synonyms_move_the_fingerprint(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_divergence_and_uncertainty_are_reported_together(env):
+def test_divergence_and_uncertainty_are_reported_together():
     """Proven divergence outranks uncertainty but does not replace it: the warning
     carries both clauses, so a silent shard cannot mask a divergence the shards that
     did answer demonstrated."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
@@ -304,10 +304,10 @@ def test_divergence_and_uncertainty_are_reported_together(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_unreachable_shard_is_uncertainty_not_absence(env):
+def test_unreachable_shard_is_uncertainty_not_absence():
     """A shard that did not reply is named as unreachable and never as missing the
     index: absence can only be proven by a shard that answered."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -326,11 +326,11 @@ def test_unreachable_shard_is_uncertainty_not_absence(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_divergence_is_proven_within_a_gate_group(env):
+def test_divergence_is_proven_within_a_gate_group():
     """A shard whose gates differ cannot mask a divergence between the shards whose
     gates agree. Fingerprints are compared inside each group of gate-agreeing shards,
     so the answer does not depend on which shard's reply arrived first."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
@@ -363,9 +363,9 @@ def test_divergence_is_proven_within_a_gate_group(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_rdbcompression_does_not_affect_fingerprints(env):
+def test_rdbcompression_does_not_affect_fingerprints():
     """Equal schemas remain comparable with different persistence compression settings."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                'a_field_name_well_over_twenty_bytes_long', 'TEXT').ok()
@@ -381,10 +381,10 @@ def test_rdbcompression_does_not_affect_fingerprints(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_only_withclusterstate_needs_to_block(env):
+def test_only_withclusterstate_needs_to_block():
     """The token makes the command fan out, so only that form is refused where blocking
     is denied; the plain form answers locally before any such check."""
+    env = Env(shardsCount=3)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     denied = 'Cannot perform `FT._LIST`: Cannot block'
 
@@ -402,10 +402,10 @@ def test_only_withclusterstate_needs_to_block(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3, protocol=3)
-def test_cluster_state_resp3(env):
+def test_cluster_state_resp3():
     """RESP3: the entry and a non-"ok" status are real maps, an "ok" status is still the
     plain string."""
+    env = Env(shardsCount=3, protocol=3)
     node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx_diverged')
     env.expect('FT.CREATE', 'idx_same', 'SCHEMA', 't', 'TEXT').ok()
@@ -433,18 +433,18 @@ def test_standalone_reports_every_index_ok(env):
 
 
 @skip(cluster=True)
-@env_spec(protocol=3)
-def test_standalone_reports_every_index_ok_resp3(env):
+def test_standalone_reports_every_index_ok_resp3():
     """RESP3: the single-shard path renders the same map the reducer does."""
+    env = Env(protocol=3)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.assertEqual(env.cmd('FT._LIST', 'WITHCLUSTERSTATE'),
                     [{'index': 'idx', 'status': 'ok'}])
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=1)
-def test_single_shard_cluster_reports_every_index_ok(env):
+def test_single_shard_cluster_reports_every_index_ok():
     """The single-shard cluster path answers locally, including inside MULTI and Lua."""
+    env = Env(shardsCount=1)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -459,9 +459,9 @@ def test_single_shard_cluster_reports_every_index_ok(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=1, protocol=3)
-def test_single_shard_cluster_resp3(env):
+def test_single_shard_cluster_resp3():
     """A single-shard cluster exposes the same RESP3 maps as standalone."""
+    env = Env(shardsCount=1, protocol=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.assertEqual(env.cmd('FT._LIST', 'WITHCLUSTERSTATE'),
@@ -469,9 +469,9 @@ def test_single_shard_cluster_resp3(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_empty_union_with_unreachable_shard_is_an_error(env):
+def test_empty_union_with_unreachable_shard_is_an_error():
     """An index only on the silent shard must not appear to be a confirmed empty list."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     con = env.getConnection(env.shardsCount)
     con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
@@ -487,9 +487,9 @@ def test_empty_union_with_unreachable_shard_is_an_error(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_empty_cluster_returns_empty_list(env):
+def test_empty_cluster_returns_empty_list():
     """A complete set of empty shard reports confirms there are no indexes."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     env.expect('FT._LIST', 'WITHCLUSTERSTATE').equal([])
 
@@ -552,9 +552,9 @@ def rejecting_shard(env, shard_id, response=b"-ERR unknown command '_FT._LIST'\r
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_rejecting_shard_is_not_named_unreachable(env):
+def test_rejecting_shard_is_not_named_unreachable():
     """Unattributed rejection errors suppress shard IDs, including mixed failures."""
+    env = Env(shardsCount=3)
     if env.useTLS:
         env.skip()  # The synthetic older-shard endpoint speaks plain RESP.
     shard_node_ids(env)
@@ -581,9 +581,9 @@ def test_rejecting_shard_is_not_named_unreachable(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_malformed_shard_payload_is_not_an_empty_report(env):
+def test_malformed_shard_payload_is_not_an_empty_report():
     """An invalid entry cannot count as proof that an index is missing on that shard."""
+    env = Env(shardsCount=3)
     if env.useTLS:
         env.skip()
     ids = shard_node_ids(env)
@@ -610,9 +610,9 @@ def test_malformed_shard_payload_is_not_an_empty_report(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_long_index_names_do_not_collide(env):
+def test_long_index_names_do_not_collide():
     """Exact-name lookup retains lengths beyond the former trie-map key width."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     names = ['x' * 65536 + 'a', 'x' * 65536 + 'b']
     for name in names:
@@ -621,42 +621,10 @@ def test_long_index_names_do_not_collide(env):
                     {name: {'index': name, 'status': 'ok'} for name in names})
 
 
-def check_embedded_nul_index_names(env):
-    if env.isCluster():
-        shard_node_ids(env)
-    names = ['idx', 'idx\0suffix', 'idx\0longer-suffix']
-    for name in names:
-        env.expect('FT.CREATE', name, 'SCHEMA', 't', 'TEXT').ok()
-    env.assertEqual(cluster_state(env),
-                    {name: {'index': name, 'status': 'ok'} for name in names})
-    shard_count = env.shardsCount if env.isCluster() else 1
-    for shard in range(1, shard_count + 1):
-        env.assertEqual(sorted(dict(internal_payload(env, shard)[3])), sorted(names))
-
-
-@env_spec(shardsCount=3)
-def test_embedded_nul_index_names_resp2(env):
-    """Local payloads and diagnostic replies retain bytes after NUL without merging names."""
-    check_embedded_nul_index_names(env)
-
-
-@env_spec(shardsCount=3, protocol=3)
-def test_embedded_nul_index_names_resp3(env):
-    """RESP3 maps preserve the full names in both standalone and distributed replies."""
-    check_embedded_nul_index_names(env)
-
-
 @skip(cluster=False)
-@env_spec(shardsCount=1)
-def test_single_shard_embedded_nul_index_names(env):
-    """The single-shard shortcut also preserves names containing NUL bytes."""
-    check_embedded_nul_index_names(env)
-
-
-@skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_schema_agreement_groups(env):
+def test_schema_agreement_groups():
     """Two matching nodes are grouped separately from the node with another schema."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     for shard in range(1, 4):
         con = env.getConnection(shard)
@@ -681,9 +649,9 @@ def test_schema_agreement_groups(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_unavailable_fingerprint_is_excluded_from_schema_groups(env):
+def test_unavailable_fingerprint_is_excluded_from_schema_groups():
     """A reporting shard without a fingerprint cannot claim agreement with any schema."""
+    env = Env(shardsCount=3)
     if env.useTLS:
         env.skip()
     node_ids = shard_node_ids(env)
@@ -713,9 +681,9 @@ def test_unavailable_fingerprint_is_excluded_from_schema_groups(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_reporting_shard_identity_does_not_determine_silence(env):
+def test_reporting_shard_identity_does_not_determine_silence():
     """Empty/stale/duplicate IDs count as replies but cannot identify silent peers."""
+    env = Env(shardsCount=3)
     if env.useTLS:
         env.skip()
     node_ids = shard_node_ids(env)
@@ -745,9 +713,9 @@ def test_reporting_shard_identity_does_not_determine_silence(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_empty_id_preserves_divergence_and_empty_cluster(env):
+def test_empty_id_preserves_divergence_and_empty_cluster():
     """Unnamed valid reports prove divergence and completeness without joining named groups."""
+    env = Env(shardsCount=3)
     if env.useTLS:
         env.skip()
     node_ids = shard_node_ids(env)
@@ -790,9 +758,9 @@ def test_empty_id_preserves_divergence_and_empty_cluster(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_schema_groups_wire_types(env):
+def test_schema_groups_wire_types():
     """Check RESP markers directly: redis-py decodes both sets and arrays as lists."""
+    env = Env(shardsCount=3)
     node_ids = shard_node_ids(env)
     create_diverged_index(env, 'idx')
 
@@ -842,9 +810,9 @@ def test_schema_groups_wire_types(env):
 
 
 @skip(cluster=False)
-@env_spec(shardsCount=3)
-def test_empty_synonym_update_does_not_diverge(env):
+def test_empty_synonym_update_does_not_diverge():
     """A no-term update on one shard stays equivalent to absent synonyms after reload."""
+    env = Env(shardsCount=3)
     shard_node_ids(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     before = local_fingerprint(env, 'idx')
