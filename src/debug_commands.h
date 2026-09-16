@@ -185,6 +185,8 @@ void SyncPoint_Signal(const char *name);
 bool SyncPoint_IsWaiting(const char *name);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
+// Number of armed hits since the most recent ARM; zero for unknown points.
+uint32_t SyncPoint_HitCount(const char* name);
 // Clear all sync points
 void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
