@@ -415,13 +415,13 @@ void MR_ReleaseLocalNodeIdReadLock() {
 }
 
 /* Set the local node ID for this shard */
-void MR_SetLocalNodeId(const char *node_id) {
+void MR_SetLocalNodeId(const char *node_id, size_t len) {
   // Replace the old local node ID.
   pthread_rwlock_wrlock(&local_node_id_g->lock);
   if (local_node_id_g->node_id != NULL) {
     rm_free(local_node_id_g->node_id);
   }
-  local_node_id_g->node_id = node_id ? rm_strdup(node_id) : NULL;
+  local_node_id_g->node_id = node_id ? rm_strndup(node_id, len) : NULL;
   pthread_rwlock_unlock(&local_node_id_g->lock);
 }
 
