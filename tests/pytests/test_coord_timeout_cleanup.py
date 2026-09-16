@@ -56,6 +56,10 @@ def _exercise_cleanup(stage, debug_query=False):
 
             # The callback runs on main, so the observation point must self-release.
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', cleanup_point, 1).ok()
+            if stage in ('queued', 'prepare'):
+                # Only this index owns a reference manager on the coordinator.
+                # Destruction can run on main, so the observation must self-release.
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RefManagerFreed', 1).ok()
             coord_paused = stage == 'queued'
             if coord_paused:
                 env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -122,18 +126,13 @@ def _exercise_cleanup(stage, debug_query=False):
                 elif point:
                     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
                 thread.join(timeout=5)
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
                 env.cmd(debug_cmd(), 'SEND_ERROR', 0)
                 client.close()
                 pool.disconnect()
-                if stage == 'queued':
-                    # Only the index owns a reference manager on this coordinator.
-                    # Freeing it can run on main, so the observation must self-release.
-                    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RefManagerFreed', 1).ok()
                 try:
                     if stage != 'prepare':
                         env.expect('FT.DROPINDEX', 'idx').ok()
-                    if stage == 'queued':
+                    if stage in ('queued', 'prepare'):
                         wait_for_condition(
                             lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT',
                                              'RefManagerFreed') == 1, {}),
@@ -151,7 +150,7 @@ def test_timeout_cleanup_before_dispatch():
 
 @skip(cluster=False)
 def test_timeout_cleanup_prepare_error():
-    """Preparation failure after cancellation must still finish the handle."""
+    """Preparation failure after cancellation must release the handle and index reference."""
     _exercise_cleanup('prepare')
 
 
