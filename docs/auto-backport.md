@@ -72,8 +72,7 @@ All opened backport PRs request the original author and enable auto-merge,
 including PRs with agent-resolved conflicts. They merge when required checks and
 approvals are satisfied.
 Final reporting retries auto-merge for opened or reused PRs and reports a failure
-if it cannot enable it. Retry with `/backport <branches>` to enable auto-merge on
-the existing PRs without recreating them.
+if it cannot enable it.
 Both paths copy non-trigger labels and add `auto-backport`; recovered conflicts
 also receive `auto-backport-conflicts` and a reviewer-facing conflict log.
 
