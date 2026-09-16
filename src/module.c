@@ -1369,6 +1369,14 @@ typedef union {
   SubscribeSubCommands subscribeSubCommands;
 } MutuallyExclusiveCommandCallbacks;
 
+static int SetDontCacheInfo(RedisModuleCommand *cmd) {
+  const RedisModuleCommandInfo info = {
+      .version = REDISMODULE_COMMAND_INFO_VERSION,
+      .tips = "dont_cache",
+  };
+  return RedisModule_SetCommandInfo(cmd, &info);
+}
+
 typedef struct {
   const char *name;
   const char *flags;
