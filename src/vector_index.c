@@ -781,7 +781,8 @@ void VecSimParams_Cleanup(VecSimParams *params) {
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                           VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
-  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType);
+  const char *vecSimErrMsg = NULL;
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType, &vecSimErrMsg);
   if (vecSimCode == VecSim_OK) {
     return vecSimCode;
   }
@@ -825,8 +826,14 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
   }
   const char *default_msg = QueryError_StrerrorDefaultMessage(RSErrorCode);
-  QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg,
-                                " (Error parsing vector similarity parameters)");
+  if (vecSimErrMsg) {
+    // vecSimErrMsg may echo back user-supplied content (e.g. an unknown parameter name), so it
+    // goes through the user-data slot rather than the safe/obfuscation-visible message.
+    QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg, " (%s)", vecSimErrMsg);
+  } else {
+    QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg,
+                                  " (Error parsing vector similarity parameters)");
+  }
   return vecSimCode;
 }
 
