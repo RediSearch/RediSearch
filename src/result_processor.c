@@ -537,9 +537,6 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
 }
 
 void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
-  if (!rp->Drain) {
-    rp->Drain = RPDrain_EOF;
-  }
   rp->parent = it;
   if (!it->rootProc) {
     it->endProc = it->rootProc = rp;

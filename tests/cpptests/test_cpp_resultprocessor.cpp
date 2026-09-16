@@ -23,6 +23,7 @@
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
+    Drain = RPDrain_EOF;
     counter = 0;
   }
   int counter;
@@ -151,13 +152,20 @@ TEST_F(ResultProcessorTest, drainCallsProcessorImplementationDirectly) {
   SearchResult_Destroy(&result);
 }
 
-TEST_F(ResultProcessorTest, pushInstallsEofDrainWhileProcessorIsNotMigrated) {
+TEST_F(ResultProcessorTest, pushPreservesConstructorDrain) {
   QueryProcessingCtx qitr = {0};
   processor1Ctx processor;
+  ASSERT_EQ(RPDrain_EOF, processor.Drain);
   QITR_PushRP(&qitr, &processor);
   SearchResult result = SearchResult_New();
   ASSERT_NE(nullptr, processor.Drain);
   ASSERT_EQ(RP_DRAIN_EOF, processor.Drain(&processor, &result));
+  processor1Ctx custom;
+  custom.Drain = p1_Drain;
+  QITR_PushRP(&qitr, &custom);
+  ASSERT_EQ(p1_Drain, custom.Drain);
+  ASSERT_EQ(RP_DRAIN_OK, custom.Drain(&custom, &result));
+  EXPECT_EQ(1, SearchResult_GetDocId(&result));
   SearchResult_Destroy(&result);
 }
 
