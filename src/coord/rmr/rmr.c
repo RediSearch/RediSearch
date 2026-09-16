@@ -75,6 +75,9 @@ typedef struct MRCtx {
    are up before sending the command to the cluster */
   bool validateConnections;
 
+  MRCtxBeforeFanoutCB beforeFanout;
+  MRCtxFreePrivDataCB freePrivDataCB;
+
   /**
    * This is a reduce function inside the MRCtx.
    * if set when replies will arrive we will not
@@ -113,7 +116,18 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   return ret;
 }
 
+void MRCtx_SetFreePrivDataCB(MRCtx *ctx, MRCtxFreePrivDataCB cb) {
+  ctx->freePrivDataCB = cb;
+}
+
+void MRCtx_SetBeforeFanoutCB(MRCtx *ctx, MRCtxBeforeFanoutCB cb) {
+  ctx->beforeFanout = cb;
+}
+
 void MRCtx_Free(MRCtx *ctx) {
+  if (ctx->freePrivDataCB) {
+    ctx->freePrivDataCB(ctx);
+  }
 
   MRCommand_Free(&ctx->cmd);
 
@@ -227,6 +241,10 @@ static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
+  if (mrctx->beforeFanout) {
+    mrctx->beforeFanout(mrctx, ioRuntime->topo);
+  }
+
   mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, MRCtx_GetValidateConnections(mrctx));
 
   if (mrctx->numExpected == 0) {
@@ -313,6 +331,13 @@ const char* MR_GetLocalNodeId(void) {
   RS_ASSERT(local_node_id_g != NULL);
   pthread_rwlock_rdlock(&local_node_id_g->lock);
   return local_node_id_g->node_id;
+}
+
+char *MR_DuplicateLocalNodeId(void) {
+  const char *id = MR_GetLocalNodeId();
+  char *copy = id ? rm_strdup(id) : NULL;
+  MR_ReleaseLocalNodeIdReadLock();
+  return copy;
 }
 
 void MR_FreeLocalNodeId() {

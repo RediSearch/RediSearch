@@ -10,6 +10,7 @@
 #include "resp3.h"
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
+#include "module.h"
 
 // Type of field returned in INFO
 typedef enum {
@@ -179,7 +180,7 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
 
   // Something went wrong (number of fields mismatch)
   if (array_len(fields->fieldSpecInfo_arr) != len) {
-    QueryError_SetError(error, QUERY_ERROR_CODE_BAD_VAL, "Inconsistent index state");
+    QueryError_SetError(error, QUERY_ERROR_CODE_BAD_VAL, INCONSISTENT_INDEX_STATE);
     return;
   }
 

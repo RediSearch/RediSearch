@@ -56,10 +56,13 @@
 #define RS_EXPLAINCLI_CMD "FT.EXPLAINCLI"
 #define RS_DICT_DUMP "FT.DICTDUMP"
 #define RS_SYNDUMP_CMD "FT.SYNDUMP"
-#define RS_INDEX_LIST_CMD "FT._LIST"
 #define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
 
 // read commands
+// Index listing is local unless WITHCLUSTERSTATE requests a coordinator fanout.
+#define RS_INDEX_LIST_CMD_PUBLIC "FT._LIST"
+#define RS_INDEX_LIST_CMD_INTERNAL "_" RS_INDEX_LIST_CMD_PUBLIC
+
 #define RS_INFO_CMD RS_CMD_READ_PREFIX ".INFO"
 #define RS_SEARCH_CMD RS_CMD_READ_PREFIX ".SEARCH"
 #define RS_HYBRID_CMD RS_CMD_READ_PREFIX ".HYBRID"
