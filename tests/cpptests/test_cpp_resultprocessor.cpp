@@ -710,6 +710,52 @@ TEST_F(MaxScoreDrainTest, nextClaimAndDrainKeepTheSameMaximum) {
   EXPECT_EQ(RS_RESULT_TIMEDOUT, normalizer->Next(normalizer, &result));
 }
 
+TEST_F(MaxScoreDrainTest, drainExcludesNextClaimWhileNormalizationIsParked) {
+  source.scores = {2, 4, 8};
+  source.explanations = true;
+  ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &result));
+  EXPECT_EQ(3, SearchResult_GetDocId(&result));
+  SearchResult_Clear(&result);
+
+  // Yield releases the claimed row's container before normalizing its private output.
+  static thread_local bool pauseFree = false;
+  static std::atomic<bool> entered;
+  static std::atomic<bool> release;
+  static decltype(RedisModule_Free) originalFree;
+  entered.store(false);
+  release.store(false);
+  originalFree = RedisModule_Free;
+  RedisModule_Free = [](void *ptr) {
+    if (pauseFree) {
+      pauseFree = false;
+      entered.store(true);
+      while (!release.load()) std::this_thread::yield();
+    }
+    originalFree(ptr);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::jthread worker([this, &next, &status] {
+    pauseFree = true;
+    status = normalizer->Next(normalizer, &next);
+    pauseFree = false;
+  });
+  bool paused = RS::WaitForCondition([] { return entered.load(); }, 5);
+  if (paused) EXPECT_EQ((std::vector<double>{0.25}), drain());
+  release.store(true);
+  worker.join();
+  RedisModule_Free = originalFree;
+  EXPECT_TRUE(paused);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  normalizer->Free(normalizer);
+  normalizer = nullptr;
+  EXPECT_EQ(2, SearchResult_GetDocId(&next));
+  EXPECT_EQ(2, SearchResult_GetIndexResult(&next)->docId);
+  EXPECT_DOUBLE_EQ(0.5, SearchResult_GetScore(&next));
+  EXPECT_NE(nullptr, SearchResult_GetScoreExplain(&next));
+  SearchResult_Destroy(&next);
+}
+
 TEST_F(MaxScoreDrainTest, drainDoesNotWaitForPoolGrowthAndLatePreparationIsDiscarded) {
   source.scores = {2, 8, 100};
   source.allocationPauseAt = 2;
