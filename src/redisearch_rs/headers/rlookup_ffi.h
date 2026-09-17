@@ -224,15 +224,14 @@ void RLookupRow_Wipe(struct RLookupRow *row);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
+ * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+ * 3. `name` must be non-null even when `name_len` is `0`.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * No null terminator is required; `name_len` alone bounds the read. An interior
+ * NUL byte is not a safety precondition; it panics on the insert path, where the
+ * name is copied into an owned [`CString`](std::ffi::CString).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -250,15 +249,14 @@ void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t nam
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
+ * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+ * 3. `name` must be non-null even when `name_len` is `0`.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * No null terminator is required; `name_len` alone bounds the read. An interior
+ * NUL byte is not a safety precondition; it panics on the insert path, where the
+ * name is copied into an owned [`CString`](std::ffi::CString).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
