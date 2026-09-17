@@ -944,7 +944,9 @@ def ProfileGILTimeSentinel(protocol, workers):
   conn = getConnectionByEnv(env)
   run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f', 'TEXT').ok()
-  conn.execute_command('HSET', '{gil}:1', 'f', 'hello')
+  # Empty shards can omit their profile, so distribute documents across hash slots.
+  for i in range(100):
+    conn.execute_command('HSET', f'{{gil:{i}}}:1', 'f', 'hello')
 
   # GROUPBY exercises the coordinator's profile as well as each shard's profile.
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
