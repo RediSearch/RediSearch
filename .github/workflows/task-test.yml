@@ -67,8 +67,11 @@ env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
-  # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
-  RUST_BACKTRACE: "full"
+  # RUST_BACKTRACE=1 is enough to diagnose a real failure. "full" additionally
+  # symbolicates every frame, which does file I/O against debug info — on a
+  # contended runner that cost is what pushes `#[should_panic]` tests (which
+  # always pay it, even on the expected panic) past nextest's slow-timeout.
+  RUST_BACKTRACE: "1"
   # Header freshness is checked in the lint job. No need to regenerate here.
   REDISEARCH_GENERATE_HEADERS: "0"
   # Fail on warnings
