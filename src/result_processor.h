@@ -186,46 +186,16 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 
   /**
-   * Populates `res` with the next result that can be produced without waiting
-   * for background progress. The result ownership convention is the same as
-   * for Next().
-   * Transparent processors pull upstream Drain and apply their normal output
-   * semantics. Accumulators yield only locally committed, valid state without
-   * replenishing from upstream. Sources without ready output return EOF.
+   * Yield an available result with Next() ownership, without waiting for
+   * background progress. RETURN-STRICT may overlap one Next chain; RETURN
+   * drains after Next unwinds; FAIL never drains.
    *
-   * RETURN-STRICT may run Drain on the main thread concurrently with at most
-   * one BG call active in the Next chain. RETURN invokes Drain inline only
-   * after Next fully unwinds. FAIL returns an error without invoking Drain.
-   * The caller guarantees that the processor chain remains alive until both
-   * calls return and that `res` points to initialized, exclusively accessible
-   * storage distinct from the concurrent Next call's result. Implementations
-   * must not wait for the Next call, background work, I/O, condition variables,
-   * or global runtime locks. Synchronization needed only for RETURN-STRICT
-   * should have minimal cost for RETURN/FAIL; policy-specialized entry is
-   * allowed when the execution configuration guarantees sequential access.
+   * The caller keeps the chain and payloads alive and supplies initialized,
+   * exclusive output storage distinct from Next's. Constructors must install
+   * a callback, using RPDrain_EOF when unsupported.
    *
-   * The RETURN-STRICT caller sets the request timeout flag before entering
-   * Drain. This does not make an earlier Next timeout check a mutation guard:
-   * an in-flight call can still return from upstream after local draining ends.
-   * Published-buffer admission and drain ownership transfer must be serialized locally;
-   * unfinished worker-private buffers may remain inaccessible to Drain.
-   * a late result is discarded by its owner, never published after drain EOF.
-   * No ownership guard may span upstream calls, loading/reply conversion, cleanup
-   * or the GIL. Specialized nonblocking heap comparisons over owned values,
-   * including numeric parsing, may run under the heap guard without allocating
-   * diagnostics or accessing live query state. This is not a hard real-time bound.
-   * Distinct result storage also requires safe ownership of reachable payloads.
-   *
-   * Drain neither reads nor modifies live Next query bookkeeping. The caller
-   * owns a separately published reply snapshot, result budget and metadata;
-   * processor metadata is transferred only into that caller-owned state.
-   * Paging applies committed OFFSET progress once and conservatively reserves
-   * LIMIT capacity for in-flight output. The caller owns the remaining reply
-   * budget; late Next completion must not reopen a finished drain.
-   *
-   * Constructors must initialize this callback. Processors without a custom
-   * implementation use RPDrain_EOF. External providers must rebuild against
-   * this layout and initialize the callback before returning a processor.
+   * Full ownership, synchronization and integration contract:
+   * docs/design/result-processor-drain.md.
    */
   RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
