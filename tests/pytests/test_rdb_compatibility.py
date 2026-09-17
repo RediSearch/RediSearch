@@ -103,7 +103,8 @@ def testRDBCompatibility_vecsim():
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb',
-            'redisearch_8.0_with_vecsim.rdb']
+            'redisearch_8.0_with_vecsim.rdb',
+            'redisearch_8.10_with_vecsim.rdb']
 
     algorithms = ['FLAT', 'HNSW']
     if not getRDBFiles(env, rdbs):
@@ -140,7 +141,6 @@ def testRDBCompatibility_vecsim():
           'M', 16,
           'ef_construction', 200,
           'ef_runtime', 10,
-          'compression', 'NO_COMPRESSION'
         ], [
           'identifier', 'flat_vec',
           'attribute', 'flat_vec',

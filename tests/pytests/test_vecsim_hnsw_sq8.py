@@ -40,7 +40,7 @@ def test_hnsw_sq8_create_validation_and_info(env):
     """Exercise HNSW SQ8 parsing, defaults, validation, and FT.INFO reporting."""
     create_hnsw(env, 'plain', hnsw_params())
     plain_info = vector_field_info(env, 'plain')
-    env.assertEqual(plain_info['compression'], 'NO_COMPRESSION')
+    env.assertFalse('compression' in plain_info, message=plain_info)
     env.assertFalse('training_threshold' in plain_info, message=plain_info)
 
     create_hnsw(env, 'default_threshold', hnsw_params('FLOAT32', 'COMPRESSION', 'SQ8'))
