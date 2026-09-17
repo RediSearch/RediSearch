@@ -38,7 +38,7 @@ pub(crate) fn eval<'index>(
     // `field_index` is `RS_INVALID_FIELD_INDEX` when this node was parsed with no
     // local spec (e.g. a coordinator shard); nothing upstream stops it from
     // reaching evaluation against a different, spec-bearing context.
-    assert!(
+    debug_assert!(
         field_index < spec.numFields,
         "field_index must be within the spec's current field count"
     );
