@@ -218,7 +218,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     value: *mut RSValue,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_mut() }.expect("lookup must not be null");
+    let lookup = unsafe { lookup.as_ref() }.expect("lookup must not be null");
 
     debug_assert!(!name.is_null(), "name must not be null");
     // SAFETY: the caller guarantees a single readable allocation covering `name_len`
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     value: *mut RSValue,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_mut() }.expect("lookup must not be null");
+    let lookup = unsafe { lookup.as_ref() }.expect("lookup must not be null");
 
     debug_assert!(!name.is_null(), "name must not be null");
     // SAFETY: the caller guarantees a single readable allocation covering `name_len`

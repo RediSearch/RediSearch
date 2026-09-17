@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -87,7 +87,7 @@ void MRChannel_Push(MRChannel *chan, void *ptr) {
     chan->head = chan->tail = item;
   }
   chan->size++;
-  // Each channel has a single consumer, so a push wakes at most one waiter.
+  // A push adds one item, so only one waiting consumer needs waking.
   pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
@@ -102,7 +102,7 @@ void *MRChannel_UnsafeForcePop(MRChannel *chan) {
   if (!chan->head) chan->tail = NULL;
   chan->size--;
   // discard the item (TODO: recycle items)
-  void* ret = item->ptr;
+  void *ret = item->ptr;
   rm_free(item);
   return ret;
 }
@@ -118,6 +118,15 @@ static void *popHeadAndUnlock(MRChannel *chan) {
   void *ret = item->ptr;
   rm_free(item);
   return ret;
+}
+
+void *MRChannel_TryPop(MRChannel *chan) {
+  pthread_mutex_lock(&chan->lock);
+  if (!chan->size) {
+    pthread_mutex_unlock(&chan->lock);
+    return NULL;
+  }
+  return popHeadAndUnlock(chan);
 }
 
 void *MRChannel_Pop(MRChannel *chan) {
@@ -172,7 +181,10 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
     // Sticky abort flipped by another thread (e.g. timeout callback + MRChannel_WakeAbort).
     if (abortFlag && atomic_load_explicit(abortFlag, memory_order_relaxed)) goto aborted;
     // One-shot unblock via MRChannel_Unblock; reset for the next pop.
-    if (!chan->wait) { chan->wait = true; goto aborted; }
+    if (!chan->wait) {
+      chan->wait = true;
+      goto aborted;
+    }
     // Park until pushed/broadcast/deadline. Re-checks all conditions on wake.
     if (waitForCond(&chan->cond, &chan->lock, abstimeMono)) {
       if (timedOut) *timedOut = true;

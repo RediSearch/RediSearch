@@ -57,7 +57,8 @@ typedef struct LoadIndividualKeysOptions {
  * An iterator over the keys in an `RLookup`, returning immutable pointers.
  */
 typedef struct RLookupIterator {
-  const RLookupKey *const *current;
+  const struct RLookup *lookup;
+  size_t next;
   size_t remaining;
 } RLookupIterator;
 
@@ -107,6 +108,17 @@ typedef struct RSSortingVectorSlice {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Advance a [`RLookupIterator`] without retaining the lookup's vector storage.
+ *
+ * # Safety
+ * `iterator` and `key` must be [valid] non-null pointers; the iterator must satisfy
+ * the lifetime and key immutability requirements of [`RLookup_Iter`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupIterator_Next(struct RLookupIterator *iterator, const RLookupKey * *key);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -549,7 +561,8 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The returned iterator must only be used as long as the `lookup` remains valid.
- * 3. `lookup` must not be mutated until the returned iterator is exhausted.
+ * 3. Existing keys must not be mutated while iterating. Concurrent by-name appends
+ *    are allowed; the iterator visits only the slots present at creation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
