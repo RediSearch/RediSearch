@@ -154,6 +154,9 @@ typedef struct SyncPointState {
   char name[SYNC_POINT_NAME_MAX_LEN];   // Name of the sync point
   atomic_bool armed;                    // Whether this sync point is armed (will block)
   _Atomic uint32_t waiting;             // Number of threads currently waiting at this point
+  _Atomic uint32_t hit_count;           // Number of times this point was reached while armed
+  _Atomic long long auto_release_ms;    // >0: a parked SyncPoint_Wait self-releases after
+                                        // this many ms even without a SIGNAL; 0: wait for SIGNAL.
 } SyncPointState;
 
 // Container for all sync point states
@@ -177,9 +180,15 @@ static SyncPointState* SyncPoint_FindByName(const char *name) {
   return NULL;
 }
 
-bool SyncPoint_Arm(const char *name) {
+// Arm `name`, self-releasing a parked waiter after `auto_release_ms` (0 = wait
+// for SIGNAL). Shared by SyncPoint_Arm / SyncPoint_ArmWithTimeout.
+static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
   SyncPointState *existing = SyncPoint_FindByName(name);
   if (existing) {
+    // Publish the timeout before re-arming so a Wait that observes `armed`
+    // reads the intended auto-release window (seq_cst stores order the two).
+    atomic_store(&existing->auto_release_ms, auto_release_ms);
+    atomic_store(&existing->hit_count, 0);
     atomic_store(&existing->armed, true);
     return true;
   }
@@ -195,6 +204,8 @@ bool SyncPoint_Arm(const char *name) {
   SyncPointState *sp = &globalSyncPointCtx.points[idx];
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
+  atomic_store(&sp->auto_release_ms, auto_release_ms);
+  atomic_store(&sp->hit_count, 0);
   atomic_store(&sp->armed, true);
   // Note: We intentionally do NOT reset sp->waiting here.
   // The slot is either newly allocated (waiting is 0 from static init) or
@@ -207,6 +218,14 @@ bool SyncPoint_Arm(const char *name) {
   return true;
 }
 
+bool SyncPoint_Arm(const char *name) {
+  return SyncPoint_ArmInternal(name, 0);
+}
+
+bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms) {
+  return SyncPoint_ArmInternal(name, auto_release_ms);
+}
+
 void SyncPoint_Signal(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (sp) atomic_store(&sp->armed, false);  // Disarm to release waiting thread
@@ -215,6 +234,11 @@ void SyncPoint_Signal(const char *name) {
 bool SyncPoint_IsWaiting(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? (atomic_load(&sp->waiting) > 0) : false;
+}
+
+uint32_t SyncPoint_HitCount(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->hit_count) : 0;
 }
 
 bool SyncPoint_IsArmed(const char *name) {
@@ -249,9 +273,15 @@ void SyncPoint_Wait(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
+  // Main-thread cleanup callbacks cannot process a SIGNAL while parked.
+  long long auto_release_ms = atomic_load(&sp->auto_release_ms);
+  atomic_fetch_add(&sp->hit_count, 1);
   atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
+  long long waited_ms = 0;
   while (atomic_load(&sp->armed)) {
+    if (auto_release_ms > 0 && waited_ms >= auto_release_ms) break;  // self-release
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
+    waited_ms++;
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
@@ -260,6 +290,7 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
+  atomic_fetch_add(&sp->hit_count, 1);
   atomic_fetch_add(&sp->waiting, 1);
   while (atomic_load(&sp->armed)) {
     if (stop_fn && stop_fn(arg)) break;
@@ -2608,6 +2639,7 @@ DEBUG_COMMAND(printRPStream) {
 #define SYNC_POINT_SUBCMD_ARM        "ARM"
 #define SYNC_POINT_SUBCMD_SIGNAL     "SIGNAL"
 #define SYNC_POINT_SUBCMD_IS_WAITING "IS_WAITING"
+#define SYNC_POINT_SUBCMD_HIT_COUNT  "HIT_COUNT"
 #define SYNC_POINT_SUBCMD_IS_ARMED   "IS_ARMED"
 #define SYNC_POINT_SUBCMD_CLEAR      "CLEAR"
 
@@ -2615,9 +2647,12 @@ DEBUG_COMMAND(printRPStream) {
  * FT.DEBUG SYNC_POINT <subcommand> [point_name]
  *
  * Subcommands:
- *   ARM <name>        - Enable a sync point (queries will pause when reaching it)
+ *   ARM <name> [auto_release_ms]  - Enable a sync point (threads pause when reaching it).
+ *                                   With auto_release_ms > 0 a parked thread self-releases
+ *                                   after that many ms even without a SIGNAL.
  *   SIGNAL <name>     - Resume execution at a sync point
  *   IS_WAITING <name> - Check if a query is paused at a sync point
+ *   HIT_COUNT <name>  - Count how many times a sync point was reached since ARM
  *   IS_ARMED <name>   - Check if a sync point is armed
  *   CLEAR             - Reset all sync points
  */
@@ -2630,9 +2665,21 @@ DEBUG_COMMAND(syncPoint) {
   const char *subOp = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcmp(SYNC_POINT_SUBCMD_ARM, subOp)) {
-    if (argc != 4) return RedisModule_WrongArity(ctx);
+    // ARM <name> [auto_release_ms]
+    if (argc != 4 && argc != 5) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
-    if (!SyncPoint_Arm(name)) {
+    bool armed;
+    if (argc == 5) {
+      long long auto_release_ms;
+      if (RedisModule_StringToLongLong(argv[4], &auto_release_ms) != REDISMODULE_OK ||
+          auto_release_ms < 0) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid auto_release_ms");
+      }
+      armed = SyncPoint_ArmWithTimeout(name, auto_release_ms);
+    } else {
+      armed = SyncPoint_Arm(name);
+    }
+    if (!armed) {
       return RedisModule_ReplyWithError(ctx, "ERR max sync points reached");
     }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -2648,6 +2695,11 @@ DEBUG_COMMAND(syncPoint) {
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
     return RedisModule_ReplyWithBool(ctx, SyncPoint_IsWaiting(name));
   }
+  if (!strcmp(SYNC_POINT_SUBCMD_HIT_COUNT, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithLongLong(ctx, SyncPoint_HitCount(name));
+  }
   if (!strcmp(SYNC_POINT_SUBCMD_IS_ARMED, subOp)) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
@@ -2657,7 +2709,8 @@ DEBUG_COMMAND(syncPoint) {
     SyncPoint_ClearAll();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
+  return RedisModule_ReplyWithError(ctx,
+      "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, HIT_COUNT, IS_ARMED, CLEAR");
 }
 
 /**
