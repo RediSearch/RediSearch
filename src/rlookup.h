@@ -22,30 +22,13 @@
 extern "C" {
 #endif
 
-// `block` must not add keys to `rlookup` (e.g. via `RLookup_GetKey_*`): the iterator reads
-// the lookup's key-pointer array in place, and growing it may reallocate that array.
+// Iteration is bounded by the initial slot count; each step fetches a stable key.
 #define RLOOKUP_FOREACH(key, rlookup, block)    \
   RLookupIterator iter = RLookup_Iter(rlookup); \
   const RLookupKey* key;                        \
   while (RLookupIterator_Next(&iter, &key)) {   \
     block                                       \
   }
-
-/**
- * Advances the iterator to the next key and places a pointer to it into `key`.
- *
- * Returns `true` while there are more keys or `false` to indicate the
- * last key was returned and the caller should not call this function anymore.
- */
-static inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
-  if (iterator->remaining == 0) {
-    return false;
-  }
-
-  *key = *iterator->current++;
-  --iterator->remaining;
-  return true;
-}
 
 /** The index into the array where the value resides  */
 static inline uint16_t RLookupKey_GetDstIdx(const RLookupKey* key) {

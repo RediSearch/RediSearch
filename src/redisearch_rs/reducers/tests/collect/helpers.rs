@@ -57,7 +57,7 @@ impl RemoteCollectFixture {
     /// REDUCE COLLECT 6
     ///   FIELDS 1 @name
     ///   SORTBY 1 @sweetness
-    pub(super) fn reducer(&self, is_internal: bool) -> RemoteCollectReducer<'_> {
+    pub(super) fn reducer(&self, is_internal: bool) -> RemoteCollectReducer<'_, '_> {
         RemoteCollectReducer::new(
             Box::new([&self.name_key]),
             None,
