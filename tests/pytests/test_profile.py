@@ -938,6 +938,47 @@ def testProfileTotalTimeConsistencyStandaloneResp2():
     ProfileTotalTimeConsistency(env, num_docs=1500)
 
 
+def ProfileGILTimeSentinel(protocol, workers):
+  """Cover unmeasured GIL time on the coordinator and synchronous shards in both protocols."""
+  env = Env(protocol=protocol, moduleArgs=f'WORKERS {workers}')
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f', 'TEXT').ok()
+  # Empty shards can omit their profile, so distribute documents across hash slots.
+  for i in range(100):
+    conn.execute_command('HSET', f'{{gil:{i}}}:1', 'f', 'hello')
+
+  # GROUPBY exercises the coordinator's profile as well as each shard's profile.
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'GROUPBY', '1', '@f', 'REDUCE', 'COUNT', '0', 'AS', 'count')
+  coordinator, shards = extract_profile_coordinator_and_shards(env, res)
+  env.assertEqual(len(shards), env.shardsCount, message=res)
+  for shard in shards:
+    gil_time = float(shard['Total GIL time'])
+    if workers:
+      env.assertGreaterEqual(gil_time, 0, message=res)
+    else:
+      env.assertEqual(gil_time, -1, message=res)
+  if env.isCluster():
+    env.assertEqual(float(coordinator['Total GIL time']), -1, message=res)
+
+
+def testProfileGILTimeSentinelNoWorkersResp2():
+  ProfileGILTimeSentinel(protocol=2, workers=0)
+
+
+def testProfileGILTimeSentinelNoWorkersResp3():
+  ProfileGILTimeSentinel(protocol=3, workers=0)
+
+
+def testProfileGILTimeSentinelWorkersResp2():
+  ProfileGILTimeSentinel(protocol=2, workers=1)
+
+
+def testProfileGILTimeSentinelWorkersResp3():
+  ProfileGILTimeSentinel(protocol=3, workers=1)
+
+
 def testProfileGILTime():
   env = Env(moduleArgs='WORKERS 1')
   conn = getConnectionByEnv(env)

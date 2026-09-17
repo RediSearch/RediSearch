@@ -153,17 +153,16 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
                                rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
   }
 
-      //Print total GIL time
-        if (profile_verbose){
-          if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
-          } else {
-            // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
-            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime) + 1;
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
-          }
-        }
+  // Print total GIL time
+  if (profile_verbose) {
+    if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
+      RedisModule_ReplyKV_Double(reply, "Total GIL time",
+                                 rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
+    } else {
+      // GIL time is not measured outside background execution; preserve the reply shape.
+      RedisModule_ReplyKV_Double(reply, "Total GIL time", -1.0);
+    }
+  }
 
   // Print whether a warning was raised throughout command execution
   bool warningRaised = bgScanOOM || timedout || reachedMaxPrefixExpansions;
