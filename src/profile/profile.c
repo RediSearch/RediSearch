@@ -231,10 +231,8 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
       RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                  rs_wall_clock_convert_ns_to_ms_d(qctx->queryGILTime));
     } else {
-      // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
-      rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime) + 1;
-      RedisModule_ReplyKV_Double(reply, "Total GIL time",
-                                 rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
+      // GIL time is not measured outside background execution; preserve the reply shape.
+      RedisModule_ReplyKV_Double(reply, "Total GIL time", -1.0);
     }
   }
 
