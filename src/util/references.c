@@ -14,6 +14,7 @@
 
 #include "rmalloc.h"
 #include "redismodule.h"
+#include "rs_atomic.h"
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
 #endif
@@ -80,7 +81,7 @@ static void RefManager_InvalidateObject(RefManager *rm) {
 }
 
 static void RefManager_GetWeakReference(RefManager *rm) {
-  __atomic_add_fetch(&rm->weak_refcount, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&rm->weak_refcount, 1);
 }
 
 // Returns false if the object is being freed or marked as invalid,

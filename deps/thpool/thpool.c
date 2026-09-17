@@ -20,6 +20,7 @@
 
 #include "barrier.h"
 #include "rmalloc.h"
+#include "util/rs_atomic.h"
 #include "thpool.h"
 #include "rmutil/rm_assert.h"
 
@@ -709,7 +710,7 @@ static void *thread_do(void *p) {
   /* Mark thread as alive (initialized). Both `num_threads_alive` and
    * `started` must be set before the first queue pull (which takes the pool
    * lock), so an initializer's started-wait always completes. */
-  thpool_p->num_threads_alive += 1;
+  RS_AtomicAddRelaxedNoRet((size_t *)&thpool_p->num_threads_alive, 1);
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
   // Set to true after accounting num_threads_alive, useful for testing
   *args->started = true;
@@ -740,8 +741,11 @@ static void *thread_do(void *p) {
       if (job_ctx.has_priority_ticket) {
         thpool_p->jobqueues.high_priority_tickets++;
       }
-      thpool_p->total_jobs_done += !job_ctx.is_admin;
-      thpool_p->jobqueues.num_jobs_in_progress--;
+      // Statistics counters: the previous value is never needed, so use the
+      // store-only relaxed add (STADD on LSE AArch64) instead of the implicit
+      // seq_cst read-modify-write of `++`/`--` on an atomic.
+      RS_AtomicAddRelaxedNoRet((size_t *)&thpool_p->total_jobs_done, (size_t)!job_ctx.is_admin);
+      RS_AtomicSubRelaxedNoRet((size_t *)&thpool_p->jobqueues.num_jobs_in_progress, (size_t)1);
     }
 
     if (thread_ctx.thread_state != THREAD_RUNNING) {
@@ -763,7 +767,7 @@ static void *thread_do(void *p) {
   }
 
   LOG_IF_EXISTS("verbose", "Terminating thread %s", thread_name)
-  thpool_p->num_threads_alive--;
+  RS_AtomicSubRelaxedNoRet((size_t *)&thpool_p->num_threads_alive, (size_t)1);
   redisearch_thpool_unlock(thpool_p);
 
   return NULL;
@@ -986,7 +990,7 @@ static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobq
   /** Increasing the counter should be guarded in the same code block as pulling
    * from the queue since we may want to check the jobq length and
    * num_jobs_in_progress together. */
-  if (job_p) priority_queue_p->num_jobs_in_progress++;
+  if (job_p) RS_AtomicAddRelaxedNoRet((size_t *)&priority_queue_p->num_jobs_in_progress, 1);
   priorityJobCtx job_ctx = {
       .job = job_p,
       .is_admin = is_admin,

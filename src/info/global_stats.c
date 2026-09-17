@@ -13,9 +13,10 @@
 #include "concurrent_ctx.h"
 #include "VecSim/vec_sim_common.h"
 #include "query_flags.h"
+#include "util/rs_atomic.h"
 
-#define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
-#define DECR_BY(x,y) __atomic_sub_fetch(&(x), (y), __ATOMIC_RELAXED)
+#define INCR_BY(x,y) RS_AtomicAddRelaxedNoRet(&(x), (y))
+#define DECR_BY(x,y) RS_AtomicSubRelaxedNoRet(&(x), (y))
 #define INCR(x) INCR_BY(x, 1)
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 

@@ -17,6 +17,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+#include "util/rs_atomic.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -204,11 +205,17 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len
  * This macro is atomic and fits for single writer and multiple readers as it is used only
  * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
  */
+#ifdef ENABLE_ASSERT
 #define DMD_Incref(md)                                                        \
   ({                                                                          \
     uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
     RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
   })
+#else
+// The previous count is only needed for the overflow assert above, so release
+// builds use the store-only form.
+#define DMD_Incref(md) RS_AtomicAddRelaxedNoRet(&(md)->ref_count, 1)
+#endif
 
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);

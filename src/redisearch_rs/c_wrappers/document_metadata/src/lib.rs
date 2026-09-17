@@ -140,10 +140,31 @@ impl Clone for OwnedDocumentMetadata {
     fn clone(&self) -> Self {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
-        let refcount = unsafe { AtomicU16::from_ptr(self.refcount_ptr()) };
+        let ptr = self.refcount_ptr();
 
-        let old = refcount.fetch_add(1, Ordering::Relaxed);
-        assert!(old < u16::MAX, "overflow of dmd ref_count");
+        // The previous count is only used for the overflow check, so on LSE-enabled
+        // AArch64 use the store-only form (LDADDH with a WZR destination): the core
+        // may execute it as a far atomic instead of pulling the line into L1.
+        // rustc, like GCC and clang, never emits this form for a discarded
+        // `fetch_add` result, hence the inline asm.
+        #[cfg(all(target_arch = "aarch64", target_feature = "lse"))]
+        // SAFETY: `ptr` is valid and naturally aligned (see `refcount_ptr`); the
+        // instruction is a single-copy-atomic 16-bit add with relaxed ordering,
+        // matching the `fetch_add(1, Relaxed)` it replaces.
+        unsafe {
+            core::arch::asm!(
+                "staddh {v:w}, [{p}]",
+                v = in(reg) 1u32,
+                p = in(reg) ptr,
+                options(nostack, preserves_flags),
+            );
+        }
+        #[cfg(not(all(target_arch = "aarch64", target_feature = "lse")))]
+        {
+            let refcount = unsafe { AtomicU16::from_ptr(ptr) };
+            let old = refcount.fetch_add(1, Ordering::Relaxed);
+            debug_assert!(old < u16::MAX, "overflow of dmd ref_count");
+        }
 
         Self(self.0)
     }

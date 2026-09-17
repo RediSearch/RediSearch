@@ -163,8 +163,7 @@ typedef struct {
 // subtraction.
 static inline void IndexStats_BlockCountAdd(IndexStats *stats, int64_t delta) {
   if (delta) {
-    __atomic_add_fetch(&stats->totalInvertedIndexBlocks,
-                       (size_t)delta, __ATOMIC_RELAXED);
+    RS_AtomicAddRelaxedNoRet(&stats->totalInvertedIndexBlocks, (size_t)delta);
   }
 }
 
@@ -441,20 +440,20 @@ extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
 
 static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
-  __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&sp->stats.activeQueries, 1);
 }
 static inline void IndexSpec_DecrActiveQueries(IndexSpec *sp) {
-  __atomic_sub_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+  RS_AtomicSubRelaxedNoRet(&sp->stats.activeQueries, 1);
 }
 static inline uint32_t IndexSpec_GetActiveQueries(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeQueries, __ATOMIC_RELAXED);
 }
 
 static inline void IndexSpec_IncrActiveWrites(IndexSpec *sp) {
-  __atomic_add_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&sp->stats.activeWrites, 1);
 }
 static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
-  __atomic_sub_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+  RS_AtomicSubRelaxedNoRet(&sp->stats.activeWrites, 1);
 }
 static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);

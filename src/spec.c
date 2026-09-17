@@ -1925,7 +1925,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   RS_LOG_ASSERT(spec->spcache, "Index spec cache is NULL");
-  __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&spec->spcache->refcount, 1);
   return spec->spcache;
 }
 
@@ -1956,11 +1956,11 @@ uint16_t getPendingIndexDrop() {
 }
 
 void addPendingIndexDrop() {
-  __atomic_add_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&pendingIndexDropCount_g, 1);
 }
 
 void removePendingIndexDrop() {
-  __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+  RS_AtomicSubRelaxedNoRet(&pendingIndexDropCount_g, 1);
 }
 
 size_t CleanInProgressOrPending() {
@@ -2248,11 +2248,11 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
 //---------------------------------------- atomic updates ---------------------------------------
 
 void IndexSpec_IncrQueryCounter(IndexSpec *sp) {
-  __atomic_fetch_add(&sp->queryCounter, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&sp->queryCounter, 1);
 }
 
 static void IndexSpec_IncrAdminCounter(IndexSpec *sp) {
-  __atomic_fetch_add(&sp->adminCounter, 1, __ATOMIC_RELAXED);
+  RS_AtomicAddRelaxedNoRet(&sp->adminCounter, 1);
 }
 
 long long IndexSpec_GetQueryCounter(const IndexSpec *sp) {

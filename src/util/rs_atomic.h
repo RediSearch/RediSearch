@@ -39,4 +39,36 @@
   __atomic_fetch_and((unsigned *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
+#include <stdint.h>
+
+// Relaxed atomic add/sub whose previous value is discarded.
+//
+// On AArch64 with LSE enabled at compile time (__ARM_FEATURE_ATOMICS), emit the
+// store-only ST<op> form: an LDADD whose destination is XZR. The core does not
+// need the old value back, so it may execute the add as a "far atomic" in the
+// interconnect instead of pulling the cache line into L1. No compiler emits this
+// form for a discarded __atomic_fetch_add result (GCC and clang both keep a dead
+// destination register), so it has to be inline asm. Elsewhere it is a plain
+// relaxed fetch_add.
+//
+// `p` must point to a naturally aligned 1/2/4/8-byte integer. `v` is converted
+// to the pointee width, so a negated value wraps correctly for subtraction.
+#if defined(__aarch64__) && defined(__ARM_FEATURE_ATOMICS)
+#define RS_AtomicAddRelaxedNoRet(p, v)                                                        \
+  do {                                                                                        \
+    if (sizeof(*(p)) == 8) {                                                                  \
+      __asm__ volatile("stadd %x1, %0" : "+Q"(*(p)) : "r"((uint64_t)(v)) : "memory");         \
+    } else if (sizeof(*(p)) == 4) {                                                           \
+      __asm__ volatile("stadd %w1, %0" : "+Q"(*(p)) : "r"((uint32_t)(v)) : "memory");         \
+    } else if (sizeof(*(p)) == 2) {                                                           \
+      __asm__ volatile("staddh %w1, %0" : "+Q"(*(p)) : "r"((uint32_t)(uint16_t)(v)) : "memory"); \
+    } else {                                                                                  \
+      __asm__ volatile("staddb %w1, %0" : "+Q"(*(p)) : "r"((uint32_t)(uint8_t)(v)) : "memory");  \
+    }                                                                                         \
+  } while (0)
+#else
+#define RS_AtomicAddRelaxedNoRet(p, v) ((void)__atomic_fetch_add((p), (v), __ATOMIC_RELAXED))
+#endif
+#define RS_AtomicSubRelaxedNoRet(p, v) RS_AtomicAddRelaxedNoRet((p), -(v))
+
 #endif  // RS_ATOMIC_H__

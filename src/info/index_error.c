@@ -14,6 +14,7 @@
 #include "reply_macros.h"
 #include "util/timeout.h"
 #include "util/strconv.h"
+#include "util/rs_atomic.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
 #include "rmr/reply.h"
@@ -75,7 +76,7 @@ void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, C
     error->key = RedisModule_HoldString(RSDummyContext, key ? key : NA_rstr);
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
-    __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);
+    RS_AtomicAddRelaxedNoRet(&error->error_count, 1);
     clock_gettime(CLOCK_MONOTONIC_RAW, &error->last_error_time);
 }
 
