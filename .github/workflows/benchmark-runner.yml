@@ -21,6 +21,14 @@ on:
         type: string
         default: master
         description: "branch to use for rejson"
+      redis_ref:
+        type: string
+        # Pinned to the latest redis/redis 8.8.x release (matches what
+        # get-latest-redis-tag with prefix '8.8' resolves in
+        # event-pull_request.yml / event-merge-to-queue.yml) — bump alongside
+        # future 8.8.x patch releases.
+        default: "c5031f43a7eaa0d96311746acf759ee6d6acb053" # 8.8.2
+        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
       extended:
@@ -37,6 +45,14 @@ on:
         type: boolean
         default: false
         description: "if true, will notify failure on slack"
+      redis_ref:
+        type: string
+        # Pinned to the latest redis/redis 8.8.x release (matches what
+        # get-latest-redis-tag with prefix '8.8' resolves in
+        # event-pull_request.yml / event-merge-to-queue.yml) — bump alongside
+        # future 8.8.x patch releases.
+        default: "c5031f43a7eaa0d96311746acf759ee6d6acb053" # 8.8.2
+        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
@@ -77,6 +93,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   # aarch64 sibling of benchmark-search-oss-standalone. Targets the
   # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
@@ -101,6 +118,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-standalone-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -120,6 +138,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-vecsim-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
@@ -138,6 +157,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-vecsim-oss-standalone-threads-6:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
@@ -156,6 +176,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-02-primaries:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
@@ -174,6 +195,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-04-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
@@ -192,6 +214,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -211,6 +234,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-08-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
@@ -229,6 +253,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
     if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
@@ -241,6 +266,7 @@ jobs:
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
@@ -259,6 +285,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-20-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
@@ -277,6 +304,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-24-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
@@ -295,6 +323,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-hybrid-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
@@ -313,6 +342,7 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   notify-failure:
     needs:
