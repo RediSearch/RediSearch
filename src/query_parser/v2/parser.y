@@ -961,7 +961,9 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
     QueryNode_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gmn.geomq->fs = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    GeometryQuery_SetField(C->gmn.geomq, ctx->sctx->spec ? B.fs : NULL);
     A = C;
   }
 }
