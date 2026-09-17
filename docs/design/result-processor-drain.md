@@ -21,8 +21,9 @@ redesign; performing those migrations is out of scope.
 
 ## Contract and behavior delta
 
-The callback contract is defined on `ResultProcessor::Drain` in
-[`result_processor.h`](../../src/result_processor.h). Every constructor supplies
+This section defines the full callback contract; `ResultProcessor::Drain` in
+[`result_processor.h`](../../src/result_processor.h) carries its entry-point
+summary. Every constructor supplies
 a callback, including external providers. Unsupported processors explicitly use
 `RPDrain_EOF`; chain insertion neither probes nor repairs the callback.
 
@@ -65,6 +66,9 @@ across upstream calls, allocation, conversion, cleanup, arbitrary callbacks,
 I/O, condition waits, the GIL or another RP's guard. A guard can be delayed by OS
 scheduling; this is not a wait-free or hard-real-time latency guarantee.
 Drain must not wait for a background job to start, finish or acquire the GIL.
+Specialized nonblocking heap comparisons over owned values, including numeric
+parsing, may run under the heap guard without allocating diagnostics or accessing
+live query state.
 
 Next-only vtable phase changes can remain unless concurrent Drain needs the same
 field. Rust accesses stable C header fields through raw field projections rather
