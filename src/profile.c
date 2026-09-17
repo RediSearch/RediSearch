@@ -149,10 +149,8 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
         RedisModule_ReplyKV_Double(reply, "Total GIL time",
                                    rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
       } else {
-        // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
-        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime) + 1;
-        RedisModule_ReplyKV_Double(reply, "Total GIL time",
-                                   rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
+        // GIL time is not measured outside background execution; preserve the reply shape.
+        RedisModule_ReplyKV_Double(reply, "Total GIL time", -1.0);
       }
     }
 
@@ -235,10 +233,8 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
         RedisModule_Reply_Double(reply,
                                  rs_wall_clock_convert_ns_to_ms_d(req->qiter.queryGILTime));
       } else {
-        // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
-        rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime) + 1;
-        RedisModule_Reply_Double(reply,
-                                 rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
+        // GIL time is not measured outside background execution; preserve the reply shape.
+        RedisModule_Reply_Double(reply, -1.0);
       }
     }
     RedisModule_Reply_ArrayEnd(reply);
