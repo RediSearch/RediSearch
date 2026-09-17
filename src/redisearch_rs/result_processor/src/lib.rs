@@ -53,6 +53,13 @@ pub struct DrainError;
 
 /// Implemented by types that participate in the result processor chain.
 ///
+/// # Concurrent entry
+///
+/// [`Self::next`] and [`Self::drain`] use shared borrows so their permitted overlap
+/// never creates an exclusive borrow of the whole processor. Implementations
+/// synchronize mutable state internally; [`Context`] remains exclusive to the
+/// executor running [`Self::next`].
+///
 /// # Search Result
 ///
 /// The search result storage is allocated by the caller of the result processor chain.
@@ -118,7 +125,11 @@ pub trait ResultProcessor: Sync {
     }
 }
 
-/// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
+/// Access to the query context and upstream processors for [`ResultProcessor::next`].
+///
+/// The header borrow is shared with [`DrainContext`]; pinning guarantees a stable
+/// address, not exclusive access. Operations that borrow or mutate live query
+/// state still require exclusive access to this context.
 pub struct Context<'a> {
     ptr: NonNull<Header>,
     _borrow: PhantomData<&'a Header>,
