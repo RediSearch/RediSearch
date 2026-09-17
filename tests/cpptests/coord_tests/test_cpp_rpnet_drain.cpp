@@ -14,6 +14,7 @@
 #include "coord/rmr/chan.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
+#include "hiredis/alloc.h"
 #include "rlookup.h"
 #include "value_ffi.h"
 #include "query_error_ffi.h"
@@ -22,6 +23,7 @@
 #include <thread>
 #include <string>
 #include <atomic>
+#include <memory>
 
 static MRReply *parseReply(const char *wire) {
   redisReader *reader = redisReaderCreate();
@@ -54,7 +56,7 @@ class RPNetBufferedDrainTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    network->base.Free(&network->base);
+    if (network) network->base.Free(&network->base);
     while (auto *reply = static_cast<MRReply *>(MRChannel_TryPop(channel))) MRReply_Free(reply);
     MRChannel_Free(channel);
     RLookup_Cleanup(&lookup);
@@ -66,6 +68,105 @@ class RPNetBufferedDrainTest : public ::testing::Test {
     return value;
   }
 };
+
+class ReplyFreeTracker {
+  static inline ReplyFreeTracker *active = nullptr;
+  decltype(hiredisAllocFns.freeFn) originalFree = hiredisAllocFns.freeFn;
+  void *target;
+
+ public:
+  size_t frees = 0;
+
+  explicit ReplyFreeTracker(void *reply) : target(reply) {
+    active = this;
+    hiredisAllocFns.freeFn = [](void *ptr) {
+      if (ptr == active->target) ++active->frees;
+      active->originalFree(ptr);
+    };
+  }
+
+  ~ReplyFreeTracker() {
+    hiredisAllocFns.freeFn = originalFree;
+    active = nullptr;
+  }
+};
+
+class RPNetProfileDrainTest : public RPNetBufferedDrainTest,
+                              public ::testing::WithParamInterface<bool> {
+  IORuntimeCtx runtime = {};
+
+ protected:
+  void SetUp() override {
+    RPNetBufferedDrainTest::SetUp();
+    network->cmd.forProfiling = true;
+    network->shardsProfile = array_new(MRReply *, 1);
+    runtime.queue = RQ_New(1, 0);
+    RQ_IncrPending(runtime.queue);
+    MRIteratorConfig config = {};
+    config.successCB = [](MRIteratorCallbackCtx *, MRReply *) {};
+    config.ioRuntime = &runtime;
+    network->it = MR_CreateIterator(&network->cmd, &config);
+    network->drainChannel = MRIterator_GetChannel(network->it);
+  }
+
+  void freeNetwork() {
+    if (!network) return;
+    MRIterator_ResolveShard(network->it, 0, 0);
+    network->base.Free(&network->base);
+    network = nullptr;
+  }
+
+  void TearDown() override {
+    freeNetwork();
+    RPNetBufferedDrainTest::TearDown();
+    RQ_Free(runtime.queue);
+  }
+};
+
+TEST_P(RPNetProfileDrainTest, resp2ProfileHasOneOwnerAcrossDrainAndProcessorCleanup) {
+  const bool nextFirst = GetParam();
+  MRReply *envelope = parseReply(
+      "*3\r\n*3\r\n:2\r\n*2\r\n+n\r\n:1\r\n*2\r\n+n\r\n:2\r\n:0\r\n*2\r\n+marker\r\n:17\r\n");
+  MRReply *profile = MRReply_ArrayElement(envelope, 2);
+  ReplyFreeTracker lifetime(profile);
+  MRChannel_Push(network->drainChannel, envelope);
+  SearchResult result = SearchResult_New();
+  if (nextFirst) {
+    ASSERT_EQ(RS_RESULT_OK, network->base.Next(&network->base, &result));
+    EXPECT_EQ(1, number(&result));
+    ASSERT_EQ(1, array_len(network->shardsProfile));
+    EXPECT_EQ(profile, network->shardsProfile[0]);
+    SearchResult_Clear(&result);
+  }
+  for (int expected = nextFirst ? 2 : 1; expected <= 2; ++expected) {
+    ASSERT_EQ(RP_DRAIN_OK, network->base.Drain(&network->base, &result));
+    EXPECT_EQ(expected, number(&result));
+    SearchResult_Clear(&result);
+  }
+  EXPECT_EQ(RP_DRAIN_EOF, network->base.Drain(&network->base, &result));
+  std::unique_ptr<RPNetDrainMetadata, decltype(&RPNetDrainMetadata_Free)> metadata(
+      RPNet_TakeDrainMetadata(network), RPNetDrainMetadata_Free);
+  ASSERT_NE(nullptr, metadata);
+  if (nextFirst) {
+    EXPECT_EQ(nullptr, metadata->profiles);
+  } else {
+    ASSERT_NE(nullptr, metadata->profiles);
+    ASSERT_EQ(1, array_len(metadata->profiles));
+    EXPECT_EQ(profile, metadata->profiles[0]);
+  }
+  EXPECT_EQ(0, lifetime.frees);
+  freeNetwork();
+  EXPECT_EQ(nextFirst ? 1 : 0, lifetime.frees);
+  if (!nextFirst) {
+    EXPECT_TRUE(MRReply_StringEquals(MRReply_ArrayElement(profile, 0), "marker", true));
+    EXPECT_EQ(17, MRReply_Integer(MRReply_ArrayElement(profile, 1)));
+  }
+  metadata.reset();
+  EXPECT_EQ(1, lifetime.frees);
+  SearchResult_Destroy(&result);
+}
+
+INSTANTIATE_TEST_SUITE_P(ProfileOwnership, RPNetProfileDrainTest, ::testing::Bool());
 
 TEST_F(RPNetBufferedDrainTest, lookupIteratorKeepsOriginalBoundAcrossDynamicGrowth) {
   auto iterator = RLookup_Iter(&lookup);
