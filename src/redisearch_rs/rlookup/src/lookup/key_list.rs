@@ -315,6 +315,7 @@ impl<'a> KeyList<'a> {
 
     /// Publish an initialized key without allocating or invoking `create` under the guard.
     /// Loading can suppress name-index promotion while retaining an already-built index.
+    #[cfg(test)]
     pub(crate) fn get_or_create_with(
         &self,
         name: &CStr,
