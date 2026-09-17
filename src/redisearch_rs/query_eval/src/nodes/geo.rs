@@ -44,7 +44,7 @@ pub(crate) fn eval<'index>(
     // `fieldIndex` is `RS_INVALID_FIELD_INDEX` when this node was parsed with no
     // local spec (e.g. a coordinator shard); nothing upstream stops it from
     // reaching evaluation against a different, spec-bearing context.
-    assert!(
+    debug_assert!(
         field_index < ctx.spec().numFields,
         "fieldIndex must be within the spec's current field count"
     );

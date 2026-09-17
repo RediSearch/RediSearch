@@ -58,9 +58,11 @@ pub enum GeoRangeError {
 ///
 /// # Safety
 ///
-/// 1. `fs` must be a valid non-null pointer to a [`ffi::FieldSpec`], valid for `'index` — the
-///    field currently at `gf.fieldIndex`, re-derived by the caller from the spec actually held
-///    at evaluation time.
+/// 1. `fs` must be a valid non-null pointer to a [`ffi::FieldSpec`] for the duration of this
+///    call — the field currently at `gf.fieldIndex`, re-derived by the caller from the spec
+///    actually held at evaluation time. `fs` itself is not retained: `NewNumericFilter` reads
+///    only `fs->index` into each `NumericFilter`, so the returned filters (cached in
+///    `gf.numericFilters`) safely outlive `fs`, including across cursor reads.
 /// 2. `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
 ///    to `*gf` and must be released by `GeoFilter_Free` (which frees it through
 ///    [`free_geo_numeric_filters`]).
