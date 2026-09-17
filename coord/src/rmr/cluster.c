@@ -181,7 +181,7 @@ int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly) {
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      if (!MRConn_Get(&cl->mgr, sh->nodes[j].id)) {
+      if (!MRConnManager_HasConnectedConnection(&cl->mgr, sh->nodes[j].id)) {
         return REDIS_ERR;
       }
     }
@@ -199,8 +199,7 @@ void MRCluster_LogDisconnectedNodes(MRCluster *cl, bool mastersOnly) {
         continue;
       }
       MRClusterNode *node = &sh->nodes[j];
-      MRConn *conn = MRConn_Get(&cl->mgr, node->id);
-      if (!conn) {
+      if (!MRConnManager_HasConnectedConnection(&cl->mgr, node->id)) {
         const char *state = MRConnManager_GetNodeState(&cl->mgr, node->id);
         RedisModule_Log(RSDummyContext, "warning",
                         "Node %s (%s:%d) not connected (state: %s)",
