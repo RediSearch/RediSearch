@@ -2185,7 +2185,7 @@ typedef struct {
 
 struct searchReducerCtx; // Predecleration
 
-typedef void (*processReplyCB)(MRReply *arr, struct searchReducerCtx *rCtx, RedisModuleCtx *ctx);
+typedef void (*processReplyCB)(MRReply *arr, struct searchReducerCtx *rCtx);
 typedef void (*postProcessReplyCB)( struct searchReducerCtx *rCtx);
 
 typedef struct {
@@ -2251,9 +2251,6 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
       heap_destroy(rctx->reduceSpecialCaseCtxKnn->knn.pq);
     }
     rm_free(rctx);
-  }
-  if(r->queryString) {
-    rm_free(r->queryString);
   }
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
@@ -2407,15 +2404,11 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   }
 
   int argvOffset = 2 + req->profileArgs;
-  size_t queryLen;
-  const char *queryPtr = RedisModule_StringPtrLen(argv[argvOffset++], &queryLen);
-  // Length-faithful copy: keeps any embedded NULs the client sent, matching
-  // the (buffer, length) parse downstream.
-  req->queryString = rm_strndup(queryPtr, queryLen);
-  // TRANSITIONAL: record the C-string length, truncating at the first NUL, so a query
-  // with embedded NULs behaves as it always has — consistent with AREQ_Query on the shards.
-  // TODO: remove — the true length is queryLen.
-  req->queryStringLen = strlen(req->queryString);
+  if (argvOffset >= argc) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
+    return REDISMODULE_ERR;
+  }
+  req->base.args.queryOffset = argvOffset++;
   req->limit = 10;
   req->offset = 0;
   req->specialCases = NULL;
@@ -2557,10 +2550,11 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   }
 
   if (dialect >= 2) {
+    size_t queryLen;
+    const char *query = searchRequestCtx_Query(req, &queryLen);
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
-    if (strcasestr(req->queryString, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, req->queryStringLen,
-                                                       argv, argc, dialect, status);
+    if (strcasestr(query, "KNN")) {
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
       }
@@ -2633,7 +2627,6 @@ static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc
     return NULL;
   }
 
-  req->base.args.queryOffset = 2 + req->profileArgs;
   req->base.async.requiresAggregateResultsSync =
       requestConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
   return req;
@@ -2971,7 +2964,7 @@ static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, do
     }
 }
 
-static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
   if (arr == NULL) {
     return;
   }
@@ -3005,17 +2998,20 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
       if (res && res->id) {
         rCtx->cachedResult = NULL;
       } else {
-        RedisModule_Log(ctx, "warning", "missing required_field when parsing redisearch results");
+        RedisModule_Log(RSDummyContext, "warning",
+                        "missing required_field when parsing redisearch results");
         goto error;
       }
       MRReply *require_fields = MRReply_MapElement(MRReply_ArrayElement(results, j), "required_fields");
       if (!require_fields) {
-        RedisModule_Log(ctx, "warning", "missing required_fields when parsing redisearch results");
+        RedisModule_Log(RSDummyContext, "warning",
+                        "missing required_fields when parsing redisearch results");
         goto error;
       }
       MRReply *score_value = MRReply_MapElement(require_fields, reduceSpecialCaseCtxKnn->knn.fieldName);
       if (!score_value) {
-        RedisModule_Log(ctx, "warning", "missing knn required_field when parsing redisearch results");
+        RedisModule_Log(RSDummyContext, "warning",
+                        "missing knn required_field when parsing redisearch results");
         goto error;
       }
       double d;
@@ -3032,7 +3028,7 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
     for (int j = 1; j < len; j += step) {
       if (j + step > len) {
         RedisModule_Log(
-            ctx, "warning",
+            RSDummyContext, "warning",
             "got a bad reply from redisearch, reply contains less parameters then expected");
         rCtx->errorOccurred = true;
         break;
@@ -3041,7 +3037,8 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
       if (res && res->id) {
         rCtx->cachedResult = NULL;
       } else {
-        RedisModule_Log(ctx, "warning", "missing required_field when parsing redisearch results");
+        RedisModule_Log(RSDummyContext, "warning",
+                        "missing required_field when parsing redisearch results");
         goto error;
       }
 
@@ -3080,13 +3077,14 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
 }
 #endif
 
-static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx) {
 #ifdef ENABLE_ASSERT
   debugCheckAndPauseBeforeReduce(rCtx);
 #endif
 
   if (!res || !res->id) {
-    RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
+    RedisModule_Log(RSDummyContext, "warning",
+                    "got an unexpected argument when parsing redisearch results");
     rCtx->errorOccurred = true;
     // invalid result - usually means something is off with the response, and we should just
     // quit this response
@@ -3124,7 +3122,7 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
 #endif
 }
 
-static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
   if (arr == NULL) {
     return;
   }
@@ -3165,7 +3163,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
       searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
-      processSearchReplyResult(res, rCtx, ctx);
+      processSearchReplyResult(res, rCtx);
     }
     processResultFormat(&rCtx->searchCtx->format, arr);
   }
@@ -3180,13 +3178,14 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
     for (int j = 1; j < len; j += step) {
       if (j + step > len) {
-        RedisModule_Log(ctx, "warning",
-          "got a bad reply from redisearch, reply contains less parameters then expected");
+        RedisModule_Log(
+            RSDummyContext, "warning",
+            "got a bad reply from redisearch, reply contains less parameters then expected");
         rCtx->errorOccurred = true;
         break;
       }
       searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
-      processSearchReplyResult(res, rCtx, ctx);
+      processSearchReplyResult(res, rCtx);
     }
   }
 }
@@ -3612,7 +3611,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 
   if (!profile) {
     for (int i = 0; i < count; ++i) {
-      rCtx->processReply(replies[i], rCtx, RSDummyContext);
+      rCtx->processReply(replies[i], rCtx);
       if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
         goto cleanup;
       }
@@ -3632,7 +3631,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
-      rCtx->processReply(mr_reply, rCtx, RSDummyContext);
+      rCtx->processReply(mr_reply, rCtx);
       if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
         goto cleanup;
       }
@@ -3728,7 +3727,7 @@ int IndexListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
   struct MRCtx *mrctx = IndexList_CreateRequest(ctx, GetNumShards_UnSafe());
-  MR_Fanout(mrctx, IndexListClusterStateReducer, cmd, true);
+  MR_Fanout(mrctx, IndexListClusterStateReducer, cmd);
   return REDISMODULE_OK;
 }
 
@@ -3783,7 +3782,7 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetPrefix(&cmd, "_FT");
 
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
-  MR_Fanout(mrctx, mergeArraysReducer, cmd, true);
+  MR_Fanout(mrctx, mergeArraysReducer, cmd);
   return REDISMODULE_OK;
 }
 
@@ -3812,7 +3811,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MRCommand_Insert(&cmd, 3, "FULLSCOREINFO", sizeof("FULLSCOREINFO") - 1);
 
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
-  MR_Fanout(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cmd, true);
+  MR_Fanout(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cmd);
   return REDISMODULE_OK;
 }
 
@@ -3847,7 +3846,7 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
   MRCommand_SetPrefix(&cmd, "_FT");
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
 
-  MR_Fanout(mrctx, allOKReducer, cmd, true);
+  MR_Fanout(mrctx, allOKReducer, cmd);
   return REDISMODULE_OK;
 }
 
@@ -4282,7 +4281,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
+  MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd);
   return REDISMODULE_OK;
 }
 
@@ -4312,7 +4311,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetPrefix(&cmd, "_FT");
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
-  MR_Fanout(mctx, InfoReplyReducer, cmd, true);
+  MR_Fanout(mctx, InfoReplyReducer, cmd);
   return REDISMODULE_OK;
 }
 
@@ -4472,7 +4471,7 @@ static int FlatSearchCommandHandler(searchRequestCtx *req) {
   }
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
-  MR_Fanout(mrctx, NULL, cmd, false);
+  MR_FanoutSearch(mrctx, cmd);
   return REDISMODULE_OK;
 }
 
@@ -4616,7 +4615,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   searchRequestCtx *req = QueryRequest_GetSearch(request);
   struct MRCtx *mrctx = req->mrctx;
 
-  // Signal timeout to stop accepting new replies in fanoutCallback
+  // Signal timeout to stop accepting new replies in searchFanoutCallback
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
 
   recordSearchTimeoutStage(req, /*isError=*/false);
@@ -4780,9 +4779,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     parse_argc = argc - (debug_params.debug_params_count + 2);
   }
 
-  // Allocate searchRequestCtx on main thread for partial timeout support.
-  // This ensures the timeout callback can always access it (even if parsing hasn't completed).
-  // queryString == NULL indicates parsing hasn't completed yet.
+  // Parse before blocking so partial timeout callbacks can always access the request.
   searchRequestCtx *req = initSearchRequestCtx(argv, argc, parse_argc, queryTimeoutMS, &status);
   if (!req) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
@@ -5247,7 +5244,7 @@ static int DEBUG_FlatSearchCommandHandler(searchRequestCtx *req) {
   }
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
-  MR_Fanout(mrctx, NULL, cmd, false);
+  MR_FanoutSearch(mrctx, cmd);
   return REDISMODULE_OK;
 }
 

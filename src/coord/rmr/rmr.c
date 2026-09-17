@@ -243,24 +243,22 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return mc->reducer(mc, mc->numReplied, mc->replies);
 }
 
+static void unblockFanout(MRCtx *ctx, bool measureTime) {
+  RedisModuleBlockedClient *bc = ctx->bc;
+  RS_ASSERT(bc);
+  if (measureTime) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+  }
+  RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
+}
+
 /* The callback called from each fanout request to aggregate their replies */
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
-  IORuntimeCtx *ioRuntime = ctx->ioRuntime;
 
-  // Check if timed out or incomplete fanout - discard reply.
-  // Timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
-  // Incomplete fanout means not all shards were reached during the fanout send loop.
-  bool aborted = MRCtx_IsAborted(ctx);
-  if (aborted) {
-    if (r) {
-      MRReply_Free(r);
-    }
-    ctx->numErrored++;
-  } else if (!r) {
+  if (!r) {
     ctx->numErrored++;
   } else {
-    /* If needed - double the capacity for replies */
     if (ctx->numReplied == ctx->repliesCap) {
       ctx->repliesCap *= 2;
       ctx->replies = rm_realloc(ctx->replies, ctx->repliesCap * sizeof(MRReply *));
@@ -268,19 +266,33 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     ctx->replies[ctx->numReplied++] = r;
   }
 
-  // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!aborted && ctx->fn) {
+    IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
+    if (ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
-      RedisModuleBlockedClient *bc = ctx->bc;
-      RS_ASSERT(bc);
-      if (!aborted) {
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
-      }
-      RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
+      unblockFanout(ctx, true);
     }
+    MRCtx_DecrRef(ctx);
+  }
+}
+
+static void searchFanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
+  MRCtx *ctx = privdata;
+  if (!MRCtx_IsAborted(ctx)) {
+    fanoutCallback(c, r, privdata);
+    return;
+  }
+
+  // Search timeouts and disconnects can abandon results before fanout completes.
+  if (r) {
+    MRReply_Free(r);
+  }
+  ctx->numErrored++;
+
+  if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
+    IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
+    unblockFanout(ctx, false);
     MRCtx_DecrRef(ctx);
   }
 }
@@ -290,9 +302,7 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size) {
   cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads);
 }
 
-/* The fanout request received in the event loop in a thread safe manner */
-static void uvFanoutRequest(void *p) {
-  MRCtx *mrctx = p;
+static void dispatchFanout(MRCtx *mrctx, redisCallbackFn *callback) {
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
   if (mrctx->beforeFanout) {
@@ -302,38 +312,58 @@ static void uvFanoutRequest(void *p) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("BeforeCoordFanout");
 #endif
-  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, MRCtx_GetValidateConnections(mrctx));
+  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, callback, mrctx,
+                                               MRCtx_GetValidateConnections(mrctx));
+}
+
+/* The fanout request received in the event loop in a thread safe manner */
+static void uvFanoutRequest(void *p) {
+  MRCtx *mrctx = p;
+  dispatchFanout(mrctx, fanoutCallback);
 
   if (mrctx->numExpected == 0) {
-    // No shard command was sent, so fanoutCallback() will never fire.
-    IORuntimeCtx_RequestCompleted(ioRuntime);
-    RedisModuleBlockedClient *bc = mrctx->bc;
-    RS_ASSERT(bc);
-    if (!MRCtx_IsAborted(mrctx)) {
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
-    }
-    RedisModule_UnblockClient(bc, RedisModule_BlockClientGetPrivateData(bc));
+    IORuntimeCtx_RequestCompleted(mrctx->ioRuntime);
+    unblockFanout(mrctx, true);
+    MRCtx_DecrRef(mrctx);
+  }
+}
+
+static void uvSearchFanoutRequest(void *p) {
+  MRCtx *mrctx = p;
+  dispatchFanout(mrctx, searchFanoutCallback);
+
+  if (mrctx->numExpected == 0) {
+    // No shard command was sent, so searchFanoutCallback() will never fire.
+    IORuntimeCtx_RequestCompleted(mrctx->ioRuntime);
+    unblockFanout(mrctx, !MRCtx_IsAborted(mrctx));
     MRCtx_DecrRef(mrctx);
   }
 }
 
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
-int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
-  if (block) {
-    RS_ASSERT(!mrctx->bc);
-    mrctx->bc =
-        RedisModule_BlockClient(mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0);
-    // Completion preserves the private data chosen by whoever blocked the client.
-    RedisModule_BlockClientSetPrivateData(mrctx->bc, mrctx);
-    RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
-  }
-  //Is possible that mrctx->fn may already be there and reducer to be null
+int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd) {
+  RS_ASSERT(!mrctx->bc);
+  mrctx->bc =
+      RedisModule_BlockClient(mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0);
+  RedisModule_BlockClientSetPrivateData(mrctx->bc, mrctx);
+  RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
+  // The IO-thread reduce function may already be set with no unblock reducer.
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
 
   MRCtx_IncrRef(mrctx);
   IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, mrctx);
+  return REDIS_OK;
+}
+
+int MR_FanoutSearch(struct MRCtx *mrctx, MRCommand cmd) {
+  RS_ASSERT(mrctx->bc);
+  mrctx->reducer = NULL;
+  mrctx->cmd = cmd;
+
+  MRCtx_IncrRef(mrctx);
+  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvSearchFanoutRequest, mrctx);
   return REDIS_OK;
 }
 

@@ -9,6 +9,8 @@
 #ifndef RS_MODULE_H_
 #define RS_MODULE_H_
 
+#include <string.h>
+
 #include "redismodule.h"
 #include <query_node.h>
 #include <coord/rmr/reply.h>
@@ -106,12 +108,14 @@ struct searchReducerCtx;
 typedef struct {
   QueryRequest base;
 
-  struct MRCtx *mrctx;  // Owns the initial reference; workers and fanout retain their own.
+  /* Owns the initial reference to the shared context. Dispatch, fanout and reducer retain it
+   * separately because request cleanup after UnblockClient can precede their final release. */
+  struct MRCtx *mrctx;
+  /* Owns a weak reference so queued dispatch can promote the original index for prefix
+   * preparation without keeping a dropped index alive. */
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;
 
-  char *queryString;
-  size_t queryStringLen;
   long long offset;
   long long limit;
   long long requestedResultsCount;
@@ -138,6 +142,16 @@ typedef struct {
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
+
+/* Borrows the query from QueryRequest's held arguments. */
+static inline const char *searchRequestCtx_Query(const searchRequestCtx *req, size_t *len) {
+  RS_ASSERT(req->base.args.queryOffset < req->base.args.parseArgc);
+  const char *query =
+      RedisModule_StringPtrLen(req->base.args.argv[req->base.args.queryOffset], NULL);
+  // Preserve the first-NUL parsing boundary, as AREQ_Query does.
+  if (len) *len = strlen(query);
+  return query;
+}
 
 #ifdef __cplusplus
 static_assert(offsetof(searchRequestCtx, base) == 0,
