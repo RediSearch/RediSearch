@@ -322,7 +322,7 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = p->nf;
   ret->params = p->params;
-  ret->nn.nf->fieldSpec = fs;
+  ret->nn.nf->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -1181,8 +1181,9 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
+          const FieldSpec *numFs = spec->fields + n->nn.nf->fieldIndex;
           QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
-                                 HiddenString_GetUnsafe(n->nn.nf->fieldSpec->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
+                                 HiddenString_GetUnsafe(numFs->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
       }
@@ -1378,8 +1379,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
+      const FieldSpec *nfFs = spec->fields + f->fieldIndex;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
-                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+                       HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");

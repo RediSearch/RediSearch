@@ -51,7 +51,6 @@ fn reading_filter_based_on_geo_filter() {
         max: 0.0,
         min_inclusive: false,
         max_inclusive: false,
-        field_spec: ptr::null(),
         geo_filter: &geo_filter as *const _ as *const _,
         ascending: true,
         ..Default::default()
