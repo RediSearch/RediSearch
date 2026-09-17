@@ -156,10 +156,14 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
   const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
+  // Per-document sample, not per forward-index entry; see `stageText` in
+  // disk_indexer.c for why (a term-count-sized clock+atomic overhead per
+  // document measurably regresses bulk-load throughput).
+  t_fieldMask combinedMask = 0;
+  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
-    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     bool isNew;
     InvertedIndex *invidx = Redis_OpenInvertedIndex(spec, entry->term, entry->len, 1, &isNew);
     if (invidx) {
@@ -173,7 +177,10 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (entryWantsSuffixTrie(spec, entry)) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
-    Indexer_RecordTextFieldTiming(spec, entry->fieldMask, FIELD_INDEXING_INDEX,
+    combinedMask |= entry->fieldMask;
+  }
+  if (combinedMask) {
+    Indexer_RecordTextFieldTiming(spec, combinedMask, FIELD_INDEXING_INDEX,
                                   rs_wall_clock_now_ns() - start);
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);

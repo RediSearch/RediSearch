@@ -109,10 +109,17 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   IndexSpec *spec = ctx->spec;
   RS_ASSERT(spec->diskSpec);
+  // One sample per document, not per forward-index entry: a document's term
+  // count can run into the thousands, and a clock read + atomic update per
+  // term measurably regresses bulk-load throughput. `combinedMask` folds in
+  // every entry's fields so the document-level duration still lands on each
+  // field actually touched, matching the per-document granularity the other
+  // field types (`timedBulkIndex`/`timedBulkApply`) already report at.
+  t_fieldMask combinedMask = 0;
+  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
-    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     const uint8_t *offsets = NULL;
     size_t offsetsLen = 0;
     if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
@@ -123,7 +130,10 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
                                          entry->term, entry->len, aCtx->doc->docId,
                                          entry->fieldMask, entry->freq,
                                          offsets, offsetsLen);
-    Indexer_RecordTextFieldTiming(spec, entry->fieldMask, FIELD_INDEXING_INDEX,
+    combinedMask |= entry->fieldMask;
+  }
+  if (combinedMask) {
+    Indexer_RecordTextFieldTiming(spec, combinedMask, FIELD_INDEXING_INDEX,
                                   rs_wall_clock_now_ns() - start);
   }
 }
@@ -248,17 +258,22 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   size_t prevNumTerms = spec->stats.scoring.numTerms;
+  // Per-document sample; see `stageText` for why this isn't per entry.
+  t_fieldMask combinedMask = 0;
+  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
-    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
     if (entry->staged) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (entryWantsSuffixTrie(spec, entry)) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
-    Indexer_RecordTextFieldTiming(spec, entry->fieldMask, FIELD_INDEXING_APPLY,
+    combinedMask |= entry->fieldMask;
+  }
+  if (combinedMask) {
+    Indexer_RecordTextFieldTiming(spec, combinedMask, FIELD_INDEXING_APPLY,
                                   rs_wall_clock_now_ns() - start);
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);

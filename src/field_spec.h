@@ -225,19 +225,22 @@ static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *quer
 // updated as independent atomics rather than under one lock: a concurrent reader
 // can therefore observe a torn combination of a phase's sample (e.g. a `count`
 // bump not yet paired with its `totalTimeNs`), including transiently seeing
-// `maxTimeNs` exceed `totalTimeNs`. These are informational stats on a per-entry
+// `maxTimeNs` exceed `totalTimeNs`. These are informational stats on a per-document
 // indexing hot path, so this is an accepted trade-off rather than a lock: it
 // self-corrects on the next read once all writers finish.
+//
+// `maxTimeNs` is a plain load-then-store rather than a CAS retry loop: under
+// concurrent writers to the same field a losing update can be silently dropped
+// (the max just doesn't advance for that one sample), which is fine for an
+// informational max — a CAS loop's occasional retries add real cost here since
+// this runs once per field per phase per document.
 static inline void FieldSpec_AddIndexingTime(FieldSpec *fs, FieldIndexingPhase phase,
                                              rs_wall_clock_ns_t duration) {
   FieldIndexingPhaseStats *stats = &fs->indexingStats.phases[phase];
   __atomic_fetch_add(&stats->count, 1, __ATOMIC_RELAXED);
   __atomic_fetch_add(&stats->totalTimeNs, duration, __ATOMIC_RELAXED);
-  rs_wall_clock_ns_t cur = __atomic_load_n(&stats->maxTimeNs, __ATOMIC_RELAXED);
-  while (duration > cur &&
-         !__atomic_compare_exchange_n(&stats->maxTimeNs, &cur, duration, true, __ATOMIC_RELAXED,
-                                       __ATOMIC_RELAXED)) {
-    // `cur` is refreshed with the current value on CAS failure; retry.
+  if (duration > __atomic_load_n(&stats->maxTimeNs, __ATOMIC_RELAXED)) {
+    __atomic_store_n(&stats->maxTimeNs, duration, __ATOMIC_RELAXED);
   }
 }
 
