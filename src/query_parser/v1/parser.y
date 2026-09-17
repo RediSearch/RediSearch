@@ -488,10 +488,12 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         if (ctx->sctx->spec) {
             // Tag field names must be case sensitive, we can't do strdupcase
             B.len = unescapen((char*)B.s, B.len);
-            A->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-            if (!A->tag.fs) {
+            const FieldSpec *fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+            if (!fs) {
                 QueryNode_Free(A);
                 A = NULL;
+            } else {
+                A->tag.fieldIndex = fs->index;
             }
         }
     }

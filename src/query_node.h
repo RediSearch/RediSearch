@@ -42,7 +42,9 @@ typedef struct {
 } QueryNullNode;
 
 typedef struct {
-  const struct FieldSpec *fs;
+  t_fieldIndex fieldIndex;      // stable index of the tag field into IndexSpec.fields; re-derive
+                                 // the FieldSpec* from this at evaluation time - a pointer captured
+                                 // at parse time may already be freed by then
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a

@@ -312,7 +312,9 @@ QueryNode *NewPhraseNode(int exact) {
 
 QueryNode *NewTagNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_TAG);
-  ret->tag.fs = field;
+  // The legacy (v1) grammar creates a placeholder node with `field == NULL` and
+  // fills in `tag.fieldIndex` once it resolves the field itself.
+  ret->tag.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   return ret;
 }
 
@@ -861,9 +863,13 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_ASSERT(qn->type == QN_TAG);
   QueryTagNode *node = &qn->tag;
 
+  // FieldSpec* captured back then could no longer be trusted.
+  RS_ASSERT(node->fieldIndex < q->sctx->spec->numFields);
+  const FieldSpec *fs = q->sctx->spec->fields + node->fieldIndex;
+
   // Open the TagIndex - in disk mode it contains sentinel values for tag enumeration
   // In memory mode it contains InvertedIndex pointers
-  TagIndex *idx = TagIndex_Open(node->fs);
+  TagIndex *idx = TagIndex_Open(fs);
   if (!idx) {
     // There are no documents to traverse.
     return NULL;
@@ -871,13 +877,13 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
-    return query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, node->fs);
+    return query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, fs);
   }
 
   // recursively eval the children
   QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
-    iters[i] = query_EvalSingleTagNode(q, idx, qn->children[i], qn->opts.weight, node->fs);
+    iters[i] = query_EvalSingleTagNode(q, idx, qn->children[i], qn->opts.weight, fs);
   }
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
@@ -1144,8 +1150,9 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_TAG:
       {
         opts->flags |= QueryNode_IsTag;
-        const FieldSpec *fs = n->tag.fs;
-        if (fs && FieldSpec_IndexesEmpty(fs)) {
+        RS_ASSERT(n->tag.fieldIndex < spec->numFields);
+        const FieldSpec *fs = spec->fields + n->tag.fieldIndex;
+        if (FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
         // Block multi-term TAG queries in disk mode - unsupported.
@@ -1380,8 +1387,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
-    case QN_TAG:
-      s = sdscatprintf(s, "TAG:@%s {\n", HiddenString_GetUnsafe(qs->tag.fs->fieldName, NULL));
+    case QN_TAG: {
+      const FieldSpec *tagFs = spec->fields + qs->tag.fieldIndex;
+      s = sdscatprintf(s, "TAG:@%s {\n", HiddenString_GetUnsafe(tagFs->fieldName, NULL));
       for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
         const QueryNode *child = qs->children[ii];
         if (child->type == QN_PHRASE) {
@@ -1395,6 +1403,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
+    }
     case QN_GEO:
       s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(qs->gn.gf->fieldSpec->fieldName, NULL), qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,

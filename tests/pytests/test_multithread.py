@@ -155,10 +155,7 @@ def test_delete_index_while_indexing():
     env.assertEqual(n_local_vector, stats['totalJobsDone'], message=stats)
 
 
-# Regression test for MOD-18356: a KNN query is parsed (capturing the vector field) on the
-# main thread, but its job only runs later on a worker thread. A concurrent FT.ALTER can
-# reallocate IndexSpec.fields in between, so the query must resolve the field through its
-# stable index at run time rather than a pointer captured at parse time.
+# Regression test for MOD-18356 (see assert_query_survives_field_alter_race).
 @skip(cluster=True)
 def test_vector_query_survives_field_alter_race():
     env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
@@ -169,6 +166,19 @@ def test_vector_query_survives_field_alter_race():
 
     query_args = ('FT.SEARCH', 'idx', '*=>[KNN 3 @vector $blob]',
                   'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_tag_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'tag', 'foo')
+
+    query_args = ('FT.SEARCH', 'idx', '@tag:{foo}', 'RETURN', 0, 'DIALECT', 2)
     assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
 
 
