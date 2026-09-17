@@ -191,6 +191,7 @@ bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+uint32_t SyncPoint_HitCount(const char* name);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
@@ -206,7 +207,7 @@ typedef bool (*SyncPointStopFn)(void *arg);
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
 // Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
-// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// `count` shard dispatches (including fanout sends) to fail, so DebugSendError_Consume
 // returns true that many times. Exercises the no-reply error path.
 void DebugSendError_Arm(int count);
 // Consume one armed failure; returns true if the caller should treat the send as
