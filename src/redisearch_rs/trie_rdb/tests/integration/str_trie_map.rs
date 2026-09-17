@@ -9,7 +9,7 @@
 
 use trie_rdb::str_trie_map::{load, load_with, save, save_with};
 use trie_rdb::test_utils::{MockRdbIO, Op};
-use trie_rdb::{RdbError, RdbOpts, TrieEntry, WireFields, trie_map};
+use trie_rdb::{MAX_KEY_RUNES, RdbError, RdbOpts, SaveError, TrieEntry, WireFields, trie_map};
 use trie_rs::str_trie_map::StrTrieMap;
 
 fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
@@ -30,7 +30,7 @@ fn roundtrip_str_keys_with_all_opts() {
         num_docs: true,
     };
     let mut mock = MockRdbIO::default();
-    save(&map, &mut mock, opts);
+    save(&map, &mut mock, opts).expect("save should succeed");
     let loaded = load(&mut mock, opts).expect("load should succeed");
     assert_eq!(loaded.len(), 2);
     assert_eq!(loaded.get("alpha"), Some(&entry(1.0, Some(b"p"), 3)));
@@ -61,13 +61,47 @@ fn unit_payload_roundtrip_str_keys() {
         score: 1.0,
         payload: None,
         num_docs: 0,
-    });
+    })
+    .expect("save should succeed");
 
     let loaded = load_with(&mut mock, RdbOpts::default(), |_| ()).expect("load should succeed");
 
     assert_eq!(loaded.len(), 2);
     assert_eq!(loaded.get("héllo"), Some(&()));
     assert_eq!(loaded.get("world"), Some(&()));
+}
+
+#[test]
+fn save_rejects_out_of_domain_key() {
+    // A `String` key is UTF-8 but still not necessarily storable by the C
+    // trie; the wrapper inherits the byte flavor's domain check.
+    let mut map = StrTrieMap::new();
+    map.insert(&"a".repeat(MAX_KEY_RUNES + 1), entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(
+        err,
+        SaveError::TooManyRunes {
+            runes: MAX_KEY_RUNES + 1
+        }
+    );
+    assert!(mock.ops.is_empty());
+}
+
+#[test]
+fn save_rejects_key_with_embedded_nul() {
+    // Valid UTF-8 can still carry a literal NUL, the one zero-codepoint
+    // encoding the str flavor's keys can reach.
+    let mut map = StrTrieMap::new();
+    map.insert("a\0b", entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(err, SaveError::DecodesToNul);
+    assert!(mock.ops.is_empty());
 }
 
 #[test]
@@ -87,7 +121,7 @@ fn save_wire_matches_trie_map_api() {
     };
     let mut rec_str = MockRdbIO::default();
     let mut rec_bytes = MockRdbIO::default();
-    save(&str_map, &mut rec_str, opts);
-    trie_map::save(&byte_map, &mut rec_bytes, opts);
+    save(&str_map, &mut rec_str, opts).expect("save should succeed");
+    trie_map::save(&byte_map, &mut rec_bytes, opts).expect("save should succeed");
     assert_eq!(rec_str.ops, rec_bytes.ops);
 }
