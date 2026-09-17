@@ -23,11 +23,11 @@ on:
         description: "branch to use for rejson"
       redis_ref:
         type: string
-        # TEMPORARY default, reset to "" once Redis 8.10 is GA and becomes the
-        # DB hosts' default: pinned to the same redis/redis commit the test CI
-        # uses (get-latest-redis-tag in event-pull_request.yml /
-        # event-merge-to-queue.yml) — keep in sync.
-        default: "3869512c920d4e865b54384bce5fcb6a4e06ae0d"
+        # Pinned to the latest redis/redis 8.8.x release (matches what
+        # get-latest-redis-tag with prefix '8.8' resolves in
+        # event-pull_request.yml / event-merge-to-queue.yml) — bump alongside
+        # future 8.8.x patch releases.
+        default: "c5031f43a7eaa0d96311746acf759ee6d6acb053" # 8.8.2
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
@@ -47,11 +47,11 @@ on:
         description: "if true, will notify failure on slack"
       redis_ref:
         type: string
-        # TEMPORARY default, reset to "" once Redis 8.10 is GA and becomes the
-        # DB hosts' default: pinned to the same redis/redis commit the test CI
-        # uses (get-latest-redis-tag in event-pull_request.yml /
-        # event-merge-to-queue.yml) — keep in sync.
-        default: "3869512c920d4e865b54384bce5fcb6a4e06ae0d"
+        # Pinned to the latest redis/redis 8.8.x release (matches what
+        # get-latest-redis-tag with prefix '8.8' resolves in
+        # event-pull_request.yml / event-merge-to-queue.yml) — bump alongside
+        # future 8.8.x patch releases.
+        default: "c5031f43a7eaa0d96311746acf759ee6d6acb053" # 8.8.2
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:
