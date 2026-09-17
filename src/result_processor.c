@@ -1690,7 +1690,11 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
-  self->profileCount++;
+  // Count the results the upstream processor yielded, rather than the calls made to it. A call that
+  // ends the stream (EOF), or that fails, yielded nothing and must not be counted.
+  if (rc == RS_RESULT_OK) {
+    self->profileCount++;
+  }
   return rc;
 }
 
@@ -1725,11 +1729,6 @@ rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
-}
-
-void RPProfile_IncrementCount(ResultProcessor *rp) {
-  RPProfile *self = (RPProfile *)rp;
-  self->profileCount++;
 }
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
