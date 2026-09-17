@@ -115,8 +115,11 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // every entry's fields so the document-level duration still lands on each
   // field actually touched, matching the per-document granularity the other
   // field types (`timedBulkIndex`/`timedBulkApply`) already report at.
+  // `sample` additionally skips even that one clock read on most documents —
+  // see `FieldSpec_ShouldSampleIndexingTime`.
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
   t_fieldMask combinedMask = 0;
-  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
@@ -132,7 +135,7 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
                                          offsets, offsetsLen);
     combinedMask |= entry->fieldMask;
   }
-  if (combinedMask) {
+  if (sample && combinedMask) {
     Indexer_RecordTextFieldTiming(spec, combinedMask, FIELD_INDEXING_INDEX,
                                   rs_wall_clock_now_ns() - start);
   }
@@ -258,9 +261,10 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   size_t prevNumTerms = spec->stats.scoring.numTerms;
-  // Per-document sample; see `stageText` for why this isn't per entry.
+  // Per-document, sampled; see `stageText` for why this isn't per entry.
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
   t_fieldMask combinedMask = 0;
-  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
@@ -272,7 +276,7 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     }
     combinedMask |= entry->fieldMask;
   }
-  if (combinedMask) {
+  if (sample && combinedMask) {
     Indexer_RecordTextFieldTiming(spec, combinedMask, FIELD_INDEXING_APPLY,
                                   rs_wall_clock_now_ns() - start);
   }
@@ -308,6 +312,7 @@ static void bulkApplyFields(RSAddDocumentCtx *aCtx) {
 static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   const Document *doc = aCtx->doc;
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
     FieldIndexerData *fdata = aCtx->fdatas + ii;
@@ -320,13 +325,15 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     // the next RDB save would persist that divergence. Match the post-commit
     // policy used by `applyDocTable` for `DocIdMeta_Set` failure.
     RS_LOG_ASSERT_ALWAYS(vecsim, "openVectorIndex returned NULL after a successful disk commit");
-    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+    rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
     // Safe here and not before `commitDocument`: the batch is durable, so the
     // vector index cannot end up pointing at an unpersisted doc-id.
     if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
         VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
-      FieldSpec_AddIndexingTime(&spec->fields[fs->index], FIELD_INDEXING_APPLY,
-                                rs_wall_clock_now_ns() - start);
+      if (sample) {
+        FieldSpec_AddIndexingTime(&spec->fields[fs->index], FIELD_INDEXING_APPLY,
+                                  rs_wall_clock_now_ns() - start);
+      }
       continue;
     }
     const char *curr_vec = fdata->vector;
@@ -334,8 +341,10 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
       curr_vec += fdata->vecLen;
     }
-    FieldSpec_AddIndexingTime(&spec->fields[fs->index], FIELD_INDEXING_APPLY,
-                              rs_wall_clock_now_ns() - start);
+    if (sample) {
+      FieldSpec_AddIndexingTime(&spec->fields[fs->index], FIELD_INDEXING_APPLY,
+                                rs_wall_clock_now_ns() - start);
+    }
     FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
   }
 }

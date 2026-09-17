@@ -95,6 +95,20 @@ typedef struct FieldIndexingStats {
   FieldIndexingPhaseStats phases[FIELD_INDEXING_NUM_PHASES];
 } FieldIndexingStats;
 
+// Indexing-time instrumentation samples 1-in-`RS_INDEXING_TIME_SAMPLE_RATE`
+// documents rather than every one: a clock read plus atomic updates per field
+// per phase on every write measurably regresses bulk-load throughput,
+// especially for schemas with many fields. `count`/`totalTimeNs` still give an
+// unbiased average over the sampled documents; `maxTimeNs` becomes a max over
+// the sample rather than every document, which can understate the true max —
+// an extension of the racy-max trade-off already accepted in
+// `FieldSpec_AddIndexingTime`.
+#define RS_INDEXING_TIME_SAMPLE_RATE 16 // must be a power of two
+
+static inline bool FieldSpec_ShouldSampleIndexingTime(t_docId docId) {
+  return (docId & (RS_INDEXING_TIME_SAMPLE_RATE - 1)) == 0;
+}
+
 // Flags for tag fields
 typedef enum {
   TagField_CaseSensitive = 0x01,

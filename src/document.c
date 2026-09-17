@@ -960,24 +960,34 @@ static FieldBulkApplierFunc bulkApplierMap[] = {
     [IXFLDPOS_GEOMETRY] = geometryApplier,
 };
 
+// `FieldSpec_ShouldSampleIndexingTime` skips the clock read on most calls: a
+// schema with many non-text fields (numeric/tag/geo) otherwise pays a clock
+// read plus atomics for every field, every phase, every document, which
+// measurably regresses bulk-load throughput.
 static int timedBulkIndex(FieldBulkIndexerFunc indexer, RSAddDocumentCtx *cur,
                           RedisSearchCtx *sctx, const DocumentField *field,
                           const FieldSpec *fs, FieldIndexerData *fdata,
                           QueryError *status) {
-  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(cur->doc->docId);
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
   int rc = indexer(cur, sctx, field, fs, fdata, status);
-  FieldSpec_AddIndexingTime(&cur->spec->fields[fs->index], FIELD_INDEXING_INDEX,
-                            rs_wall_clock_now_ns() - start);
+  if (sample) {
+    FieldSpec_AddIndexingTime(&cur->spec->fields[fs->index], FIELD_INDEXING_INDEX,
+                              rs_wall_clock_now_ns() - start);
+  }
   return rc;
 }
 
 static void timedBulkApply(FieldBulkApplierFunc applier, RSAddDocumentCtx *aCtx,
                            const DocumentField *field, const FieldSpec *fs,
                            FieldIndexerData *fdata) {
-  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
   applier(aCtx, field, fs, fdata);
-  FieldSpec_AddIndexingTime(&aCtx->spec->fields[fs->index], FIELD_INDEXING_APPLY,
-                            rs_wall_clock_now_ns() - start);
+  if (sample) {
+    FieldSpec_AddIndexingTime(&aCtx->spec->fields[fs->index], FIELD_INDEXING_APPLY,
+                              rs_wall_clock_now_ns() - start);
+  }
 }
 
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
@@ -1013,6 +1023,9 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   Document *doc = aCtx->doc;
   int ourRv = REDISMODULE_OK;
+  // See `FieldSpec_ShouldSampleIndexingTime`: skips the clock read on most
+  // documents rather than once per field per document.
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(doc->docId);
 
   for (size_t i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
@@ -1025,10 +1038,12 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
 
       PreprocessorFunc pp = preprocessorMap[ii];
-      rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+      rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
       int rc = pp(aCtx, sctx, ff, fs, fdata, &aCtx->status);
-      FieldSpec_AddIndexingTime(&aCtx->spec->fields[fs->index], FIELD_INDEXING_PREPROCESS,
-                                rs_wall_clock_now_ns() - start);
+      if (sample) {
+        FieldSpec_AddIndexingTime(&aCtx->spec->fields[fs->index], FIELD_INDEXING_PREPROCESS,
+                                  rs_wall_clock_now_ns() - start);
+      }
       if (rc != 0) {
         IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
         FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);

@@ -156,11 +156,12 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
   const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
-  // Per-document sample, not per forward-index entry; see `stageText` in
-  // disk_indexer.c for why (a term-count-sized clock+atomic overhead per
-  // document measurably regresses bulk-load throughput).
+  // Per-document, sampled; see `stageText` in disk_indexer.c for why this
+  // isn't per forward-index entry, and `FieldSpec_ShouldSampleIndexingTime`
+  // for why most documents skip the clock read entirely.
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
   t_fieldMask combinedMask = 0;
-  rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
@@ -179,7 +180,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     }
     combinedMask |= entry->fieldMask;
   }
-  if (combinedMask) {
+  if (sample && combinedMask) {
     Indexer_RecordTextFieldTiming(spec, combinedMask, FIELD_INDEXING_INDEX,
                                   rs_wall_clock_now_ns() - start);
   }
@@ -505,10 +506,11 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   }
 
   // go over all the potentially missing fields and index the document in the matching inverted index
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
   dictIterator* iter = dictGetIterator(df_fields_dict);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
     FieldSpec *fs = dictGetVal(entry);
-    rs_wall_clock_ns_t start = rs_wall_clock_now_ns();
+    rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
     InvertedIndex *iiMissingDocs = dictFetchValue(spec->missing.indexes, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
@@ -532,7 +534,9 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
     AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
     aCtx->spec->stats.invertedSize += r.mem_growth;
     IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
-    FieldSpec_AddIndexingTime(fs, FIELD_INDEXING_INDEX, rs_wall_clock_now_ns() - start);
+    if (sample) {
+      FieldSpec_AddIndexingTime(fs, FIELD_INDEXING_INDEX, rs_wall_clock_now_ns() - start);
+    }
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
