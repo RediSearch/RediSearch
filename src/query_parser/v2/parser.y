@@ -720,7 +720,9 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
     reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {
-    A = NewMissingNode(B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewMissingNode(ctx->sctx->spec ? B.fs : NULL);
   }
 }
 

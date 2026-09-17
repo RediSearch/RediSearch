@@ -2080,7 +2080,7 @@ static YYACTIONTYPE yy_reduce(
     reportSyntaxError(ctx->status, &yymsp[-1].minor.yy150.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     yymsp[-3].minor.yy3 = NULL;
   } else {
-    yymsp[-3].minor.yy3 = NewMissingNode(yymsp[-1].minor.yy150.fs);
+    yymsp[-3].minor.yy3 = NewMissingNode(ctx->sctx->spec ? yymsp[-1].minor.yy150.fs : NULL);
   }
 }
         break;

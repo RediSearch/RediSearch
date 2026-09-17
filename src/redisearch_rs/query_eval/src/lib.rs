@@ -191,7 +191,9 @@ pub fn eval_node<'index>(
         QueryNode::Null => Some(null::eval()),
         QueryNode::Wildcard => Some(wildcard::eval(ctx, &node)),
         QueryNode::Ids { keys, doc_ids } => Some(ids::eval(keys, doc_ids)),
-        QueryNode::Missing { field } => missing::eval(ctx, field).map(Evaluated::RustLeaf),
+        QueryNode::Missing { field_index } => {
+            missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
+        }
         QueryNode::Optional => Some(optional::eval(ctx, node, config)),
         QueryNode::Not => Some(not::eval(ctx, node, config)),
         QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config),

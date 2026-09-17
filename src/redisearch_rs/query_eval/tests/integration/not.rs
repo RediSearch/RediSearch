@@ -155,7 +155,7 @@ mod not {
 
         // QN_MISSING child for a field with no missing values → evaluates to None.
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
-        missing_child.set_missing_field(context.field_spec());
+        missing_child.set_missing_field_index(context.field_spec().index);
 
         let mut not = MockQueryNode::new(QueryNodeType::Not);
         not.opts_mut().weight = 1.0;
