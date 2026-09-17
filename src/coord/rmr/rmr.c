@@ -11,6 +11,7 @@
 #include "reply_macros.h"
 #include "redismodule.h"
 #include "module.h"
+#include "debug_commands.h"
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"
@@ -311,12 +312,12 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
+      RedisModuleBlockedClient *bc = ctx->bc;
+      RS_ASSERT(bc);
       if (!timedOut) {
-        RedisModuleBlockedClient *bc = ctx->bc;
-        RS_ASSERT(bc);
         RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModule_UnblockClient(bc, ctx);
       }
+      RedisModule_UnblockClient(bc, ctx);
     }
     MRCtx_DecrRef(ctx);
   }
@@ -337,18 +338,21 @@ static void uvFanoutRequest(void *p) {
     mrctx->beforeFanout(mrctx, ioRuntime->topo);
   }
 
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordFanout");
+#endif
+
   mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, MRCtx_GetValidateConnections(mrctx));
 
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so fanoutCallback() will never fire.
     IORuntimeCtx_RequestCompleted(ioRuntime);
-
+    RedisModuleBlockedClient *bc = mrctx->bc;
+    RS_ASSERT(bc);
     if (!MRCtx_IsTimedOut(mrctx)) {
-      RedisModuleBlockedClient *bc = mrctx->bc;
-      RS_ASSERT(bc);
       RedisModule_BlockedClientMeasureTimeEnd(bc);
-      RedisModule_UnblockClient(bc, mrctx);
     }
+    RedisModule_UnblockClient(bc, mrctx);
     MRCtx_DecrRef(mrctx);
   }
 }

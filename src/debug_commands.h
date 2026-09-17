@@ -115,10 +115,14 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
+// A positive timeout lets main-thread waiters resume without processing SIGNAL.
+bool SyncPoint_ArmWithTimeout(const char* name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of armed hits since the last ARM.
+uint32_t SyncPoint_HitCount(const char* name);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
@@ -128,7 +132,7 @@ void SyncPoint_ClearAll(void);
 void SyncPoint_Wait(const char *name);
 
 // Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
-// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// `count` shard dispatches (including fanout sends) to fail, so DebugSendError_Consume
 // returns true that many times. Exercises the no-reply error path.
 void DebugSendError_Arm(int count);
 // Consume one armed failure; returns true if the caller should treat the send as
