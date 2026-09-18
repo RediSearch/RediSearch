@@ -2243,6 +2243,11 @@ static searchRequestCtx* searchRequestCtx_New(void) {
 
 static void searchRequestCtx_Free(searchRequestCtx *r) {
   RedisModule_EndReply(&r->rows);
+  // The reply buffer (if any) is freed by DistSearchFreePrivData before this runs: that callback
+  // is Redis's own free_privdata_cb (guaranteed main thread, exactly once), while this function can
+  // also be reached from MRCtx's internal refcount teardown, which background jobs (the reducer,
+  // the fan-out dispatch) also hold references into and may release from a worker thread.
+  RS_ASSERT(!r->rows.ctx);
   if(r->queryString) {
     rm_free(r->queryString);
   }
@@ -4628,6 +4633,19 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 #endif
   if (privdata) {
     struct MRCtx *mrctx = privdata;
+    // Free the module-owned reply buffer here rather than in searchRequestCtx_Free:
+    // RedisModule_FreeThreadSafeContext requires the server lock, which this free_privdata_cb is
+    // guaranteed to hold (Redis calls it exactly once, on the main thread), whereas
+    // searchRequestCtx_Free also runs from MRCtx's own refcount teardown, which background jobs
+    // (the reducer, the fan-out dispatch) can trigger from a worker thread. Reading privdata before
+    // releasing this reference is safe regardless of what those other threads are doing: this
+    // reference is the one MRCtx was created with, so the struct cannot be freed until it, too, is
+    // released below.
+    searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+    if (req && req->rows.ctx) {
+      RedisModule_FreeThreadSafeContext(req->rows.ctx);
+      req->rows.ctx = NULL;
+    }
     MRCtx_DecrRef(mrctx);
   }
 }
@@ -4916,7 +4934,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
   RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
-  req->rows = RedisModule_NewReply(RedisModule_GetReplyBufferContext(bc));
+  req->rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(ctx));
 
   // Set the blocked client in MRCtx
   MRCtx_SetBlockedClient(mrctx, bc);
@@ -5154,7 +5172,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  if (!RedisModule_GetReplyBufferContext || !RedisModule_ReplyWithBufferedReply) {
+  if (!RedisModule_CreateReplyBufferContext || !RedisModule_ReplyWithBufferedReply) {
     RedisModule_Log(ctx, "warning", "Search requires the Redis reply-buffer APIs");
     return REDISMODULE_ERR;
   }

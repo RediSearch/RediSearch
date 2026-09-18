@@ -1809,7 +1809,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 void ChunkReplyState_Destroy(ChunkReplyState *state) {
   RedisModule_EndReply(&state->rows);
-  state->rows.ctx = NULL;
+  // The buffer is module-owned (RedisModule_CreateReplyBufferContext): Redis never frees it on its
+  // own. This runs once per cycle from QueryRequest_OnFree (Redis's free_privdata_cb, guaranteed
+  // main thread) and again, idempotently, from QueryRequest_Destroy's safety net -- by then this
+  // field is already NULL, since that destroy call happens later in the same main-thread stack.
+  if (state->rows.ctx) {
+    RedisModule_FreeThreadSafeContext(state->rows.ctx);
+    state->rows.ctx = NULL;
+  }
   state->returnReplyStarted = false;
   QueryError_ClearError(&state->err);
 }

@@ -2326,7 +2326,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
       RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
   // Safe against the just-armed timer: the timeout callback runs on this same
   // thread.
-  QueryRequest_BeginCursorCycle(&req->base, bc, reply_cb);
+  QueryRequest_BeginCursorCycle(ctx, &req->base, bc, reply_cb);
   // Publish the cycle's cursor handle (see BlockCursorClientWithTimeout).
   req->base.cursorInfo.cursor = cursor;
   // Cursor cycles reuse the request across reads: reset the per-read

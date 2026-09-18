@@ -18,23 +18,40 @@ unchanged.
 ## Redis dependency
 
 This integration requires both APIs from
-[redis/redis#15775](https://github.com/redis/redis/pull/15775), with blocked-client ownership:
+[redis/redis#15775](https://github.com/redis/redis/pull/15775), with module ownership:
 
 ```c
-RedisModuleCtx *RedisModule_GetReplyBufferContext(RedisModuleBlockedClient *bc);
+RedisModuleCtx *RedisModule_CreateReplyBufferContext(RedisModuleCtx *ctx);
 int RedisModule_ReplyWithBufferedReply(RedisModuleCtx *destination,
                                        RedisModuleCtx *buffer);
 ```
 
-The blocked client owns buffers through its final callbacks. Redis controls
-buffer allocation and cleanup; Search frees only the wrapper's scratch. Creation
-requires the Redis lock; serialization and moves follow the destination's normal
+Buffers are module-owned, not blocked-client-owned: `ctx` can be any context with
+a module and a reply target (a command context, a blocked-client callback
+context, a thread-safe context bound to a blocked client, or another buffer), and
+Redis never frees the result on its own — the module must call
+`RedisModule_FreeThreadSafeContext()` explicitly, and a live buffer blocks module
+unload. Creation and freeing both require the server lock (the main thread, or a
+worker holding the GIL); serialization and moves follow the destination's normal
 threading rules. Every moved fragment consists of complete elements with no open
 postponed collections. A successful move empties the source and updates wrapper
-counts together.
+counts together, but does not free it — the source buffer is still reusable, and
+still owned by whoever created it.
+
+Search follows the same "capture under the GIL at block time, release from
+free_privdata on the main thread" pattern it already uses for `argv`/`MRCtx`:
+buffers are created from the command's own `ctx` right after
+`RedisModule_BlockClient` (still on the main thread, before any worker sees the
+request), and freed explicitly from each request kind's free_privdata callback
+—`QueryRequest_OnFree` for AREQ/HYBRID/cursor cycles, `DistSearchFreePrivData`
+for coordinator SEARCH. The latter reads and frees the buffer *before* releasing
+its own `MRCtx` reference, because `MRCtx`'s internal refcount teardown (which
+the reducer and fan-out-dispatch jobs also hold references into) is not otherwise
+guaranteed to run on the main thread — only the request's original blocked-client
+reference is.
 
 The API is unreleased. Search rejects loading when either API is absent, and the
-shared CI dependency builds upstream commit `52d8aad57586b0d5072c23ff2980c2739a42155c`,
+shared CI dependency builds upstream commit `7ade4235dd405c3bdbd609739bf761910db6848d`,
 including PR, merge-queue, and periodic validation, manual tests, and benchmarks.
 There is no fallback for older cores. Upstream approval, merge, and a supported
 packaged core version remain prerequisites for landing this change.
@@ -45,15 +62,17 @@ Each blocked query or cursor read creates a new buffer on the main thread using
 that cycle's client protocol. A cursor never reuses the previous client's Redis buffer.
 
 FAIL timeout callbacks return the error without reading the worker's buffer. The
-worker can finish cleanup because Redis retains the buffer until the blocked
-handle's final cleanup. Normal completion moves the rows once, and discarded
-buffers are released by Redis.
+worker can finish cleanup because the buffer stays valid — module-owned, not tied
+to the blocked handle — until the request's free_privdata callback explicitly
+frees it. Normal completion moves the rows once; discarded buffers are freed
+unmoved, from the same free_privdata callback.
 
 Coordinator SEARCH stops serializing discarded replies between complete rows after
 a FAIL timeout or disconnect, so the reducer completion wait does not serialize the
 remaining payloads. RETURN_STRICT still serializes the retained ranked results.
 The terminal background path always unblocks the Redis handle, including after a
-timeout or disconnect, to release its ownership reference and native buffers.
+timeout or disconnect, so the request's free_privdata callback runs and explicitly
+releases its reply buffer.
 
 RETURN_STRICT retains the existing claim/completion handshake. After the worker
 finishes, eligible pipeline suffixes are drained directly into the same serialized

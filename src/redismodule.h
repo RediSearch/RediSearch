@@ -1654,7 +1654,7 @@ REDISMODULE_API int (*RedisModule_AbortBlock)(RedisModuleBlockedClient *bc) REDI
 REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeStart)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeEnd)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleCtx * (*RedisModule_GetReplyBufferContext)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCtx * (*RedisModule_CreateReplyBufferContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithBufferedReply)(RedisModuleCtx *ctx, RedisModuleCtx *buffer) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetDetachedThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -2120,7 +2120,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetTypeMethodVersion);
     REDISMODULE_GET_API(Yield);
     REDISMODULE_GET_API(GetThreadSafeContext);
-    REDISMODULE_GET_API(GetReplyBufferContext);
+    REDISMODULE_GET_API(CreateReplyBufferContext);
     REDISMODULE_GET_API(ReplyWithBufferedReply);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
