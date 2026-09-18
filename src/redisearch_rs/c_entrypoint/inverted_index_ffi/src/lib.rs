@@ -443,38 +443,6 @@ pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId
     ii_dispatch!(ii, last_doc_id).unwrap_or(0)
 }
 
-/// Get the garbage collector marker of the inverted index. This is used by some C tests.
-///
-/// # Safety
-///
-/// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_GcMarker(ii: *const InvertedIndex) -> u32 {
-    debug_assert!(!ii.is_null(), "ii must not be null");
-
-    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
-    let ii = unsafe { &*ii };
-
-    ii_dispatch!(ii, gc_marker)
-}
-
-/// Increment the garbage collector marker of the inverted index. This is used by some C tests.
-///
-/// # Safety
-///
-/// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
-    debug_assert!(!ii.is_null(), "ii must not be null");
-
-    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
-    let ii = unsafe { &*ii };
-
-    ii_dispatch!(ii, gc_marker_inc);
-}
-
 /// Scan the inverted index for garbage and write the GC delta to the provided writer. The function
 /// returns true if the scan was successful and false otherwise.
 ///
