@@ -3403,6 +3403,11 @@ static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
   return base->upstream->Next(base->upstream, r);
 }
 
+// Draining must neither wait for the debug pause nor consume its Next-only counter.
+static RPDrainStatus RPPauseAfterCount_Drain(ResultProcessor *base, SearchResult *r) {
+  return base->upstream->Drain(base->upstream, r);
+}
+
 static void RPPauseAfterCount_Free(ResultProcessor *base) {
   RS_LOG_ASSERT(QueryDebugCtx_GetDebugRP() == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
   rm_free(base);
@@ -3423,7 +3428,7 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
   ret->base.type = RP_PAUSE;
   ret->base.Next = RPPauseAfterCount_Next;
   ret->base.Free = RPPauseAfterCount_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPPauseAfterCount_Drain;
 
   QueryDebugCtx_SetDebugRP(&ret->base);
 
