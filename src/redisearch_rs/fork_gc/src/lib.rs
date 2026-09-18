@@ -23,6 +23,7 @@ pub mod io_result_ext;
 pub mod missing_docs;
 pub mod numeric;
 pub mod stats;
+pub mod tags;
 pub mod terms;
 pub mod util;
 
