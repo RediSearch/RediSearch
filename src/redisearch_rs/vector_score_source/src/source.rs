@@ -543,9 +543,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
         // Refine `child_num_estimated` from actual batch hit rate so subsequent heuristic
         // calls reflect observed selectivity rather than the initial guess. This runs in
-        // forced-batches mode too: the C reader's `reviewHybridSearchPolicy` updates the
-        // estimate even when it declines to switch, which is what makes a zero-hit batch
-        // shrink the estimate and so grow (double) the next computed batch size.
+        // forced-batches mode too, where the estimate is refined but the policy is never
+        // revisited: that is what makes a zero-hit batch shrink the estimate and so grow
+        // (double) the next computed batch size.
         // n_res_left > 0 is guaranteed: heap_count < k (checked above) and k_remaining >= 1.
         let new_results_cur_batch = heap_count.saturating_sub(k.saturating_sub(n_res_left));
         self.child_num_estimated = refine_child_estimated(
@@ -569,7 +569,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
 /// Smoothed update of the child-results estimate, averaging the previous
 /// estimate with the one implied by this batch's hit rate. Capped at `old_est`,
-/// so the estimate never increases across batches.
+/// so the estimate only ever decreases across batches: a batch denser than the
+/// running estimate leaves it unchanged rather than raising it.
 fn refine_child_estimated(
     old_est: usize,
     new_results_cur_batch: usize,
@@ -645,10 +646,8 @@ mod tests {
         source.end_adhoc();
     }
 
-    /// `NumEstimated(child)` is an upper bound that can exceed the index size;
-    /// `new` must clamp the seed (and its rewind reset) to the index size, as
-    /// the C hybrid reader caps `child_num_estimated`/`child_upper_bound` before
-    /// the batches loop.
+    /// `NumEstimated(child)` is an upper bound that can exceed the index size,
+    /// so `new` clamps the seed, and its rewind reset, to the index size.
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn child_estimate_clamped_to_index_size() {
@@ -661,7 +660,7 @@ mod tests {
             source.initial_child_num_estimated, 3,
             "rewind seed clamped to index size"
         );
-        // The clamped refine cap (`initial_child_num_estimated`) survives a rewind.
+        // The clamped seed survives a rewind.
         source.rewind();
         assert_eq!(
             source.child_num_estimated, 3,
@@ -728,6 +727,32 @@ mod tests {
             source.query_params.timeoutCtx.cast::<QueryRequestTimeout>(),
             index.timeout_ptr(),
             "VecSim must be handed the same timeout storage"
+        );
+    }
+
+    /// A pinned `BATCH_SIZE` overrides the dynamic estimate: every batch
+    /// requests exactly that size, whatever the child estimate does, and the
+    /// profile metrics report it at the first iteration.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn pinned_batch_size_overrides_estimate() {
+        let index = TestIndex::flat(20, 1);
+        let mut source = flat_source(&index, 3, 20);
+        let dynamic = source.compute_next_batch_size().get();
+        source.fixed_batch_size = 7;
+
+        source.next_batch().unwrap();
+        let first = source.compute_next_batch_size().get();
+        // A shrinking child estimate would grow a dynamic size; a pinned one holds.
+        source.child_num_estimated = 1;
+        source.next_batch().unwrap();
+
+        assert_ne!(dynamic, 7, "fixture must not coincide with the pinned size");
+        assert_eq!((first, source.compute_next_batch_size().get()), (7, 7));
+        assert_eq!(
+            (source.max_batch_size, source.max_batch_iteration),
+            (7, 0),
+            "a constant size is its own maximum, recorded at the first iteration"
         );
     }
 

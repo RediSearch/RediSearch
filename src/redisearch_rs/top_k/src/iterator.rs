@@ -249,7 +249,6 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         };
         if result.is_err() {
             // Reset so a retry via read() works: Phase::Collecting has no handler there.
-            // TODO: MOD-14209: bubble up errors
             self.phase = Phase::NotStarted;
             self.mode = self.initial_mode;
             // Discard whatever the aborted scan accumulated. A retry re-collects
