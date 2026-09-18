@@ -24,11 +24,73 @@ extern "C" {
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
+#include "search_disk.h"
+#include "triemap_ffi.h"
 
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
+extern RedisSearchDiskAPI *disk;
 }
+
+
+namespace {
+
+struct FakeDiskState {
+  size_t liveIndexes = 0;
+  size_t lastWriteBearingCfCount = 0;
+  bool failIndexOpen = false;
+};
+
+FakeDiskState fakeDiskState;
+RedisSearchDiskAPI fakeDiskApi = {};
+
+void fakeDiskClose(RedisModuleCtx *, RedisSearchDisk *) {
+}
+
+RedisSearchDiskIndexSpec *fakeOpenIndex(RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
+                                        const char *, size_t, DocumentType, bool,
+                                        size_t writeBearingCfCount,
+                                        const SearchDiskCompactionCallbacks *, void *) {
+  fakeDiskState.lastWriteBearingCfCount = writeBearingCfCount;
+  if (fakeDiskState.failIndexOpen) {
+    return nullptr;
+  }
+  ++fakeDiskState.liveIndexes;
+  return reinterpret_cast<RedisSearchDiskIndexSpec *>(new int);
+}
+
+RedisSearchDiskIndexSpec *fakeOpenIndexWithRdbState(
+    RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *name,
+    const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+    RedisSearchDiskRdbState *, size_t writeBearingCfCount,
+    const SearchDiskCompactionCallbacks *callbacks, void *privateData) {
+  return fakeOpenIndex(ctx, disk, name, obfuscatedName, obfuscatedNameLen, type, false,
+                       writeBearingCfCount, callbacks, privateData);
+}
+
+void fakeCloseIndex(RedisSearchDisk *, RedisSearchDiskIndexSpec *index) {
+  delete reinterpret_cast<int *>(index);
+  --fakeDiskState.liveIndexes;
+}
+
+void fakeCloseIndexOnMainThread(RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
+}
+
+void fakeMarkIndexForDeletion(RedisSearchDiskIndexSpec *) {
+}
+
+void initializeFakeDiskApi() {
+  fakeDiskApi = {};
+  fakeDiskApi.basic.close = fakeDiskClose;
+  fakeDiskApi.basic.openIndexSpec = fakeOpenIndex;
+  fakeDiskApi.basic.openIndexSpecWithRdbState = fakeOpenIndexWithRdbState;
+  fakeDiskApi.basic.closeIndexSpec = fakeCloseIndex;
+  fakeDiskApi.basic.closeIndexOnMainThread = fakeCloseIndexOnMainThread;
+  fakeDiskApi.index.markToBeDeleted = fakeMarkIndexForDeletion;
+}
+
+}  // namespace
 
 
 class RdbMockTest : public ::testing::Test {
@@ -48,6 +110,143 @@ protected:
 
     RedisModuleCtx *ctx = nullptr;
 };
+
+class FakeDiskRdbTest : public RdbMockTest {
+ protected:
+  void SetUp() override {
+    RdbMockTest::SetUp();
+    Indexes_Free(ctx, specDict_g, false);
+    ASSERT_EQ(0, Indexes_Count());
+
+    originalDisk = disk;
+    originalDiskDb = disk_db;
+    originalIsFlex = isFlex;
+    originalGcEnabled = RSGlobalConfig.gcConfigParams.enableGC;
+    originalBudgetMb = RSGlobalConfig.diskWbmBudgetPerIndexMB;
+    originalWriteBufferKb = RSGlobalConfig.diskWriteBufferSizeKB;
+
+    fakeDiskState = {};
+    initializeFakeDiskApi();
+    disk = &fakeDiskApi;
+    disk_db = reinterpret_cast<RedisSearchDisk *>(&fakeDiskState);
+    isFlex = true;
+    RSGlobalConfig.gcConfigParams.enableGC = 0;
+    RSGlobalConfig.diskWbmBudgetPerIndexMB = 24;
+    RSGlobalConfig.diskWriteBufferSizeKB = 0;
+  }
+
+  void TearDown() override {
+    Indexes_Free(ctx, specDict_g, false);
+    EXPECT_EQ(0, fakeDiskState.liveIndexes);
+    SearchDisk_Close(ctx);
+
+    disk = originalDisk;
+    disk_db = originalDiskDb;
+    isFlex = originalIsFlex;
+    RSGlobalConfig.gcConfigParams.enableGC = originalGcEnabled;
+    RSGlobalConfig.diskWbmBudgetPerIndexMB = originalBudgetMb;
+    RSGlobalConfig.diskWriteBufferSizeKB = originalWriteBufferKb;
+    RdbMockTest::TearDown();
+  }
+
+  decltype(disk) originalDisk = nullptr;
+  decltype(disk_db) originalDiskDb = nullptr;
+  bool originalIsFlex = false;
+  int originalGcEnabled = 0;
+  size_t originalBudgetMb = 0;
+  size_t originalWriteBufferKb = 0;
+};
+
+TEST_F(FakeDiskRdbTest, testSchemaColumnFamilyFanoutOnCreateAndRestore) {
+  RMCK::ArgvList createArgs(
+      ctx, "FT.CREATE", "disk_mixed", "ON", "HASH", "SKIPINITIALSCAN", "SCHEMA",
+      "text_a", "TEXT", "text_b", "TEXT", "tag", "TAG", "number", "NUMERIC", "geo", "GEO",
+      "vector", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+      "M", "16", "EF_CONSTRUCTION", "200", "EF_RUNTIME", "10", "RERANK", "FALSE");
+  QueryError status = QueryError_Default();
+  IndexSpec *spec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &status);
+  ASSERT_NE(nullptr, spec) << QueryError_GetUserError(&status);
+  EXPECT_EQ(6, fakeDiskState.lastWriteBearingCfCount);
+  EXPECT_EQ(1, fakeDiskState.liveIndexes);
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(nullptr, io);
+  IndexSpec_RdbSave(io, spec, 0);
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+
+  SearchDisk_CloseIndexOnMainThread(ctx, spec);
+  SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+  Indexes_RemoveSpecFromGlobals(spec->own_ref, false);
+  ASSERT_EQ(0, fakeDiskState.liveIndexes);
+
+  io->read_pos = 0;
+  QueryError loadStatus = QueryError_Default();
+  IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &loadStatus);
+  ASSERT_NE(nullptr, loaded) << QueryError_GetUserError(&loadStatus);
+  ASSERT_EQ(REDISMODULE_OK, IndexSpec_RdbLoadOpenDisk(ctx, loaded, false, &loadStatus))
+      << QueryError_GetUserError(&loadStatus);
+  ASSERT_EQ(REDISMODULE_OK, Indexes_StoreSpecAfterRdbLoad(loaded));
+  EXPECT_EQ(6, fakeDiskState.lastWriteBearingCfCount);
+  EXPECT_EQ(1, fakeDiskState.liveIndexes);
+
+  SearchDisk_CloseIndexOnMainThread(ctx, loaded);
+  SearchDisk_MarkIndexForDeletion(loaded->diskSpec);
+  Indexes_RemoveSpecFromGlobals(loaded->own_ref, false);
+  RMCK_FreeRdbIO(io);
+}
+
+TEST_F(FakeDiskRdbTest, testNoIndexFieldsDoNotIncreaseColumnFamilyFanout) {
+  const char *args[] = {"SCHEMA", "text", "TEXT", "tag", "TAG",
+                        "noindex_text", "TEXT", "NOINDEX",
+                        "noindex_tag", "TAG", "NOINDEX",
+                        "noindex_number", "NUMERIC", "NOINDEX",
+                        "noindex_geo", "GEO", "NOINDEX"};
+  QueryError status = QueryError_Default();
+  isFlex = false;
+  StrongRef specRef =
+      IndexSpec_ParseC(ctx, "disk_noindex", args, std::size(args), &status);
+  isFlex = true;
+  ASSERT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+  IndexSpec *spec = static_cast<IndexSpec *>(StrongRef_Get(specRef));
+  ASSERT_NE(nullptr, spec);
+
+  spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, "disk_noindex", DocumentType_Hash,
+                                        false, spec);
+  ASSERT_NE(nullptr, spec->diskSpec);
+  EXPECT_EQ(3, fakeDiskState.lastWriteBearingCfCount);
+
+  SearchDisk_CloseIndexOnMainThread(ctx, spec);
+  SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+  IndexSpec_Unlink(specRef, false);
+}
+
+TEST_F(FakeDiskRdbTest, testFailedOpenRollsBackAndCanRetry) {
+  const size_t indexesBeforeFailure = Indexes_Count();
+  const size_t prefixesBeforeFailure = TrieMap_NUniqueKeys(SchemaPrefixes_g);
+  RMCK::ArgvList args(ctx, "FT.CREATE", "disk_failure", "ON", "HASH", "PREFIX", "1",
+                      "failed:", "SKIPINITIALSCAN", "SCHEMA", "text", "TEXT");
+
+  fakeDiskState.failIndexOpen = true;
+  QueryError status = QueryError_Default();
+  EXPECT_EQ(nullptr, Indexes_CreateNewSpec(ctx, args, args.size(), &status));
+  EXPECT_EQ(QUERY_ERROR_CODE_DISK_CREATION, QueryError_GetCode(&status));
+  EXPECT_EQ(indexesBeforeFailure, Indexes_Count());
+  EXPECT_EQ(prefixesBeforeFailure, TrieMap_NUniqueKeys(SchemaPrefixes_g));
+  EXPECT_EQ(0, fakeDiskState.liveIndexes);
+
+  QueryError_ClearError(&status);
+  fakeDiskState.failIndexOpen = false;
+  IndexSpec *retry = Indexes_CreateNewSpec(ctx, args, args.size(), &status);
+  ASSERT_NE(nullptr, retry) << QueryError_GetUserError(&status);
+  EXPECT_EQ(indexesBeforeFailure + 1, Indexes_Count());
+  EXPECT_EQ(1, fakeDiskState.liveIndexes);
+
+  SearchDisk_CloseIndexOnMainThread(ctx, retry);
+  SearchDisk_MarkIndexForDeletion(retry->diskSpec);
+  Indexes_RemoveSpecFromGlobals(retry->own_ref, false);
+}
+
+
 
 TEST_F(RdbMockTest, testBasicRdbOperations) {
     // Test basic RDB save/load operations

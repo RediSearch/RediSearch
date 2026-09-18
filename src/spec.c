@@ -1196,19 +1196,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     bool rerank = false;
     result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
-    // Build disk params if disk mode is enabled
-    if (result && sp->diskSpec) {
-      size_t nameLen;
-      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
-        .indexName = rm_strndup(namePtr, nameLen),
-        .indexNameLen = nameLen,
-        // The disk storage layer keys this field's data by the value it finds
-        // here, so it has to stay stable for the life of the index.
-        .userData = fs->index,
-        .rerank = rerank,
-      };
+    if (result) {
+      fs->vectorOpts.diskCtx.rerank = rerank;
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
@@ -1625,14 +1614,19 @@ reset:
   return 0;
 }
 
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp);
+
 // Assumes the spec is locked for write. Adds the fields only; scheduling the
 // post-alter background scan is the caller's job (see CreateIndexAlterCommand in
 // module.c).
 int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status) {
   setMemoryInfo(ctx);
-
-  return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
+  const int result = IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
+  if (result && sp->diskSpec) {
+    IndexSpec_PopulateVectorDiskParams(sp);
+  }
+  return result;
 }
 
 bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
@@ -1771,19 +1765,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskCtx).
-  spec->diskSpec = NULL;
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
-    if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
-      goto failure;
-    }
-  }
 
   if (AC_IsInitialized(&acStopwords)) {
     if (spec->stopwords) {
@@ -1805,6 +1786,18 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
+  }
+  // Open only after the schema is populated so the per-CF write-buffer policy
+  // can account for every write-bearing field.
+  spec->diskSpec = NULL;
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
+    if (!spec->diskSpec) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      goto failure;
+    }
+    IndexSpec_PopulateVectorDiskParams(spec);
   }
 
   if (spec->rule->filter_exp) {

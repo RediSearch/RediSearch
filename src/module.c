@@ -1321,25 +1321,33 @@ int IndexListInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 // Restore an index schema from the given string.
 // Currently behaves as FT._CREATEIFNX (No error if index exists).
-// FT._RESTOREIFNX SCHEMA {encode version} {schema string}
+// FT._RESTOREIFNX SCHEMA {index name} {encode version} {schema string}
 int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 4) {
+  if (argc != 5) {
     return RedisModule_WrongArity(ctx);
   }
 
-  long long encodeVersion;
-  if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
+  size_t nameLen;
+  const char *rawName = RedisModule_StringPtrLen(argv[2], &nameLen);
+  HiddenString *name = NewHiddenString(rawName, nameLen, false);
+  const bool exists = dictFetchValue(specDict_g, name) != NULL;
+  HiddenString_Free(name, false);
+  if (exists) {
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
   if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
+    return RedisModule_ReplyWithErrorFormat(
+        ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
   }
 
-  IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
-  int rc = Indexes_StoreSpecAfterRdbLoad(sp);
+  long long encodeVersion;
+  if (RedisModule_StringToLongLong(argv[3], &encodeVersion) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
+  }
 
-  if (rc != REDISMODULE_OK) {
+  IndexSpec *sp = IndexSpec_Deserialize(argv[4], encodeVersion);
+  if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");
   }
 

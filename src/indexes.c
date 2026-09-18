@@ -462,7 +462,11 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    size_t nameLen;
+    const char *name = HiddenString_GetUnsafe(sp->specName, &nameLen);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(
+        ctx, CMD_FOR_ENV(RS_RESTORE_IF_NX), "cbls", SPEC_SCHEMA_STR, name, nameLen,
+        (long long)INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }
