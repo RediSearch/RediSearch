@@ -927,7 +927,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The returned iterator must only be used as long as the `lookup` remains valid.
-/// 3. `lookup` must not be mutated until the returned iterator is exhausted.
+/// 3. Existing keys must not be mutated while iterating. Concurrent by-name appends
+///    are allowed; the iterator visits only the slots present at creation.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -937,16 +938,48 @@ pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLook
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_Iter");
 
-    let (current, remaining) = lookup.raw_key_ptrs();
-
-    RLookupIterator { current, remaining }
+    RLookupIterator {
+        lookup,
+        next: 0,
+        remaining: lookup.get_row_len() as usize,
+    }
 }
 
 /// An iterator over the keys in an `RLookup`, returning immutable pointers.
 #[repr(C)]
 pub struct RLookupIterator<'a> {
-    pub current: *const *const RLookupKey<'a>,
+    pub lookup: *const RLookup<'a>,
+    pub next: size_t,
     pub remaining: size_t,
+}
+
+/// Advance a [`RLookupIterator`] without retaining the lookup's vector storage.
+///
+/// # Safety
+/// `iterator` and `key` must be [valid] non-null pointers; the iterator must satisfy
+/// the lifetime and key immutability requirements of [`RLookup_Iter`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupIterator_Next<'a>(
+    iterator: *mut RLookupIterator<'a>,
+    key: *mut *const RLookupKey<'a>,
+) -> bool {
+    // SAFETY: the caller owns the iterator and output slot.
+    let iterator = unsafe { &mut *iterator };
+    if iterator.remaining == 0 {
+        return false;
+    }
+    // SAFETY: the lookup outlives the iterator; by-name appends use shared access.
+    let lookup = unsafe { &*iterator.lookup };
+    let ptr = lookup
+        .key_at(iterator.next as u16)
+        .expect("iterator slot must exist");
+    // SAFETY: the caller provides a valid output slot.
+    unsafe { *key = ptr.as_ptr() };
+    iterator.next += 1;
+    iterator.remaining -= 1;
+    true
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

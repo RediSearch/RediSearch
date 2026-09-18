@@ -381,13 +381,13 @@ typedef struct CHEADERGEN_ALIGNED(8) RLookupRow {
   Size_24 m0;
 } RLookupRow;
 
-#ifndef SIZE_32_DEFINED
-#define SIZE_32_DEFINED
+#ifndef SIZE_40_DEFINED
+#define SIZE_40_DEFINED
 /**
  * A type with size `N`.
  */
-typedef uint8_t Size_32[32];
-#endif /* SIZE_32_DEFINED */
+typedef uint8_t Size_40[40];
+#endif /* SIZE_40_DEFINED */
 
 /**
  * An opaque lookup which can be passed by value to C.
@@ -396,5 +396,5 @@ typedef uint8_t Size_32[32];
  * structure exactly.
  */
 typedef struct CHEADERGEN_ALIGNED(8) RLookup {
-  Size_32 m0;
+  Size_40 m0;
 } RLookup;
