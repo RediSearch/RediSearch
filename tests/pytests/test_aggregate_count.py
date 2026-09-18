@@ -281,9 +281,9 @@ def _test_withoutcount(protocol):
 
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], DEFAULT_LIMIT),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT),
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], DEFAULT_LIMIT),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT),
 
         # WITHOUTCOUNT + SORTBY + MAX
         # total_results = docs, length of results = MAX
