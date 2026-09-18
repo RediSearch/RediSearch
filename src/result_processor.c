@@ -2374,7 +2374,74 @@ typedef struct {
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
   redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
+  atomic_bool bufferLock;
+  bool draining;
 } RPSafeDepleter;
+
+static void rpSafeDepleterLock(RPSafeDepleter *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  while (atomic_exchange_explicit(&self->bufferLock, true, memory_order_acquire)) {
+  }
+}
+
+static void rpSafeDepleterUnlock(RPSafeDepleter *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  atomic_store_explicit(&self->bufferLock, false, memory_order_release);
+}
+
+static bool rpSafeDepleterIsDraining(RPSafeDepleter *self) {
+  rpSafeDepleterLock(self);
+  bool draining = self->draining;
+  rpSafeDepleterUnlock(self);
+  return draining;
+}
+
+static bool rpSafeDepleterCommit(RPSafeDepleter *self, SearchResult *row) {
+  rpSafeDepleterLock(self);
+  if (self->draining) {
+    rpSafeDepleterUnlock(self);
+    return false;
+  }
+  SearchResult **old = NULL;
+  if ((!self->base.parent || self->base.parent->timeoutPolicy == TimeoutPolicy_ReturnStrict) &&
+      array_hdr(self->results)->remain_cap == 0) {
+    old = self->results;
+    uint32_t length = array_len(old);
+    rpSafeDepleterUnlock(self);
+    uint32_t growth = MIN(MAX(length, 1), UINT16_MAX);
+    RS_ASSERT(length <= UINT32_MAX - growth);
+    SearchResult **grown = array_newlen(SearchResult *, length + growth);
+    // Claiming rows never changes slots. The request retains the array until
+    // the job finishes, so a losing copy can be discarded without touching rows.
+    memcpy(grown, old, length * sizeof(*grown));
+    array_set_len(grown, length);
+    rpSafeDepleterLock(self);
+    if (self->draining) {
+      rpSafeDepleterUnlock(self);
+      array_free(grown);
+      return false;
+    }
+    self->results = grown;
+  }
+  array_append(self->results, row);
+  rpSafeDepleterUnlock(self);
+  if (old) array_free(old);
+  return true;
+}
+
+static RPDrainStatus RPSafeDepleter_Drain(ResultProcessor *base, SearchResult *r) {
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  if (!self->draining) {
+    rpSafeDepleterLock(self);
+    self->draining = true;
+    rpSafeDepleterUnlock(self);
+  }
+  if (self->cur_idx == array_len(self->results)) return RP_DRAIN_EOF;
+  SearchResult *current = self->results[self->cur_idx++];
+  SearchResult_Override(r, current);
+  rm_free(current);
+  return RP_DRAIN_OK;
+}
 
 /*
  * Shared synchronization object for all RPSafeDepleter instances of a pipeline.
@@ -2449,7 +2516,10 @@ static inline void RPSafeDepleter_SignalDone(RPSafeDepleter *self, DepleterSync 
  */
 static void RPSafeDepleter_Free(ResultProcessor *base) {
   RPSafeDepleter *self = (RPSafeDepleter *)base;
-  array_free_ex(self->results, srDtor(*(SearchResult**)ptr));
+  for (size_t i = self->cur_idx; i < array_len(self->results); ++i) {
+    srDtor(self->results[i]);
+  }
+  array_free(self->results);
   StrongRef_Release(self->sync_ref);
   rm_free(self);
 }
@@ -2495,7 +2565,10 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // Buffered SearchResults outlive the source iterator's `it->current`
     // slot; preserve or drop the borrowed RSIndexResult before buffering.
     SearchResult_BufferIndexResult(&self->base, r);
-    array_append(self->results, r);
+    if (!rpSafeDepleterCommit(self, r)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
@@ -2507,6 +2580,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       break;
     }
   }
+  SearchResult_Destroy(r);
   rm_free(r);
 
   // Save the last return code from the upstream.
@@ -2542,7 +2616,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution.
   QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-  bool timed_out = QueryRequestTimeout_IsTimedOutExact(timeout);
+  bool timed_out = rpSafeDepleterIsDraining(self) || QueryRequestTimeout_IsTimedOutExact(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2566,20 +2640,24 @@ static void RPSafeDepleter_Deplete(void *arg) {
  */
 static int RPSafeDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   RPSafeDepleter *self = (RPSafeDepleter *)base;
-
+  rpSafeDepleterLock(self);
+  if (self->draining) {
+    rpSafeDepleterUnlock(self);
+    return RS_RESULT_TIMEDOUT;
+  }
   // Depleting thread is done, it's safe to return the results.
   if (self->cur_idx == array_len(self->results)) {
+    rpSafeDepleterUnlock(self);
     // We've reached the end of the array, return the last code from the upstream.
     int rc = self->last_rc;
     self->last_rc = RS_RESULT_EOF;
     return rc;
   }
   // Return the next result in the array.
-  SearchResult *current = self->results[self->cur_idx];
-  SearchResult_Override(r, current);    // Copy result data to output
+  SearchResult *current = self->results[self->cur_idx++];
+  rpSafeDepleterUnlock(self);
+  SearchResult_Override(r, current);  // Copy result data to output
   rm_free(current);
-  self->results[self->cur_idx] = NULL;
-  self->cur_idx++;
   return RS_RESULT_OK;
 }
 
@@ -2660,6 +2738,7 @@ static inline int RPSafeDepleter_WaitForDepletionToComplete(RPSafeDepleter *self
  */
 static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   RPSafeDepleter *self = (RPSafeDepleter *)base;
+  if (rpSafeDepleterIsDraining(self)) return RS_RESULT_TIMEDOUT;
   // The launcher's decision (schedule or mark timed out) precedes any Next
   // call; waiting on an unscheduled depleter would block forever on a
   // completion signal no BG worker will ever send.
@@ -2679,14 +2758,16 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
  * Constructs a new RPSafeDepleter processor. Consumes the StrongRef given.
  * The pool argument selects which thread pool depletion jobs are submitted to.
  */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool) {
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx,
+                                    redisearch_thpool_t *pool) {
   RS_ASSERT(depletingThreadCtx && depletingThreadCtx->timeout);
   RPSafeDepleter *ret = rm_calloc(1, sizeof(*ret));
-  ret->results = array_new(SearchResult*, 0);
+  ret->results = array_new(SearchResult *, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
   ret->base.Free = RPSafeDepleter_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPSafeDepleter_Drain;
   ret->base.type = RP_SAFE_DEPLETER;
+  atomic_init(&ret->bufferLock, false);
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->depletionTime = 0;  // Initialize depletion time to 0
