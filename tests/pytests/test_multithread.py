@@ -1221,3 +1221,66 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
                     message=f'group count {total} != returned groups {len(rows)}: {res}')
     env.assertEqual(total, 1,
                     message=f'expected exactly one surviving group, got {res}')
+
+
+@skip(cluster=True)
+def test_metadata_update_preserves_payload_for_buffered_reader():
+    """A worker serializing an already-loaded row retains its old payload across Hash updates."""
+    # RETURN keeps reply serialization on the worker after the safe loader releases both locks.
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()  # Sync points require an ENABLE_ASSERT build.
+        return
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    old_score = '0.25'
+    old_payload = 'original payload ' * 32
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', old_payload)
+    query = ['FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+             'WITHPAYLOADS', 'RETURN', '1', 'title']
+    sync_point = 'BeforeSafeLoaderExitGIL'
+    updates = [
+        (('HSET', 'doc:1', 'score', '0.5', 'payload', 'replacement payload ' * 64),
+         '0.5', 'replacement payload ' * 64),
+        (('HDEL', 'doc:1', 'score', 'payload'), '0.25', None),
+    ]
+
+    for command, new_score, new_payload in updates:
+        first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+        out = []
+        query_conn = env.getConnection()
+
+        def run_query():
+            try:
+                out.append(query_conn.execute_command(*query))
+            except Exception as error:
+                out.append(error)
+
+        reader = threading.Thread(target=run_query, daemon=True)
+        reader.start()
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for {sync_point}', timeout=10)
+            conn.execute_command(*command)
+            current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+            env.assertGreater(current, first, message=(command, first, current))
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            reader.join(timeout=10)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.assertFalse(reader.is_alive(), message='payload reader did not finish after signal')
+        env.assertEqual(len(out), 1, message=out)
+        env.assertFalse(isinstance(out[0], Exception), message=out)
+        env.assertEqual(out[0], [1, 'doc:1', old_score, old_payload, ['title', 'hello']])
+        env.expect(*query).equal([1, 'doc:1', new_score, new_payload, ['title', 'hello']])
+
+        # A completed reply can precede worker cleanup; drain before proving the idle fast path.
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+        conn.execute_command('HSET', 'doc:1', 'score', '0.75')
+        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), current)
+        old_score, old_payload = '0.75', new_payload
