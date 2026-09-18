@@ -2071,15 +2071,8 @@ typedef struct {
   const RLookupKey *scoreKey;   // score field
 } RPVectorNormalizer;
 
-static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
-  RPVectorNormalizer *self = (RPVectorNormalizer *)rp;
-
-  // Get next result from upstream
-  int rc = rp->upstream->Next(rp->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
-
+// The configured formula is pure; both paths replace only their own row's score/value.
+static void RPVectorNormalizer_Apply(const RPVectorNormalizer *self, SearchResult *r) {
   // Apply normalization to the score
   double normalizedScore = 0.0;
   RSValue *distanceValue = RLookupRow_Get(self->scoreKey, SearchResult_GetRowData(r));
@@ -2093,9 +2086,21 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Update distance field
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(normalizedScore));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r),
+                        RSValue_NewNumber(normalizedScore));
   }
-  return RS_RESULT_OK;
+}
+
+static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
+  int rc = rp->upstream->Next(rp->upstream, r);
+  if (rc == RS_RESULT_OK) RPVectorNormalizer_Apply((RPVectorNormalizer *)rp, r);
+  return rc;
+}
+
+static RPDrainStatus RPVectorNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
+  RPDrainStatus rc = rp->upstream->Drain(rp->upstream, r);
+  if (rc == RP_DRAIN_OK) RPVectorNormalizer_Apply((RPVectorNormalizer *)rp, r);
+  return rc;
 }
 
 static void RPVectorNormalizer_Free(ResultProcessor *rp) {
@@ -2110,7 +2115,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
   ret->normFunc = normFunc;
   ret->base.Next = RPVectorNormalizer_Next;
   ret->base.Free = RPVectorNormalizer_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPVectorNormalizer_Drain;
   ret->base.type = RP_VECTOR_NORMALIZER;
   ret->scoreKey = scoreKey;
 
