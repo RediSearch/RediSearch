@@ -151,6 +151,28 @@ pub unsafe extern "C" fn RLookupRow_MoveFieldsFrom(
     dst.move_fields_from(src, lookup);
 }
 
+/// Moves dynamic fields between rows using the same slot mapping, without a lookup.
+/// See [`RLookupRow::move_dynamic_fields_to`] for replacement and sorting-vector semantics.
+///
+/// # Safety
+///
+/// Both pointers must be [valid], non-null, distinct, and exclusively accessible
+/// for the duration of this call. Both rows must use the same slot mapping.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_MoveDynamicFields(
+    src_row: *mut OpaqueRLookupRow,
+    dst_row: *mut OpaqueRLookupRow,
+) {
+    assert_ne!(src_row, dst_row);
+    // SAFETY: the caller guarantees distinct, valid, exclusively accessible rows.
+    let src = unsafe { RLookupRow::from_opaque_mut_ptr(src_row) }.expect("src must not be null");
+    // SAFETY: the caller guarantees distinct, valid, exclusively accessible rows.
+    let dst = unsafe { RLookupRow::from_opaque_mut_ptr(dst_row) }.expect("dst must not be null");
+    src.move_dynamic_fields_to(dst);
+}
+
 /// Moves one dynamic key from the source row to the destination row without
 /// changing its reference count. A missing dynamic value is ignored.
 ///
