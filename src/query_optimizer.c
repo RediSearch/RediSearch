@@ -95,18 +95,18 @@ void QOptimizer_Parse(AREQ *req) {
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
-    if (IsSearch(req) && !opt->limit) {
+    if (!opt->limit) {
       opt->limit = DEFAULT_LIMIT;
     }
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (field && field->types == INDEXFLD_T_NUMERIC) {
+      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
       } else {
-        // sortby other fields, no optimization
+        // sortby other fields, or more than one sort key, no optimization
         opt->type = Q_OPT_NONE;
       }
     }
