@@ -1674,14 +1674,24 @@ static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
   rm_free(self);
 }
 
+// The result retains its DMD; the main-thread Drain caller holds the GIL against renames.
+static void RPKeyNameLoader_Apply(const RPKeyNameLoader *self, SearchResult *res) {
+  const sds key = SearchResult_GetDocumentMetadata(res)->keyPtr;
+  size_t keyLen = sdslen(key);
+  RS_ASSERT(keyLen <= UINT32_MAX);
+  RLookup_WriteOwnKey(self->out, SearchResult_GetRowDataMut(res),
+                      RSValue_NewCopiedString(key, keyLen));
+}
+
 static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   int rc = base->upstream->Next(base->upstream, res);
-  if (RS_RESULT_OK == rc) {
-    RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
-    size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
-    RS_ASSERT(keyLen <= UINT32_MAX);
-    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
-  }
+  if (rc == RS_RESULT_OK) RPKeyNameLoader_Apply((RPKeyNameLoader *)base, res);
+  return rc;
+}
+
+static RPDrainStatus RPKeyNameLoader_Drain(ResultProcessor *base, SearchResult *res) {
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, res);
+  if (rc == RP_DRAIN_OK) RPKeyNameLoader_Apply((RPKeyNameLoader *)base, res);
   return rc;
 }
 
@@ -1691,7 +1701,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
   ResultProcessor *base = &rp->base;
   base->Free = RPKeyNameLoader_Free;
-  base->Drain = RPDrain_EOF;
+  base->Drain = RPKeyNameLoader_Drain;
   base->Next = RPKeyNameLoader_Next;
   base->type = RP_KEY_NAME_LOADER;
   return base;
