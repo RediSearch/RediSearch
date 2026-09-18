@@ -427,8 +427,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
-static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r,
-                          int *rc, const cachedVars *cv) {
+static void startPipeline(AREQ *req, ResultProcessor *rp, int *rc, const cachedVars *cv) {
   CommonPipelineCtx ctx = {
       .timeout = &req->base.timeout,
       .oomPolicy = req->reqConfig.oomPolicy,
@@ -461,12 +460,12 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->base);
   }
 
-  if (req->base.blockedClientCycleActive) {
-    Pipeline_SerializeResults(&ctx, rp, &req->base.reply.rows, backgroundSerializer(req), req, cv,
-                              prepareBackgroundReply, rc);
-  } else {
-    startPipelineCommon(&ctx, rp, results, r, rc);
-  }
+  // Always serialize into a reply buffer -- the persistent per-cycle one for a
+  // background cycle, or a transient one the caller created for this
+  // foreground call (see sendChunk) -- so the caller's finalization is
+  // always the same O(1) move, regardless of policy or blocking.
+  Pipeline_SerializeResults(&ctx, rp, &req->base.reply.rows, backgroundSerializer(req), req, cv,
+                            prepareBackgroundReply, rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.
@@ -501,17 +500,6 @@ static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv, size_t limit) {
   QueryError_ClearError(qctx->err);
 }
 
-static void populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
-                                     cachedVars *cv) {
-  // populate the reply with an array containing the serialized results
-  array_foreach(results, res, {
-    serializeResult(req, reply, res, cv);
-    SearchResult_Destroy(res);
-    rm_free(res);
-  });
-  array_free(results);
-}
-
 long calc_results_len(AREQ *req, size_t limit) {
   long resultsLen;
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
@@ -528,14 +516,7 @@ long calc_results_len(AREQ *req, size_t limit) {
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
-static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
-  if (results) {
-    destroyResults(results);
-  } else if (r) {
-    // r can be NULL in the reply_callback path when AREQ_StoreResults is called
-    SearchResult_Destroy(r);
-  }
-
+static void finishSendChunk(AREQ *req, bool cursor_done) {
   if (cursor_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
@@ -565,21 +546,17 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   QueryError_ClearError(qctx->err);
 }
 
-/**
- * Foreground-only results; background chunks retain serialized bytes in ChunkReplyState.
- */
-typedef struct {
-  SearchResult **results;   // Aggregated results (for ON_TIMEOUT FAIL policy)
-  SearchResult *r;          // Current result being processed
-  long nelem;               // Number of elements sent (RESP2 only)
-  long resultsLen;          // Expected results length for assertion (RESP2 only)
-  bool cursor_done;         // Whether the cursor is done
-} ForegroundChunkState;
-
-static bool shouldReplyWithRows(const AREQ *req, bool foregroundHasResults, int rc) {
+static bool shouldReplyWithRows(const AREQ *req, int rc) {
+  // A foreground call runs under aggregate (buffer-then-decide) semantics whenever the
+  // policy isn't the plain streaming case -- mirrors the condition that used to pick
+  // Pipeline_SerializeResults's aggregate branch, now always taken.
+  const bool aggregatedForeground =
+      !req->base.blockedClientCycleActive &&
+      (req->reqConfig.timeoutPolicy != TimeoutPolicy_Return ||
+       req->reqConfig.oomPolicy == OomPolicy_Fail);
   const bool partial = req->base.reply.returnReplyStarted ||
                        (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
-                        (req->base.blockedClientCycleActive || foregroundHasResults));
+                        (req->base.blockedClientCycleActive || aggregatedForeground));
   return !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
          (partial || rc == RS_RESULT_OK || rc == RS_RESULT_EOF);
 }
@@ -602,7 +579,14 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
  */
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
-  if (req->base.blockedClientCycleActive && req->base.reply.returnReplyStarted) return false;
+  // returnReplyStarted is set by prepareBackgroundReply the moment a streaming RETURN
+  // reply's first row succeeds -- before any later row's error can taint qctx->err. Once
+  // set, a later row's failure must surface as a warning on the already-started reply,
+  // not retroactively turn the whole reply into an error (that's still correct for
+  // Fail/ReturnStrict, which never set this flag and so always re-check qctx->err below
+  // against the fully-drained pipeline). Applies equally to foreground and background
+  // now that both fully drain through Pipeline_SerializeResults before this runs.
+  if (req->base.reply.returnReplyStarted) return false;
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
@@ -751,51 +735,6 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * Serializes results and handles the main reply logic for RESP2.
  * Returns the final rc value and updates state accordingly.
  */
-static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
-                                          QueryProcessingCtx *qctx, int rc, size_t limit,
-                                          cachedVars *cv, ForegroundChunkState *state) {
-
-  // If an error occurred, or a timeout in strict mode - return a simple error
-  if (handleSendChunkError(req, reply, qctx, rc)) {
-    state->cursor_done = true;
-    return rc;
-  }
-
-  state->resultsLen = prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
-
-  if (!shouldReplyWithRows(req, state->results != NULL, rc)) goto done_2;
-
-  // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
-  if (state->results != NULL) {
-    populateReplyWithResults(reply, state->results, req, cv);
-    state->results = NULL;
-    goto done_2;
-  }
-
-  if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-    serializeResult(req, reply, state->r, cv);
-    SearchResult_Clear(state->r);
-  } else {
-    goto done_2;
-  }
-
-  while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-    serializeResult(req, reply, state->r, cv);
-    SearchResult_Clear(state->r);
-  }
-
-done_2:
-  state->nelem = RedisModule_Reply_LocalCount(reply);
-  RedisModule_Reply_ArrayEnd(reply);  // </results>
-
-  state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
-
-  trackWarnings_Resp2(req, qctx, rc);
-  finishSendChunkReply_Resp2(req, reply, state->cursor_done);
-
-  return rc;
-}
-
 /* Reply-callback mode: hand the cycle's results to the main thread instead of
  * publishing them through `reply` (or forfeit them to a lost strict claim).
  * The ctx loan is returned before the results are stored and signaled: the
@@ -814,35 +753,6 @@ static void storeResultsForReplyCallback(AREQ *req, int rc, cachedVars cv, size_
       AREQ_SignalAggregateResultsComplete(req);
     }
   }
-}
-
-/**
- * Sends a chunk of <n> rows in the resp2 format
- */
-static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
-    SearchResult r = SearchResult_New();
-    int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-    ResultProcessor *rp = qctx->endProc;
-
-    ForegroundChunkState state = {.results = NULL,
-                                  .r = NULL,
-                                  .nelem = 0,
-                                  .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
-                                  .cursor_done = false};
-
-    startPipeline(req, rp, &state.results, &r, &rc, &cv);
-
-    state.r = &r;
-
-    rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
-
-    finishSendChunk(req, state.results, &r, state.cursor_done);
-
-    if (state.resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && state.resultsLen != state.nelem) {
-      RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", state.resultsLen, state.nelem);
-    }
 }
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
@@ -970,73 +880,6 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
  * Serializes results and handles the main reply logic for RESP3.
  * Returns the final rc value and updates state accordingly.
  */
-static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
-                                          QueryProcessingCtx *qctx, int rc, cachedVars *cv,
-                                          ForegroundChunkState *state) {
-
-  // If an error occurred, or a timeout in strict mode - return a simple error
-  if (handleSendChunkError(req, reply, qctx, rc)) {
-    state->cursor_done = true;
-    return rc;
-  }
-
-  prepareSendChunkReply_Resp3(req, reply);
-
-  if (!shouldReplyWithRows(req, state->results != NULL, rc)) goto done_3;
-
-  if (state->results != NULL) {
-    populateReplyWithResults(reply, state->results, req, cv);
-    state->results = NULL;
-  } else {
-    if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv);
-    }
-
-    SearchResult_Clear(state->r);
-    if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-      goto done_3;
-    }
-
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv);
-      SearchResult_Clear(state->r);
-    }
-  }
-
-done_3:
-    state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
-
-    finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
-
-    return rc;
-}
-
-/**
- * Sends a chunk of <n> rows in the resp3 format
- */
-static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
-    SearchResult r = SearchResult_New();
-    int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-    ResultProcessor *rp = qctx->endProc;
-
-    ForegroundChunkState state = {
-        .results = NULL,
-        .r = NULL,
-        .nelem = 0,       // Unused in RESP3
-        .resultsLen = 0,  // Unused in RESP3
-    };
-
-    startPipeline(req, rp, &state.results, &r, &rc, &cv);
-
-    state.r = &r;
-
-    rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
-
-    finishSendChunk(req, state.results, &r, state.cursor_done);
-}
-
 static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (handleSendChunkError(req, reply, qctx, rc)) return true;
@@ -1046,7 +889,7 @@ static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc, size
   } else {
     prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
   }
-  if (shouldReplyWithRows(req, false, rc)) {
+  if (shouldReplyWithRows(req, rc)) {
     int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
     RS_ASSERT(moved == REDISMODULE_OK);
   }
@@ -1091,17 +934,29 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
   if (req->base.blockedClientCycleActive) {
     int rc = RS_RESULT_EOF;
-    startPipeline(req, qctx->endProc, NULL, NULL, &rc, &cv);
+    startPipeline(req, qctx->endProc, &rc, &cv);
     if (QueryRequest_UsesReplyCallback(&req->base)) {
       storeResultsForReplyCallback(req, rc, cv, limit);
     } else {
       bool cursorDone = replyBufferedChunk(req, reply, rc, limit);
-      finishSendChunk(req, NULL, NULL, cursorDone);
+      finishSendChunk(req, cursorDone);
     }
-  } else if (reply->resp3) {
-    sendChunk_Resp3(req, reply, limit, cv);
   } else {
-    sendChunk_Resp2(req, reply, limit, cv);
+    // Foreground: serialize into a transient reply buffer the same way a
+    // background cycle serializes into its persistent one, then finalize
+    // with the same O(1) move -- performed inline here rather than from a
+    // later reply callback, since nothing blocked.
+    RS_ASSERT(!req->base.reply.rows.ctx);
+    req->base.reply.returnReplyStarted = false;
+    req->base.reply.initialTotal = 0;
+    req->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
+    int rc = RS_RESULT_EOF;
+    startPipeline(req, qctx->endProc, &rc, &cv);
+    bool cursorDone = replyBufferedChunk(req, reply, rc, limit);
+    finishSendChunk(req, cursorDone);
+    RedisModule_EndReply(&req->base.reply.rows);
+    RedisModule_FreeThreadSafeContext(req->base.reply.rows.ctx);
+    req->base.reply.rows.ctx = NULL;
   }
 
   if (sctx->spec) {
@@ -1119,7 +974,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 // Handles both RESP2 and RESP3 protocols with cursor support.
 // Includes OOM warning when QueryError has OOM status.
 // Currently used during OOM conditions to return empty results instead of failing.
-// Based on sendChunk_Resp2/3 patterns.
+// Based on sendChunk's reply-shaping patterns.
  void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError *err = AREQ_QueryProcessingCtx(req)->err;
@@ -1627,7 +1482,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // That means that the background thread didn't reach the aggregation phase (startPipeline) yet.
     // Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -1665,7 +1520,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ChunkReplyState *stored = &req->base.reply;
 
-  // Point qctx->err to the stored error so serializeAndReplyResults/finishSendChunk can access it.
+  // Point qctx->err to the stored error so replyBufferedChunk/finishSendChunk can access it.
   // This is the end of the request lifecycle, so no need to restore.
   qctx->err = &stored->err;
 
@@ -1677,7 +1532,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   stored->hasStoredResults = false;
 
   // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
-  finishSendChunk(req, NULL, NULL, cursorDone);
+  finishSendChunk(req, cursorDone);
 
   // Record the cursor resolution now that QEXEC_S_ITERDONE is known (set by
   // finishSendChunk above).

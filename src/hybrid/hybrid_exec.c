@@ -268,15 +268,15 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
   return QueryRequest_TimeoutPreemptSafeLoaderGIL(&hreq->base);
 }
 
-static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results,
-                                SearchResult *r, int *rc, const cachedVars *cv) {
+static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, int *rc,
+                                const cachedVars *cv) {
   CommonPipelineCtx ctx = {
       .timeout = &hreq->base.timeout,
       .oomPolicy = hreq->reqConfig.oomPolicy,
       .request = &hreq->base,
       // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
       // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-      // AggregateResults can bail between rows while draining buffered tail rows.
+      // Pipeline_SerializeResults can bail between rows while draining buffered tail rows.
       .areq = hreq->requests[SEARCH_INDEX],
   };
 
@@ -298,12 +298,12 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
   }
 
-  if (hreq->base.blockedClientCycleActive) {
-    Pipeline_SerializeResults(&ctx, rp, &hreq->base.reply.rows, serializeResult_hybrid, hreq, cv,
-                              prepareBackgroundReply_hybrid, rc);
-  } else {
-    startPipelineCommon(&ctx, rp, results, r, rc);
-  }
+  // Always serialize into a reply buffer -- the persistent per-cycle one for a
+  // background cycle, or a transient one the caller created for this
+  // foreground call (see sendChunk_hybrid) -- so the caller's finalization is
+  // always the same O(1) move, regardless of policy or blocking.
+  Pipeline_SerializeResults(&ctx, rp, &hreq->base.reply.rows, serializeResult_hybrid, hreq, cv,
+                            prepareBackgroundReply_hybrid, rc);
 
   // Pipeline done without timing out; the caller now enters the reply phase
   // (marker only; never forces a timeout).
@@ -312,13 +312,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   }
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
-  if (results) {
-    destroyResults(results);
-  } else if (r) {
-    SearchResult_Destroy(r);
-  }
-
+static void finishSendChunk_HREQ(HybridRequest *hreq, rs_wall_clock_ns_t duration, QueryError *err) {
   if (QueryError_IsOk(err) || hasTimeoutError(err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
@@ -329,19 +323,6 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   qctx->totalResults = 0;
   qctx->skippedResults = 0;
   QueryError_ClearError(err);
-}
-
-static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
-      serializeResult_hybrid(hreq, reply, res, cv);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
 }
 
 /**
@@ -358,7 +339,15 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryError *err, int rc) {
-  if (hreq->base.blockedClientCycleActive && hreq->base.reply.returnReplyStarted) return false;
+  // returnReplyStarted is set by prepareBackgroundReply_hybrid the moment a streaming
+  // RETURN reply's first row succeeds -- before any later row's error can taint the
+  // pipeline's error state. Once set, a later row's failure must surface as a warning on
+  // the already-started reply, not retroactively turn the whole reply into an error
+  // (still correct for Fail/ReturnStrict, which never set this flag and so always
+  // re-check `err` below against the fully-drained pipeline). Applies equally to
+  // foreground and background now that both fully drain through Pipeline_SerializeResults
+  // before this runs.
+  if (hreq->base.reply.returnReplyStarted) return false;
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
@@ -452,12 +441,10 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
 
 /**
  * Serializes results and handles the main reply logic for hybrid.
- * Sets *results to NULL after consuming them, so finishSendChunk_HREQ won't double-free.
  * Returns true if reply was sent, false if error/timeout occurred before replying.
  */
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  ResultProcessor *rp, QueryProcessingCtx *qctx, int rc, cachedVars *cv,
-  SearchResult *r, SearchResult ***results, QueryError *err) {
+  QueryProcessingCtx *qctx, int rc, QueryError *err) {
 
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
@@ -466,25 +453,8 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 
   prepareSendChunkReply_hybrid(hreq, reply, qctx);
 
-  if (hreq->base.blockedClientCycleActive) {
-    int moved = RedisModule_Reply_Buffered(reply, &hreq->base.reply.rows);
-    RS_ASSERT(moved == REDISMODULE_OK);
-  } else if (*results != NULL) {
-    HREQ_populateReplyWithResults(reply, *results, hreq, cv);
-    *results = NULL;  // Results consumed and freed by HREQ_populateReplyWithResults
-  } else {
-    if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      serializeResult_hybrid(hreq, reply, r, cv);
-    }
-
-    SearchResult_Clear(r);
-    if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
-      while (--rp->parent->resultLimit && (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
-        serializeResult_hybrid(hreq, reply, r, cv);
-        SearchResult_Clear(r);
-      }
-    }
-  }
+  int moved = RedisModule_Reply_Buffered(reply, &hreq->base.reply.rows);
+  RS_ASSERT(moved == REDISMODULE_OK);
 
   finishSendChunkReply_hybrid(hreq, reply, qctx, rc);
   return true;
@@ -598,62 +568,74 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
   cv.replyFlags = ((cv.options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
                   ((cv.options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0);
   cv.apiVersion = HREQ_SearchCtx(hreq)->apiVersion;
-  SearchResult foregroundRow;
-  SearchResult *r = NULL;
-  if (!hreq->base.blockedClientCycleActive) {
-    foregroundRow = SearchResult_New();
-    r = &foregroundRow;
+
+  // Foreground: serialize into a transient reply buffer the same way a
+  // background cycle serializes into its persistent one, then finalize with
+  // the same O(1) move -- performed inline below rather than from a later
+  // reply callback, since nothing blocked. A foreground cycle never uses the
+  // reply-callback path (that requires having been blocked), so the buffer
+  // is always freed before this function returns.
+  bool foreground = !hreq->base.blockedClientCycleActive;
+  if (foreground) {
+    RS_ASSERT(!hreq->base.reply.rows.ctx);
+    hreq->base.reply.returnReplyStarted = false;
+    hreq->base.reply.initialTotal = 0;
+    hreq->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
   }
-    int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-    ResultProcessor *rp = qctx->endProc;
-    SearchResult **results = NULL;
-    QueryError err = QueryError_Default();
 
-    // Set the chunk size limit for the query
-    rp->parent->resultLimit = limit;
+  int rc = RS_RESULT_EOF;
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  ResultProcessor *rp = qctx->endProc;
+  QueryError err = QueryError_Default();
 
-    // Check if timed out before executing pipeline
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-      // Timeout callback already replied - skip to cleanup without replying
-      goto done_err;
+  // Set the chunk size limit for the query
+  rp->parent->resultLimit = limit;
+
+  // Check if timed out before executing pipeline
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    // Timeout callback already replied - skip to cleanup without replying
+    goto done_err;
+  }
+
+  startPipelineHybrid(hreq, rp, &rc, &cv);
+
+  // Refresh the background-scan-OOM capture now that the tail pipeline has
+  // drained, mirroring the aggregate startPipeline: the reply path reads
+  // only the capture, and this is its freshest read under the still-held
+  // execution reference.
+  {
+    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+    if (sctx && sctx->spec) {
+      qctx->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
+    }
+  }
+
+  if (QueryRequest_UsesReplyCallback(&hreq->base)) {
+    // Store results for reply_callback (includes cv)
+    debugPauseStoreResultsHybrid(hreq, true);  // pause before
+    HREQ_StoreResults(hreq, rc, cv);
+    debugPauseStoreResultsHybrid(hreq, false); // pause after
+
+    // Signal completion for main-thread timeout
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+      HybridRequest_SignalAggregateResultsComplete(hreq);
     }
 
-    startPipelineHybrid(hreq, rp, &results, r, &rc, &cv);
+    return;
+  }
 
-    // Refresh the background-scan-OOM capture now that the tail pipeline has
-    // drained, mirroring the aggregate startPipeline: the reply path reads
-    // only the capture, and this is its freshest read under the still-held
-    // execution reference.
-    {
-      RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-      if (sctx && sctx->spec) {
-        qctx->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
-      }
-    }
+  // Get errors before replying (do not clear here; cleanup/teardown will handle it)
+  HybridRequest_GetError(hreq, &err);
 
-    if (QueryRequest_UsesReplyCallback(&hreq->base)) {
-      // Store results for reply_callback (includes cv)
-      debugPauseStoreResultsHybrid(hreq, true);  // pause before
-      HREQ_StoreResults(hreq, rc, cv);
-      debugPauseStoreResultsHybrid(hreq, false); // pause after
-
-      // Signal completion for main-thread timeout
-      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
-        HybridRequest_SignalAggregateResultsComplete(hreq);
-      }
-
-      return;
-    }
-
-    // Get errors before replying (do not clear here; cleanup/teardown will handle it)
-    HybridRequest_GetError(hreq, &err);
-
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, r, &results, &err);
+  serializeAndReplyResults_hybrid(hreq, reply, qctx, rc, &err);
 
 done_err:
-  finishSendChunk_HREQ(hreq, results, r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
-                       &err);
+  finishSendChunk_HREQ(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
+  if (foreground) {
+    RedisModule_EndReply(&hreq->base.reply.rows);
+    RedisModule_FreeThreadSafeContext(hreq->base.reply.rows.ctx);
+    hreq->base.reply.rows.ctx = NULL;
+  }
 }
 
 /**
@@ -687,8 +669,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     stored->hasStoredResults = false;
 
     // finishSendChunk_HREQ handles cleanup and stats
-    finishSendChunk_HREQ(hreq, NULL, NULL, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
-                         &err);
+    finishSendChunk_HREQ(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
 
     // Clear the local error to avoid leak (QueryError may have allocated strings)
     QueryError_ClearError(&err);

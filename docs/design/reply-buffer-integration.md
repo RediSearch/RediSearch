@@ -6,9 +6,16 @@ retains row capacity. The reply wrapper also retains its collection stack and
 string scratch across rows. Query reply state holds serialized bytes and final
 metadata instead of an array of retained result objects.
 
-Background SEARCH, AGGREGATE, and HYBRID share that loop. Foreground execution
-keeps its separate streaming path and command-local result buffering for
-FAIL/OOM discard semantics. It never creates a Redis reply buffer.
+SEARCH, AGGREGATE, and HYBRID share that loop unconditionally: every cycle,
+foreground or background, serializes into a reply buffer through the same
+`Pipeline_SerializeResults`, and finalizes with the same O(1)
+`RedisModule_Reply_Buffered` move — a background cycle uses the persistent
+per-cycle buffer created at block time and defers the move to its reply
+callback; a foreground cycle creates a transient buffer inline, moves it, and
+frees it before returning. There is no separate `SearchResult**`
+array-buffering path left for FAIL/ReturnStrict/OOM-Fail discard semantics —
+those policies discard by not moving the buffer, the same mechanism used for a
+mid-stream error either way.
 Coordinator SEARCH still needs its ranking heap to determine global result order;
 it serializes and releases ranked rows during reduction. Reply callbacks assemble
 response envelopes, timeout warnings, and profile information around the buffered

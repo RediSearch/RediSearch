@@ -15,11 +15,9 @@
  #include "search_result_ffi.h"
  #include "aggregate.h"
  #include "util/timeout.h"
- #include "rmalloc.h"
 #include "query_error_ffi.h"
 #include "reply.h"
 #include "rmutil/rm_assert.h"
-#include "util/arr/arr.h"
 
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // usleep, used by debugCheckAndPauseAfterAggregateResult
@@ -47,19 +45,9 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
- void destroyResults(SearchResult **results) {
-   if (results) {
-     for (size_t i = 0; i < array_len(results); i++) {
-       SearchResult_Destroy(results[i]);
-       rm_free(results[i]);
-     }
-     array_free(results);
-   }
- }
-
 #ifdef ENABLE_ASSERT
 // Helper function to check and pause after extracting a result from the
-// AggregateResults loop (for testing pipeline state mid-aggregation).
+// Pipeline_SerializeResults loop (for testing pipeline state mid-aggregation).
 // Self-releases the pause when the request has been marked as timed out by
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
@@ -87,50 +75,6 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 // Compiler eliminates the function completely in release builds - zero overhead
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
-
- SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
-   SearchResult **results = array_new(SearchResult *, 8);
-   SearchResult r = SearchResult_New();
-   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-     // Decrement the result limit, now that we got a valid result.
-     rp->parent->resultLimit--;
-
-     array_append(results, SearchResult_AllocateMove(&r));
-
-     debugCheckAndPauseAfterAggregateResult(areq);
-
-     // clean the search result
-     r = SearchResult_New();
-
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
-       break;
-     }
-   }
-
-   if (*rc != RS_RESULT_OK) {
-     SearchResult_Destroy(&r);
-   }
-
-   return results;
- }
-
- void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
-     // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation
-     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
-     }
-   } else {
-     // Send the results received from the pipeline as they come (no need to aggregate)
-     *rc = rp->Next(rp, r);
-   }
- }
 
  void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
                                 RedisModule_Reply *rows, SerializeResult serialize, void *request,
