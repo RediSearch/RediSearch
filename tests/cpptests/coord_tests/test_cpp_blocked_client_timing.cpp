@@ -393,3 +393,52 @@ TEST_P(QueuedSearchTimingTest, DebugSearchStartsOnPickupAndEndsOnceBeforeUnblock
 }
 
 INSTANTIATE_TEST_SUITE_P(IOThreads, QueuedSearchTimingTest, testing::Values(1, 3));
+
+class ClusterInfoTimingTest : public ConnectionStateTimingTest {
+ protected:
+  static decltype(RedisModule_GetThreadSafeContext) savedContext;
+  decltype(RedisModule_ReplyWithLongLong) savedInteger = RedisModule_ReplyWithLongLong;
+  decltype(RedisModule_ReplyWithStringBuffer) savedBuffer = RedisModule_ReplyWithStringBuffer;
+  decltype(RedisModule_ReplySetArrayLength) savedArrayLength = RedisModule_ReplySetArrayLength;
+  decltype(RedisModule_ReplySetMapLength) savedMapLength = RedisModule_ReplySetMapLength;
+
+  void SetUp() override {
+    ConnectionStateTimingTest::SetUp();
+    replyAfterTiming = false;
+    savedContext = RedisModule_GetThreadSafeContext;
+    RedisModule_ReplyWithLongLong = [](RedisModuleCtx*, long long) { return REDISMODULE_OK; };
+    RedisModule_ReplyWithStringBuffer = [](RedisModuleCtx*, const char*, size_t) {
+      return REDISMODULE_OK;
+    };
+    RedisModule_ReplySetArrayLength = [](RedisModuleCtx*, long) {};
+    RedisModule_ReplySetMapLength = [](RedisModuleCtx*, long) {};
+    RedisModule_GetThreadSafeContext = [](RedisModuleBlockedClient* bc) {
+      EXPECT_EQ(bc, static_cast<ClusterInfoTimingTest*>(current)->handle());
+      return savedContext(nullptr);
+    };
+  }
+
+  void TearDown() override {
+    ConnectionStateTimingTest::TearDown();
+    RedisModule_GetThreadSafeContext = savedContext;
+    RedisModule_ReplyWithLongLong = savedInteger;
+    RedisModule_ReplyWithStringBuffer = savedBuffer;
+    RedisModule_ReplySetArrayLength = savedArrayLength;
+    RedisModule_ReplySetMapLength = savedMapLength;
+  }
+};
+
+decltype(RedisModule_GetThreadSafeContext) ClusterInfoTimingTest::savedContext = nullptr;
+
+TEST_P(ClusterInfoTimingTest, StartsWhenWorkerPicksUpAndEndsBeforeUnblock) {
+  auto done = completion.get_future();
+  MR_uvReplyClusterInfo(nullptr);
+  EXPECT_EQ(starts.load(), 0);
+  readyRuntimes();
+  ASSERT_EQ(done.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  EXPECT_EQ(done.get(), nullptr);
+  EXPECT_EQ(starts.load(), 1);
+  EXPECT_EQ(ends.load(), 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(IOThreads, ClusterInfoTimingTest, testing::Values(1, 3));
