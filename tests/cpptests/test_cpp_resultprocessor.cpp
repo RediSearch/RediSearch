@@ -636,6 +636,206 @@ struct SorterDrainSource : ResultProcessor {
   }
 };
 
+class DepleterDrainTest : public ::testing::Test {
+ protected:
+  QueryProcessingCtx qctx = {};
+  SorterDrainSource source;
+  ResultProcessor *depleter = nullptr;
+  SearchResult result = SearchResult_New();
+  void SetUp() override {
+    qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    depleter = RPDepleter_New();
+    depleter->parent = &qctx;
+    depleter->upstream = &source;
+  }
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    if (depleter) depleter->Free(depleter);
+  }
+  std::vector<t_docId> drain() {
+    std::vector<t_docId> ids;
+    RPDrainStatus status;
+    while ((status = depleter->Drain(depleter, &result)) == RP_DRAIN_OK) {
+      ids.push_back(SearchResult_GetDocId(&result));
+      EXPECT_EQ(ids.back(), SearchResult_GetIndexResult(&result)->docId);
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, status);
+    EXPECT_EQ(0, source.drainCalls);
+    return ids;
+  }
+};
+
+TEST_F(DepleterDrainTest, unstartedDrainDoesNotPullAndClosesAdmission) {
+  source.scores = {1, 2};
+  EXPECT_TRUE(drain().empty());
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, depleter->Next(depleter, &result));
+  EXPECT_EQ(0, source.position);
+}
+
+TEST_F(DepleterDrainTest, explicitDepletionLeavesCommittedRowsAvailableAfterUpstreamError) {
+  source.scores = {1, 2, 3};
+  source.terminal = RS_RESULT_ERROR;
+  RPDepleter_StartDepletion(depleter);
+  EXPECT_EQ((std::vector<t_docId>{1, 2, 3}), drain());
+  EXPECT_EQ(3, source.position);
+}
+
+TEST_F(DepleterDrainTest, parkedUpstreamCannotDelayDrainOrPublishALateRow) {
+  source.scores = {1, 2, 3};
+  source.pauseAt = 2;
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = depleter->Next(depleter, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<t_docId>{1, 2}), drain());
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_TRUE(drain().empty());
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(DepleterDrainTest, growthPreparationDoesNotHoldOwnershipGuard) {
+  source.scores = {1, 2, 3};
+  source.allocationPauseAt = 2;
+  static std::atomic<bool> prepared{false}, resume{false};
+  static void *(*originalAlloc)(size_t);
+  prepared.store(false);
+  resume.store(false);
+  originalAlloc = RedisModule_Alloc;
+  RedisModule_Alloc = [](size_t size) -> void * {
+    if (pauseSorterAllocation && size == sizeof(array_hdr_t) + 4 * sizeof(SearchResult *)) {
+      pauseSorterAllocation = false;
+      prepared.store(true, std::memory_order_release);
+      while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+    }
+    return originalAlloc(size);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = depleter->Next(depleter, &next); });
+  bool entered = RS::WaitForCondition([&] { return prepared.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<t_docId>{1, 2}), drain());
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  RedisModule_Alloc = originalAlloc;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_TRUE(drain().empty());
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(DepleterDrainTest, nextPrefixAndDrainedOwnershipSurviveRemainingBufferCleanup) {
+  source.scores = {1, 2, 3};
+  source.explanations = true;
+  ASSERT_EQ(RS_RESULT_OK, depleter->Next(depleter, &result));
+  EXPECT_EQ(1, SearchResult_GetDocId(&result));
+  SearchResult_Clear(&result);
+  ASSERT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+  depleter->Free(depleter);
+  depleter = nullptr;
+  EXPECT_EQ(2, SearchResult_GetDocId(&result));
+  EXPECT_EQ(2, SearchResult_GetIndexResult(&result)->docId);
+  EXPECT_NE(nullptr, SearchResult_GetScoreExplain(&result));
+}
+
+TEST_F(DepleterDrainTest, nextAndDrainClaimOrdersPreserveExclusivePayloadOwnership) {
+  RLookup lookup = RLookup_New();
+  source.key = RLookup_GetKey_Write(&lookup, "payload", RLOOKUP_F_NOFLAGS);
+  RLookup_Seal(&lookup);
+  source.scores = {1, 2, 3};
+  source.values = {RSValue_NewNumber(1), RSValue_NewNumber(2), RSValue_NewNumber(3)};
+  for (bool nextFirst : {false, true}) {
+    SCOPED_TRACE(nextFirst);
+    if (!depleter) {
+      depleter = RPDepleter_New();
+      depleter->parent = &qctx;
+      depleter->upstream = &source;
+      source.position = 0;
+    }
+    ASSERT_EQ(RS_RESULT_OK, depleter->Next(depleter, &result));
+    EXPECT_EQ(1, SearchResult_GetDocId(&result));
+    SearchResult_Clear(&result);
+
+    static thread_local bool pauseFree = false;
+    static std::atomic<bool> entered;
+    static std::atomic<bool> release;
+    static decltype(RedisModule_Free) originalFree;
+    entered.store(false);
+    release.store(false);
+    originalFree = RedisModule_Free;
+    RedisModule_Free = [](void *ptr) {
+      if (pauseFree) {
+        pauseFree = false;
+        entered.store(true);
+        while (!release.load()) std::this_thread::yield();
+      }
+      originalFree(ptr);
+    };
+    SearchResult next = SearchResult_New();
+    SearchResult remainder = SearchResult_New();
+    int status = RS_RESULT_MAX;
+    std::jthread worker([this, nextFirst, &next, &status] {
+      if (nextFirst) {
+        // The container free occurs after Yield has claimed and transferred the row.
+        pauseFree = true;
+      } else {
+        entered.store(true);
+        while (!release.load()) std::this_thread::yield();
+      }
+      status = depleter->Next(depleter, &next);
+      pauseFree = false;
+    });
+    bool paused = RS::WaitForCondition([] { return entered.load(); }, 5);
+    if (paused) {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &result));
+      EXPECT_EQ(nextFirst ? 3 : 2, SearchResult_GetDocId(&result));
+    }
+    release.store(true);
+    worker.join();
+    RedisModule_Free = originalFree;
+    EXPECT_TRUE(paused);
+    EXPECT_EQ(nextFirst ? RS_RESULT_OK : RS_RESULT_TIMEDOUT, status);
+    if (nextFirst) {
+      EXPECT_EQ(2, SearchResult_GetDocId(&next));
+    } else {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &remainder));
+      EXPECT_EQ(3, SearchResult_GetDocId(&remainder));
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &remainder));
+    depleter->Free(depleter);
+    depleter = nullptr;
+    EXPECT_EQ(1, RSValue_Refcount(source.values[0]));
+    EXPECT_EQ(2, RSValue_Refcount(source.values[1]));
+    EXPECT_EQ(2, RSValue_Refcount(source.values[2]));
+    SearchResult_Destroy(&next);
+    SearchResult_Destroy(&remainder);
+    SearchResult_Clear(&result);
+    for (auto *value : source.values) EXPECT_EQ(1, RSValue_Refcount(value));
+  }
+  RLookup_Cleanup(&lookup);
+}
+
+TEST_F(DepleterDrainTest, returnAndFailKeepTheirExistingTimeoutBehavior) {
+  source.scores = {1, 2};
+  source.terminal = RS_RESULT_TIMEDOUT;
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  EXPECT_EQ(RS_RESULT_OK, depleter->Next(depleter, &result));
+  EXPECT_EQ(1, SearchResult_GetDocId(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ((std::vector<t_docId>{2}), drain());
+  depleter->Free(depleter);
+  depleter = RPDepleter_New();
+  depleter->parent = &qctx;
+  depleter->upstream = &source;
+  qctx.timeoutPolicy = TimeoutPolicy_Fail;
+  source.position = 0;
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, depleter->Next(depleter, &result));
+  EXPECT_EQ(2, source.position);
+}
+
 class MaxScoreDrainTest : public ::testing::Test {
  protected:
   QueryProcessingCtx qctx = {};
