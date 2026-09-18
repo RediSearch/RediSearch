@@ -195,22 +195,347 @@ TEST_F(LoaderDrainTest, forceLoadReplacesPreviouslyLoadedValues) {
   expectValue(key, "document");
 }
 
-TEST_F(LoaderDrainTest, promotionToSafeLoaderDoesNotEnableItsDrain) {
+TEST_F(LoaderDrainTest, promotionToSafeLoaderUsesSafeDrain) {
   source.documents = {document("drain:safe", "safe")};
   create();
   SetLoadersForBG(&qctx);
   loader = qctx.endProc;
   EXPECT_EQ(RP_SAFE_LOADER, loader->type);
-  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  RedisModule_ThreadSafeContextLock(ctx);
+  const auto status = loader->Drain(loader, &result);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  ASSERT_EQ(RP_DRAIN_EOF, status);
   EXPECT_EQ(0, source.position);
 }
 
-TEST_F(LoaderDrainTest, constructedSafeLoaderKeepsDefaultDrain) {
+TEST_F(LoaderDrainTest, constructedSafeLoaderUsesSafeDrain) {
   source.documents = {document("drain:safe", "safe")};
   create(false, QEXEC_F_RUN_IN_BACKGROUND);
   EXPECT_EQ(RP_SAFE_LOADER, loader->type);
-  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  RedisModule_ThreadSafeContextLock(ctx);
+  const auto status = loader->Drain(loader, &result);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  ASSERT_EQ(RP_DRAIN_EOF, status);
   EXPECT_EQ(0, source.position);
+}
+
+// Next and Drain deliberately have independent inputs; a parked Next owns its late row.
+struct SafeLoaderSource : LoaderDrainSource {
+  std::vector<RSDocumentMetadata *> nextDocuments;
+  size_t nextPosition = 0;
+  size_t pauseAt = SIZE_MAX;
+  std::atomic<bool> entered{false}, release{false};
+  int nextTerminal = RS_RESULT_EOF;
+  RSDocumentMetadata *terminalDocument = nullptr;
+  const RLookupKey *terminalKey = nullptr;
+  RSValue *terminalValue = nullptr;
+
+  SafeLoaderSource() {
+    Next = [](ResultProcessor *base, SearchResult *result) -> int {
+      auto *self = static_cast<SafeLoaderSource *>(base);
+      if (self->nextPosition == self->pauseAt) {
+        self->entered.store(true, std::memory_order_release);
+        while (!self->release.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+      }
+      if (self->nextPosition == self->nextDocuments.size()) {
+        if (self->terminalDocument) {
+          DMD_Incref(self->terminalDocument);
+          SearchResult_SetDocumentMetadata(result, self->terminalDocument);
+          RSValue_IncrRef(self->terminalValue);
+          RLookup_WriteOwnKey(self->terminalKey, SearchResult_GetRowDataMut(result),
+                              self->terminalValue);
+          SearchResult_SetOwnedIndexResult(result, NewVirtualResult(1, RS_FIELDMASK_ALL));
+        }
+        return self->nextTerminal;
+      }
+      auto *dmd = self->nextDocuments[self->nextPosition++];
+      DMD_Incref(dmd);
+      SearchResult_SetDocumentMetadata(result, dmd);
+      SearchResult_SetDocId(result, dmd->id);
+      return RS_RESULT_OK;
+    };
+  }
+};
+
+class SafeLoaderDrainTest : public LoaderDrainTest {
+ protected:
+  SafeLoaderSource safeSource;
+  QueryRequestTimeout timeout = {};
+
+  void SetUp() override {
+    LoaderDrainTest::SetUp();
+    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    sctx.timeout = &timeout;
+    qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    qctx.resultLimit = 4096;
+  }
+
+  const RLookupKey *createSafe(bool all = false, bool profile = false) {
+    const auto *key = create(all, QEXEC_F_RUN_IN_BACKGROUND | (profile ? QEXEC_F_PROFILE : 0));
+    loader->upstream = &safeSource;
+    return key;
+  }
+};
+
+TEST_F(SafeLoaderDrainTest, releasesTerminalScratchAfterDrainClosesPublication) {
+  auto *buffered = document("safe:buffered", "buffered");
+  auto *scratch = document("safe:scratch", "scratch");
+  safeSource.nextDocuments = {buffered};
+  safeSource.pauseAt = 1;
+  safeSource.nextTerminal = RS_RESULT_ERROR;
+  safeSource.terminalDocument = scratch;
+  safeSource.terminalKey = createSafe();
+  auto *value = RSValue_NewCopiedString("scratch", 7);
+  safeSource.terminalValue = value;
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  RedisModule_ThreadSafeContextLock(ctx);
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  }
+  safeSource.release.store(true, std::memory_order_release);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(1, scratch->ref_count);
+  EXPECT_EQ(1, RSValue_Refcount(value));
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, scratch->ref_count);
+  EXPECT_EQ(1, buffered->ref_count);
+  EXPECT_EQ(1, RSValue_Refcount(value));
+  RSValue_DecrRef(value);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, leavesUnloadedAndLateRowsWorkerOwned) {
+  auto *first = document("safe:1", "one");
+  auto *late = document("safe:late", "late");
+  safeSource.nextDocuments = {first, late};
+  safeSource.pauseAt = 1;
+  safeSource.documents = {document("safe:drain", "drained")};
+  createSafe(false, true);
+  SearchResult next = SearchResult_New();
+  int nextStatus = RS_RESULT_MAX;
+  RedisModule_ThreadSafeContextLock(ctx);
+  std::thread worker([&] { nextStatus = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_FALSE(safeSource.release.load());
+  }
+  safeSource.release.store(true, std::memory_order_release);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  worker.join();
+  ASSERT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, nextStatus);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  EXPECT_EQ(0, safeSource.position);
+  // Free, not Drain, owns cleanup of the unpublished batch after the worker finishes.
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, first->ref_count);
+  EXPECT_EQ(1, late->ref_count);
+  EXPECT_EQ(4096, qctx.resultLimit);
+  EXPECT_EQ(7, qctx.skippedResults);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, drainsBeforeWorkerAcquiresGil) {
+  safeSource.nextDocuments = {document("safe:gil", "buffered")};
+  createSafe();
+  // Interpose only to observe entry. The real mock mutex keeps BG parked until Drain completes.
+  static std::atomic<bool> waiting;
+  static decltype(RedisModule_ThreadSafeContextLock) originalLock;
+  waiting.store(false);
+  originalLock = RedisModule_ThreadSafeContextLock;
+  originalLock(ctx);
+  RedisModule_ThreadSafeContextLock = [](RedisModuleCtx *ctx) {
+    waiting.store(true, std::memory_order_release);
+    originalLock(ctx);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return waiting.load(std::memory_order_acquire); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  }
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  worker.join();
+  RedisModule_ThreadSafeContextLock = originalLock;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, yieldsLoadedRowsWithoutReloadingAndPreservesNextOwnedRow) {
+  auto *first = document("safe:loaded:1", "one");
+  safeSource.nextDocuments = {document("safe:loaded:missing", nullptr), first,
+                              document("safe:loaded:2", "two")};
+  const auto *key = createSafe(false, true);
+  SearchResult next = SearchResult_New();
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &next));
+  EXPECT_TRUE(RMCK::hset(ctx, "safe:loaded:2", "field", "changed"));
+  RedisModule_ThreadSafeContextLock(ctx);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+  expectValue(key, "two");
+  EXPECT_EQ(first, SearchResult_GetDocumentMetadata(&next));
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(8, qctx.skippedResults);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, takesPublishedBatchBeforeFirstNextYield) {
+  safeSource.nextDocuments = {document("safe:published", "ready")};
+  safeSource.documents = {document("safe:upstream", "must not drain")};
+  const auto *key = createSafe();
+  // Park after the actual GIL release, before Next can claim any loaded row.
+  static std::atomic<bool> published, resume;
+  static decltype(RedisModule_ThreadSafeContextUnlock) originalUnlock;
+  published.store(false);
+  resume.store(false);
+  originalUnlock = RedisModule_ThreadSafeContextUnlock;
+  RedisModule_ThreadSafeContextUnlock = [](RedisModuleCtx *ctx) {
+    originalUnlock(ctx);
+    published.store(true, std::memory_order_release);
+    while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return published.load(); }, 5);
+  RedisModule_ThreadSafeContextLock(ctx);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    expectValue(key, "ready");
+    SearchResult_Clear(&result);
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    EXPECT_EQ(0, safeSource.position);
+  }
+  originalUnlock(ctx);
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  RedisModule_ThreadSafeContextUnlock = originalUnlock;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, resetMakesNextBatchPrivateBeforeUpstreamCall) {
+  safeSource.nextDocuments = {document("safe:old", "old"), document("safe:new", "new")};
+  createSafe();
+  qctx.resultLimit = 1;
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+  SearchResult_Clear(&result);
+  safeSource.pauseAt = 1;
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  RedisModule_ThreadSafeContextLock(ctx);
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  safeSource.release.store(true, std::memory_order_release);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&next));
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(SafeLoaderDrainTest, unstartedDrainDoesNotLoadOrReadUpstreamErrors) {
+  auto *missing = document("safe:missing", nullptr);
+  safeSource.documents = {missing, document("safe:live", "live")};
+  safeSource.terminal = RP_DRAIN_ERROR;
+  createSafe();
+  RedisModule_ThreadSafeContextLock(ctx);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  EXPECT_FALSE(missing->flags & Document_FailedToOpen);
+  EXPECT_EQ(7, qctx.skippedResults);
+  EXPECT_EQ(100, qctx.totalResults);
+  EXPECT_EQ(0, safeSource.position);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&result));
+}
+
+TEST_F(SafeLoaderDrainTest, reusesBlocksAcrossChunksThenFreesUndrainedRows) {
+  auto *dmd = document("safe:blocks", "value");
+  safeSource.nextDocuments.assign(2200, dmd);
+  createSafe();
+  qctx.resultLimit = 1100;
+  for (size_t i = 0; i < 1101; ++i) {
+    ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &result));
+    SearchResult_Clear(&result);
+  }
+  RedisModule_ThreadSafeContextLock(ctx);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  for (size_t i = 0; i < 1024; ++i) {
+    EXPECT_EQ(RP_DRAIN_OK, loader->Drain(loader, &result));
+    SearchResult_Clear(&result);
+  }
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, dmd->ref_count);
+}
+
+TEST_F(SafeLoaderDrainTest, loadAllDoesNotPublishKeysFromUnloadedBuffer) {
+  safeSource.nextDocuments = {document("safe:all", "all")};
+  safeSource.pauseAt = 1;
+  createSafe(true);
+  auto scanKey = RedisModule_ScanKey;
+  RedisModule_ScanKey = [](RedisModuleKey *key, RedisModuleScanCursor *,
+                           RedisModuleScanKeyCB callback, void *data) {
+    RMCK::RString field("field"), value("all");
+    callback(key, field, value, data);
+    return 0;
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  RedisModule_ThreadSafeContextLock(ctx);
+  std::thread worker([&] { status = loader->Next(loader, &next); });
+  bool entered = RS::WaitForCondition([&] { return safeSource.entered.load(); }, 5);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  if (entered) {
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+    auto iterator = RLookup_Iter(&lookup);
+    const RLookupKey *key = nullptr;
+    EXPECT_FALSE(RLookupIterator_Next(&iterator, &key));
+    EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &result));
+  }
+  safeSource.release.store(true, std::memory_order_release);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  worker.join();
+  RedisModule_ScanKey = scanKey;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  SearchResult_Destroy(&next);
 }
 
 struct processor1Ctx : public ResultProcessor {
