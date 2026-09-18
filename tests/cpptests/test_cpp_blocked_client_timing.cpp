@@ -9,17 +9,20 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
+#include "cursor.h"
 #include "hybrid/hybrid_exec.h"
 #include "indexes.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "profile/options.h"
+#include "query_eval_ffi.h"
 #include "redismock/util.h"
 #include "util/blocked_client_timing.h"
 #include "util/workers.h"
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <thread>
 
 extern "C" int RSExecuteAggregateOrSearch(RedisModuleCtx* ctx, RedisModuleString** argv, int argc,
@@ -126,37 +129,9 @@ TEST_F(BlockedClientTimingTest, NewCycleCanMeasureAfterPreviousTimeout) {
   EXPECT_EQ(ends, 1);
 }
 
-class QueuedQueryTimingTest : public testing::TestWithParam<CommandType> {
+class QueuedCommandTimingTest : public testing::Test {
  protected:
-  int dispatch() {
-    if (GetParam() == COMMAND_HYBRID) {
-      const float vector[] = {1, 2};
-      RMCK::ArgvList args(ctx, "FT.HYBRID", "queued-timing", "SEARCH", "*", "VSIM", "@v", "$BLOB",
-                          "PARAMS", "2", "BLOB");
-      args.add(reinterpret_cast<const char*>(vector), sizeof(vector));
-      return hybridCommandHandler(ctx, args, args.size(), false, EXEC_NO_FLAGS, nullptr);
-    }
-    const char* command = GetParam() == COMMAND_SEARCH ? "FT.SEARCH" : "FT.AGGREGATE";
-    RMCK::ArgvList args(ctx, command, "queued-timing", "*");
-    return RSExecuteAggregateOrSearch(ctx, args, args.size(), GetParam(), EXEC_NO_FLAGS);
-  }
-
-  static int startAndWaitForTimeout(RedisModuleBlockedClient* bc) {
-    auto* self = static_cast<QueuedQueryTimingTest*>(current);
-    EXPECT_EQ(bc, self->handle());
-    ++self->starts;
-    // Start holds the timing mutex. A deadline lets the worker exit even if the callback
-    // incorrectly waits for that mutex before publishing the timeout.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (!QueryRequestTimeout_IsBlockedClientTimedOut(&self->request->timeout) &&
-           std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&self->request->timeout));
-    return REDISMODULE_OK;
-  }
-
-  static QueuedQueryTimingTest* current;
+  static QueuedCommandTimingTest* current;
   decltype(RedisModule_BlockClient) savedBlock = RedisModule_BlockClient;
   decltype(RedisModule_UnblockClient) savedUnblock = RedisModule_UnblockClient;
   decltype(RedisModule_BlockClientSetPrivateData) savedSetData =
@@ -176,6 +151,7 @@ class QueuedQueryTimingTest : public testing::TestWithParam<CommandType> {
   RequestConfig savedConfig = RSGlobalConfig.requestConfigParams;
   RedisModuleCtx* ctx = nullptr;
   IndexSpec* spec = nullptr;
+  QueryError error = QueryError_Default();
   QueryRequest* request = nullptr;
   RedisModuleCmdFunc timeoutCallback = nullptr;
   void (*freeData)(RedisModuleCtx*, void*) = nullptr;
@@ -250,7 +226,6 @@ class QueuedQueryTimingTest : public testing::TestWithParam<CommandType> {
     RMCK::ArgvList args(ctx, "FT.CREATE", "queued-timing", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT",
                         "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2",
                         "DISTANCE_METRIC", "L2");
-    QueryError error = QueryError_Default();
     spec = Indexes_CreateNewSpec(ctx, args, args.size(), &error);
     const bool hasError = QueryError_HasError(&error);
     EXPECT_FALSE(hasError) << QueryError_GetUserError(&error);
@@ -289,12 +264,45 @@ class QueuedQueryTimingTest : public testing::TestWithParam<CommandType> {
     RSGlobalConfig.numWorkerThreads = savedWorkers;
     workersThreadPool_SetNumWorkers();
     workersThreadPool_wait();
+    QueryError_ClearError(&error);
     RedisModule_FreeThreadSafeContext(ctx);
     current = nullptr;
   }
 };
 
-QueuedQueryTimingTest* QueuedQueryTimingTest::current = nullptr;
+QueuedCommandTimingTest* QueuedCommandTimingTest::current = nullptr;
+
+class QueuedQueryTimingTest : public QueuedCommandTimingTest,
+                              public testing::WithParamInterface<CommandType> {
+ protected:
+  int dispatch() {
+    if (GetParam() == COMMAND_HYBRID) {
+      const float vector[] = {1, 2};
+      RMCK::ArgvList args(ctx, "FT.HYBRID", "queued-timing", "SEARCH", "*", "VSIM", "@v", "$BLOB",
+                          "PARAMS", "2", "BLOB");
+      args.add(reinterpret_cast<const char*>(vector), sizeof(vector));
+      return hybridCommandHandler(ctx, args, args.size(), false, EXEC_NO_FLAGS, nullptr);
+    }
+    const char* command = GetParam() == COMMAND_SEARCH ? "FT.SEARCH" : "FT.AGGREGATE";
+    RMCK::ArgvList args(ctx, command, "queued-timing", "*");
+    return RSExecuteAggregateOrSearch(ctx, args, args.size(), GetParam(), EXEC_NO_FLAGS);
+  }
+
+  static int startAndWaitForTimeout(RedisModuleBlockedClient* bc) {
+    auto* self = static_cast<QueuedQueryTimingTest*>(current);
+    EXPECT_EQ(bc, self->handle());
+    ++self->starts;
+    // Start holds the timing mutex. A deadline lets the worker exit even if the callback
+    // incorrectly waits for that mutex before publishing the timeout.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!QueryRequestTimeout_IsBlockedClientTimedOut(&self->request->timeout) &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&self->request->timeout));
+    return REDISMODULE_OK;
+  }
+};
 
 TEST_P(QueuedQueryTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) {
   ASSERT_EQ(dispatch(), REDISMODULE_OK);
@@ -338,3 +346,88 @@ TEST_P(QueuedQueryTimingTest, TimeoutPublicationDoesNotWaitForMeasurementStart) 
 
 INSTANTIATE_TEST_SUITE_P(QueryCommands, QueuedQueryTimingTest,
                          testing::Values(COMMAND_SEARCH, COMMAND_AGGREGATE, COMMAND_HYBRID));
+
+class QueuedCursorTimingTest : public QueuedCommandTimingTest,
+                               public testing::WithParamInterface<RSTimeoutPolicy> {
+ protected:
+  decltype(RedisModule_ReplyWithArray) savedReplyArray = RedisModule_ReplyWithArray;
+  decltype(RedisModule_ReplyWithLongLong) savedReplyLongLong = RedisModule_ReplyWithLongLong;
+  decltype(RedisModule_ReplySetArrayLength) savedSetArrayLength = RedisModule_ReplySetArrayLength;
+
+  void SetUp() override {
+    QueuedCommandTimingTest::SetUp();
+    RedisModule_ReplyWithArray = [](RedisModuleCtx*, long) { return REDISMODULE_OK; };
+    RedisModule_ReplyWithLongLong = [](RedisModuleCtx*, long long) { return REDISMODULE_OK; };
+    RedisModule_ReplySetArrayLength = [](RedisModuleCtx*, long) {};
+  }
+
+  void TearDown() override {
+    QueuedCommandTimingTest::TearDown();
+    RedisModule_ReplyWithArray = savedReplyArray;
+    RedisModule_ReplyWithLongLong = savedReplyLongLong;
+    RedisModule_ReplySetArrayLength = savedSetArrayLength;
+  }
+};
+
+TEST_P(QueuedCursorTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) {
+  RSGlobalConfig.requestConfigParams.timeoutPolicy = GetParam();
+  RMCK::ArgvList aggregateArgs(ctx, "FT.AGGREGATE", "queued-timing", "*", "WITHCURSOR", "COUNT",
+                               "1");
+  std::unique_ptr<AREQ, decltype(&AREQ_Free)> req(AREQ_New(aggregateArgs, aggregateArgs.size()),
+                                                  AREQ_Free);
+  AREQ_AddRequestFlags(req.get(), QEXEC_F_IS_AGGREGATE);
+  ASSERT_EQ(AREQ_Compile(req.get(), ctx, 2, false, &error), REDISMODULE_OK);
+  RedisSearchCtx* sctx = NewSearchCtxC(ctx, "queued-timing", true);
+  ASSERT_NE(sctx, nullptr);
+  ASSERT_EQ(AREQ_ApplyContext(req.get(), sctx, &error), REDISMODULE_OK);
+  RedisSearchCtx_LockSpecRead(sctx);
+  req->rootiter =
+      QAST_Iterate(&req->ast, &req->searchopts, sctx, AREQ_RequestFlags(req.get()), &error);
+  ASSERT_FALSE(QueryError_HasError(&error));
+  ASSERT_EQ(AREQ_BuildPipeline(req.get(), &error), REDISMODULE_OK);
+  RedisSearchCtx_UnlockSpec(sctx);
+  sctx->redisCtx = nullptr;
+
+  const size_t cursorCount = Cursors_GetInfoStats().total_user;
+  std::unique_ptr<Cursor, decltype(&Cursor_Free)> cursor(
+      Cursors_Reserve(&g_CursorsList, spec->own_ref, 1000, &error), Cursor_Free);
+  ASSERT_NE(cursor, nullptr);
+  cursor->query = &req->base;
+  cursor->queryTimeoutMS = 0;
+  cursor->queryTimeoutPolicy = GetParam();
+  req->base.cursorInfo.id = cursor->id;
+  req.release();
+  ASSERT_EQ(Cursor_Pause(cursor.get()), REDISMODULE_OK);
+  const auto cursorId = std::to_string(cursor->id);
+  RMCK::ArgvList args(ctx, "FT.CURSOR", "READ", "queued-timing", cursorId.c_str(), "COUNT", "1");
+  const int rc = RSCursorReadCommand(ctx, args, args.size());
+  if (request) {
+    // The blocked-client cycle owns the cursor until its free-privdata callback.
+    cursor.release();
+  }
+  ASSERT_EQ(rc, REDISMODULE_OK);
+  ASSERT_NE(request, nullptr);
+  ASSERT_NE(timeoutCallback, nullptr);
+  ASSERT_EQ(workersThreadPool_HighPriorityPendingJobsCount(), 1);
+  EXPECT_EQ(starts.load(), 0);
+  EXPECT_EQ(ends.load(), 0);
+  EXPECT_EQ(unblocks.load(), 0);
+
+  ASSERT_EQ(timeoutCallback(ctx, args, args.size()), REDISMODULE_OK);
+  EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout));
+  EXPECT_EQ(starts.load(), 0);
+  EXPECT_EQ(ends.load(), 0);
+
+  ASSERT_EQ(workersThreadPool_resume(), REDISMODULE_OK);
+  workersThreadPool_wait();
+  EXPECT_EQ(unblocks.load(), 1);
+  EXPECT_EQ(starts.load(), 0);
+  EXPECT_EQ(ends.load(), 0);
+  EXPECT_EQ(Cursors_GetInfoStats().total_user, cursorCount + 1);
+  freeData(ctx, request);
+  request = nullptr;
+  EXPECT_EQ(Cursors_GetInfoStats().total_user, cursorCount);
+}
+
+INSTANTIATE_TEST_SUITE_P(TimeoutPolicies, QueuedCursorTimingTest,
+                         testing::Values(TimeoutPolicy_Fail, TimeoutPolicy_ReturnStrict));
