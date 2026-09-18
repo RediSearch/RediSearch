@@ -589,6 +589,7 @@ TEST_F(SafeLoaderDrainTest, loadAllDoesNotPublishKeysFromUnloadedBuffer) {
 // A worker-only source with a reusable borrowed index result and an observable Drain barrier.
 static thread_local bool pauseSorterAllocation = false;
 struct SorterDrainSource : ResultProcessor {
+  bool explanations = false;
   std::vector<double> scores;
   std::vector<RSValue *> values;
   const RLookupKey *key = nullptr;
@@ -614,6 +615,10 @@ struct SorterDrainSource : ResultProcessor {
       pauseSorterAllocation = self->position == self->allocationPauseAt;
       SearchResult_SetScore(result, self->scores[self->position++]);
       SearchResult_SetDocId(result, self->position);
+      if (self->explanations) {
+        SearchResult_SetScoreExplain(
+            result, static_cast<RSScoreExplain *>(rm_calloc(1, sizeof(RSScoreExplain))));
+      }
       if (self->key && self->values[self->position - 1]) {
         auto *value = self->values[self->position - 1];
         RSValue_IncrRef(value);
@@ -630,6 +635,204 @@ struct SorterDrainSource : ResultProcessor {
       if (value) RSValue_DecrRef(value);
   }
 };
+
+class MaxScoreDrainTest : public ::testing::Test {
+ protected:
+  QueryProcessingCtx qctx = {};
+  RLookup lookup = RLookup_New();
+  const RLookupKey *key = RLookup_GetKey_Write(&lookup, "score", RLOOKUP_F_NOFLAGS);
+  SorterDrainSource source;
+  ResultProcessor *normalizer = nullptr;
+  SearchResult result = SearchResult_New();
+
+  void SetUp() override {
+    RLookup_Seal(&lookup);
+    qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    qctx.resultLimit = 37;
+    normalizer = RPMaxScoreNormalizer_New(key);
+    normalizer->parent = &qctx;
+    normalizer->upstream = &source;
+  }
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    if (normalizer) normalizer->Free(normalizer);
+    RLookup_Cleanup(&lookup);
+  }
+  std::vector<double> drain() {
+    std::vector<double> scores;
+    RPDrainStatus status;
+    while ((status = normalizer->Drain(normalizer, &result)) == RP_DRAIN_OK) {
+      double score = SearchResult_GetScore(&result);
+      scores.push_back(score);
+      EXPECT_DOUBLE_EQ(score,
+                       RSValue_Number_Get(RLookupRow_Get(key, SearchResult_GetRowData(&result))));
+      EXPECT_TRUE(SearchResult_GetFlags(&result) & Result_OwnsIndexResult);
+      EXPECT_EQ(SearchResult_GetDocId(&result), SearchResult_GetIndexResult(&result)->docId);
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, status);
+    EXPECT_EQ(0, source.drainCalls);
+    return scores;
+  }
+};
+
+TEST_F(MaxScoreDrainTest, unstartedDrainDoesNotPullUpstream) {
+  source.scores = {10};
+  EXPECT_TRUE(drain().empty());
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, normalizer->Next(normalizer, &result));
+  EXPECT_EQ(0, source.position);
+}
+
+TEST_F(MaxScoreDrainTest, partialPoolUsesCommittedMaximumAndRejectsLateHigherScore) {
+  source.scores = {2, 8, 4, 100};
+  source.pauseAt = 3;
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = normalizer->Next(normalizer, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<double>{0.5, 1, 0.25}), drain());
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_EQ(37, qctx.resultLimit);
+  EXPECT_FALSE(SearchResult_HasIndexResult(&next));
+  EXPECT_TRUE(drain().empty());
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(MaxScoreDrainTest, nextClaimAndDrainKeepTheSameMaximum) {
+  source.scores = {2, 4, 8};
+  ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &result));
+  EXPECT_DOUBLE_EQ(1, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ((std::vector<double>{0.5, 0.25}), drain());
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, normalizer->Next(normalizer, &result));
+}
+
+TEST_F(MaxScoreDrainTest, drainExcludesNextClaimWhileNormalizationIsParked) {
+  source.scores = {2, 4, 8};
+  source.explanations = true;
+  ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &result));
+  EXPECT_EQ(3, SearchResult_GetDocId(&result));
+  SearchResult_Clear(&result);
+
+  // Yield releases the claimed row's container before normalizing its private output.
+  static thread_local bool pauseFree = false;
+  static std::atomic<bool> entered;
+  static std::atomic<bool> release;
+  static decltype(RedisModule_Free) originalFree;
+  entered.store(false);
+  release.store(false);
+  originalFree = RedisModule_Free;
+  RedisModule_Free = [](void *ptr) {
+    if (pauseFree) {
+      pauseFree = false;
+      entered.store(true);
+      while (!release.load()) std::this_thread::yield();
+    }
+    originalFree(ptr);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::jthread worker([this, &next, &status] {
+    pauseFree = true;
+    status = normalizer->Next(normalizer, &next);
+    pauseFree = false;
+  });
+  bool paused = RS::WaitForCondition([] { return entered.load(); }, 5);
+  if (paused) EXPECT_EQ((std::vector<double>{0.25}), drain());
+  release.store(true);
+  worker.join();
+  RedisModule_Free = originalFree;
+  EXPECT_TRUE(paused);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  normalizer->Free(normalizer);
+  normalizer = nullptr;
+  EXPECT_EQ(2, SearchResult_GetDocId(&next));
+  EXPECT_EQ(2, SearchResult_GetIndexResult(&next)->docId);
+  EXPECT_DOUBLE_EQ(0.5, SearchResult_GetScore(&next));
+  EXPECT_NE(nullptr, SearchResult_GetScoreExplain(&next));
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(MaxScoreDrainTest, drainDoesNotWaitForPoolGrowthAndLatePreparationIsDiscarded) {
+  source.scores = {2, 8, 100};
+  source.allocationPauseAt = 2;
+  static std::atomic<bool> prepared{false}, resume{false};
+  static void *(*originalAlloc)(size_t);
+  prepared.store(false);
+  resume.store(false);
+  originalAlloc = RedisModule_Alloc;
+  RedisModule_Alloc = [](size_t size) -> void * {
+    if (pauseSorterAllocation && size == sizeof(array_hdr_t) + 4 * sizeof(SearchResult *)) {
+      pauseSorterAllocation = false;
+      prepared.store(true, std::memory_order_release);
+      while (!resume.load(std::memory_order_acquire)) std::this_thread::yield();
+    }
+    return originalAlloc(size);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = normalizer->Next(normalizer, &next); });
+  bool entered = RS::WaitForCondition([&] { return prepared.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<double>{1, 0.25}), drain());
+  resume.store(true, std::memory_order_release);
+  worker.join();
+  RedisModule_Alloc = originalAlloc;
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+  EXPECT_TRUE(drain().empty());
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(MaxScoreDrainTest, zeroMaximumAndErrorKeepCommittedRows) {
+  source.scores = {0, 0};
+  source.terminal = RS_RESULT_ERROR;
+  EXPECT_EQ(RS_RESULT_ERROR, normalizer->Next(normalizer, &result));
+  EXPECT_EQ((std::vector<double>{0, 0}), drain());
+}
+
+TEST_F(MaxScoreDrainTest, drainedExplanationAndRowOutliveRemainingPoolCleanup) {
+  source.scores = {2, 8, 4};
+  source.explanations = true;
+  source.terminal = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, normalizer->Next(normalizer, &result));
+  ASSERT_EQ(RP_DRAIN_OK, normalizer->Drain(normalizer, &result));
+  normalizer->Free(normalizer);
+  normalizer = nullptr;
+  EXPECT_DOUBLE_EQ(0.5, SearchResult_GetScore(&result));
+  ASSERT_NE(nullptr, SearchResult_GetScoreExplain(&result));
+  EXPECT_STREQ("Final BM25STD.NORM: 0.50 = Original Score: 4.00 / Max Score: 8.00",
+               SearchResult_GetScoreExplain(&result)->str);
+  EXPECT_EQ(3, SearchResult_GetIndexResult(&result)->docId);
+}
+
+TEST_F(MaxScoreDrainTest, returnTimeoutYieldsPrefixThenDrainYieldsOnlyRemainingRows) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  source.scores = {2, 8, 4};
+  source.terminal = RS_RESULT_TIMEDOUT;
+  ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &result));
+  EXPECT_DOUBLE_EQ(0.5, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ((std::vector<double>{1, 0.25}), drain());
+}
+
+TEST_F(MaxScoreDrainTest, failTimeoutDoesNotYieldAndNormalEofStillNormalizes) {
+  qctx.timeoutPolicy = TimeoutPolicy_Fail;
+  source.scores = {2, 8, 4};
+  source.terminal = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, normalizer->Next(normalizer, &result));
+  EXPECT_FALSE(SearchResult_HasIndexResult(&result));
+  source.terminal = RS_RESULT_EOF;
+  for (double score : {0.5, 1.0, 0.25}) {
+    ASSERT_EQ(RS_RESULT_OK, normalizer->Next(normalizer, &result));
+    EXPECT_DOUBLE_EQ(score, SearchResult_GetScore(&result));
+    SearchResult_Clear(&result);
+  }
+  EXPECT_EQ(RS_RESULT_EOF, normalizer->Next(normalizer, &result));
+  EXPECT_EQ(0, source.drainCalls);
+}
 
 class SorterDrainTest : public ::testing::Test {
  protected:
