@@ -467,6 +467,7 @@ typedef struct {
   ExprEval eval;
   QueryError error;
   RSValue *val;
+  size_t filtered;
 } RPEvaluatorDrain;
 
 typedef struct RPEvaluator {
@@ -516,7 +517,7 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
-static RPDrainStatus rpevalDrain_project(ResultProcessor *rp, SearchResult *r) {
+static RPDrainStatus rpevalDrainCommon(ResultProcessor *rp, SearchResult *r) {
   RPEvaluator *pc = (RPEvaluator *)rp;
   RPDrainStatus rc = rp->upstream->Drain(rp->upstream, r);
   if (rc != RP_DRAIN_OK) return rc;
@@ -534,9 +535,38 @@ static RPDrainStatus rpevalDrain_project(ResultProcessor *rp, SearchResult *r) {
   drain->eval.srcrow = SearchResult_GetRowData(r);
   if (!drain->val) drain->val = RSValue_NewUndefined();
   if (ExprEval_Eval(&drain->eval, drain->val) != EXPR_EVAL_OK) return RP_DRAIN_ERROR;
-  RLookup_WriteOwnKey(pc->outkey, SearchResult_GetRowDataMut(r), drain->val);
-  drain->val = NULL;
   return RP_DRAIN_OK;
+}
+
+static RPDrainStatus rpevalDrain_project(ResultProcessor *rp, SearchResult *r) {
+  RPDrainStatus rc = rpevalDrainCommon(rp, r);
+  if (rc != RP_DRAIN_OK) return rc;
+  RPEvaluator *pc = (RPEvaluator *)rp;
+  RLookup_WriteOwnKey(pc->outkey, SearchResult_GetRowDataMut(r), pc->drain->val);
+  pc->drain->val = NULL;
+  return RP_DRAIN_OK;
+}
+
+static RPDrainStatus rpevalDrain_filter(ResultProcessor *rp, SearchResult *r) {
+  RPDrainStatus rc;
+  while ((rc = rpevalDrainCommon(rp, r)) == RP_DRAIN_OK) {
+    RPEvaluatorDrain *drain = ((RPEvaluator *)rp)->drain;
+    int accepted = RSValue_BoolTest(drain->val);
+    RSValue_Clear(drain->val);
+    if (accepted) return RP_DRAIN_OK;
+    ++drain->filtered;
+    SearchResult_Clear(r);
+  }
+  return rc;
+}
+
+size_t RPFilter_TakeDrainFiltered(ResultProcessor *rp) {
+  RS_ASSERT(rp->type == RP_FILTER);
+  RPEvaluatorDrain *drain = ((RPEvaluator *)rp)->drain;
+  if (!drain) return 0;
+  size_t filtered = drain->filtered;
+  drain->filtered = 0;
+  return filtered;
 }
 
 bool RPEvaluator_TakeDrainError(ResultProcessor *rp, QueryError *error) {
@@ -600,7 +630,7 @@ static ResultProcessor *RPEvaluator_NewCommon(RSExpr *ast, const RLookup *lookup
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
-  rp->base.Drain = isFilter ? RPDrain_EOF : rpevalDrain_project;
+  rp->base.Drain = isFilter ? rpevalDrain_filter : rpevalDrain_project;
   rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
   rp->eval.mode = EVAL_MODE_QUERY;
   rp->eval.lookup = lookup;
