@@ -122,6 +122,10 @@ void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 /* Set the blocked client for the context (used when MRCtx is created before blocking) */
 void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 
+/* Worker pickup and completion/timeout share one guarded background interval. */
+void MRCtx_StartTiming(struct MRCtx *ctx);
+void MRCtx_FinishTiming(struct MRCtx *ctx);
+
 /* Timeout and reducing state management for partial timeout support */
 void MRCtx_SetTimedOut(struct MRCtx *ctx);
 bool MRCtx_IsTimedOut(struct MRCtx *ctx);

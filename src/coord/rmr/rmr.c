@@ -43,6 +43,7 @@
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
 #include "util/dict/dict.h"
+#include "util/blocked_client_timing.h"
 
 struct timespec;
 
@@ -78,6 +79,7 @@ typedef struct MRCtx {
   void *privdata;
   RedisModuleCtx *redisCtx;
   RedisModuleBlockedClient *bc;
+  BlockedClientTiming timing;
   MRCommand cmd;
   IORuntimeCtx *ioRuntime;
   QueryError status;
@@ -122,6 +124,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->privdata = privdata;
   ret->redisCtx = ctx;
   ret->bc = bc;
+  BlockedClientTiming_Init(&ret->timing);
+  if (bc) BlockedClientTiming_Begin(&ret->timing, bc);
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
@@ -166,6 +170,7 @@ static void MRCtx_FreeInternal(MRCtx *ctx) {
   rm_free(ctx->replies);
 
   // Destroy state tracking synchronization primitives
+  BlockedClientTiming_Destroy(&ctx->timing);
   pthread_mutex_destroy(&ctx->reducingLock);
   pthread_cond_destroy(&ctx->reducingCond);
 
@@ -220,6 +225,15 @@ int MRCtx_GetCommandProtocol(struct MRCtx *ctx) {
 
 void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
   ctx->bc = bc;
+  BlockedClientTiming_Begin(&ctx->timing, bc);
+}
+
+void MRCtx_StartTiming(struct MRCtx *ctx) {
+  BlockedClientTiming_Start(&ctx->timing);
+}
+
+void MRCtx_FinishTiming(struct MRCtx *ctx) {
+  BlockedClientTiming_Finish(&ctx->timing);
 }
 
 void MRCtx_SetTimedOut(struct MRCtx *ctx) {
@@ -269,6 +283,8 @@ static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
 }
 
 static int timeoutHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+  MRCtx_FinishTiming(mrctx);
   RedisModule_Log(ctx, "notice", "Timed out coordination request");
   return RedisModule_ReplyWithError(ctx, "Timeout calling command");
 }
@@ -317,7 +333,10 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
       if (!timedOut) {
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
+#ifdef ENABLE_ASSERT
+        SyncPoint_Wait(SYNC_POINT_BEFORE_FANOUT_FINISH);
+#endif
+        MRCtx_FinishTiming(ctx);
       }
       RedisModule_UnblockClient(bc, ctx);
     }
@@ -334,6 +353,7 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) 
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
+  MRCtx_StartTiming(mrctx);
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
   if (mrctx->beforeFanout) {
@@ -351,7 +371,7 @@ static void uvFanoutRequest(void *p) {
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
     if (!MRCtx_IsTimedOut(mrctx)) {
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
+      MRCtx_FinishTiming(mrctx);
     }
     RedisModule_UnblockClient(bc, mrctx);
     MRCtx_DecrRef(mrctx);
@@ -365,7 +385,8 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
     RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
         mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
-    RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
+    BlockedClientTiming_Begin(&mrctx->timing, mrctx->bc);
+    RedisModule_BlockClientSetPrivateData(mrctx->bc, mrctx);
   }
   //Is possible that mrctx->fn may already be there and reducer to be null
   mrctx->reducer = reducer;
