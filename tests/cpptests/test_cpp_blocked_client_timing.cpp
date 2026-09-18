@@ -33,6 +33,11 @@ extern "C" int RSExecuteAggregateOrSearch(RedisModuleCtx* ctx, RedisModuleString
 extern "C" int DistAggregateReplyCallback(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
 extern "C" int DistAggregateTimeoutFailCallback(RedisModuleCtx* ctx, RedisModuleString** argv,
                                                 int argc);
+extern "C" int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx* ctx,
+                                                        RedisModuleString** argv, int argc);
+extern "C" int DistHybridReplyCallback(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
+extern "C" int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx* ctx, RedisModuleString** argv,
+                                                     int argc);
 extern "C" int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx* ctx,
                                                          RedisModuleString** argv, int argc);
 #ifdef ENABLE_ASSERT
@@ -492,7 +497,7 @@ INSTANTIATE_TEST_SUITE_P(TimeoutPoliciesAndCursorKinds, QueuedCursorTimingTest,
                                           testing::Bool()));
 
 #ifdef ENABLE_ASSERT
-class CoordinatorCursorWaitTimingTest : public QueuedCommandTimingTest {
+class CoordinatorWaitTimingTest : public QueuedCommandTimingTest {
  protected:
   static constexpr const char* waitHook = "BeforeAggregateResultsWait";
   decltype(RedisModule_ReplyWithError) savedReplyError = RedisModule_ReplyWithError;
@@ -505,7 +510,7 @@ class CoordinatorCursorWaitTimingTest : public QueuedCommandTimingTest {
     QueuedCommandTimingTest::SetUp();
     if (HasFatalFailure()) return;
     RedisModule_BlockedClientMeasureTimeEnd = [](RedisModuleBlockedClient* bc) {
-      auto* self = static_cast<CoordinatorCursorWaitTimingTest*>(current);
+      auto* self = static_cast<CoordinatorWaitTimingTest*>(current);
       EXPECT_EQ(bc, self->handle());
       if (self->request->async.requiresAggregateResultsSync) {
         pthread_mutex_lock(&self->request->async.aggregateResultsLock);
@@ -517,7 +522,7 @@ class CoordinatorCursorWaitTimingTest : public QueuedCommandTimingTest {
       return REDISMODULE_OK;
     };
     RedisModule_ReplyWithError = [](RedisModuleCtx*, const char* message) {
-      auto* self = static_cast<CoordinatorCursorWaitTimingTest*>(current);
+      auto* self = static_cast<CoordinatorWaitTimingTest*>(current);
       EXPECT_STREQ(message, QueryError_Strerror(self->expectedError));
       ++self->errorReplies;
       return REDISMODULE_OK;
@@ -533,7 +538,42 @@ class CoordinatorCursorWaitTimingTest : public QueuedCommandTimingTest {
     RedisModule_ReplyWithError = savedReplyError;
   }
 
-  void completeResults() {
+  virtual void completeResults() = 0;
+
+  void expectTimeoutIncludesWorkUntilResultsComplete() {
+    ASSERT_TRUE(SyncPoint_ArmWithTimeout(waitHook, 5000));
+
+    std::thread completion([&] {
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+      while (!SyncPoint_IsWaiting(waitHook) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+      }
+      EXPECT_TRUE(SyncPoint_IsWaiting(waitHook));
+      EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout));
+      EXPECT_EQ(ends.load(), 0);
+      // Publish completion even if the rendezvous fails, so the real callback cannot hang.
+      elapsed.store(40);
+      completeResults();
+      SyncPoint_Signal(waitHook);
+    });
+    const int rc = timeoutCallback(ctx, request->args.argv, request->args.argc);
+    completion.join();
+    EXPECT_EQ(rc, REDISMODULE_OK);
+    EXPECT_EQ(starts.load(), 1);
+    EXPECT_EQ(ends.load(), 1);
+    EXPECT_EQ(recordedDuration, 40);
+    EXPECT_EQ(errorReplies, 1);
+
+    elapsed.store(100);
+    BlockedClientTiming_Finish(&request->timing);
+    EXPECT_EQ(ends.load(), 1);
+    EXPECT_EQ(recordedDuration, 40);
+  }
+};
+
+class CoordinatorCursorWaitTimingTest : public CoordinatorWaitTimingTest {
+ protected:
+  void completeResults() override {
     QueryError status = QueryError_Default();
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     AREQ_ReplyOrStoreError(QueryRequest_GetAREQ(request), ctx, &status);
@@ -564,33 +604,7 @@ class CoordinatorCursorWaitTimingTest : public QueuedCommandTimingTest {
 
 TEST_F(CoordinatorCursorWaitTimingTest, StrictTimeoutIncludesWorkUntilResultsComplete) {
   ASSERT_NO_FATAL_FAILURE(beginRead(TimeoutPolicy_ReturnStrict));
-  ASSERT_TRUE(SyncPoint_ArmWithTimeout(waitHook, 5000));
-
-  std::thread completion([&] {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (!SyncPoint_IsWaiting(waitHook) && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::yield();
-    }
-    EXPECT_TRUE(SyncPoint_IsWaiting(waitHook));
-    EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout));
-    EXPECT_EQ(ends.load(), 0);
-    // Publish completion even if the rendezvous fails, so the real callback cannot hang.
-    elapsed.store(40);
-    completeResults();
-    SyncPoint_Signal(waitHook);
-  });
-  const int rc = timeoutCallback(ctx, request->args.argv, request->args.argc);
-  completion.join();
-  EXPECT_EQ(rc, REDISMODULE_OK);
-  EXPECT_EQ(starts.load(), 1);
-  EXPECT_EQ(ends.load(), 1);
-  EXPECT_EQ(recordedDuration, 40);
-  EXPECT_EQ(errorReplies, 1);
-
-  elapsed.store(100);
-  BlockedClientTiming_Finish(&request->timing);
-  EXPECT_EQ(ends.load(), 1);
-  EXPECT_EQ(recordedDuration, 40);
+  expectTimeoutIncludesWorkUntilResultsComplete();
 }
 
 class CoordinatorCursorFinishedTimingTest : public CoordinatorCursorWaitTimingTest,
@@ -616,4 +630,155 @@ TEST_P(CoordinatorCursorFinishedTimingTest, TimeoutAfterWorkerFinishPreservesDur
 
 INSTANTIATE_TEST_SUITE_P(TimeoutPolicies, CoordinatorCursorFinishedTimingTest,
                          testing::Values(TimeoutPolicy_Fail, TimeoutPolicy_ReturnStrict));
+
+class CoordinatorQueryWaitTimingTest : public CoordinatorWaitTimingTest,
+                                       public testing::WithParamInterface<QueryRequestKind> {
+ protected:
+  void beginQuery() {
+    RSGlobalConfig.requestConfigParams.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    const bool hybrid = GetParam() == QUERY_REQUEST_KIND_HYBRID;
+    RMCK::ArgvList args(ctx, hybrid ? "FT.HYBRID" : "FT.AGGREGATE", "queued-timing", "*");
+    std::unique_ptr<QueryRequest, decltype(&QueryRequest_Free)> req(nullptr, QueryRequest_Free);
+    if (hybrid) {
+      RedisSearchCtx* sctx = NewSearchCtxC(ctx, "queued-timing", true);
+      ASSERT_NE(sctx, nullptr);
+      HybridRequest* hreq = MakeDefaultHybridRequest(sctx, args, args.size());
+      hreq->reqflags = QEXEC_F_IS_HYBRID_TAIL | QEXEC_F_IS_COORDINATOR;
+      req.reset(&hreq->base);
+    } else {
+      AREQ* areq = AREQ_New(args, args.size());
+      AREQ_AddRequestFlags(areq, QEXEC_F_IS_AGGREGATE | QEXEC_F_IS_COORDINATOR);
+      req.reset(&areq->base);
+    }
+    req->async.requiresAggregateResultsSync = true;
+    RedisModuleCmdFunc reply = hybrid ? DistHybridReplyCallback : DistAggregateReplyCallback;
+    RedisModuleBlockedClient* bc = RedisModule_BlockClient(
+        ctx, reply,
+        hybrid ? DistHybridTimeoutReturnStrictCallback : DistAggregateTimeoutReturnStrictCallback,
+        QueryRequest_OnFree, 0);
+    QueryRequest_BeginCycle(req.get(), bc, reply);
+    BlockedClientTiming_Begin(&req->timing, bc);
+    req.release();
+    if (hybrid) {
+      ASSERT_TRUE(HybridRequest_TryClaimAggregateResults(QueryRequest_GetHybrid(request)));
+    } else {
+      ASSERT_TRUE(AREQ_TryClaimAggregateResults(QueryRequest_GetAREQ(request)));
+    }
+    BlockedClientTiming_Start(&request->timing);
+  }
+
+  void completeResults() override {
+    // A stored pipeline error exercises callback serialization without constructing a pipeline.
+    request->reply.rc = RS_RESULT_ERROR;
+    request->reply.hasStoredResults = true;
+    if (request->kind == QUERY_REQUEST_KIND_HYBRID) {
+      HybridRequest* hreq = QueryRequest_GetHybrid(request);
+      QueryError_SetCode(&hreq->tailPipelineError, expectedError);
+      HybridRequest_SignalAggregateResultsComplete(hreq);
+    } else {
+      QueryError_SetCode(&request->reply.err, expectedError);
+      AREQ_SignalAggregateResultsComplete(QueryRequest_GetAREQ(request));
+    }
+  }
+};
+
+TEST_P(CoordinatorQueryWaitTimingTest, StrictTimeoutIncludesWorkUntilResultsComplete) {
+  ASSERT_NO_FATAL_FAILURE(beginQuery());
+  expectTimeoutIncludesWorkUntilResultsComplete();
+}
+
+INSTANTIATE_TEST_SUITE_P(QueryKinds, CoordinatorQueryWaitTimingTest,
+                         testing::Values(QUERY_REQUEST_KIND_AREQ, QUERY_REQUEST_KIND_HYBRID));
 #endif
+
+class QueuedCoordinatorTimingTest : public QueuedCommandTimingTest {
+ protected:
+  int poolId = -1;
+  redisearch_thpool_t* pool = nullptr;
+  std::atomic<int> handled{0};
+
+  void SetUp() override {
+    QueuedCommandTimingTest::SetUp();
+    if (HasFatalFailure()) return;
+    poolId = ConcurrentSearch_CreatePool(1);
+    pool = ConcurrentSearch_GetPool(poolId);
+    redisearch_thpool_pause_threads(pool);
+    RedisModule_UnblockClient = [](RedisModuleBlockedClient* bc, void* data) {
+      auto* self = static_cast<QueuedCoordinatorTimingTest*>(current);
+      EXPECT_EQ(bc, self->handle());
+      EXPECT_EQ(data, self->request);
+      const bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&self->request->timeout);
+      EXPECT_EQ(self->starts.load(), timedOut ? 0 : 1);
+      EXPECT_EQ(self->ends.load(), timedOut ? 0 : 1);
+      ++self->unblocks;
+      return REDISMODULE_OK;
+    };
+  }
+
+  void TearDown() override {
+    if (pool) {
+      if (redisearch_thpool_paused(pool)) redisearch_thpool_resume_threads(pool);
+      redisearch_thpool_wait(pool);
+      ConcurrentSearch_ThreadPoolDestroy();
+    }
+    // The stub never blocks: drain its dispatcher before releasing the cycle or restoring mocks.
+    if (request) {
+      freeData(ctx, request);
+      request = nullptr;
+    }
+    QueuedCommandTimingTest::TearDown();
+  }
+
+  void dispatch() {
+    RMCK::ArgvList args(ctx, "FT.AGGREGATE", "queued-timing", "*");
+    std::unique_ptr<AREQ, decltype(&AREQ_Free)> req(AREQ_New(args, args.size()), AREQ_Free);
+    AREQ_AddRequestFlags(req.get(), QEXEC_F_IS_AGGREGATE | QEXEC_F_IS_COORDINATOR);
+    ConcurrentSearchHandlerCtx handlerCtx = {};
+    handlerCtx.bcCtx.request = &req->base;
+    handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+    handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
+    auto handler = [](RedisModuleCtx*, RedisModuleString**, int, ConcurrentCmdCtx*) {
+      auto* self = static_cast<QueuedCoordinatorTimingTest*>(current);
+      const bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&self->request->timeout);
+      EXPECT_EQ(self->starts.load(), timedOut ? 0 : 1);
+      EXPECT_EQ(self->ends.load(), 0);
+      ++self->handled;
+    };
+    const int rc =
+        ConcurrentSearch_HandleRedisCommandEx(poolId, handler, ctx, args, args.size(), &handlerCtx);
+    if (request) req.release();
+    ASSERT_EQ(rc, REDISMODULE_OK);
+    ASSERT_NE(request, nullptr);
+    EXPECT_EQ(redisearch_thpool_high_priority_pending_jobs(pool), 1);
+    EXPECT_EQ(handled.load(), 0);
+    EXPECT_EQ(starts.load(), 0);
+    EXPECT_EQ(ends.load(), 0);
+    EXPECT_EQ(unblocks.load(), 0);
+  }
+};
+
+TEST_F(QueuedCoordinatorTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) {
+  ASSERT_NO_FATAL_FAILURE(dispatch());
+  ASSERT_EQ(timeoutCallback(ctx, request->args.argv, request->args.argc), REDISMODULE_OK);
+  EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout));
+  EXPECT_EQ(starts.load(), 0);
+  EXPECT_EQ(ends.load(), 0);
+  EXPECT_EQ(unblocks.load(), 0);
+
+  redisearch_thpool_resume_threads(pool);
+  redisearch_thpool_wait(pool);
+  EXPECT_EQ(handled.load(), 1);
+  EXPECT_EQ(unblocks.load(), 1);
+  EXPECT_EQ(starts.load(), 0);
+  EXPECT_EQ(ends.load(), 0);
+}
+
+TEST_F(QueuedCoordinatorTimingTest, StartsOnPickupAndEndsOnceBeforeUnblock) {
+  ASSERT_NO_FATAL_FAILURE(dispatch());
+  redisearch_thpool_resume_threads(pool);
+  redisearch_thpool_wait(pool);
+  EXPECT_EQ(handled.load(), 1);
+  EXPECT_EQ(unblocks.load(), 1);
+  EXPECT_EQ(starts.load(), 1);
+  EXPECT_EQ(ends.load(), 1);
+}

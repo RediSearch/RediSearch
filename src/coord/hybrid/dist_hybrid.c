@@ -955,8 +955,14 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     // transferring strong_ref ownership here, so only release the strong ref.
     StrongRef_Release(indexSpecRef);
 
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    void *privdata = RedisModule_BlockClientGetPrivateData(bc);
+    QueryRequest *privdata = RedisModule_BlockClientGetPrivateData(bc);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_HYBRID_FINISH);
+#endif
+    BlockedClientTiming_Finish(&privdata->timing);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_AFTER_COORD_HYBRID_FINISH);
+#endif
     RedisModule_UnblockClient(bc, privdata);
 }
 
@@ -1287,6 +1293,7 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/true);
+  BlockedClientTiming_Finish(&request->timing);
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
@@ -1324,11 +1331,13 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
     // derives isProfile from the command so the profile envelope is preserved for
     // FT.PROFILE ... HYBRID even on this fast path.
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    BlockedClientTiming_Finish(&request->timing);
     return REDISMODULE_OK;
   }
 
   if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    BlockedClientTiming_Finish(&request->timing);
     return REDISMODULE_OK;
   }
 
@@ -1344,6 +1353,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
+  BlockedClientTiming_Finish(&request->timing);
   return REDISMODULE_OK;
 }
 
