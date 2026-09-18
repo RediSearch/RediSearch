@@ -929,3 +929,52 @@ def testOptimizeArgsDefault():
     # DEFAULT DIALECT 4 and WITHCOUNT explicitly specified ==> WITHCOUNT
     env.assertEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHCOUNT'))
     env.assertNotEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHOUTCOUNT'))
+
+@skip(cluster=True)
+def testNumericSortByCursorDepletesOnTimeout():
+    """
+    A numeric-SORTBY cursor that keeps timing out must still deplete.
+
+    Under `ON_TIMEOUT RETURN` a timed-out read pauses the cursor rather than
+    closing it, and every `FT.CURSOR READ` arrives with a fresh deadline. An
+    iterator that responds to a timeout by discarding its partial scan and
+    re-collecting from scratch therefore never reaches EOF, and the client keeps
+    receiving empty chunks until the cursor idles out.
+
+    The C optimizer cannot reach that state — `OPT_Read` has no timeout check at
+    all, so it is the result-processor deadline that stops the query and each
+    read resumes where the previous one left off. This pins that property before
+    the numeric path moves onto the shared top-k iterator, whose collect-phase
+    rollback is what introduces the risk.
+    """
+    # ON_TIMEOUT RETURN is what keeps the cursor alive across a timed-out read;
+    # under FAIL it is closed and the scenario cannot arise.
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT').ok()
+    num_docs = 20000
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', 'foo', 'n', i)
+
+    k = 100
+    # A deadline this short expires partway through collection on any host; the
+    # assertion below only requires termination, so a host fast enough to finish
+    # inside it still passes.
+    query = ('ft.aggregate', 'idx', 'foo', 'SORTBY', '2', '@n', 'ASC',
+             'LIMIT', '0', k, 'WITHCURSOR', 'COUNT', '10', 'TIMEOUT', '1')
+
+    # Far more reads than the k/COUNT chunks a terminating implementation needs.
+    max_reads = 200
+
+    _, cursor = env.cmd(*query)
+    reads = 0
+    while cursor != 0 and reads < max_reads:
+        _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        reads += 1
+    if cursor != 0:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+
+    env.assertEqual(cursor, 0,
+                    message=f'cursor still alive after {reads} reads: every read '
+                            'restarts collection instead of resuming')
