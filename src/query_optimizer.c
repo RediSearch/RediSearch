@@ -17,6 +17,7 @@
 #include "field.h"
 #include "field_spec.h"
 #include "obfuscation/hidden.h"
+#include "pipeline/pipeline_construction.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "query_internal.h"
@@ -66,6 +67,11 @@ void QOptimizer_Parse(AREQ *req) {
         opt->type = Q_OPT_NONE;
       }
     }
+  } else if (hasQuerySortby(AREQ_AGGPlan(req))) {
+    // AGPLN_GetArrangeStep only finds a *trailing* arrange step, missing a real
+    // SORTBY that precedes a GROUPBY. Left undecided, that would default to
+    // Q_OPT_NO_SORTER below and drop it.
+    opt->type = Q_OPT_NONE;
   }
 
   // get scorer function if there is no sortby

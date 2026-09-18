@@ -1756,3 +1756,42 @@ def testWithoutCountWithSortBy(env):
         res_withcount = conn.execute_command(*query_withcount)
         res_withoutcount = conn.execute_command(*query_withoutcount)
         env.assertEqual(res_withoutcount[1:], res_withcount[1:])
+
+
+def testAggregateWithoutCountSortByThenGroupBy(env):
+    """Test SORTBY (no MAX) followed by GROUPBY, with WITHOUTCOUNT"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE', 'brand', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'zeta', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:2', 'title', 'alpha', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:3', 'title', 'mike', 'brand', 'acme')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '1', '@title',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res, [1, ['brand', 'acme', 'cnt', '3']])
+
+
+def testAggregateWithoutCountSortByThenGroupByFirstValueOrdering(env):
+    """Test SORTBY preceding GROUPBY must still order rows seen by order-sensitive reducers"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE', 'brand', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    # Inserted out of title order, so a dropped sorter would surface as the wrong FIRST_VALUE.
+    conn.execute_command('HSET', 'doc:1', 'title', 'zeta', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:2', 'title', 'alpha', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:3', 'title', 'mike', 'brand', 'acme')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'ASC',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha']])
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'DESC',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'zeta']])
