@@ -268,7 +268,7 @@ mod not_miri {
 
         let (field_name, field_name_len) = it.field_name();
         // SAFETY: `field_name()` returns a valid pointer to the field name stored in the live spec.
-        let field_name = unsafe { CStr::from_ptr(field_name) };
+        let field_name = unsafe { CStr::from_ptr(field_name.as_ptr()) };
 
         assert_eq!(field_name.to_bytes().len(), field_name_len);
         assert_eq!(field_name.to_bytes(), b"text_field");

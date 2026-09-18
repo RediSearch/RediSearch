@@ -9,7 +9,7 @@
 
 mod proximity;
 
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
@@ -461,16 +461,13 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
-    ///    `RSIndexResult<'a>`.
+    /// 1. `slot` is aligned and points to an initialized `RSIndexResult<'a>`.
     /// 2. `slot` must be unaliased for the duration of the call: no other
     ///    reference or pointer may be used to access the slot while this runs,
     ///    since the value is moved out and written back through `slot` alone.
     pub const unsafe fn into_suspended_in_place(
-        slot: *mut Self,
-    ) -> *mut RawIndexResult<'a, Suspended> {
-        debug_assert!(!slot.is_null());
-
+        slot: NonNull<Self>,
+    ) -> NonNull<RawIndexResult<'a, Suspended>> {
         // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
         // moves the value out without dropping, leaving the slot logically uninit
         // until the `write` below re-initializes it.
@@ -565,19 +562,17 @@ impl<'query> RawIndexResult<'query, Suspended> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `RawIndexResult<Suspended>`.
     /// 2. `slot` must be unaliased for the duration of the call: no other
     ///    reference or pointer may be used to access the slot while this runs,
     ///    since the value is moved out and written back through `slot` alone.
     /// 3. The safety preconditions of [`RawIndexResult::into_active`] must hold
     ///    for the chosen lifetime `'a`.
-    pub const unsafe fn into_active_in_place<'a>(slot: *mut Self) -> *mut RSIndexResult<'a>
+    pub const unsafe fn into_active_in_place<'a>(slot: NonNull<Self>) -> NonNull<RSIndexResult<'a>>
     where
         'query: 'a,
     {
-        debug_assert!(!slot.is_null());
-
         // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
         // moves the value out without dropping, leaving the slot logically uninit
         // until the `write` below re-initializes it.
