@@ -26,15 +26,21 @@ use top_k::{
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
 
-/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`].
+/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`],
+/// counting how many times it was driven.
 ///
-/// Used to verify that timeout errors propagate correctly through [`TopKIterator`].
-struct TimingOutSource;
+/// Used to verify that timeout errors propagate correctly through [`TopKIterator`],
+/// and that a scan the iterator abandons is not silently restarted.
+#[derive(Default)]
+struct TimingOutSource {
+    next_batch_calls: usize,
+}
 
 impl ScoreSource for TimingOutSource {
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        self.next_batch_calls += 1;
         Err(RQEIteratorError::TimedOut)
     }
 
@@ -286,7 +292,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
 #[test]
 fn unfiltered_timeout_propagated() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
-        TimingOutSource,
+        TimingOutSource::default(),
         NonZeroUsize::new(5).unwrap(),
         Ascending,
     ));
@@ -294,6 +300,31 @@ fn unfiltered_timeout_propagated() {
         it.read().unwrap_err(),
         rqe_iterators::RQEIteratorError::TimedOut
     ));
+}
+
+/// Collection work must stay bounded across repeated reads of an iterator whose
+/// collection keeps failing. A caller that reads again after a timeout — an
+/// `FT.CURSOR READ`, which arrives with a fresh deadline — otherwise drives a
+/// full scan every time and the query never terminates.
+#[test]
+fn failed_collection_is_not_restarted_on_every_read() {
+    const READS: usize = 5;
+
+    let mut it = TopKIterator::new_unfiltered(
+        TimingOutSource::default(),
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    );
+    for _ in 0..READS {
+        // Reporting the timeout again, or EOF, is fine; re-scanning is not.
+        let _ = it.read();
+    }
+
+    assert_eq!(
+        it.source().next_batch_calls,
+        1,
+        "each read restarted collection, so retrying is unbounded work"
+    );
 }
 
 // ── Batches intersection ──────────────────────────────────────────────────
