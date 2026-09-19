@@ -47,9 +47,7 @@ typedef struct HybridRequest {
 
     bool useReplyCallback;
 
-    // State for reply_callback path (FAIL policy with workers in coordinator mode)
-    // Background thread stores results here, then calls UnblockClient.
-    // The reply_callback reads from here to build the reply on the main thread.
+    // See ChunkReplyState for the worker-to-callback handoff.
     ChunkReplyState storedReplyState;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
