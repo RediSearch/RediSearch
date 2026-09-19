@@ -51,9 +51,9 @@ typedef struct {
 typedef struct {
   // The context is borrowed from Redis; the wrapper owns its reusable scratch.
   RedisModule_Reply rows;
-  // Preserve RETURN count and late-error semantics after the first successful row.
-  bool returnReplyStarted;
-  uint32_t initialTotal;
+  // Under RETURN, at least one row was serialized: the reply commits the rows and demotes any
+  // error the pipeline raised to a warning.
+  bool returnHasRows;
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   bool hasStoredResults;   // Whether results are available to the reply callback
   /* The cycle's error and warnings — the request's single error slot. Hybrid

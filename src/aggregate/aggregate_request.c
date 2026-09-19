@@ -1817,7 +1817,7 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
     RedisModule_FreeThreadSafeContext(state->rows.ctx);
     state->rows.ctx = NULL;
   }
-  state->returnReplyStarted = false;
+  state->returnHasRows = false;
   QueryError_ClearError(&state->err);
 }
 

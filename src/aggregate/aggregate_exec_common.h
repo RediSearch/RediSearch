@@ -40,10 +40,13 @@ typedef struct CommonPipelineCtx {
 typedef void (*SerializeResult)(void *request, RedisModule_Reply *reply, const SearchResult *row,
                                 const cachedVars *cv);
 
+// Serializes rows into ctx->request->reply.rows until the budget is spent or Next() stops
+// yielding. On return, ctx->request->reply holds every input the reply phase needs; the caller
+// then commits or discards the buffered rows in one step.
 // A NULL ctx->timeout drains an already-stopped pipeline under the caller's ownership.
 void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
-                               RedisModule_Reply *rows, SerializeResult serialize, void *request,
-                               const cachedVars *cv, void (*prepare)(void *request), int *rc);
+                               SerializeResult serialize, void *owner, const cachedVars *cv,
+                               int *rc);
 
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a

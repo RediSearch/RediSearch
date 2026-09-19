@@ -227,16 +227,6 @@ static void serializeResult_hybrid(void *request, RedisModule_Reply *reply, cons
   RedisModule_Reply_MapEnd(reply); // >result
 }
 
-static void prepareBackgroundReply_hybrid(void *request) {
-  HybridRequest *hreq = request;
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (!ShouldReplyWithError(QueryError_GetCode(qctx->err), hreq->reqConfig.timeoutPolicy,
-                            IsProfile(hreq))) {
-    hreq->base.reply.initialTotal = QITR_ReportedTotal(qctx);
-    hreq->base.reply.returnReplyStarted = true;
-  }
-}
-
 #ifdef ENABLE_ASSERT
 // SyncPoint stop predicate: break out of a sync-point wait when the request
 // has timed out (so BG can release as soon as the main-thread timeout callback
@@ -302,8 +292,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, int *r
   // background cycle, or a transient one the caller created for this
   // foreground call (see sendChunk_hybrid) -- so the caller's finalization is
   // always the same O(1) move, regardless of policy or blocking.
-  Pipeline_SerializeResults(&ctx, rp, &hreq->base.reply.rows, serializeResult_hybrid, hreq, cv,
-                            prepareBackgroundReply_hybrid, rc);
+  Pipeline_SerializeResults(&ctx, rp, serializeResult_hybrid, hreq, cv, rc);
 
   // Pipeline done without timing out; the caller now enters the reply phase
   // (marker only; never forces a timeout).
@@ -339,15 +328,10 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryError *err, int rc) {
-  // returnReplyStarted is set by prepareBackgroundReply_hybrid the moment a streaming
-  // RETURN reply's first row succeeds -- before any later row's error can taint the
-  // pipeline's error state. Once set, a later row's failure must surface as a warning on
-  // the already-started reply, not retroactively turn the whole reply into an error
-  // (still correct for Fail/ReturnStrict, which never set this flag and so always
-  // re-check `err` below against the fully-drained pipeline). Applies equally to
-  // foreground and background now that both fully drain through Pipeline_SerializeResults
-  // before this runs.
-  if (hreq->base.reply.returnReplyStarted) return false;
+  // RETURN commits whatever rows the pipeline produced; an error raised after them surfaces as
+  // a warning on that reply rather than replacing it. Fail/ReturnStrict never set the flag and
+  // so always re-check `err` against the fully-drained pipeline.
+  if (hreq->base.reply.returnHasRows) return false;
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
@@ -369,9 +353,7 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
   RedisModule_Reply_Map(reply);
 
   // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_ReplyKV_LongLong(reply, "total_results",
-                               hreq->base.reply.returnReplyStarted ? hreq->base.reply.initialTotal
-                                                                   : QITR_ReportedTotal(qctx));
+  RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(qctx));
 
   RedisModule_ReplyKV_Array(reply, "results"); // >results
 }
@@ -578,8 +560,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
   bool foreground = !hreq->base.blockedClientCycleActive;
   if (foreground) {
     RS_ASSERT(!hreq->base.reply.rows.ctx);
-    hreq->base.reply.returnReplyStarted = false;
-    hreq->base.reply.initialTotal = 0;
+    hreq->base.reply.returnHasRows = false;
     hreq->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
   }
 

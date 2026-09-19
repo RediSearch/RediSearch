@@ -91,7 +91,7 @@ def _exercise_return_reply_compatibility(protocol, oom_policy='RETURN'):
         env.assertEqual(replies, expected)
         if not env.isCluster():
             if protocol == 2:
-                env.assertEqual(replies[0], [1, [], [], []])
+                env.assertEqual(replies[0], [3, [], [], []])
                 env.assertEqual(replies[1], [3, ['ord', '0', 'val', '10', 'computed', '10']])
             else:
                 env.assertEqual(len(replies[1]['results']), 1)

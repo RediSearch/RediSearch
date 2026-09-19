@@ -313,16 +313,6 @@ static void serializeResult(void *request, RedisModule_Reply *reply, const Searc
   }
 }
 
-static void prepareBackgroundReply(void *request) {
-  AREQ *req = request;
-  if (!ShouldReplyWithError(QueryError_GetCode(AREQ_QueryProcessingCtx(req)->err),
-                            req->reqConfig.timeoutPolicy, IsProfile(req))) {
-    if (IsOptimized(req)) QOptimizer_UpdateTotalResults(req);
-    req->base.reply.initialTotal = QITR_ReportedTotal(AREQ_QueryProcessingCtx(req));
-    req->base.reply.returnReplyStarted = true;
-  }
-}
-
 static void skipResult(void *request, RedisModule_Reply *reply, const SearchResult *row,
                        const cachedVars *cv) {
   UNUSED(request);
@@ -337,9 +327,9 @@ static SerializeResult backgroundSerializer(AREQ *req) {
 
 void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
   int rc = RS_RESULT_EOF;
-  CommonPipelineCtx ctx = {.areq = req};
-  Pipeline_SerializeResults(&ctx, AREQ_QueryProcessingCtx(req)->endProc, &req->base.reply.rows,
-                            backgroundSerializer(req), req, &req->base.reply.cv, NULL, &rc);
+  CommonPipelineCtx ctx = {.request = &req->base, .areq = req};
+  Pipeline_SerializeResults(&ctx, AREQ_QueryProcessingCtx(req)->endProc, backgroundSerializer(req),
+                            req, &req->base.reply.cv, &rc);
 }
 
 static size_t getResultsFactor(AREQ *req) {
@@ -468,8 +458,7 @@ static void runPipelineCycle(AREQ *req, ResultProcessor *rp, int *rc, const cach
   // background cycle, or a transient one the caller created for this
   // foreground call (see sendChunk) -- so the caller's finalization is
   // always the same O(1) move, regardless of policy or blocking.
-  Pipeline_SerializeResults(&ctx, rp, &req->base.reply.rows, backgroundSerializer(req), req, cv,
-                            prepareBackgroundReply, rc);
+  Pipeline_SerializeResults(&ctx, rp, backgroundSerializer(req), req, cv, rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.
@@ -558,7 +547,7 @@ static bool shouldReplyWithRows(const AREQ *req, int rc) {
       !req->base.blockedClientCycleActive &&
       (req->reqConfig.timeoutPolicy != TimeoutPolicy_Return ||
        req->reqConfig.oomPolicy == OomPolicy_Fail);
-  const bool partial = req->base.reply.returnReplyStarted ||
+  const bool partial = req->base.reply.returnHasRows ||
                        (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
                         (req->base.blockedClientCycleActive || aggregatedForeground));
   return !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
@@ -583,14 +572,10 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
  */
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
-  // returnReplyStarted is set by prepareBackgroundReply the moment a streaming RETURN
-  // reply's first row succeeds -- before any later row's error can taint qctx->err. Once
-  // set, a later row's failure must surface as a warning on the already-started reply,
-  // not retroactively turn the whole reply into an error (that's still correct for
-  // Fail/ReturnStrict, which never set this flag and so always re-check qctx->err below
-  // against the fully-drained pipeline). Applies equally to foreground and background
-  // now that both fully drain through Pipeline_SerializeResults before this runs.
-  if (req->base.reply.returnReplyStarted) return false;
+  // RETURN commits whatever rows the pipeline produced; an error raised after them surfaces as
+  // a warning on that reply rather than replacing it. Fail/ReturnStrict never set the flag and
+  // so always re-check qctx->err against the fully-drained pipeline.
+  if (req->base.reply.returnHasRows) return false;
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
@@ -636,7 +621,7 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
     resultsLen = calc_results_len(req, limit);
   }
 
-  if (IsOptimized(req) && !req->base.reply.returnReplyStarted) {
+  if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
 
@@ -649,9 +634,7 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
 
   RedisModule_Reply_Array(reply);
   // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_Reply_LongLong(reply, req->base.reply.returnReplyStarted
-                                        ? req->base.reply.initialTotal
-                                        : QITR_ReportedTotal(qctx));
+  RedisModule_Reply_LongLong(reply, QITR_ReportedTotal(qctx));
 
   return resultsLen;
 }
@@ -822,7 +805,7 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
     Profile_PrepareMapForReply(reply);
   }
 
-  if (IsOptimized(req) && !req->base.reply.returnReplyStarted) {
+  if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
 
@@ -951,8 +934,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // with the same O(1) move -- performed inline here rather than from a
     // later reply callback, since nothing blocked.
     RS_ASSERT(!req->base.reply.rows.ctx);
-    req->base.reply.returnReplyStarted = false;
-    req->base.reply.initialTotal = 0;
+    req->base.reply.returnHasRows = false;
     req->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
     int rc = RS_RESULT_EOF;
     runPipelineCycle(req, qctx->endProc, &rc, &cv);
