@@ -79,54 +79,62 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
                                 RedisModule_Reply *rows, SerializeResult serialize, void *request,
                                 const cachedVars *cv, void (*prepare)(void *request), int *rc) {
+   // Prepare stack data.
    const QueryRequestTimeout *timeout = ctx->timeout;
    const bool streamingReturn =
        timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy != OomPolicy_Fail;
+   const bool trackBlockedClient = timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+   RS_Atomic(bool) *timedOut =
+       trackBlockedClient ? QueryRequestTimeout_GetBlockedClientFlag(&ctx->request->timeout) : NULL;
+   QueryRequestAsyncState *async = &ctx->request->async;
    SearchResult row = SearchResult_New();
-   // RETURN primes count-only pipelines even when their row budget is zero.
-   if (rp->parent->resultLimit || streamingReturn) {
+   bool first = true;
+   // *rc is left at the caller's initial value (RS_RESULT_EOF, everywhere it's called) when
+   // the loop condition is false from the start -- a zero-budget, non-streaming-RETURN query
+   // never calls Next() at all, and downstream (shouldSetCursorDone) treats "never ran" and
+   // "ran and got RS_RESULT_OK" differently.
+
+   // Loop and serialize results, breaking on error/timeout/EOF. The very first Next() call is
+   // just the loop's first iteration -- not a separate pre-loop fetch -- except that a
+   // zero-row-budget RETURN query still needs exactly one Next() call to prime the pipeline's
+   // total-matches count (the loop condition's second clause), even though it then breaks
+   // immediately without calling `prepare` or `serialize` (both gated on a non-zero budget).
+   while (rp->parent->resultLimit || (first && streamingReturn)) {
      *rc = rp->Next(rp, &row);
-   }
-   if (streamingReturn && *rc == RS_RESULT_OK && rp->parent->resultLimit) {
-     prepare(request);
-   }
-   if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
-     RS_Atomic(bool) *timedOut = QueryRequestTimeout_GetBlockedClientFlag(&ctx->request->timeout);
-     QueryRequestAsyncState *async = &ctx->request->async;
-     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
-       rp->parent->resultLimit--;
-       if (!RS_AtomicBoolLoadRelaxed(timedOut)) {
-         QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
-       }
-       serialize(request, rows, &row, cv);
-       SearchResult_Clear(&row);
-       if (!RS_AtomicBoolLoadRelaxed(timedOut)) {
-         QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
-       }
+     if (*rc != RS_RESULT_OK) break;
+
+     if (first && streamingReturn && rp->parent->resultLimit) {
+       prepare(request);
+     }
+     first = false;
+     if (!rp->parent->resultLimit) break;  // zero-budget priming fetch: nothing to serialize
+     rp->parent->resultLimit--;
+
+     // REPLY brackets exactly the serialize() call; PIPELINE (the resting phase, including
+     // during Next() and the debug-pause hook below) resumes right after -- a timeout
+     // observed while paused there must attribute to PIPELINE, not REPLY.
+     if (trackBlockedClient && !RS_AtomicBoolLoadRelaxed(timedOut)) {
+       QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
+     }
+     serialize(request, rows, &row, cv);
+     SearchResult_Clear(&row);
+     if (trackBlockedClient && !RS_AtomicBoolLoadRelaxed(timedOut)) {
+       QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
+     }
+     // Untracked (no timeout at all): the timeout callback already owns a stopped pipeline and
+     // this call is only draining its buffered tail, not running the pipeline live -- the debug
+     // pause hook is specifically for pausing a live run, so it stays off for that case.
+     if (timeout) {
        debugCheckAndPauseAfterAggregateResult(ctx->areq);
-       if (RS_AtomicBoolLoadRelaxed(timedOut)) {
-         *rc = RS_RESULT_TIMEDOUT;
-         break;
-       }
-       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
-   } else if (timeout) {
-     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
-       rp->parent->resultLimit--;
-       serialize(request, rows, &row, cv);
-       SearchResult_Clear(&row);
-       debugCheckAndPauseAfterAggregateResult(ctx->areq);
-       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
-     }
-   } else {
-     // The timeout callback already owns a stopped pipeline and only drains its buffered tail.
-     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
-       rp->parent->resultLimit--;
-       serialize(request, rows, &row, cv);
-       SearchResult_Clear(&row);
-       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
+
+     if (trackBlockedClient && RS_AtomicBoolLoadRelaxed(timedOut)) {
+       *rc = RS_RESULT_TIMEDOUT;
+       break;
      }
    }
+
+   // Cleanup and return.
    if (timeout && !streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
      *rc = RS_RESULT_TIMEDOUT;
    }

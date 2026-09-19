@@ -427,7 +427,11 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
-static void startPipeline(AREQ *req, ResultProcessor *rp, int *rc, const cachedVars *cv) {
+// Claims the production phase against a racing RETURN_STRICT timeout callback (a no-op for
+// every other policy), then runs Pipeline_SerializeResults for one cycle. Not "starting" the
+// pipeline in any special sense -- sendChunk calls this identically for the very first cycle
+// and for every subsequent cursor read.
+static void runPipelineCycle(AREQ *req, ResultProcessor *rp, int *rc, const cachedVars *cv) {
   CommonPipelineCtx ctx = {
       .timeout = &req->base.timeout,
       .oomPolicy = req->reqConfig.oomPolicy,
@@ -937,7 +941,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // (buildPipelineAndExecute/the cursor-read dispatch always arm one, RETURN included --
     // see the comment there for why), so this always stores rather than replying inline.
     int rc = RS_RESULT_EOF;
-    startPipeline(req, qctx->endProc, &rc, &cv);
+    runPipelineCycle(req, qctx->endProc, &rc, &cv);
     storeResultsForReplyCallback(req, rc, cv, limit);
   } else {
     // Foreground: serialize into a transient reply buffer the same way a
@@ -949,7 +953,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     req->base.reply.initialTotal = 0;
     req->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
     int rc = RS_RESULT_EOF;
-    startPipeline(req, qctx->endProc, &rc, &cv);
+    runPipelineCycle(req, qctx->endProc, &rc, &cv);
     bool cursorDone = replyBufferedChunk(req, reply, rc, limit);
     finishSendChunk(req, cursorDone);
     RedisModule_EndReply(&req->base.reply.rows);
@@ -1463,7 +1467,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 // claim/signal handshake:
 //   - SetTimedOut so any RP polling the request timeout bails on its next read.
 //   - TryClaim wins iff BG has not yet entered the aggregation phase (it
-//     bails in startPipeline). In that case we own the reply and emit empty.
+//     bails in runPipelineCycle). In that case we own the reply and emit empty.
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
 //     then drain anything still buffered (RPSorter heap) and reply.
 static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1480,7 +1484,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipeline) yet.
+    // That means that the background thread didn't reach the aggregation phase (runPipelineCycle) yet.
     // Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
