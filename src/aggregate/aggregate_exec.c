@@ -933,14 +933,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   qctx->resultLimit = limit;
 
   if (req->base.blockedClientCycleActive) {
+    // Every background cycle now defers its reply to the main thread's callback
+    // (buildPipelineAndExecute/the cursor-read dispatch always arm one, RETURN included --
+    // see the comment there for why), so this always stores rather than replying inline.
     int rc = RS_RESULT_EOF;
     startPipeline(req, qctx->endProc, &rc, &cv);
-    if (QueryRequest_UsesReplyCallback(&req->base)) {
-      storeResultsForReplyCallback(req, rc, cv, limit);
-    } else {
-      bool cursorDone = replyBufferedChunk(req, reply, rc, limit);
-      finishSendChunk(req, cursorDone);
-    }
+    storeResultsForReplyCallback(req, rc, cv, limit);
   } else {
     // Foreground: serialize into a transient reply buffer the same way a
     // background cycle serializes into its persistent one, then finalize
@@ -1752,11 +1750,23 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (runInThread) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
 
-    // Determine timeout and reply callbacks based on policy.
+    // The background thread always defers the reply to QueryReplyCallback rather than
+    // writing to the client directly, for every policy including RETURN: RETURN has no
+    // timeout-vs-reply race to arbitrate (its own deadline check inside the pipeline loop
+    // already decides what to keep), so it doesn't strictly need this indirection, but
+    // going through the same callback keeps exactly one finalization path regardless of
+    // policy instead of RETURN's own no-callback shortcut and the FAIL/RETURN_STRICT
+    // callback-arbitrated one. beginCycleCommon derives UseReplyCallback from reply_cb !=
+    // NULL, so setting this unconditionally here is enough -- no separate flag to flip.
+    RedisModuleCmdFunc replyCallback = QueryReplyCallback;
+
+    // Only FAIL/RETURN_STRICT need a blocked-client timeout: they must race the
+    // background thread's completion against Redis's own timer so exactly one of
+    // {reply callback, timeout callback} fires. RETURN never arms one -- nothing to
+    // arbitrate, since it always keeps whatever the pipeline's own deadline check left it.
     if (policy != TimeoutPolicy_Return) {
       if (policy == TimeoutPolicy_Fail) {
         timeoutCallback = QueryTimeoutFailCallback;
@@ -1764,9 +1774,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
         r->base.async.requiresAggregateResultsSync = true;
         timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
-      replyCallback = QueryReplyCallback;
       timeoutMS = r->reqConfig.queryTimeoutMS;
-      QueryRequest_SetUseReplyCallback(&r->base, true);
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
@@ -2372,13 +2380,16 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   if (RunInThread(ctx)) {
-    // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
-    // the blocked-client timer with reply/timeout callbacks.
+    // Shard/standalone path: block and dispatch to worker. The worker always defers the
+    // reply to CursorReadReplyCallback (see buildPipelineAndExecute for why RETURN gets
+    // the same treatment as FAIL/RETURN_STRICT here, even though it has no timeout race
+    // to arbitrate). Only FAIL/RETURN_STRICT arm the blocked-client timer.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc replyCallback = CursorReadReplyCallback;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
+    QueryRequest_SetUseReplyCallback(&req->base, true);
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
       // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
@@ -2389,20 +2400,17 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         // BeginCycle performs the per-read reset.
         req->base.async.requiresAggregateResultsSync = true;
       }
-      replyCallback = CursorReadReplyCallback;
       timeoutCallback =
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
                                                            : CursorReadTimeoutReturnStrictCallback;
       timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
-      QueryRequest_SetUseReplyCallback(&req->base, true);
-    } else {
-      // RETURN: reply written inline; clear any stale useReplyCallback
-      // from a prior callback-based cursor read so runCursor doesn't park the cursor.
-      QueryRequest_SetUseReplyCallback(&req->base, false);
     }
+    // Keyed on policy, not on replyCallback (which is now always non-NULL): RETURN still
+    // uses its own worker-owned clock deadline, not the blocked-client timeout machinery.
     QueryRequestTimeout_BeginCycle(
-        &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-                                          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+        &req->base.timeout, cursor->queryTimeoutPolicy != TimeoutPolicy_Return
+                                ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
     // reset it to QUEUE after selecting the new cycle's source; cursorRead_ctx
     // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
