@@ -478,6 +478,16 @@ void QueryRequestOnFreeDebug_Increment(void) {
 uint64_t QueryRequestOnFreeDebug_GetCount(void) {
   return atomic_load_explicit(&g_queryRequestOnFreeCount, memory_order_relaxed);
 }
+
+static atomic_uint_fast64_t g_coordSearchOnFreeCount = 0;
+
+void CoordSearchOnFreeDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_coordSearchOnFreeCount, 1, memory_order_relaxed);
+}
+
+uint64_t CoordSearchOnFreeDebug_GetCount(void) {
+  return atomic_load_explicit(&g_coordSearchOnFreeCount, memory_order_relaxed);
+}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -3008,6 +3018,16 @@ DEBUG_COMMAND(getQueryRequestOnFreeCount) {
   return RedisModule_ReplyWithLongLong(ctx, (long long)QueryRequestOnFreeDebug_GetCount());
 }
 
+DEBUG_COMMAND(getCoordSearchOnFreeCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return RedisModule_ReplyWithLongLong(ctx, (long long)CoordSearchOnFreeDebug_GetCount());
+}
+
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_AGGREGATE_RESULT <N>
  * AGGREGATE_RESULTS_NO_PAUSE (0): no pause
@@ -3517,6 +3537,9 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_BLOCKED_REQUEST_ONFREE_COUNT", op)) {
     return getQueryRequestOnFreeCount(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_COORD_SEARCH_ONFREE_COUNT", op)) {
+    return getCoordSearchOnFreeCount(ctx, argv + 1, argc - 1);
   }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {

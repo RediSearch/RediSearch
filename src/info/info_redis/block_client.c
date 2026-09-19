@@ -44,8 +44,9 @@ static void QueryRequest_OnDisconnect(RedisModuleCtx *ctx, RedisModuleBlockedCli
   }
 }
 
-static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb, DLLIST *list) {
+static void beginCycleCommon(RedisModuleCtx *ctx, QueryRequest *request,
+                             RedisModuleBlockedClient *bc, RedisModuleCmdFunc reply_cb,
+                             DLLIST *list) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same request. This holds structurally for
   // blocked cursor cycles — the cursor is only parked back into the idle list
@@ -53,6 +54,9 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   // executes it), so no other client can take it before the cycle fully ended.
   RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
+  request->reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(ctx));
+  request->reply.returnReplyStarted = false;
+  request->reply.initialTotal = 0;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
   request->registryInfo.cycle_start = time(NULL);
@@ -65,14 +69,14 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   }
 }
 
-void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb) {
-  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->queries);
+void QueryRequest_BeginCycle(RedisModuleCtx *ctx, QueryRequest *request,
+                             RedisModuleBlockedClient *bc, RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(ctx, request, bc, reply_cb, &getBlockedQueries()->queries);
 }
 
-void QueryRequest_BeginCursorCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
-                                   RedisModuleCmdFunc reply_cb) {
-  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->cursors);
+void QueryRequest_BeginCursorCycle(RedisModuleCtx *ctx, QueryRequest *request,
+                                   RedisModuleBlockedClient *bc, RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(ctx, request, bc, reply_cb, &getBlockedQueries()->cursors);
 }
 
 void QueryRequest_EndCycle(QueryRequest *request) {
@@ -135,17 +139,16 @@ void BlockedQueries_UnwindCycles(void) {
   }
 }
 
-RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
-                                                      QueryRequest *request,
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
                                                       rs_wall_clock_ms_t timeout_ms) {
   // If a timeout is armed, both callbacks must be provided.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
-                                                         QueryRequest_OnFree, timeout_ms);
-  QueryRequest_BeginCycle(request, bc, reply_cb);
+  RedisModuleBlockedClient *bc =
+      RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
+  QueryRequest_BeginCycle(ctx, request, bc, reply_cb);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
@@ -159,9 +162,9 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RS_ASSERT(cursor->query == request);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
-                                                         QueryRequest_OnFree, timeout_ms);
-  QueryRequest_BeginCursorCycle(request, bc, reply_cb);
+  RedisModuleBlockedClient *bc =
+      RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
+  QueryRequest_BeginCursorCycle(ctx, request, bc, reply_cb);
   // Publish the cycle's cursor handle up front, on the main thread. The
   // disposition keeps its FREE default unless the cycle's reply exposes a
   // live cursor id and records PAUSE.

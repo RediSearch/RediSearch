@@ -15,11 +15,9 @@
  #include "search_result_ffi.h"
  #include "aggregate.h"
  #include "util/timeout.h"
- #include "rmalloc.h"
 #include "query_error_ffi.h"
 #include "reply.h"
 #include "rmutil/rm_assert.h"
-#include "util/arr/arr.h"
 
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // usleep, used by debugCheckAndPauseAfterAggregateResult
@@ -47,19 +45,9 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
- void destroyResults(SearchResult **results) {
-   if (results) {
-     for (size_t i = 0; i < array_len(results); i++) {
-       SearchResult_Destroy(results[i]);
-       rm_free(results[i]);
-     }
-     array_free(results);
-   }
- }
-
 #ifdef ENABLE_ASSERT
 // Helper function to check and pause after extracting a result from the
-// AggregateResults loop (for testing pipeline state mid-aggregation).
+// Pipeline_SerializeResults loop (for testing pipeline state mid-aggregation).
 // Self-releases the pause when the request has been marked as timed out by
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
@@ -88,48 +76,61 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
- SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
-   SearchResult **results = array_new(SearchResult *, 8);
-   SearchResult r = SearchResult_New();
-   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-     // Decrement the result limit, now that we got a valid result.
-     rp->parent->resultLimit--;
-
-     array_append(results, SearchResult_AllocateMove(&r));
-
-     debugCheckAndPauseAfterAggregateResult(areq);
-
-     // clean the search result
-     r = SearchResult_New();
-
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
-       break;
+ void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
+                                RedisModule_Reply *rows, SerializeResult serialize, void *request,
+                                const cachedVars *cv, void (*prepare)(void *request), int *rc) {
+   const QueryRequestTimeout *timeout = ctx->timeout;
+   const bool streamingReturn =
+       timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy != OomPolicy_Fail;
+   SearchResult row = SearchResult_New();
+   // RETURN primes count-only pipelines even when their row budget is zero.
+   if (rp->parent->resultLimit || streamingReturn) {
+     *rc = rp->Next(rp, &row);
+   }
+   if (streamingReturn && *rc == RS_RESULT_OK && rp->parent->resultLimit) {
+     prepare(request);
+   }
+   if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+     RS_Atomic(bool) *timedOut = QueryRequestTimeout_GetBlockedClientFlag(&ctx->request->timeout);
+     QueryRequestAsyncState *async = &ctx->request->async;
+     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
+       rp->parent->resultLimit--;
+       if (!RS_AtomicBoolLoadRelaxed(timedOut)) {
+         QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
+       }
+       serialize(request, rows, &row, cv);
+       SearchResult_Clear(&row);
+       if (!RS_AtomicBoolLoadRelaxed(timedOut)) {
+         QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
+       }
+       debugCheckAndPauseAfterAggregateResult(ctx->areq);
+       if (RS_AtomicBoolLoadRelaxed(timedOut)) {
+         *rc = RS_RESULT_TIMEDOUT;
+         break;
+       }
+       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
-   }
-
-   if (*rc != RS_RESULT_OK) {
-     SearchResult_Destroy(&r);
-   }
-
-   return results;
- }
-
- void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
-     // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation
-     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
+   } else if (timeout) {
+     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
+       rp->parent->resultLimit--;
+       serialize(request, rows, &row, cv);
+       SearchResult_Clear(&row);
+       debugCheckAndPauseAfterAggregateResult(ctx->areq);
+       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
      }
    } else {
-     // Send the results received from the pipeline as they come (no need to aggregate)
-     *rc = rp->Next(rp, r);
+     // The timeout callback already owns a stopped pipeline and only drains its buffered tail.
+     while (rp->parent->resultLimit && *rc == RS_RESULT_OK) {
+       rp->parent->resultLimit--;
+       serialize(request, rows, &row, cv);
+       SearchResult_Clear(&row);
+       if (rp->parent->resultLimit) *rc = rp->Next(rp, &row);
+     }
    }
+   if (timeout && !streamingReturn && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+     *rc = RS_RESULT_TIMEDOUT;
+   }
+   SearchResult_Destroy(&row);
  }
 
  /**
@@ -160,7 +161,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * Any other root type returns false.
   *
   * Note that even when this returns false, partial results that BG already
-  * accumulated in `state.results` *before* the timeout fired (e.g. for a
+  * serialized into `base.reply.rows` *before* the timeout fired (e.g. for a
   * trivial RPIndex -> RPPager pipeline) are still emitted via the buffered
   * results path in `serializeAndReplyResults_*`; that path is independent
   * of this classifier.
@@ -198,39 +199,4 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      default:
        return false;
    }
- }
-
- /**
-  * Drain results buffered post-timeout into `req->base.reply.results`.
-  * Only safe for pipelines classified as yielding partial results -- caller
-  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
-  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
-  * coordinator) before invoking this function.
-  *
-  * Caller must also have already flipped the request's timeout flag and
-  * waited for the BG worker to exit the pipeline (e.g. via
-  * AREQ_WaitForAggregateResultsComplete).
-  *
-  * The pager's internal `remaining` and `qctx->resultLimit` reflect the
-  * post-abort budget, so this loop naturally respects the user's LIMIT and
-  * terminates at EOF.
-  */
- void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored) {
-   ResultProcessor *endProc = qctx->endProc;
-   if (!stored->results) {
-     stored->results = array_new(SearchResult *, 8);
-   }
-
-   SearchResult r = SearchResult_New();
-   while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
-     qctx->resultLimit--;
-     array_append(stored->results, SearchResult_AllocateMove(&r));
-     r = SearchResult_New();
-   }
-   SearchResult_Destroy(&r);
- }
-
- void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->base.reply);
  }

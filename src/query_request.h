@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "query_error.h"
+#include "reply.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
 
@@ -38,13 +39,21 @@ struct MRChannel;
 typedef struct {
   RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
+  uint32_t options;
+  uint32_t requiredFlags;
+  SendReplyFlags replyFlags;
+  int apiVersion;
 } cachedVars;
 
 /**
- * State retained while results wait for the main-thread reply callback.
+ * Serialized rows and metadata retained until the cycle replies.
  */
 typedef struct {
-  SearchResult **results;  // Aggregated results array (NULL if not stored)
+  // The context is borrowed from Redis; the wrapper owns its reusable scratch.
+  RedisModule_Reply rows;
+  // Preserve RETURN count and late-error semantics after the first successful row.
+  bool returnReplyStarted;
+  uint32_t initialTotal;
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   bool hasStoredResults;   // Whether results are available to the reply callback
   /* The cycle's error and warnings — the request's single error slot. Hybrid
@@ -343,7 +352,7 @@ typedef struct QueryRequest {
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
   /* false: BG replies inline through a thread-safe context; true: BG stores
-   * results and the Redis reply callback serializes them on the main thread. */
+   * serialized rows and the Redis reply callback publishes them. */
   bool useReplyCallback;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
