@@ -29,6 +29,7 @@ struct QueryError;
 struct RedisModule_Reply_StackEntry {
     int count;
     int type; // REDISMODULE_REPLY_ARRAY|MAP|SET
+    int known; // element count declared when opened, or -1 when postponed to *End
 };
 
 typedef struct RedisModule_Reply {
@@ -84,6 +85,9 @@ int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error);
 void RedisModule_Reply_QueryError(RedisModule_Reply *reply, struct QueryError *error);
 int RedisModule_Reply_Array(RedisModule_Reply *reply);
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply);
+// TEMPORARY: duplicated from the known-length reply PR; drop on rebase once it lands.
+int RedisModule_Reply_ArrayWithLen(RedisModule_Reply *reply, size_t len);
+int RedisModule_ReplyKV_ArrayWithLen(RedisModule_Reply *reply, const char *key, size_t len);
 int RedisModule_Reply_Map(RedisModule_Reply *reply);
 int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);

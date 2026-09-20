@@ -536,7 +536,7 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
 /**
  * Updates the optimizer's total and opens the reply arrays up to (and including) the total.
  */
-static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, QueryProcessingCtx *qctx) {
+static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, QueryProcessingCtx *qctx, size_t rows) {
   if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
@@ -545,10 +545,11 @@ static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, Que
   if (IsProfile(req)) {
     Profile_PrepareMapForReply(reply);
   } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
   }
 
-  RedisModule_Reply_Array(reply);
+  // The buffer already counted its elements, so the results array needs no postponed length.
+  RedisModule_Reply_ArrayWithLen(reply, 1 + rows);
   RedisModule_Reply_LongLong(reply, qctx->totalResults);
 }
 
@@ -703,9 +704,9 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
 /**
  * Prepares reply structure for RESP3 format.
  */
-static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
+static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, size_t rows) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
   }
 
   RedisModule_Reply_Map(reply);
@@ -729,8 +730,8 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
     RedisModule_ReplyKV_SimpleString(reply, "format", "STRING");
   }
 
-  // <results>
-  RedisModule_ReplyKV_Array(reply, "results");
+  // <results> -- the buffer already counted its rows, so no postponed length.
+  RedisModule_ReplyKV_ArrayWithLen(reply, "results", rows);
 }
 
 /**
@@ -779,12 +780,14 @@ static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (handleSendChunkError(req, reply, qctx, rc)) return true;
 
+  const bool withRows = shouldReplyWithRows(req, rc);
+  const size_t rows = withRows ? req->base.reply.rows.count : 0;
   if (reply->resp3) {
-    prepareSendChunkReply_Resp3(req, reply);
+    prepareSendChunkReply_Resp3(req, reply, rows);
   } else {
-    prepareSendChunkReply_Resp2(req, reply, qctx);
+    prepareSendChunkReply_Resp2(req, reply, qctx, rows);
   }
-  if (shouldReplyWithRows(req, rc)) {
+  if (withRows) {
     int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
     RS_ASSERT(moved == REDISMODULE_OK);
   }

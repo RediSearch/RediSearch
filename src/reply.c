@@ -205,18 +205,29 @@ void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply) {
   _RedisModule_Reply_Next(reply);
 }
 
-static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
+static void _RedisModule_Reply_PushKnown(RedisModule_Reply *reply, int type, int known) {
   StackEntry *e = array_ensure_tail(&reply->stack, StackEntry);
   e->count = 0;
   e->type = type;
+  e->known = known;
 }
 
+static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
+  _RedisModule_Reply_PushKnown(reply, type, -1);
+}
+
+// Pops the frame and returns its element count, or -1 when the length was declared on open (and,
+// in assert builds, verified against what was actually written).
 static int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
   RS_LOG_ASSERT(reply->stack && array_len(reply->stack) > 0, "incomplete reply");
   if (reply->stack && array_len(reply->stack) > 0) {
     StackEntry *e = &array_tail(reply->stack);
-    int count = e->count;
+    int count = e->count, known = e->known;
     reply->stack = array_trimm_len(reply->stack, 1);
+    if (known >= 0) {
+      RS_LOG_ASSERT_FMT(count == known, "reply: declared %d elements, wrote %d", known, count);
+      return -1;
+    }
     return count;
   } else {
     return reply->count;
@@ -358,10 +369,19 @@ int RedisModule_Reply_Array(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_ArrayWithLen(RedisModule_Reply *reply, size_t len) {
+  RS_LOG_ASSERT(!RedisModule_Reply_LocalIsKey(reply), "reply: should not write an array as a key");
+  RedisModule_ReplyWithArray(reply->ctx, len);
+  json_add(reply, true, "[ ");
+  _RedisModule_Reply_Next(reply);
+  _RedisModule_Reply_PushKnown(reply, REDISMODULE_REPLY_ARRAY, len);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply) {
   json_add_close(reply, " ]");
   int count = _RedisModule_Reply_Pop(reply);
-  RedisModule_ReplySetArrayLength(reply->ctx, count);
+  if (count >= 0) RedisModule_ReplySetArrayLength(reply->ctx, count);
   return REDISMODULE_OK;
 }
 
@@ -494,6 +514,13 @@ int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key) {
   json_add(reply, false, "null");
   _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;
+}
+
+int RedisModule_ReplyKV_ArrayWithLen(RedisModule_Reply *reply, const char *key, size_t len) {
+  RedisModule_ReplyWithSimpleString(reply->ctx, key);
+  json_add(reply, false, "\"%s\"", key);
+  _RedisModule_Reply_Next(reply);
+  return RedisModule_Reply_ArrayWithLen(reply, len);
 }
 
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key) {

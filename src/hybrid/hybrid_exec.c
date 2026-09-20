@@ -334,13 +334,13 @@ static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Opens the map and adds total_results.
  */
 static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx) {
+  QueryProcessingCtx *qctx, size_t rows) {
   RedisModule_Reply_Map(reply);
 
   // <total_results>
   RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
-  RedisModule_ReplyKV_Array(reply, "results"); // >results
+  RedisModule_ReplyKV_ArrayWithLen(reply, "results", rows); // >results -- counted by the buffer
 }
 
 /**
@@ -418,7 +418,7 @@ static bool replyBufferedChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *re
     return false;
   }
 
-  prepareSendChunkReply_hybrid(hreq, reply, qctx);
+  prepareSendChunkReply_hybrid(hreq, reply, qctx, hreq->base.reply.rows.count);
 
   int moved = RedisModule_Reply_Buffered(reply, &hreq->base.reply.rows);
   RS_ASSERT(moved == REDISMODULE_OK);
