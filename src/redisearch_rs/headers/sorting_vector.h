@@ -99,9 +99,9 @@ void RSSortingVector_PutStr(RSSortingVector *vec,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool RSSortingVector_PutStrNormalize(RSSortingVector *vec,
-                                   size_t idx,
-                                   const char *str,
-                                   QueryError *status);
+                                     size_t idx,
+                                     const char *str,
+                                     QueryError *status);
 
 /**
  * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
