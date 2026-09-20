@@ -19,7 +19,8 @@ pub fn str_to_float(input: &[u8]) -> Option<f64> {
 /// [`itoa`], byte-identical to C's `%lld`), else with the c `snprintf` function for
 /// compatibility with expected output: up to 12 significant digits, or scientific notation.
 ///
-/// Returns the amount of bytes written.
+/// Returns the amount of bytes written, excluding the NUL terminator that always follows
+/// them: C callers read `buf` as a C string.
 pub fn num_to_str(num: f64, buf: &mut [u8; 32]) -> usize {
     let representable_as_integer =
         num.fract() == 0.0 && num >= i64::MIN as f64 && num < i64::MAX as f64;
@@ -28,6 +29,7 @@ pub fn num_to_str(num: f64, buf: &mut [u8; 32]) -> usize {
         let mut digits = itoa::Buffer::new();
         let s = digits.format(num as i64);
         buf[..s.len()].copy_from_slice(s.as_bytes());
+        buf[s.len()] = 0;
         s.len() as i32
     } else {
         // Safety: buf is valid by definition, formatting string and arguments match up.

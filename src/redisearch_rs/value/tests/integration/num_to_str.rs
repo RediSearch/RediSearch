@@ -13,8 +13,11 @@ use std::ffi::c_char;
 use value::util::num_to_str;
 
 fn render(num: f64) -> String {
-    let mut buf = [0u8; 32];
+    // Pre-filled with non-zero bytes: C callers read the buffer as a C string, so the
+    // terminator must come from num_to_str itself.
+    let mut buf = [0xffu8; 32];
     let len = num_to_str(num, &mut buf);
+    assert_eq!(buf[len], 0, "missing NUL terminator for {num}");
     String::from_utf8(buf[..len].to_vec()).unwrap()
 }
 
