@@ -631,10 +631,6 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   return true;
 }
 
-/**
- * Serializes results and handles the main reply logic for RESP2.
- * Returns the final rc value and updates state accordingly.
- */
 /* Reply-callback mode: hand the cycle's results to the main thread instead of
  * publishing them through `reply` (or forfeit them to a lost strict claim).
  * The ctx loan is returned before the results are stored and signaled: the
