@@ -347,9 +347,10 @@ def test_mod_6287(env):
     con2.execute_command(debug_cmd(), 'DELETE_LOCAL_CURSORS')
 
     # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
-    # This results in the crash solved by #6287
-    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received)
-    env.assertEqual(cid, 0)
+    # This results in the crash solved by #6287. The errored shard's reply is the coordinator's
+    # reply, and the coordinator cursor is released with it.
+    env.expect('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received).error().contains('Cursor not found')
+    env.expect('FT.CURSOR', 'READ', 'idx', cid).error().contains('Cursor not found')
 
     # Send another command to make sure that the coordinator is healthy
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(n_docs))

@@ -79,18 +79,13 @@ static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request,
 static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request, bool live) {}
 #endif
 
-static const RequestConfig *requestConfig(const QueryRequest *request) {
-  QueryRequest *mutable = (QueryRequest *)request;  // the kind-checked getters only read
-  return request->kind == QUERY_REQUEST_KIND_HYBRID ? &QueryRequest_GetHybrid(mutable)->reqConfig
-                                                     : &QueryRequest_GetAREQ(mutable)->reqConfig;
+static const RequestConfig *requestConfig(QueryRequest *request) {
+  return request->kind == QUERY_REQUEST_KIND_HYBRID ? &QueryRequest_GetHybrid(request)->reqConfig
+                                                     : &QueryRequest_GetAREQ(request)->reqConfig;
 }
 
 static bool returnPolicy(const RequestConfig *config) {
   return config->timeoutPolicy == TimeoutPolicy_Return && config->oomPolicy != OomPolicy_Fail;
-}
-
-bool ReturnCommitsRows(const QueryRequest *request) {
-  return returnPolicy(requestConfig(request)) && request->reply.rows.count > 0;
 }
 
 void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc) {

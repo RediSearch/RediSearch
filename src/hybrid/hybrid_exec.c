@@ -317,9 +317,7 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryError *err, int rc) {
-  // Fail/ReturnStrict never commit partial rows this way and so always re-check `err` against the
-  // fully-drained pipeline.
-  if (ReturnCommitsRows(&hreq->base)) return false;
+  // A runtime error replies as an error under every policy; the buffered rows are simply not moved.
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));

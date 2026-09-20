@@ -529,18 +529,16 @@ static void finishSendChunk(AREQ *req, bool cursor_done) {
 }
 
 static bool shouldReplyWithRows(const AREQ *req, int rc) {
-  // A foreground call runs under aggregate (buffer-then-decide) semantics whenever the
-  // policy isn't the plain streaming case -- mirrors the condition that used to pick
-  // Pipeline_SerializeResults's aggregate branch, now always taken.
-  const bool aggregatedForeground =
-      !req->base.blockedClientCycleActive &&
-      (req->reqConfig.timeoutPolicy != TimeoutPolicy_Return ||
-       req->reqConfig.oomPolicy == OomPolicy_Fail);
-  const bool partial = ReturnCommitsRows(&req->base) ||
-                       (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
-                        (req->base.blockedClientCycleActive || aggregatedForeground));
-  return !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
-         (partial || rc == RS_RESULT_OK || rc == RS_RESULT_EOF);
+  if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS) return false;
+  if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) return true;
+  // Partial rows after a timeout: RETURN keeps them unless ON_OOM FAIL, RETURN_STRICT keeps them, FAIL discards them.
+  switch (req->reqConfig.timeoutPolicy) {
+    case TimeoutPolicy_Return: return req->reqConfig.oomPolicy != OomPolicy_Fail;
+    case TimeoutPolicy_ReturnStrict: return true;
+    case TimeoutPolicy_Fail: return false;
+  }
+  RS_ABORT("unknown timeout policy");
+  return false;
 }
 
 /* Record this request's blocked-client timeout into the per-stage breakdown, at
@@ -561,9 +559,7 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
  */
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
-  // Fail/ReturnStrict never commit partial rows this way and so always re-check qctx->err against
-  // the fully-drained pipeline.
-  if (ReturnCommitsRows(&req->base)) return false;
+  // A runtime error replies as an error under every policy; the buffered rows are simply not moved.
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));

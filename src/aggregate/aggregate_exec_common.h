@@ -32,10 +32,6 @@ typedef void (*SerializeResult)(QueryRequest *request, RedisModule_Reply *reply,
 // caller's ownership (RETURN_STRICT, after its timeout callback took the reply).
 void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc);
 
-// Under RETURN (and not ON_OOM FAIL), a reply with at least one buffered row commits those rows: an error the
-// pipeline raised after them surfaces as a warning on that reply rather than replacing it.
-bool ReturnCommitsRows(const QueryRequest *request);
-
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
  * valid (possibly empty) partial answer for the request's pipeline.

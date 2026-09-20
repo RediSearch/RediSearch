@@ -85,18 +85,15 @@ def _exercise_return_reply_compatibility(protocol, oom_policy='RETURN'):
     expected = None
     for workers in (0, 2):
         run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-workers', workers)
-        replies = [env.cmd(*plain), env.cmd(*expression)]
+        reply = env.cmd(*plain)
         if expected is None:
-            expected = replies
-        env.assertEqual(replies, expected)
-        if not env.isCluster():
-            if protocol == 2:
-                env.assertEqual(replies[0], [3, [], [], []])
-                env.assertEqual(replies[1], [3, ['ord', '0', 'val', '10', 'computed', '10']])
-            else:
-                env.assertEqual(len(replies[1]['results']), 1)
-                env.assertContains('Invalid numeric value', replies[1]['warning'][0])
-        # A failure before any successful row still produces a top-level error.
+            expected = reply
+        env.assertEqual(reply, expected)
+        if not env.isCluster() and protocol == 2:
+            env.assertEqual(reply, [3, [], [], []])
+        # A runtime error replies as an error regardless of how many rows preceded it: the second row
+        # fails here, and so does the first once doc 0 is broken too.
+        env.expect(*expression).error().contains('Invalid numeric value')
         conn.execute_command('HSET', '{doc}:0', 'val', 'oops')
         env.expect(*expression).error().contains('Invalid numeric value')
         conn.execute_command('HSET', '{doc}:0', 'val', '10')
@@ -144,29 +141,13 @@ def _exercise_hybrid_late_error(protocol):
              'SORTBY', 2, '@ord', 'ASC', 'LOAD', 2, '@ord', '@val',
              'APPLY', '@val + 0', 'AS', 'computed',
              'PARAMS', 2, 'BLOB', struct.pack('ff', 0, 0)]
+    # The APPLY fails on the second row; a runtime error replies as an error whatever preceded it,
+    # under every OOM policy, foreground or worker.
     for oom_policy in ('RETURN', 'IGNORE', 'FAIL'):
         run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-on-oom', oom_policy)
-        expected = None
         for workers in (0, 2):
             run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-workers', workers)
-            if oom_policy == 'FAIL':
-                env.expect(*query).error().contains('Invalid numeric value')
-                continue
-            result = env.cmd(*query)
-            if protocol == 2:
-                result = to_dict(result)
-            result.pop('execution_time')
-            if expected is None:
-                expected = result
-            env.assertEqual(result, expected)
-            env.assertEqual(result['total_results'], 3)
-            env.assertEqual(len(result['results']), 1)
-            row = result['results'][0]
-            if protocol == 2:
-                row = to_dict(row)
-            env.assertEqual(float(row['computed']), 10)
-            env.assertEqual(int(row['ord']), 0)
-            env.assertContains('Invalid numeric value', str(result['warnings']))
+            env.expect(*query).error().contains('Invalid numeric value')
 
 
 def test_hybrid_late_error_resp2():
