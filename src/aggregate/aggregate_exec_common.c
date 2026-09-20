@@ -14,6 +14,7 @@
 
  #include "search_result_ffi.h"
  #include "aggregate.h"
+#include "hybrid/hybrid_request.h"
  #include "util/timeout.h"
 #include "query_error_ffi.h"
 #include "reply.h"
@@ -52,7 +53,9 @@
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
 // resume command while it is in flight.
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
+// The hook is for pausing a live run; a drain of an already-stopped pipeline is not one.
+static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request, bool live) {
+  if (!live) return;
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
     return;
@@ -64,7 +67,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -73,59 +76,53 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 }
 #else
 // Compiler eliminates the function completely in release builds - zero overhead
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
+static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request, bool live) {}
 #endif
 
-void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
-                               SerializeResult serialize, void *owner, const cachedVars *cv,
-                               int *rc) {
-  // Prepare stack data.
-  QueryRequest *request = ctx->request;
-  const QueryRequestTimeout *timeout = ctx->timeout;
-  const bool returnPolicy =
-      timeout && timeout->policy == TimeoutPolicy_Return && ctx->oomPolicy != OomPolicy_Fail;
-  const bool trackBlockedClient = timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
-  RS_Atomic(bool) *timedOut =
-      trackBlockedClient ? QueryRequestTimeout_GetBlockedClientFlag(&request->timeout) : NULL;
+static RSOomPolicy requestOomPolicy(QueryRequest *request) {
+  return request->kind == QUERY_REQUEST_KIND_HYBRID ? QueryRequest_GetHybrid(request)->reqConfig.oomPolicy
+                                                     : QueryRequest_GetAREQ(request)->reqConfig.oomPolicy;
+}
+
+void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc) {
+  // Prepare stack data. Only a RETURN_STRICT timeout callback drains a stopped pipeline.
+  RS_ASSERT(live || request->timeout.policy == TimeoutPolicy_ReturnStrict);
+  const QueryRequestTimeout *timeout = &request->timeout;
+  const bool returnPolicy = live && timeout->policy == TimeoutPolicy_Return && requestOomPolicy(request) != OomPolicy_Fail;
+  // Untracked runs read a flag that never flips, so the loop body has no per-row policy branches.
+  RS_Atomic(bool) neverTimedOut = false;
+  RS_Atomic(bool) *timedOut = live && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                  ? QueryRequestTimeout_GetBlockedClientFlag(&request->timeout) : &neverTimedOut;
+  QueryRequestAsyncState *async = &request->async;
   RedisModule_Reply *rows = &request->reply.rows;
   SearchResult row = SearchResult_New();
   size_t serialized = 0;
 
-  // Serialize until the budget is spent or Next() stops yielding (EOF, error, timeout). The
-  // pipeline runs at least once even on a zero row budget (MAXAGGREGATERESULTS 0), since the
-  // total it reports is only computed by running it.
+  // Serialize until the budget is spent or Next() stops yielding (EOF, error, timeout). The pipeline runs at
+  // least once even on a zero row budget (MAXAGGREGATERESULTS 0), since the total it reports is only computed
+  // by running it.
   do {
     *rc = rp->Next(rp, &row);
     if (*rc != RS_RESULT_OK || !rp->parent->resultLimit) break;
     rp->parent->resultLimit--;
 
-    // REPLY brackets exactly the serialize() call; PIPELINE (the resting phase, including
-    // during Next() and the debug-pause hook below) resumes right after -- a timeout
-    // observed while paused there must attribute to PIPELINE, not REPLY.
-    if (trackBlockedClient && !RS_AtomicBoolLoadRelaxed(timedOut)) {
-      QueryRequestAsyncState_SetExecutionPhase(&request->async, QUERY_TIMEOUT_STAGE_REPLY);
-    }
-    serialize(owner, rows, &row, cv);
+    // REPLY brackets exactly the serialize() call; PIPELINE (the resting phase, including during Next() and the
+    // debug-pause hook below) resumes right after -- a timeout observed while paused there must attribute to
+    // PIPELINE, not REPLY. The marker is frozen once the timeout fires.
+    if (!RS_AtomicBoolLoadRelaxed(timedOut)) QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
+    serialize(request, rows, &row, cv);
     serialized++;
     SearchResult_Clear(&row);
-    if (trackBlockedClient && !RS_AtomicBoolLoadRelaxed(timedOut)) {
-      QueryRequestAsyncState_SetExecutionPhase(&request->async, QUERY_TIMEOUT_STAGE_PIPELINE);
-    }
-    // Untracked (no timeout at all): the timeout callback already owns a stopped pipeline and
-    // this call is only draining its buffered tail, not running the pipeline live -- the debug
-    // pause hook is specifically for pausing a live run, so it stays off for that case.
-    if (timeout) {
-      debugCheckAndPauseAfterAggregateResult(ctx->areq);
-    }
-
-    if (trackBlockedClient && RS_AtomicBoolLoadRelaxed(timedOut)) {
+    if (!RS_AtomicBoolLoadRelaxed(timedOut)) QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
+    debugCheckAndPauseAfterAggregateResult(request, live);
+    if (RS_AtomicBoolLoadRelaxed(timedOut)) {
       *rc = RS_RESULT_TIMEDOUT;
       break;
     }
   } while (rp->parent->resultLimit);
 
   // Cleanup: leave every reply-phase input in the request.
-  if (timeout && !returnPolicy && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+  if (live && !returnPolicy && QueryRequestTimeout_IsTimedOutExact(timeout)) {
     *rc = RS_RESULT_TIMEDOUT;
   }
   request->reply.returnHasRows = returnPolicy && serialized > 0;

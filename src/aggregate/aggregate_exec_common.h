@@ -15,7 +15,6 @@
 typedef struct QueryError QueryError;
 
 struct AREQ;
-struct QueryRequestTimeout;
 
 bool hasTimeoutError(QueryError *err);
 
@@ -25,28 +24,13 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
-typedef struct CommonPipelineCtx {
-  const struct QueryRequestTimeout *timeout;
-  RSOomPolicy oomPolicy;
-  QueryRequest *request;
+typedef void (*SerializeResult)(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row, const cachedVars *cv);
 
-  // AREQ for the request being executed; consulted by Pipeline_SerializeResults
-  // (and its debug pause loop) to observe the request timeout. NULL on paths
-  // without a single owning AREQ (e.g. hybrid).
-  // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
-  struct AREQ *areq;
-} CommonPipelineCtx;
-
-typedef void (*SerializeResult)(void *request, RedisModule_Reply *reply, const SearchResult *row,
-                                const cachedVars *cv);
-
-// Serializes rows into ctx->request->reply.rows until the budget is spent or Next() stops
-// yielding. On return, ctx->request->reply holds every input the reply phase needs; the caller
-// then commits or discards the buffered rows in one step.
-// A NULL ctx->timeout drains an already-stopped pipeline under the caller's ownership.
-void Pipeline_SerializeResults(const CommonPipelineCtx *ctx, ResultProcessor *rp,
-                               SerializeResult serialize, void *owner, const cachedVars *cv,
-                               int *rc);
+// Serializes rows into request->reply.rows until the budget is spent or Next() stops yielding. On return,
+// request->reply holds every input the reply phase needs; the caller then commits or discards the buffered rows
+// in one step. `live` runs the pipeline under the request's timeout; false drains an already-stopped pipeline
+// under the caller's ownership (RETURN_STRICT, after its timeout callback took the reply).
+void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc);
 
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a

@@ -162,9 +162,8 @@ static bool serializationTimedOut(void *arg) {
 }
 #endif
 
-static void serializeResult(void *request, RedisModule_Reply *reply, const SearchResult *r,
-                            const cachedVars *cv) {
-  AREQ *req = request;
+static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *r, const cachedVars *cv) {
+  AREQ *req = QueryRequest_GetAREQ(request);
   const uint32_t options = cv->options;
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   bool has_map = RedisModule_IsRESP3(reply);
@@ -313,8 +312,7 @@ static void serializeResult(void *request, RedisModule_Reply *reply, const Searc
   }
 }
 
-static void skipResult(void *request, RedisModule_Reply *reply, const SearchResult *row,
-                       const cachedVars *cv) {
+static void skipResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row, const cachedVars *cv) {
   UNUSED(request);
   UNUSED(reply);
   UNUSED(row);
@@ -327,9 +325,7 @@ static SerializeResult backgroundSerializer(AREQ *req) {
 
 void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
   int rc = RS_RESULT_EOF;
-  CommonPipelineCtx ctx = {.request = &req->base, .areq = req};
-  Pipeline_SerializeResults(&ctx, AREQ_QueryProcessingCtx(req)->endProc, backgroundSerializer(req),
-                            req, &req->base.reply.cv, &rc);
+  Pipeline_SerializeResults(&req->base, AREQ_QueryProcessingCtx(req)->endProc, backgroundSerializer(req), &req->base.reply.cv, false, &rc);
 }
 
 static size_t getResultsFactor(AREQ *req) {
@@ -422,13 +418,6 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 // pipeline in any special sense -- sendChunk calls this identically for the very first cycle
 // and for every subsequent cursor read.
 static void runPipelineCycle(AREQ *req, ResultProcessor *rp, int *rc, const cachedVars *cv) {
-  CommonPipelineCtx ctx = {
-      .timeout = &req->base.timeout,
-      .oomPolicy = req->reqConfig.oomPolicy,
-      .request = &req->base,
-      .areq = req,
-  };
-
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before the TryClaim race
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM, areq_timeout_or_pending_spec_writers, req);
@@ -458,7 +447,7 @@ static void runPipelineCycle(AREQ *req, ResultProcessor *rp, int *rc, const cach
   // background cycle, or a transient one the caller created for this
   // foreground call (see sendChunk) -- so the caller's finalization is
   // always the same O(1) move, regardless of policy or blocking.
-  Pipeline_SerializeResults(&ctx, rp, backgroundSerializer(req), req, cv, rc);
+  Pipeline_SerializeResults(&req->base, rp, backgroundSerializer(req), cv, true, rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.

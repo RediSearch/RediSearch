@@ -180,9 +180,8 @@ static bool hybridSerializationTimedOut(void *arg) {
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
-static void serializeResult_hybrid(void *request, RedisModule_Reply *reply, const SearchResult *r,
-                                   const cachedVars *cv) {
-  HybridRequest *hreq = request;
+static void serializeResult_hybrid(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *r, const cachedVars *cv) {
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
   const uint32_t options = cv->options;
 
   RedisModule_Reply_Map(reply); // >result
@@ -260,16 +259,6 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, int *rc,
                                 const cachedVars *cv) {
-  CommonPipelineCtx ctx = {
-      .timeout = &hreq->base.timeout,
-      .oomPolicy = hreq->reqConfig.oomPolicy,
-      .request = &hreq->base,
-      // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-      // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-      // Pipeline_SerializeResults can bail between rows while draining buffered tail rows.
-      .areq = hreq->requests[SEARCH_INDEX],
-  };
-
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before the TryClaim race
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
@@ -292,7 +281,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, int *r
   // background cycle, or a transient one the caller created for this
   // foreground call (see sendChunk_hybrid) -- so the caller's finalization is
   // always the same O(1) move, regardless of policy or blocking.
-  Pipeline_SerializeResults(&ctx, rp, serializeResult_hybrid, hreq, cv, rc);
+  Pipeline_SerializeResults(&hreq->base, rp, serializeResult_hybrid, cv, true, rc);
 
   // Pipeline done without timing out; the caller now enters the reply phase
   // (marker only; never forces a timeout).
