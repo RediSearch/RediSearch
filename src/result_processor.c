@@ -1079,17 +1079,17 @@ static inline bool loaderResultIsEmittable(const SearchResult *r) {
 }
 
 // Drop a row a loader could not emit (its document was deleted, re-indexed, or expired
-// between matching and load). Count it against the reported total (which is
-// totalResults - skippedResults; see QueryProcessingCtx::skippedResults for why we bump
-// a separate counter rather than decrementing totalResults) and fully release the
-// partially-loaded row, re-initializing the slot to an empty result. SearchResult_Destroy
+// between matching and load). Take it off the total, saturating: a buffering stage upstream
+// (SORTBY with MAX) may hand a row counted during one cursor read to the loader during a later
+// one, after the total was reset. Then fully release the partially-loaded row,
+// re-initializing the slot to an empty result. SearchResult_Destroy
 // (not just _Clear) frees the RLookupRow dynamic storage too: the safe loader leaves
 // dropped buffer slots as tombstones that its yield phase skips and that are later
 // overwritten by the next accumulate cycle or bulk-freed with no per-slot destroy, so a
 // mere Clear would leak that storage. SearchResult_New nulls the document metadata, so the
 // emptied slot still reads as a tombstone; the plain loader reuses it for the next row.
 static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
-  base->parent->skippedResults++;
+  if (base->parent->totalResults) base->parent->totalResults--;
   SearchResult_Destroy(r);
   *r = SearchResult_New();
 }
@@ -1314,7 +1314,7 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 
   while ((curr_res = GetNextResult(self))) {
     // rpSafeLoader_Load emptied the slots of documents invalidated mid-query (and
-    // counted them in skippedResults). A tombstone owns nothing, so skip it with no
+    // took them off the total). A tombstone owns nothing, so skip it with no
     // cleanup; a live buffered result always carries document metadata.
     if (SearchResult_GetDocumentMetadata(curr_res) == NULL) {
       continue;
@@ -2665,9 +2665,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   // Update total results to reflect the number of unique documents we'll yield
   rp->parent->totalResults = dictSize(self->hybridResults);
-  // Merged-doc count excludes upstream loader drops; clear the skip correction
-  // (same invariant as the grouper).
-  rp->parent->skippedResults = 0;
 
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;

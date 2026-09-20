@@ -465,12 +465,7 @@ static void finishSendChunk(AREQ *req, bool cursor_done) {
   // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
   if (!HasWithCount(req)) {
     qctx->totalResults = 0;
-  } else {
-    // totalResults survives this reset (WITHCOUNT); fold the dropped rows into it
-    // permanently so later cursor reads stay corrected.
-    qctx->totalResults = QITR_ReportedTotal(qctx);
   }
-  qctx->skippedResults = 0;
   QueryError_ClearError(qctx->err);
 }
 
@@ -552,8 +547,7 @@ static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, Que
   }
 
   RedisModule_Reply_Array(reply);
-  // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_Reply_LongLong(reply, QITR_ReportedTotal(qctx));
+  RedisModule_Reply_LongLong(reply, qctx->totalResults);
 }
 
 /**
@@ -748,9 +742,8 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc, bool cursor_done) {
   RedisModule_Reply_ArrayEnd(reply); // >results
 
-  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_ReplyKV_LongLong(reply, "total_results",
-      QITR_ReportedTotal(qctx));
+  // <total_results>
+  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
   // <error>
   _replyWarnings(req, reply, rc);
