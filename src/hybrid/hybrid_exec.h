@@ -55,11 +55,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);
 
 /**
- * Store pipeline results for reply_callback path (FAIL policy with workers).
- * Called after pipeline execution to store results for serialization on the main thread.
- */
-
-/**
  * Helper for error handling in coordinator HREQ execution.
  * For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
  * For RETURN policy: replies with error directly.
