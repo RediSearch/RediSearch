@@ -79,16 +79,25 @@ static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request,
 static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request, bool live) {}
 #endif
 
-static RSOomPolicy requestOomPolicy(QueryRequest *request) {
-  return request->kind == QUERY_REQUEST_KIND_HYBRID ? QueryRequest_GetHybrid(request)->reqConfig.oomPolicy
-                                                     : QueryRequest_GetAREQ(request)->reqConfig.oomPolicy;
+static const RequestConfig *requestConfig(const QueryRequest *request) {
+  QueryRequest *mutable = (QueryRequest *)request;  // the kind-checked getters only read
+  return request->kind == QUERY_REQUEST_KIND_HYBRID ? &QueryRequest_GetHybrid(mutable)->reqConfig
+                                                     : &QueryRequest_GetAREQ(mutable)->reqConfig;
+}
+
+static bool returnPolicy(const RequestConfig *config) {
+  return config->timeoutPolicy == TimeoutPolicy_Return && config->oomPolicy != OomPolicy_Fail;
+}
+
+bool ReturnCommitsRows(const QueryRequest *request) {
+  return returnPolicy(requestConfig(request)) && request->reply.rows.count > 0;
 }
 
 void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc) {
   // Prepare stack data. Only a RETURN_STRICT timeout callback drains a stopped pipeline.
   RS_ASSERT(live || request->timeout.policy == TimeoutPolicy_ReturnStrict);
   const QueryRequestTimeout *timeout = &request->timeout;
-  const bool returnPolicy = live && timeout->policy == TimeoutPolicy_Return && requestOomPolicy(request) != OomPolicy_Fail;
+  const bool clockTimeoutApplies = live && !returnPolicy(requestConfig(request));
   // Untracked runs read a flag that never flips, so the loop body has no per-row policy branches.
   RS_Atomic(bool) neverTimedOut = false;
   RS_Atomic(bool) *timedOut = live && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
@@ -96,7 +105,6 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
   QueryRequestAsyncState *async = &request->async;
   RedisModule_Reply *rows = &request->reply.rows;
   SearchResult row = SearchResult_New();
-  size_t serialized = 0;
 
   // Serialize until the budget is spent or Next() stops yielding (EOF, error, timeout). The pipeline runs at
   // least once even on a zero row budget (MAXAGGREGATERESULTS 0), since the total it reports is only computed
@@ -111,7 +119,6 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
     // PIPELINE, not REPLY. The marker is frozen once the timeout fires.
     if (!RS_AtomicBoolLoadRelaxed(timedOut)) QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
     serialize(request, rows, &row, cv);
-    serialized++;
     SearchResult_Clear(&row);
     if (!RS_AtomicBoolLoadRelaxed(timedOut)) QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
     debugCheckAndPauseAfterAggregateResult(request, live);
@@ -121,11 +128,10 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
     }
   } while (rp->parent->resultLimit);
 
-  // Cleanup: leave every reply-phase input in the request.
-  if (live && !returnPolicy && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+  // Cleanup. The buffered rows (and their count) are the reply phase's remaining input.
+  if (clockTimeoutApplies && QueryRequestTimeout_IsTimedOutExact(timeout)) {
     *rc = RS_RESULT_TIMEDOUT;
   }
-  request->reply.returnHasRows = returnPolicy && serialized > 0;
   SearchResult_Destroy(&row);
 }
 

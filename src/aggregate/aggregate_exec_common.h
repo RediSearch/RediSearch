@@ -26,11 +26,15 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 typedef void (*SerializeResult)(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row, const cachedVars *cv);
 
-// Serializes rows into request->reply.rows until the budget is spent or Next() stops yielding. On return,
-// request->reply holds every input the reply phase needs; the caller then commits or discards the buffered rows
-// in one step. `live` runs the pipeline under the request's timeout; false drains an already-stopped pipeline
-// under the caller's ownership (RETURN_STRICT, after its timeout callback took the reply).
+// Serializes rows into request->reply.rows until the budget is spent or Next() stops yielding. On return, the
+// buffered rows and their count are all the reply phase needs; the caller then commits or discards them in one
+// step. `live` runs the pipeline under the request's timeout; false drains an already-stopped pipeline under the
+// caller's ownership (RETURN_STRICT, after its timeout callback took the reply).
 void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc);
+
+// Under RETURN (and not ON_OOM FAIL), a reply with at least one buffered row commits those rows: an error the
+// pipeline raised after them surfaces as a warning on that reply rather than replacing it.
+bool ReturnCommitsRows(const QueryRequest *request);
 
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a

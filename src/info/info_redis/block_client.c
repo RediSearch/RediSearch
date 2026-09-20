@@ -55,7 +55,6 @@ static void beginCycleCommon(RedisModuleCtx *ctx, QueryRequest *request,
   RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
   request->reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(ctx));
-  request->reply.returnHasRows = false;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
   request->registryInfo.cycle_start = time(NULL);

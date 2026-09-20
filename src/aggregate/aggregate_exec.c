@@ -536,7 +536,7 @@ static bool shouldReplyWithRows(const AREQ *req, int rc) {
       !req->base.blockedClientCycleActive &&
       (req->reqConfig.timeoutPolicy != TimeoutPolicy_Return ||
        req->reqConfig.oomPolicy == OomPolicy_Fail);
-  const bool partial = req->base.reply.returnHasRows ||
+  const bool partial = ReturnCommitsRows(&req->base) ||
                        (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
                         (req->base.blockedClientCycleActive || aggregatedForeground));
   return !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
@@ -561,10 +561,9 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
  */
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
-  // RETURN commits whatever rows the pipeline produced; an error raised after them surfaces as
-  // a warning on that reply rather than replacing it. Fail/ReturnStrict never set the flag and
-  // so always re-check qctx->err against the fully-drained pipeline.
-  if (req->base.reply.returnHasRows) return false;
+  // Fail/ReturnStrict never commit partial rows this way and so always re-check qctx->err against
+  // the fully-drained pipeline.
+  if (ReturnCommitsRows(&req->base)) return false;
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
@@ -923,7 +922,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // with the same O(1) move -- performed inline here rather than from a
     // later reply callback, since nothing blocked.
     RS_ASSERT(!req->base.reply.rows.ctx);
-    req->base.reply.returnHasRows = false;
     req->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
     int rc = RS_RESULT_EOF;
     runPipelineCycle(req, qctx->endProc, &rc, &cv);

@@ -317,10 +317,9 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryError *err, int rc) {
-  // RETURN commits whatever rows the pipeline produced; an error raised after them surfaces as
-  // a warning on that reply rather than replacing it. Fail/ReturnStrict never set the flag and
-  // so always re-check `err` against the fully-drained pipeline.
-  if (hreq->base.reply.returnHasRows) return false;
+  // Fail/ReturnStrict never commit partial rows this way and so always re-check `err` against the
+  // fully-drained pipeline.
+  if (ReturnCommitsRows(&hreq->base)) return false;
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
@@ -549,7 +548,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
   bool foreground = !hreq->base.blockedClientCycleActive;
   if (foreground) {
     RS_ASSERT(!hreq->base.reply.rows.ctx);
-    hreq->base.reply.returnHasRows = false;
     hreq->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
   }
 
