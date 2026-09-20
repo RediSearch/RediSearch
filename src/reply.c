@@ -200,18 +200,29 @@ void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply) {
   _RedisModule_Reply_Next(reply);
 }
 
-static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
+static void _RedisModule_Reply_PushKnown(RedisModule_Reply *reply, int type, int known) {
   StackEntry *e = array_ensure_tail(&reply->stack, StackEntry);
   e->count = 0;
   e->type = type;
+  e->known = known;
 }
 
+static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
+  _RedisModule_Reply_PushKnown(reply, type, -1);
+}
+
+// Pops the frame and returns its element count, or -1 when the length was declared on open (and,
+// in assert builds, verified against what was actually written).
 static int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
   RS_LOG_ASSERT(reply->stack && array_len(reply->stack) > 0, "incomplete reply");
   if (reply->stack && array_len(reply->stack) > 0) {
     StackEntry *e = &array_tail(reply->stack);
-    int count = e->count;
+    int count = e->count, known = e->known;
     reply->stack = array_trimm_len(reply->stack, 1);
+    if (known >= 0) {
+      RS_LOG_ASSERT_FMT(count == known, "reply: declared %d elements, wrote %d", known, count);
+      return -1;
+    }
     return count;
   } else {
     return reply->count;
@@ -328,6 +339,23 @@ int RedisModule_Reply_Map(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_MapWithLen(RedisModule_Reply *reply, size_t entries) {
+  RS_LOG_ASSERT(!RedisModule_Reply_LocalIsKey(reply), "reply: should not write a map as a key");
+  int type;
+  if (reply->resp3) {
+    RedisModule_ReplyWithMap(reply->ctx, entries);
+    json_add(reply, true, "{ ");
+    type = REDISMODULE_REPLY_MAP;
+  } else {
+    RedisModule_ReplyWithArray(reply->ctx, 2 * entries);
+    json_add(reply, true, "[ ");
+    type = REDISMODULE_REPLY_ARRAY;
+  }
+  _RedisModule_Reply_Next(reply);
+  _RedisModule_Reply_PushKnown(reply, type, 2 * entries);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
   if (reply->resp3) {
     json_add_close(reply, " }");
@@ -335,6 +363,7 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
     json_add_close(reply, " ]");
   }
   int count = _RedisModule_Reply_Pop(reply);
+  if (count < 0) return REDISMODULE_OK;
   if (reply->resp3) {
     RedisModule_ReplySetMapLength(reply->ctx, count / 2);
   } else {
@@ -353,10 +382,19 @@ int RedisModule_Reply_Array(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_ArrayWithLen(RedisModule_Reply *reply, size_t len) {
+  RS_LOG_ASSERT(!RedisModule_Reply_LocalIsKey(reply), "reply: should not write an array as a key");
+  RedisModule_ReplyWithArray(reply->ctx, len);
+  json_add(reply, true, "[ ");
+  _RedisModule_Reply_Next(reply);
+  _RedisModule_Reply_PushKnown(reply, REDISMODULE_REPLY_ARRAY, len);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply) {
   json_add_close(reply, " ]");
   int count = _RedisModule_Reply_Pop(reply);
-  RedisModule_ReplySetArrayLength(reply->ctx, count);
+  if (count >= 0) RedisModule_ReplySetArrayLength(reply->ctx, count);
   return REDISMODULE_OK;
 }
 
@@ -512,6 +550,20 @@ int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_ReplyKV_ArrayWithLen(RedisModule_Reply *reply, const char *key, size_t len) {
+  RedisModule_ReplyWithSimpleString(reply->ctx, key);
+  json_add(reply, false, "\"%s\"", key);
+  _RedisModule_Reply_Next(reply);
+  return RedisModule_Reply_ArrayWithLen(reply, len);
+}
+
+int RedisModule_ReplyKV_MapWithLen(RedisModule_Reply *reply, const char *key, size_t entries) {
+  RedisModule_ReplyWithSimpleString(reply->ctx, key);
+  json_add(reply, false, "\"%s\"", key);
+  _RedisModule_Reply_Next(reply);
+  return RedisModule_Reply_MapWithLen(reply, entries);
+}
+
 int RedisModule_ReplyKV_Set(RedisModule_Reply *reply, const char *key) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
@@ -593,7 +645,7 @@ static int replyRSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFla
       return RedisModule_Reply_Null(reply);
 
     case RSValueViewType_Array:
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, view.len);
       for (uint32_t i = 0; i < view.len; i++) {
         replyRSValue(reply, RSValue_ArrayItem(view.resolved, i), flags,
                      RSValueTrioSelection_Middle);
@@ -603,7 +655,7 @@ static int replyRSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFla
 
     case RSValueViewType_Map:
       // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
-      RedisModule_Reply_Map(reply);
+      RedisModule_Reply_MapWithLen(reply, view.len);
       for (uint32_t i = 0; i < view.len; i++) {
         RSValue *key, *val;
         RSValue_Map_GetEntry(view.resolved, i, &key, &val);
@@ -618,6 +670,18 @@ static int replyRSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFla
 
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
   return replyRSValue(reply, v, flags, RSValueTrioSelection_Middle);
+}
+
+size_t RedisModule_Reply_RLookupRowLen(const RLookup *lk, const RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags) {
+  size_t n = 0;
+  RLOOKUP_FOREACH(kk, lk, {
+    const uint32_t kflags = RLookupKey_GetFlags(kk);
+    if (RLookupKey_GetName(kk) && !(kflags & excludeFlags) && (kflags & requiredFlags) == requiredFlags &&
+        RLookupRow_Get(kk, row)) {
+      n++;
+    }
+  });
+  return n;
 }
 
 int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, const RLookupRow *row,

@@ -29,6 +29,7 @@ struct QueryError;
 struct RedisModule_Reply_StackEntry {
     int count;
     int type; // REDISMODULE_REPLY_ARRAY|MAP|SET
+    int known; // element count declared when opened, or -1 when postponed to *End
 };
 
 typedef struct RedisModule_Reply {
@@ -83,6 +84,10 @@ int RedisModule_Reply_Array(RedisModule_Reply *reply);
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Map(RedisModule_Reply *reply);
 int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
+// Open with a known length. A postponed length costs Redis a placeholder node that also splits every
+// element written afterwards into its own block; the matching *End then only closes the frame.
+int RedisModule_Reply_ArrayWithLen(RedisModule_Reply *reply, size_t len);
+int RedisModule_Reply_MapWithLen(RedisModule_Reply *reply, size_t entries);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
@@ -96,6 +101,8 @@ struct RLookupRow;
  * A field is emitted when its key carries all of `requiredFlags`, none of `excludeFlags`,
  * and the row holds a value for it. The caller owns the enclosing map/array. */
 int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const struct RLookup *lk, const struct RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags, SendReplyFlags flags, unsigned int apiVersion);
+// Number of key/value entries RedisModule_Reply_RLookupRow emits for the same arguments.
+size_t RedisModule_Reply_RLookupRowLen(const struct RLookup *lk, const struct RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags);
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);
@@ -105,6 +112,8 @@ int RedisModule_ReplyKV_SimpleStringf(RedisModule_Reply *reply, const char *key,
 int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const RedisModuleString *val);
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
+int RedisModule_ReplyKV_ArrayWithLen(RedisModule_Reply *reply, const char *key, size_t len);
+int RedisModule_ReplyKV_MapWithLen(RedisModule_Reply *reply, const char *key, size_t entries);
 int RedisModule_ReplyKV_Set(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
 

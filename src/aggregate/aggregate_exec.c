@@ -161,9 +161,17 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   size_t count0 = RedisModule_Reply_LocalCount(reply);
   bool has_map = RedisModule_IsRESP3(reply);
+  // Sortkey is the first required field; when it was already sent, the remaining ones go in their own map.
+  const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
+  const size_t requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
+  const bool need_map = has_map && requiredFieldsFrom < requiredFieldsCount;
 
   if (has_map) {
-    RedisModule_Reply_Map(reply);
+    // One entry per section below, plus the trailing "values" placeholder.
+    const size_t entries = !!(options & QEXEC_F_IS_SEARCH) + !!(options & QEXEC_F_SEND_SCORES) +
+                           !!(options & QEXEC_F_SENDRAWIDS) + !!(options & QEXEC_F_SEND_PAYLOADS) +
+                           !!(options & QEXEC_F_SEND_SORTKEYS) + need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
+    RedisModule_Reply_MapWithLen(reply, entries);
   }
 
   if (options & QEXEC_F_IS_SEARCH) {
@@ -190,7 +198,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, 2);
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
       SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);
@@ -232,13 +240,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-
-    // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
-    size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
-    size_t requiredFieldsCount = array_len(req->requiredFields);
-    bool need_map = has_map && currentField < requiredFieldsCount;
+    size_t currentField = requiredFieldsFrom;
     if (need_map) {
-      RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
+      RedisModule_ReplyKV_MapWithLen(reply, "required_fields", requiredFieldsCount - currentField); // >required_fields
     }
     for(; currentField < requiredFieldsCount; currentField++) {
       RequiredField *field = &req->requiredFields[currentField];
@@ -289,9 +293,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
       flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-      RedisModule_Reply_Map(reply);
-      RedisModule_Reply_RLookupRow(reply, lk, SearchResult_GetRowData(r), requiredFlags,
-                                   RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
+      const RLookupRow *rowData = SearchResult_GetRowData(r);
+      RedisModule_Reply_MapWithLen(reply, RedisModule_Reply_RLookupRowLen(lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN));
+      RedisModule_Reply_RLookupRow(reply, lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
       RedisModule_Reply_MapEnd(reply);
     }
   }
@@ -619,7 +623,7 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   if (IsProfile(req)) {
     Profile_PrepareMapForReply(reply);
   } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
   }
 
   RedisModule_Reply_Array(reply);
@@ -877,7 +881,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
  */
 static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
   }
 
   RedisModule_Reply_Map(reply);
@@ -1078,7 +1082,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (reply->resp3) {
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
     }
     // RESP3 format - use map structure
     RedisModule_Reply_Map(reply);
@@ -1154,11 +1158,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
     } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
     }
 
     // RESP2 format - use array structure
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, 1);
 
     // First element is always the total count (0 for empty results)
     RedisModule_Reply_LongLong(reply, 0);
