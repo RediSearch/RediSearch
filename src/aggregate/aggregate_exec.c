@@ -328,43 +328,6 @@ void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
   Pipeline_SerializeResults(&req->base, AREQ_QueryProcessingCtx(req)->endProc, backgroundSerializer(req), &req->base.reply.cv, false, &rc);
 }
 
-static size_t getResultsFactor(AREQ *req) {
-  size_t count = 0;
-  QEFlags reqFlags = AREQ_RequestFlags(req);
-
-  if (reqFlags & QEXEC_F_IS_SEARCH) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SEND_SCORES) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SENDRAWIDS) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SEND_PAYLOADS) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SEND_SORTKEYS) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_REQUIRED_FIELDS) {
-    count += array_len(req->requiredFields);
-    if (reqFlags & QEXEC_F_SEND_SORTKEYS) {
-      count--;
-    }
-  }
-
-  if (!(reqFlags & QEXEC_F_SEND_NOFIELDS)) {
-    count++;
-  }
-  return count;
-}
-
 #ifdef ENABLE_ASSERT
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
 // been marked as timed out by the main-thread timeout callback.
@@ -467,12 +430,11 @@ static void runPipelineCycle(AREQ *req, ResultProcessor *rp, int *rc, const cach
 
 // Publish metadata only after every row is serialized. The completion handshake
 // gives the timeout callback exclusive ownership of rows and the pipeline.
-static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv, size_t limit) {
+static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
   req->base.reply.rc = rc;
   req->base.reply.cv = cv;
-  req->base.reply.limit = limit;
   req->base.reply.hasStoredResults = true;
 
   // Deep copy error state since qctx->err points to a local variable in the caller
@@ -480,22 +442,6 @@ static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv, size_t limit) {
   QueryError_ClearError(&req->base.reply.err);
   QueryError_CloneFrom(qctx->err, &req->base.reply.err);
   QueryError_ClearError(qctx->err);
-}
-
-long calc_results_len(AREQ *req, size_t limit) {
-  long resultsLen;
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-  size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
-  size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
-  size_t resultFactor = getResultsFactor(req);
-
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  // Report matches minus the rows the loader dropped (deleted/re-indexed mid-load).
-  size_t reported = QITR_ReportedTotal(qctx);
-  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? reported : MIN(req->maxSearchResults, reported);
-  size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
-
-  return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
 static void finishSendChunk(AREQ *req, bool cursor_done) {
@@ -591,20 +537,9 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
 }
 
 /**
- * Sets up resultsLen, updates optimizer, and prepares reply arrays.
- * Returns the calculated resultsLen value.
+ * Updates the optimizer's total and opens the reply arrays up to (and including) the total.
  */
-static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx, int rc, size_t limit) {
-  long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
-
-  if (rc == RS_RESULT_ERROR) {
-    resultsLen = 2;
-  } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
-             req->optimizer->type != Q_OPT_NO_SORTER) {
-    resultsLen = calc_results_len(req, limit);
-  }
-
+static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, QueryProcessingCtx *qctx) {
   if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
@@ -619,8 +554,6 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   RedisModule_Reply_Array(reply);
   // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_Reply_LongLong(reply, QITR_ReportedTotal(qctx));
-
-  return resultsLen;
 }
 
 /**
@@ -712,11 +645,11 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * strict timeout callback may serialize them on the main thread the moment it
  * wakes, and must not observe this cycle's dying ctx through sctx->redisCtx.
  * The pipeline is done with the ctx once it reaches here. */
-static void storeResultsForReplyCallback(AREQ *req, int rc, cachedVars cv, size_t limit) {
+static void storeResultsForReplyCallback(AREQ *req, int rc, cachedVars cv) {
   if (!req->base.async.aggregateResultsClaimLost) {
     AREQ_SearchCtx(req)->redisCtx = NULL;
     debugPauseStoreResults(req, true);  // pause before
-    AREQ_StoreResults(req, rc, cv, limit);
+    AREQ_StoreResults(req, rc, cv);
     debugPauseStoreResults(req, false); // pause after
 
     // Signal completion for main-thread timeout
@@ -851,14 +784,14 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
  * Serializes results and handles the main reply logic for RESP3.
  * Returns the final rc value and updates state accordingly.
  */
-static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc, size_t limit) {
+static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (handleSendChunkError(req, reply, qctx, rc)) return true;
 
   if (reply->resp3) {
     prepareSendChunkReply_Resp3(req, reply);
   } else {
-    prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
+    prepareSendChunkReply_Resp2(req, reply, qctx);
   }
   if (shouldReplyWithRows(req, rc)) {
     int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
@@ -907,9 +840,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     int rc = RS_RESULT_EOF;
     runPipelineCycle(req, qctx->endProc, &rc, &cv);
     if (QueryRequest_UsesReplyCallback(&req->base)) {
-      storeResultsForReplyCallback(req, rc, cv, limit);
+      storeResultsForReplyCallback(req, rc, cv);
     } else {
-      bool cursorDone = replyBufferedChunk(req, reply, rc, limit);
+      bool cursorDone = replyBufferedChunk(req, reply, rc);
       finishSendChunk(req, cursorDone);
     }
   } else {
@@ -921,7 +854,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     req->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
     int rc = RS_RESULT_EOF;
     runPipelineCycle(req, qctx->endProc, &rc, &cv);
-    bool cursorDone = replyBufferedChunk(req, reply, rc, limit);
+    bool cursorDone = replyBufferedChunk(req, reply, rc);
     finishSendChunk(req, cursorDone);
     RedisModule_EndReply(&req->base.reply.rows);
     RedisModule_FreeThreadSafeContext(req->base.reply.rows.ctx);
@@ -1494,7 +1427,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   qctx->err = &stored->err;
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool cursorDone = replyBufferedChunk(req, reply, stored->rc, stored->limit);
+  bool cursorDone = replyBufferedChunk(req, reply, stored->rc);
 
   RedisModule_EndReply(reply);
 

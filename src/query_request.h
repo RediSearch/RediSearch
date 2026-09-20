@@ -60,7 +60,6 @@ typedef struct {
    * RETURN_STRICT flip wires every pipeline directly. */
   QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
-  size_t limit;            // Original limit, used to calculate the RESP2 result length
 } ChunkReplyState;
 
 typedef enum {
