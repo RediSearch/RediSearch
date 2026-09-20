@@ -280,13 +280,15 @@ def _exercise_interrupted_serialization(protocol, coordinator, hybrid=False):
                     if coordinator and not hybrid:
                         env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', hook),
                                         1 if policy == 'FAIL' else 5)
+                    # Buffering a row is production work: a timeout while paused inside row
+                    # serialization counts as "executing", not "replying".
                     stats_after = env.cmd('INFO', 'MODULES')
                     kind = 'errors' if policy == 'FAIL' else 'warnings'
                     prefix = f'search_coord_total_query_{kind}_timeout_while_'
-                    env.assertEqual(stats_after[prefix + 'replying'],
-                                    stats_before[prefix + 'replying'] + 1)
                     env.assertEqual(stats_after[prefix + 'executing'],
-                                    stats_before[prefix + 'executing'])
+                                    stats_before[prefix + 'executing'] + 1)
+                    env.assertEqual(stats_after[prefix + 'replying'],
+                                    stats_before[prefix + 'replying'])
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'QUERY_CONTROLLER', free_counter) > free_before, {}),
                     'Blocked reply buffer owner was not freed', timeout=10)

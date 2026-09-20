@@ -97,7 +97,6 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
   RS_Atomic(bool) neverTimedOut = false;
   RS_Atomic(bool) *timedOut = live && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                   ? QueryRequestTimeout_GetBlockedClientFlag(&request->timeout) : &neverTimedOut;
-  QueryRequestAsyncState *async = &request->async;
   RedisModule_Reply *rows = &request->reply.rows;
   SearchResult row = SearchResult_New();
 
@@ -109,13 +108,8 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
     if (*rc != RS_RESULT_OK || !rp->parent->resultLimit) break;
     rp->parent->resultLimit--;
 
-    // REPLY brackets exactly the serialize() call; PIPELINE (the resting phase, including during Next() and the
-    // debug-pause hook below) resumes right after -- a timeout observed while paused there must attribute to
-    // PIPELINE, not REPLY. The marker is frozen once the timeout fires.
-    if (!RS_AtomicBoolLoadRelaxed(timedOut)) QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_REPLY);
     serialize(request, rows, &row, cv);
     SearchResult_Clear(&row);
-    if (!RS_AtomicBoolLoadRelaxed(timedOut)) QueryRequestAsyncState_SetExecutionPhase(async, QUERY_TIMEOUT_STAGE_PIPELINE);
     debugCheckAndPauseAfterAggregateResult(request, live);
     if (RS_AtomicBoolLoadRelaxed(timedOut)) {
       *rc = RS_RESULT_TIMEDOUT;
@@ -160,7 +154,7 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
  * Note that even when this returns false, partial results that BG already
  * serialized into `base.reply.rows` *before* the timeout fired (e.g. for a
  * trivial RPIndex -> RPPager pipeline) are still emitted via the buffered
- * results path in `serializeAndReplyResults_*`; that path is independent
+ * results path in `replyBufferedChunk*`; that path is independent
  * of this classifier.
  *
  * Profile (`FT.PROFILE`) interleaves an RP_PROFILE wrapper around every RP,

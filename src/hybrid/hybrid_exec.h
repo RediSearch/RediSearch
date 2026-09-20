@@ -70,7 +70,7 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  * Serialize results from stored state (reply_callback path for FAIL policy).
  * Called by DistHybridReplyCallback on the main thread after background thread stored results.
  */
-void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
+void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply);
 
 /**
  * Link RETURN_STRICT safe-loader synchronization contexts into the HYBRID tail

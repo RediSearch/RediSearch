@@ -3712,10 +3712,6 @@ cleanup:
     rCtx->cachedResult = NULL;
   }
 
-  // Freeze the stage of an existing timeout before serializing the completed heap.
-  if (req && !MRCtx_IsTimedOut(mc)) {
-    searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
-  }
   if (rCtx && rCtx->pq && !QueryError_HasError(MRCtx_GetStatus(mc))) {
     const bool profile = req->profileArgs > 0;
     rs_wall_clock_ns_t serializationStart = profile ? rs_wall_clock_now_ns() : 0;
@@ -3723,6 +3719,10 @@ cleanup:
     if (profile) {
       req->rowSerializationTime = rs_wall_clock_now_ns() - serializationStart;
     }
+  }
+  // Production (reduce + buffering the heap) is over; a timeout from here on is a reply-stage one.
+  if (req && !MRCtx_IsTimedOut(mc)) {
+    searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
   if (ctx) {

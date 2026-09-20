@@ -1096,7 +1096,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // That means that the background thread didn't reach the aggregation phase (runPipelineCycle) yet.
     // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
     // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
     // aggregation phase so it stores/signals the timed-out state for partial-result handling.
@@ -1166,7 +1166,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
 // Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
 // RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
-// check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
+// check at runPipelineCycle handles pipeline-side bails, and pre-pipeline
 // bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
 // on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
