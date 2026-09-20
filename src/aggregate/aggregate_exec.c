@@ -84,6 +84,7 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+static void replyStoredResults(AREQ *req, RedisModule_Reply *reply);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -437,8 +438,9 @@ static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv) {
   req->base.reply.cv = cv;
   req->base.reply.hasStoredResults = true;
 
-  // Deep copy error state since qctx->err points to a local variable in the caller
-  // which will go out of scope. QueryError contains heap-allocated strings.
+  // TODO(MOD-17486): drop once every pipeline reports straight into reply.err. Until then
+  // qctx->err points at the executing frame's stack QueryError, so the reply phase (possibly a
+  // later main-thread callback) needs its own copy.
   QueryError_ClearError(&req->base.reply.err);
   QueryError_CloneFrom(qctx->err, &req->base.reply.err);
   QueryError_ClearError(qctx->err);
@@ -829,30 +831,20 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   qctx->resultLimit = limit;
 
-  if (req->base.blockedClientCycleActive) {
-    int rc = RS_RESULT_EOF;
-    runPipelineCycle(req, qctx->endProc, &rc, &cv);
-    if (QueryRequest_UsesReplyCallback(&req->base)) {
-      storeResultsForReplyCallback(req, rc, cv);
-    } else {
-      bool cursorDone = replyBufferedChunk(req, reply, rc);
-      finishSendChunk(req, cursorDone);
-    }
+  // Execute, store, reply. A blocked cycle opened its reply buffer when it began; a foreground
+  // call opens one here for the duration of the call. With a reply callback the reply phase runs
+  // later on the main thread (AREQ_ReplyWithStoredResults); otherwise it runs right here.
+  const bool foreground = !req->base.blockedClientCycleActive;
+  if (foreground) ChunkReplyState_OpenBuffer(&req->base.reply, reply->ctx);
+  int rc = RS_RESULT_EOF;
+  runPipelineCycle(req, qctx->endProc, &rc, &cv);
+  if (QueryRequest_UsesReplyCallback(&req->base)) {
+    storeResultsForReplyCallback(req, rc, cv);
   } else {
-    // Foreground: serialize into a transient reply buffer the same way a
-    // background cycle serializes into its persistent one, then finalize
-    // with the same O(1) move -- performed inline here rather than from a
-    // later reply callback, since nothing blocked.
-    RS_ASSERT(!req->base.reply.rows.ctx);
-    req->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
-    int rc = RS_RESULT_EOF;
-    runPipelineCycle(req, qctx->endProc, &rc, &cv);
-    bool cursorDone = replyBufferedChunk(req, reply, rc);
-    finishSendChunk(req, cursorDone);
-    RedisModule_EndReply(&req->base.reply.rows);
-    RedisModule_FreeThreadSafeContext(req->base.reply.rows.ctx);
-    req->base.reply.rows.ctx = NULL;
+    AREQ_StoreResults(req, rc, cv);
+    replyStoredResults(req, reply);
   }
+  if (foreground) ChunkReplyState_CloseBuffer(&req->base.reply);
 
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
@@ -1409,28 +1401,29 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   return REDISMODULE_OK;
 }
 
-// Reply with stored results from Coord/Shard reply callback (called on main thread).
-void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
-  // The worker published metadata together with the completed serialized rows.
+// The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after
+// AREQ_StoreResults for foreground and direct background replies, or from the main-thread reply
+// callback via AREQ_ReplyWithStoredResults.
+static void replyStoredResults(AREQ *req, RedisModule_Reply *reply) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ChunkReplyState *stored = &req->base.reply;
 
-  // Point qctx->err to the stored error so replyBufferedChunk/finishSendChunk can access it.
-  // This is the end of the request lifecycle, so no need to restore.
+  // The stored error is the cycle's error from here on; the executing frame's QueryError is gone
+  // (or already cleared by AREQ_StoreResults).
   qctx->err = &stored->err;
-
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool cursorDone = replyBufferedChunk(req, reply, stored->rc);
+  stored->hasStoredResults = false;
+  finishSendChunk(req, cursorDone);
+}
 
+// Reply with stored results from Coord/Shard reply callback (called on main thread).
+void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  replyStoredResults(req, reply);
   RedisModule_EndReply(reply);
 
-  stored->hasStoredResults = false;
-
-  // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
-  finishSendChunk(req, cursorDone);
-
-  // Record the cursor resolution now that QEXEC_S_ITERDONE is known (set by
-  // finishSendChunk above).
+  // With a reply callback, resolving the cursor is the main thread's job (runCursor does it for
+  // direct replies). QEXEC_S_ITERDONE is known now, set by finishSendChunk above.
   if (req->base.cursorInfo.cursor) {
     AREQ_CursorEndOfCycle(req, req->base.cursorInfo.cursor, req->stateflags & QEXEC_S_ITERDONE);
   }

@@ -536,30 +536,25 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
                   ((cv.options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0);
   cv.apiVersion = HREQ_SearchCtx(hreq)->apiVersion;
 
-  // Foreground: serialize into a transient reply buffer the same way a
-  // background cycle serializes into its persistent one, then finalize with
-  // the same O(1) move -- performed inline below rather than from a later
-  // reply callback, since nothing blocked. A foreground cycle never uses the
-  // reply-callback path (that requires having been blocked), so the buffer
-  // is always freed before this function returns.
-  bool foreground = !hreq->base.blockedClientCycleActive;
-  if (foreground) {
-    RS_ASSERT(!hreq->base.reply.rows.ctx);
-    hreq->base.reply.rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(reply->ctx));
-  }
+  // Execute, store, reply. A blocked cycle opened its reply buffer when it began; a foreground
+  // call opens one here for the duration of the call. With a reply callback the reply phase runs
+  // later on the main thread (HREQ_ReplyWithStoredResults); otherwise it runs right here.
+  const bool foreground = !hreq->base.blockedClientCycleActive;
+  if (foreground) ChunkReplyState_OpenBuffer(&hreq->base.reply, reply->ctx);
 
   int rc = RS_RESULT_EOF;
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   ResultProcessor *rp = qctx->endProc;
-  QueryError err = QueryError_Default();
 
   // Set the chunk size limit for the query
   rp->parent->resultLimit = limit;
 
   // Check if timed out before executing pipeline
   if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-    // Timeout callback already replied - skip to cleanup without replying
-    goto done_err;
+    // Timeout callback already replied: account for the cycle without replying.
+    QueryError none = QueryError_Default();
+    finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &none);
+    goto done;
   }
 
   runPipelineCycle_hybrid(hreq, rp, &rc, &cv);
@@ -576,7 +571,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
   }
 
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
-    // Store results for reply_callback (includes cv)
     debugPauseStoreResultsHybrid(hreq, true);  // pause before
     HREQ_StoreResults(hreq, rc, cv);
     debugPauseStoreResultsHybrid(hreq, false); // pause after
@@ -585,37 +579,28 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
       HybridRequest_SignalAggregateResultsComplete(hreq);
     }
-
-    return;
+  } else {
+    HREQ_StoreResults(hreq, rc, cv);
+    HREQ_ReplyWithStoredResults(hreq, reply);
   }
 
-  // Get errors before replying (do not clear here; cleanup/teardown will handle it)
-  HybridRequest_GetError(hreq, &err);
-
-  replyBufferedChunk_hybrid(hreq, reply, qctx, rc, &err);
-
-done_err:
-  finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
-  if (foreground) {
-    RedisModule_EndReply(&hreq->base.reply.rows);
-    RedisModule_FreeThreadSafeContext(hreq->base.reply.rows.ctx);
-    hreq->base.reply.rows.ctx = NULL;
-  }
+done:
+  if (foreground) ChunkReplyState_CloseBuffer(&hreq->base.reply);
 }
 
 /**
- * Reply from the stored state (reply_callback path). Called on the main thread after the
- * background thread stored its results.
+ * The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after
+ * HREQ_StoreResults for foreground and direct background replies, or from the main-thread reply
+ * callback once the background thread stored its results.
  */
 void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply) {
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   ChunkReplyState *stored = &hreq->base.reply;
 
-  // The error lives on hreq; the stack QueryError the pipeline pointed at during execution is gone
-  // (the background thread returned), so point qctx->err at a local copy for the reply helpers.
+  // A hard error (tail or subquery) replies as the error; soft tail errors stay in
+  // hreq->tailPipelineError (qctx->err) for the warning path to render.
   QueryError err = QueryError_Default();
   HybridRequest_GetError(hreq, &err);
-  qctx->err = &err;
 
   replyBufferedChunk_hybrid(hreq, reply, qctx, stored->rc, &err);
   stored->hasStoredResults = false;
