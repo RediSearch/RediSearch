@@ -67,8 +67,8 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
 
 /**
- * Serialize results from stored state (reply_callback path for FAIL policy).
- * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ * The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after the
+ * results were stored when nothing defers the reply, or from the main-thread reply callback.
  */
 void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply);
 
