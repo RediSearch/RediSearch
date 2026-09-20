@@ -52,7 +52,11 @@ typedef struct {
   // The context is borrowed from Redis; the wrapper owns its reusable scratch.
   RedisModule_Reply rows;
   int rc;                 // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
-  bool hasStoredResults;   // Whether results are available to the reply callback
+  /* Whether the cycle reached StoreResults, as opposed to bailing before the pipeline with only
+   * `err` set. TODO(MOD-17486): once every bail reports into `err` and every cycle stores, the
+   * reply phase handles both alike (an error reply with an empty buffer) and this flag, with the
+   * "no results stored" branches of the reply callbacks, goes. */
+  bool hasStoredResults;
   /* The cycle's error and warnings — the request's single error slot. Hybrid
    * sub-pipelines report into it directly (a sub's results are published by
    * the parent's reply). TRANSITIONAL(MOD-17486): parents still clone the
