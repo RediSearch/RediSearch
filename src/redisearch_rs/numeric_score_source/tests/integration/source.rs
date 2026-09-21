@@ -894,6 +894,41 @@ fn factory_passes_the_query_deadline_to_both_constructions() {
 }
 
 #[test]
+fn factory_filtered_expands_window_to_reach_matches() {
+    // A real (non-wildcard) child routes through the filtered reduction, lowered
+    // to the C ABI as production passes it. Multi-leaf tree, doc_id == value == i,
+    // DESC: the child's selectivity sizes an initial window that stops inside the
+    // highest-valued leaf, while every match sits below it — so the source must
+    // expand before the heap can fill, and the drained results are the child's
+    // two best matches rather than the window's.
+    let tree = build_tree(20, false, 0);
+    assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
+    let child = CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![1u64, 2, 3, 4]));
+
+    let built = new_numeric_top_k(
+        &tree,
+        full_range(),
+        false,
+        2,
+        20,
+        NumericOptimizerMode::Hybrid,
+        AllValid,
+        NoOpChecker,
+        NoTimeoutChecker,
+        Some(child),
+    );
+    let NewNumericTopK::Filtered(mut it) = built else {
+        panic!("expected filtered reduction for an id-list child");
+    };
+
+    assert_eq!(drain_top_k(&mut it), vec![(4, 4.0), (3, 3.0)]);
+    assert!(
+        it.metrics().strategy_switches >= 1,
+        "the estimate-sized initial window could not hold k matches"
+    );
+}
+
+#[test]
 fn rewind_after_timeout_reproduces_full_results() {
     // k == doc count forces the whole index to be read (the heap never fills, so
     // no early `Stop`), guaranteeing the one-shot timeout fires mid-collection.
