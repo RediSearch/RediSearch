@@ -180,20 +180,13 @@ int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix
   return rc;
 }
 
+// The element counter of the innermost open collection, or the reply's own once every frame was closed.
+static int *replyElementCount(RedisModule_Reply *reply) {
+  return reply->stack && array_len(reply->stack) ? &array_tail(reply->stack).count : &reply->count;
+}
+
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
-  StackEntry *e = 0;
-  int *count;
-  if (reply->stack) {
-    if (!array_len(reply->stack)) {
-      e = array_ensure_tail(&reply->stack, StackEntry);
-    } else {
-      e = &array_tail(reply->stack);
-    }
-    count = &e->count;
-  } else {
-    count = &reply->count;
-  }
-  ++*count;
+  ++*replyElementCount(reply);
 }
 
 void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply) {
@@ -672,12 +665,20 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
   return replyRSValue(reply, v, flags, RSValueTrioSelection_Middle);
 }
 
+// The row value RedisModule_Reply_RLookupRow emits for `kk`, or NULL when the key is skipped. Shared with the
+// counting pass so a declared map length can never disagree with what gets written.
+static inline const RSValue *rlookupRowReplyValue(const RLookupKey *kk, const RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags) {
+  const uint32_t kflags = RLookupKey_GetFlags(kk);
+  if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) || (kflags & requiredFlags) != requiredFlags) {
+    return NULL;
+  }
+  return RLookupRow_Get(kk, row);
+}
+
 size_t RedisModule_Reply_RLookupRowLen(const RLookup *lk, const RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags) {
   size_t n = 0;
   RLOOKUP_FOREACH(kk, lk, {
-    const uint32_t kflags = RLookupKey_GetFlags(kk);
-    if (RLookupKey_GetName(kk) && !(kflags & excludeFlags) && (kflags & requiredFlags) == requiredFlags &&
-        RLookupRow_Get(kk, row)) {
+    if (rlookupRowReplyValue(kk, row, requiredFlags, excludeFlags)) {
       n++;
     }
   });
@@ -695,12 +696,7 @@ int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const RLookup *lk, co
   }
 
   RLOOKUP_FOREACH(kk, lk, {
-    const uint32_t kflags = RLookupKey_GetFlags(kk);
-    if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) ||
-        (kflags & requiredFlags) != requiredFlags) {
-      continue;
-    }
-    const RSValue *v = RLookupRow_Get(kk, row);
+    const RSValue *v = rlookupRowReplyValue(kk, row, requiredFlags, excludeFlags);
     if (!v) {
       continue;
     }
