@@ -2317,6 +2317,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "sorting_vector",
  "thin_vec",
  "value",
