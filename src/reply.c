@@ -210,7 +210,8 @@ static int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
   RS_LOG_ASSERT(reply->stack && array_len(reply->stack) > 0, "incomplete reply");
   if (reply->stack && array_len(reply->stack) > 0) {
     StackEntry *e = &array_tail(reply->stack);
-    int count = e->count, known = e->known;
+    int count = e->count;
+    int known = e->known;
     reply->stack = array_trimm_len(reply->stack, 1);
     if (known >= 0) {
       RS_LOG_ASSERT_FMT(count == known, "reply: declared %d elements, wrote %d", known, count);

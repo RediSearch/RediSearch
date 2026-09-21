@@ -178,7 +178,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     // One entry per section below, plus the trailing "values" placeholder.
     const size_t entries = !!(options & QEXEC_F_IS_SEARCH) + !!(options & QEXEC_F_SEND_SCORES) +
                            !!(options & QEXEC_F_SENDRAWIDS) + !!(options & QEXEC_F_SEND_PAYLOADS) +
-                           !!(options & QEXEC_F_SEND_SORTKEYS) + need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
+                           !!(options & QEXEC_F_SEND_SORTKEYS) + (size_t)need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
     RedisModule_Reply_MapWithLen(reply, entries);
   }
 
