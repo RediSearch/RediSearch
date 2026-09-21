@@ -670,7 +670,7 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
 // counting pass so a declared map length can never disagree with what gets written.
 static inline const RSValue *rlookupRowReplyValue(const RLookupKey *kk, const RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags) {
   const uint32_t kflags = RLookupKey_GetFlags(kk);
-  if (!RLookupKey_GetName(kk) || (kflags & excludeFlags) || (kflags & requiredFlags) != requiredFlags) {
+  if ((kflags & excludeFlags) || (kflags & requiredFlags) != requiredFlags) {
     return NULL;
   }
   return RLookupRow_Get(kk, row);
