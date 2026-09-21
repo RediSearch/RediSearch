@@ -166,6 +166,14 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   const size_t requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
   const bool need_map = has_map && requiredFieldsFrom < requiredFieldsCount;
 
+  if ((options & QEXEC_F_IS_SEARCH) && !dmd) {
+    // Empty results should not be serialized! We already crashed in development env. In production,
+    // log and skip the row -- before opening its map, so the reply stays well-formed.
+    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
+    RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
+    return 0;
+  }
+
   if (has_map) {
     // One entry per section below, plus the trailing "values" placeholder.
     const size_t entries = !!(options & QEXEC_F_IS_SEARCH) + !!(options & QEXEC_F_SEND_SCORES) +
@@ -176,13 +184,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   if (options & QEXEC_F_IS_SEARCH) {
     size_t n;
-    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
-    if (!dmd) {
-      // Empty results should not be serialized!
-      // We already crashed in development env. In production, log and continue
-      RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
-      return 0;
-    }
     const char *s = DMD_KeyPtrLen(dmd, &n);
     if (has_map) {
       RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);

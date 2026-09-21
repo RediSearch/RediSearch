@@ -39,9 +39,12 @@ static void recExplainDestroy(RSScoreExplain *scrExp) {
   rm_free(scrExp->str);
 }
 
+// Always emits exactly one element: callers open the enclosing array with a declared length.
 void SEReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp) {
   if (scrExp != NULL) {
     recExplainReply(reply, scrExp, 1);
+  } else {
+    RedisModule_Reply_Null(reply);
   }
 }
 
