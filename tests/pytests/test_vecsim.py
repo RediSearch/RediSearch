@@ -1348,10 +1348,10 @@ def test_hybrid_query_non_vector_score():
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop():
-    """A filtered KNN query scores its text prefilter as if the matched terms
-    were adjacent: the scorer receives the prefilter alongside the distance
-    metric, and the slop walk pairs only top-level siblings, so the terms' real
-    offset distance never reaches the divisor."""
+    """A filtered KNN query scores its text prefilter exactly as the prefilter
+    scores on its own: the scorer receives the prefilter's own intersection of
+    term records, so the slop walk pairs the two terms and their real offset
+    distance reaches the divisor."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1386,18 +1386,18 @@ def test_hybrid_query_scorer_slop():
                               message=[scorer, text_only])
         env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
                               message=[scorer, hybrid])
-        # Under a KNN the gap between the terms is invisible, so the divisor
-        # falls back to a distance of one rather than the distance they are at.
-        env.assertAlmostEqual(undivided / hybrid['separated'], 1.0, 0.01,
+        # The KNN does not hide the gap between the terms, so the divisor is the
+        # distance they are actually at — the same one the prefilter charges.
+        env.assertAlmostEqual(undivided / hybrid['separated'], 3.0, 0.01,
                               message=[scorer, hybrid])
 
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop_ranking():
-    """The ranking a filtered KNN query replies with: a boosted document whose
-    matched terms are far apart outranks a tighter, unboosted one, because under
-    a KNN the distance between the terms is not charged against it. The same
-    prefilter on its own ranks the two the other way round."""
+    """The ranking a filtered KNN query replies with: a tighter, unboosted
+    document outranks a boosted one whose matched terms are far apart, because
+    the distance between the terms is charged against it under a KNN just as it
+    is without one. Both queries rank the two the same way."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1417,12 +1417,13 @@ def test_hybrid_query_scorer_slop_ranking():
                'NOCONTENT').equal([2, 'tight', 'boosted'])
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT',
-               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted', 'tight'])
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight', 'boosted'])
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
-               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted'])
-    # `k` selects candidates by vector distance before any scoring, so the
-    # nearest vector is the answer whatever the relevance ranking says.
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight'])
+    # `k` selects candidates by vector distance before any scoring. The nearest
+    # vector is also the top-ranked document here, so this pins the narrowing to
+    # one candidate rather than telling the two orderings apart.
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT',
                'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
