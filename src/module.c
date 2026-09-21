@@ -3272,7 +3272,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   rCtx->pq = NULL;
 
   //-------------------------------------------------------------------------------------------
-  RedisModule_Reply_Map(reply);
+  // RESP2 is a flat array: total, then each result's fields in sequence.
+  RedisModule_Reply_MapOrArray(reply);
   if (reply->resp3) // RESP3
   {
     RedisModule_Reply_SimpleString(reply, "attributes");
@@ -3297,18 +3298,15 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         // Reply warning
         MR_ReplyWithMRReply(reply, currentWarning);
       }
-      RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_ArrayWithLen(reply, 1);
-        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
-      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     } else if (req->timedOut) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
       RedisModule_Reply_ArrayWithLen(reply, 1);
-        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
-      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -3336,9 +3334,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
           if (req->withExplainScores) {
             RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-              RedisModule_Reply_Double(reply, res->score);
-              MR_ReplyWithMRReply(reply, res->explainScores);
-            RedisModule_Reply_ArrayEnd(reply);
+            RedisModule_Reply_Double(reply, res->score);
+            MR_ReplyWithMRReply(reply, res->explainScores);
           } else {
             RedisModule_Reply_Double(reply, res->score);
           }
@@ -3363,7 +3360,6 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
         RedisModule_Reply_SimpleString(reply, "values");
         RedisModule_Reply_EmptyArray(reply);
-      RedisModule_Reply_MapEnd(reply); // >>result
     }
 
     RedisModule_Reply_ArrayEnd(reply); // >results
@@ -3379,9 +3375,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       if (req->withScores) {
         if (req->withExplainScores) {
           RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-            RedisModule_Reply_Double(reply, res->score);
-            MR_ReplyWithMRReply(reply, res->explainScores);
-          RedisModule_Reply_ArrayEnd(reply);
+          RedisModule_Reply_Double(reply, res->score);
+          MR_ReplyWithMRReply(reply, res->explainScores);
         } else {
           RedisModule_Reply_Double(reply, res->score);
         }
@@ -3401,7 +3396,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       }
     }
   }
-  RedisModule_Reply_MapEnd(reply);
+  RedisModule_Reply_MapOrArrayEnd(reply);
 
   if (req->queryOOM) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
@@ -3433,11 +3428,10 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
   bool has_map = RedisModule_IsRESP3(reply);
-  RedisModule_Reply_Map(reply); // root
-    // Have a named map for the results for RESP3
-    if (has_map) {
-      RedisModule_Reply_SimpleString(reply, "Results"); // >results
-    }
+  RedisModule_Reply_MapOrArray(reply); // root; RESP2: results, then the profile sections
+  if (has_map) {
+    RedisModule_Reply_SimpleString(reply, "Results"); // >results
+  }
     sendSearchResults(reply, rCtx);
 
     // print profile of shards & coordinator
@@ -3453,7 +3447,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     };
     Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
 
-    RedisModule_Reply_MapEnd(reply); // >root
+  RedisModule_Reply_MapOrArrayEnd(reply); // >root
 }
 
 // Coordinator reply with empty search results for FT.SEARCH command.

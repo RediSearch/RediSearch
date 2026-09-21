@@ -1048,7 +1048,7 @@ REPLY_FUNC(WithLongLong, long long)
 REPLY_FUNC(WithSimpleString, const char *)
 REPLY_FUNC(WithStringBuffer, const char *, size_t)
 REPLY_FUNC(WithDouble, double)
-REPLY_FUNC(WithString, RedisModuleString)
+REPLY_FUNC(WithString, RedisModuleString *)
 
 int RMCK_ReplyWithNull(RedisModuleCtx *) {
   return REDISMODULE_OK;
@@ -1099,6 +1099,16 @@ int RMCK_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
 
 int RMCK_ReplySetMapLength(RedisModuleCtx *ctx, long len) {
   logReplyCollection(ctx, "setmap", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithSet(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "set", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplySetSetLength(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "setset", len);
   return REDISMODULE_OK;
 }
 
@@ -1854,9 +1864,11 @@ static void registerApis() {
   REGISTER_API(ReplyWithMap);
   REGISTER_API(ReplySetArrayLength);
   REGISTER_API(ReplySetMapLength);
-  // REGISTER_API(ReplyWithStringBuffer);
-  // REGISTER_API(ReplyWithDouble);
-  // REGISTER_API(ReplyWithString);
+  REGISTER_API(ReplyWithSet);
+  REGISTER_API(ReplySetSetLength);
+  REGISTER_API(ReplyWithStringBuffer);
+  REGISTER_API(ReplyWithDouble);
+  REGISTER_API(ReplyWithString);
   REGISTER_API(ReplyWithNull);
   REGISTER_API(ReplyWithError);
   REGISTER_API(ReplyWithErrorFormat);
