@@ -129,6 +129,19 @@ typedef uint32_t RLookup_Opt;
 #endif // __cplusplus
 
 /**
+ * Hash field names as [`RedisString`]s, one per lookup key, indexed by the key's `dstidx`.
+ *
+ * A field fetched by C string makes Redis allocate a transient string object per call;
+ * a [`RedisString`] is read in place. A loader that fetches the same fields for every
+ * document builds each name once here and reuses it, so the cache lives as long as the
+ * loader, not the document.
+ *
+ * Names are detached strings (created without a context), so they may be freed on
+ * whichever thread drops the cache.
+ */
+typedef struct HashFieldNames HashFieldNames;
+
+/**
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a list of [`RLookupKey`]s addressable by string name.

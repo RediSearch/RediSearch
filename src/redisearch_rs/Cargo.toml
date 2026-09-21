@@ -251,7 +251,7 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "f4d68b97520aafc9baa2a946d42652415c4df002"
+rev = "705606f0286627ae0faf1f1bdce0316751ffa599"
 # `default-features = false` is load-bearing. Members declare a plain
 # `redis-module.workspace = true` and rely on it contributing no features, so that
 # c_entrypoint/redisearch_rs/Cargo.toml is the only hand-written place choosing

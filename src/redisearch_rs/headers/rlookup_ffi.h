@@ -51,6 +51,12 @@ typedef struct LoadIndividualKeysOptions {
    * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
    */
   struct LoadFieldProfile *profile_fields;
+  /**
+   * Optional [`HashFieldNames`] shared by every document this loader
+   * processes (see [`HashFieldNames_New`]). Null makes each load build its
+   * field names afresh.
+   */
+  const struct HashFieldNames *field_names;
 } LoadIndividualKeysOptions;
 
 /**
@@ -106,6 +112,22 @@ typedef struct RSSortingVectorSlice {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Free a cache created by [`HashFieldNames_New`]. Null is a no-op.
+ *
+ * # Safety
+ *
+ * 1. `names` must be null or a pointer returned by [`HashFieldNames_New`]. Each non-null
+ *    pointer may be passed here exactly once, by exactly one thread, with no load in
+ *    progress on it and no `LoadIndividualKeysOptions` referencing it used afterwards.
+ */
+void HashFieldNames_Free(struct HashFieldNames *names);
+
+/**
+ * Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
+ */
+struct HashFieldNames *HashFieldNames_New(void);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -583,6 +605,8 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  * 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
  *    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
  *    pointer to a properly initialized key that outlives this call.
+ * 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
+ *    has not been freed, and no other thread may access it for the duration of this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
