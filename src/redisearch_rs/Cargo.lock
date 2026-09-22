@@ -3615,6 +3615,7 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
+ "itoa",
  "libc",
  "nul_terminated_bytes",
  "query_error",

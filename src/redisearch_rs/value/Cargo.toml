@@ -12,6 +12,7 @@ test = false
 c_ffi_utils = { workspace = true }
 cheadergen.workspace = true
 ffi.workspace = true
+itoa.workspace = true
 libc.workspace = true
 query_error.workspace = true
 nul_terminated_bytes.workspace = true

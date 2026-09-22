@@ -208,6 +208,7 @@ hashbrown = { version = "0.17.1", default-features = false, features = ["inline-
 icu_casemap = "2.2.0"
 insta = "1.46.1"
 itertools = "0.15.0"
+itoa = "1.0.18"
 lending-iterator = "0.1.7"
 libc = "0.2.180"
 nix = { version = "0.26", default-features = false, features = ["poll"] }
