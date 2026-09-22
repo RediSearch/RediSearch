@@ -117,7 +117,6 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     .shardMemoryBytes = shard_memory_bytes,
     .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
-    .writeBufferSizeKB = RSGlobalConfig.diskWriteBufferSizeKB,
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
   };
   disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
@@ -235,22 +234,6 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
     };
 }
 
-static size_t SearchDisk_WriteBearingCfCount(const IndexSpec *sp) {
-  size_t count = 1;
-  bool hasText = false;
-  for (uint16_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *field = &sp->fields[i];
-    if (!FieldSpec_IsIndexable(field)) {
-      continue;
-    }
-    hasText |= FIELD_IS(field, INDEXFLD_T_FULLTEXT);
-    count += FIELD_IS(field, INDEXFLD_T_TAG) != 0;
-    count += FIELD_IS(field, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO) != 0;
-    count += FIELD_IS(field, INDEXFLD_T_VECTOR) != 0;
-  }
-  return count + hasText;
-}
-
 // Basic API wrappers
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
     RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
@@ -259,7 +242,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
     SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
     RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
         ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
-        isRestore, SearchDisk_WriteBearingCfCount(c_index_spec), &callbacks, c_index_spec);
+        isRestore, &callbacks, c_index_spec);
     if (result) {
         // Open atomically registers with BigModule, so the spec needs a
         // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
@@ -325,7 +308,7 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState,
-      SearchDisk_WriteBearingCfCount(c_index_spec), &callbacks, c_index_spec);
+      &callbacks, c_index_spec);
   if (result) {
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
