@@ -871,6 +871,215 @@ TEST(SearchResultComparisonTest, legacyFieldComparatorPreservesFallbackAndErrors
   RLookup_Cleanup(&lookup);
 }
 
+// A shared row cursor models an upstream that can transfer different rows to either path.
+struct PagerDrainSource : ResultProcessor {
+  std::atomic<size_t> cursor{0};
+  std::atomic<bool> entered{false}, release{true};
+  bool pauseBeforeClaim = true;
+  size_t nextCalls = 0, drainCalls = 0;
+  int nextStatus = RS_RESULT_OK;
+  RPDrainStatus drainTerminal = RP_DRAIN_EOF;
+  size_t rows = 8;
+
+  void pause() {
+    entered.store(true, std::memory_order_release);
+    while (!release.load(std::memory_order_acquire)) std::this_thread::yield();
+  }
+
+  bool claim(SearchResult *result) {
+    size_t row = cursor.fetch_add(1);
+    if (row >= rows) return false;
+    SearchResult_SetDocId(result, row + 1);
+    SearchResult_SetScore(result, row + 1);
+    return true;
+  }
+
+  PagerDrainSource() {
+    *static_cast<ResultProcessor *>(this) = {};
+    Next = [](ResultProcessor *base, SearchResult *result) -> int {
+      auto *self = static_cast<PagerDrainSource *>(base);
+      ++self->nextCalls;
+      if (self->pauseBeforeClaim) self->pause();
+      if (self->nextStatus != RS_RESULT_OK) return self->nextStatus;
+      bool row = self->claim(result);
+      if (!self->pauseBeforeClaim) self->pause();
+      return row ? RS_RESULT_OK : RS_RESULT_EOF;
+    };
+    Drain = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = static_cast<PagerDrainSource *>(base);
+      ++self->drainCalls;
+      return self->claim(result) ? RP_DRAIN_OK : self->drainTerminal;
+    };
+  }
+};
+
+class PagerDrainTest : public ::testing::Test {
+ protected:
+  QueryProcessingCtx qctx = {};
+  PagerDrainSource source;
+  ResultProcessor *pager = nullptr;
+  SearchResult result = SearchResult_New();
+
+  void create(size_t offset, size_t limit, RSTimeoutPolicy policy = TimeoutPolicy_ReturnStrict) {
+    qctx.timeoutPolicy = policy;
+    qctx.resultLimit = 10;
+    pager = RPPager_New(offset, limit);
+    pager->parent = &qctx;
+    pager->upstream = &source;
+  }
+
+  std::vector<double> drain() {
+    std::vector<double> rows;
+    RPDrainStatus status;
+    while ((status = pager->Drain(pager, &result)) == RP_DRAIN_OK) {
+      rows.push_back(SearchResult_GetScore(&result));
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, status);
+    return rows;
+  }
+
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    if (pager) pager->Free(pager);
+  }
+};
+
+TEST_F(PagerDrainTest, unstartedDrainAppliesOffsetAndLimitWithoutQueryScratch) {
+  create(2, 2);
+  EXPECT_EQ((std::vector<double>{3, 4}), drain());
+  EXPECT_EQ(0, source.nextCalls);
+  EXPECT_EQ(4, source.drainCalls);
+  EXPECT_EQ(10, qctx.resultLimit);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, pager->Next(pager, &result));
+}
+
+TEST_F(PagerDrainTest, zeroLimitDoesNotPullUpstream) {
+  create(3, 0);
+  EXPECT_TRUE(drain().empty());
+  EXPECT_EQ(0, source.drainCalls);
+}
+
+TEST_F(PagerDrainTest, returnDrainsRemainingBudgetAfterNextUnwinds) {
+  create(2, 2, TimeoutPolicy_Return);
+  ASSERT_EQ(RS_RESULT_OK, pager->Next(pager, &result));
+  EXPECT_EQ(3, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ((std::vector<double>{4}), drain());
+  EXPECT_EQ(10, qctx.resultLimit);
+}
+
+TEST_F(PagerDrainTest, failKeepsSequentialPaging) {
+  create(2, 2, TimeoutPolicy_Fail);
+  for (double score : {3, 4}) {
+    ASSERT_EQ(RS_RESULT_OK, pager->Next(pager, &result));
+    EXPECT_EQ(score, SearchResult_GetScore(&result));
+    SearchResult_Clear(&result);
+  }
+  EXPECT_EQ(RS_RESULT_EOF, pager->Next(pager, &result));
+  EXPECT_EQ(0, source.drainCalls);
+  EXPECT_EQ(10, qctx.resultLimit);
+}
+
+TEST_F(PagerDrainTest, strictDrainPreservesCommittedSkipsAndOutputPrefix) {
+  create(2, 3);
+  ASSERT_EQ(RS_RESULT_OK, pager->Next(pager, &result));
+  EXPECT_EQ(3, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  EXPECT_EQ((std::vector<double>{4, 5}), drain());
+  EXPECT_EQ(3, source.nextCalls);
+  EXPECT_EQ(2, source.drainCalls);
+  EXPECT_EQ(10, qctx.resultLimit);
+}
+
+TEST_F(PagerDrainTest, uncommittedSkipNeverExposesPreOffsetRow) {
+  for (bool beforeClaim : {true, false}) {
+    create(1, 2);
+    source.cursor.store(0);
+    source.entered.store(false);
+    source.release.store(false);
+    source.pauseBeforeClaim = beforeClaim;
+    SearchResult next = SearchResult_New();
+    int status = RS_RESULT_MAX;
+    std::thread worker([&] { status = pager->Next(pager, &next); });
+    bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+    if (entered) {
+      EXPECT_EQ(beforeClaim ? (std::vector<double>{2, 3}) : (std::vector<double>{3, 4}), drain());
+    }
+    source.release.store(true, std::memory_order_release);
+    worker.join();
+    EXPECT_TRUE(entered);
+    EXPECT_EQ(RS_RESULT_TIMEDOUT, status);
+    EXPECT_TRUE(drain().empty());
+    SearchResult_Destroy(&next);
+    pager->Free(pager);
+    pager = nullptr;
+  }
+}
+
+TEST_F(PagerDrainTest, outstandingOutputReservesCapacityAndLateFailureCannotRefundIt) {
+  for (int terminal : {RS_RESULT_OK, RS_RESULT_TIMEDOUT}) {
+    create(0, 2);
+    source.cursor.store(0);
+    source.entered.store(false);
+    source.release.store(false);
+    source.nextStatus = terminal;
+    SearchResult next = SearchResult_New();
+    int status = RS_RESULT_MAX;
+    std::thread worker([&] { status = pager->Next(pager, &next); });
+    bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+    if (entered) EXPECT_EQ((std::vector<double>{1}), drain());
+    source.release.store(true, std::memory_order_release);
+    worker.join();
+    EXPECT_TRUE(entered);
+    EXPECT_EQ(terminal, status);
+    if (terminal == RS_RESULT_OK) EXPECT_EQ(2, SearchResult_GetScore(&next));
+    EXPECT_TRUE(drain().empty());
+    SearchResult_Destroy(&next);
+    pager->Free(pager);
+    pager = nullptr;
+  }
+}
+
+TEST_F(PagerDrainTest, failedReservationBeforeTakeoverIsRefunded) {
+  create(0, 2);
+  source.nextStatus = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, pager->Next(pager, &result));
+  EXPECT_EQ((std::vector<double>{1, 2}), drain());
+}
+
+TEST_F(PagerDrainTest, cursorPolicyRestoreUsesStrictReservationAfterInlineReturn) {
+  create(0, 3, TimeoutPolicy_Return);
+  ASSERT_EQ(RS_RESULT_OK, pager->Next(pager, &result));
+  EXPECT_EQ(1, SearchResult_GetScore(&result));
+  SearchResult_Clear(&result);
+  qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  source.entered.store(false);
+  source.release.store(false);
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::thread worker([&] { status = pager->Next(pager, &next); });
+  bool entered = RS::WaitForCondition([&] { return source.entered.load(); }, 5);
+  if (entered) EXPECT_EQ((std::vector<double>{2}), drain());
+  source.release.store(true, std::memory_order_release);
+  worker.join();
+  EXPECT_TRUE(entered);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  EXPECT_EQ(3, SearchResult_GetScore(&next));
+  EXPECT_TRUE(drain().empty());
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(PagerDrainTest, drainPropagatesUpstreamErrorAndEof) {
+  create(1, 2);
+  source.rows = 0;
+  for (auto status : {RP_DRAIN_ERROR, RP_DRAIN_EOF}) {
+    source.drainTerminal = status;
+    EXPECT_EQ(status, pager->Drain(pager, &result));
+  }
+  EXPECT_EQ(0, source.nextCalls);
+}
+
 // Next retains a different DMD from the rows owned by the inherited Drain cursor.
 struct KeyNameDrainSource : LoaderDrainSource {
   std::atomic<bool> entered{false}, release{true};
