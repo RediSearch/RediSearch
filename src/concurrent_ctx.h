@@ -58,7 +58,7 @@ typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
   RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
-  // Request executed by this command. Allocated on the main thread before
+  // Required request executed by this command. Allocated on the main thread before
   // blocking and installed as the blocked client's private data.
   // ConcurrentSearch_HandleRedisCommandEx begins its cycle immediately after
   // blocking the client.
