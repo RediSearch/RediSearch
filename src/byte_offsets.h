@@ -14,6 +14,10 @@
 #include "varint_ffi.h"
 #include "rmalloc.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct __attribute__((packed)) RSByteOffsetMap {
   // ID this belongs to.
   uint16_t fieldId;
@@ -35,6 +39,9 @@ typedef struct RSByteOffsets {
 } RSByteOffsets;
 
 RSByteOffsets *NewByteOffsets();
+
+// Copies field mappings and offset bytes into independently owned storage.
+RSByteOffsets *RSByteOffsets_Clone(const RSByteOffsets *offsets);
 
 void RSByteOffsets_Free(RSByteOffsets *offsets);
 
@@ -99,5 +106,9 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
  * RSBYTEOFFSET_EOF then the iterator is at the end of the token stream.
  */
 uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

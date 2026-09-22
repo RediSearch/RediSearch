@@ -13,7 +13,7 @@ use std::{
     mem::offset_of,
     ops::Deref,
     ptr::NonNull,
-    sync::atomic::{AtomicU16, Ordering},
+    sync::atomic::{AtomicU16, Ordering, fence},
 };
 
 /// A safe view over a borrowed [`ffi::RSDocumentMetadata`].
@@ -156,7 +156,8 @@ impl Drop for OwnedDocumentMetadata {
         let refcount = unsafe { AtomicU16::from_ptr(self.refcount_ptr()) };
 
         // Match DMD_Return's ordering for the metadata writer's uniqueness check and final free.
-        if refcount.fetch_sub(1, Ordering::AcqRel) == 1 {
+        if refcount.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
             // Safety: The caller of `from_raw` promised the pointer is valid.
             unsafe {
                 ffi::DMD_Free(self.0.as_ptr());

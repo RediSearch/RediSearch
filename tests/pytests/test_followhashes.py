@@ -247,6 +247,22 @@ def testBinaryPayload(env):
 
 
 @skip(cluster=True)
+def testMetadataLastFieldDeletion(env):
+    """Deleting the only metadata field reaches the update callback with no live key."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    conn = getConnectionByEnv(env)
+    for field, value in [('score', '0.5'), ('payload', 'data')]:
+        conn.execute_command('HSET', 'doc:1', field, value)
+        env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:1'])
+        env.assertEqual(conn.execute_command('HDEL', 'doc:1', field), 1)
+        env.assertEqual(conn.execute_command('EXISTS', 'doc:1'), 0)
+        env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+        env.assertEqual(to_dict(env.cmd('FT.INFO', 'idx'))['num_docs'], 0)
+
+
+@skip(cluster=True)
 def testMetadataOnlyUpdatesPreserveIndexes():
     """Metadata-only Hash notifications retain document IDs, postings, and vector entries."""
     # Synchronous HNSW writes make backend deletion and indexing counters deterministic.
@@ -321,6 +337,23 @@ def testMetadataOnlyUpdatesPreserveIndexes():
         env.assertEqual(after['operations'][kind], before['operations'][kind] + 1, message=after)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', 'goodbye', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True)
+def testSharedScoreAndPayloadFieldUpdatesBoth(env):
+    """One Hash field configured for both metadata roles refreshes both values."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
+               'SCORE_FIELD', 'metadata', 'PAYLOAD_FIELD', 'metadata',
+               'SCHEMA', 'title', 'TEXT').ok()
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+
+    conn.execute_command('HSET', 'doc:1', 'metadata', '0.5')
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', '0.5', '0.5'])
 
 
 @skip(cluster=True)

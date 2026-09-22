@@ -8,6 +8,8 @@
 */
 #include "byte_offsets.h"
 
+#include <string.h>
+
 #include "types_ffi.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -15,6 +17,24 @@
 RSByteOffsets *NewByteOffsets() {
   RSByteOffsets *ret = rm_calloc(1, sizeof(*ret));
   return ret;
+}
+
+RSByteOffsets *RSByteOffsets_Clone(const RSByteOffsets *offsets) {
+  RSByteOffsets *copy = NewByteOffsets();
+  copy->numFields = offsets->numFields;
+  if (copy->numFields) {
+    size_t size = copy->numFields * sizeof(*copy->fields);
+    copy->fields = rm_malloc(size);
+    memcpy(copy->fields, offsets->fields, size);
+  }
+  uint32_t len;
+  const char *data = RSOffsetVector_GetData(&offsets->offsets, &len);
+  if (len) {
+    char *copyData = rm_malloc(len);
+    memcpy(copyData, data, len);
+    RSOffsetVector_SetData(&copy->offsets, copyData, len);
+  }
+  return copy;
 }
 
 void RSByteOffsets_Free(RSByteOffsets *offsets) {

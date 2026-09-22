@@ -14,6 +14,7 @@
 #include "redismodule.h"
 #include "sortable.h"
 #include "sorting_vector_ffi.h"
+#include "value_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
@@ -93,6 +94,58 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
     DMD_Incref(dmd);
   }
   return dmd;
+}
+
+RSDocumentMetadata *DocTable_EnsureExclusive(DocTable *t, RSDocumentMetadata *dmd) {
+  // Acquire observes readers' release decrements before allowing in-place mutation.
+  if (__atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) == 2) {
+    return dmd;
+  }
+
+  RSDocumentMetadata **entry = &t->buckets[DocTable_GetBucket(t, dmd->id)].root;
+  while (*entry != dmd) {
+    RS_ASSERT(*entry);
+    entry = &(*entry)->nextInChain;
+  }
+
+  size_t size =
+      (dmd->flags & Document_HasPayloadSlot) ? sizeof(*dmd) : sizeof(*dmd) - sizeof(RSPayload *);
+  RSDocumentMetadata *copy = rm_calloc(1, size);
+  // Copy members explicitly: readers may concurrently decrement the old ref_count.
+  copy->id = dmd->id;
+  copy->keyPtr = sdsdup(dmd->keyPtr);
+  copy->score = dmd->score;
+  copy->maxTermFreq = dmd->maxTermFreq;
+  copy->flags = dmd->flags;
+  copy->docLen = dmd->docLen;
+  copy->type = dmd->type;
+  copy->ref_count = 2;  // Table and returned borrow.
+  copy->expirationTimeNs = __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED);
+  copy->sortVector = RSSortingVector_New(RSSortingVector_Length(&dmd->sortVector));
+  for (size_t i = 0; i < RSSortingVector_Length(&dmd->sortVector); ++i) {
+    RSSortingVector_PutRSVal(&copy->sortVector, i,
+                             RSValue_IncrRef(RSSortingVector_Get(&dmd->sortVector, i)));
+  }
+  if (dmd->byteOffsets) {
+    copy->byteOffsets = RSByteOffsets_Clone(dmd->byteOffsets);
+  }
+  if (hasPayload(dmd->flags)) {
+    copy->payload = rm_malloc(sizeof(*copy->payload));
+    copy->payload->len = dmd->payload->len;
+    copy->payload->data = rm_calloc(1, copy->payload->len + 1);
+    memcpy(copy->payload->data, dmd->payload->data, copy->payload->len);
+  }
+  copy->nextInChain = dmd->nextInChain;
+  *entry = copy;
+
+  // As with deletion, table accounting excludes metadata retained only by readers.
+  t->memsize -= sdsAllocSize(dmd->keyPtr);
+  t->memsize += sdsAllocSize(copy->keyPtr);
+  t->sortablesSize -= RSSortingVector_GetMemorySize(&dmd->sortVector);
+  t->sortablesSize += RSSortingVector_GetMemorySize(&copy->sortVector);
+  DMD_Return(dmd);  // Table reference.
+  DMD_Return(dmd);  // Consumed caller borrow.
+  return copy;
 }
 
 bool DocTable_Exists(const DocTable *t, t_docId docId) {

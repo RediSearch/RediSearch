@@ -266,6 +266,54 @@ TEST_F(ReindexSkipTest, scoreAndPayloadChangesPreserveMetadataIdentity) {
   expectMetadata(0.75, "second");
 }
 
+TEST_F(ReindexSkipTest, metadataUpdateReadsOnlyChangedFields) {
+  createIndex({"SCORE", "0.25", "SCORE_FIELD", "__score", "PAYLOAD_FIELD", "__payload"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "__payload", "original");
+  notifyUpdate("doc:1", {"title", "__payload"});
+  const t_docId first = docIdOf("doc:1");
+
+  // The mock lets the backing Hash and its reported change set be varied independently. This
+  // makes an accidental read observable by value, without relying on allocator address reuse.
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  RMCK::hset(ctx, "doc:1", "__payload", "unreported");
+  notifyUpdate("doc:1", {"__score"});
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  ASSERT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), "original");
+  DMD_Return(dmd);
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.75");
+  RMCK::hset(ctx, "doc:1", "__payload", "replacement");
+  notifyUpdate("doc:1", {"__payload"});
+  EXPECT_EQ(docIdOf("doc:1"), first);
+  dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  ASSERT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), "replacement");
+  DMD_Return(dmd);
+}
+
+TEST_F(ReindexSkipTest, sharedScoreAndPayloadFieldUpdatesBoth) {
+  createIndex({"SCORE", "0.25", "SCORE_FIELD", "metadata", "PAYLOAD_FIELD", "metadata"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+
+  RMCK::hset(ctx, "doc:1", "metadata", "0.5");
+  notifyUpdate("doc:1", {"metadata"});
+  EXPECT_EQ(docIdOf("doc:1"), first);
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  ASSERT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), "0.5");
+  DMD_Return(dmd);
+}
+
 TEST_F(ReindexSkipTest, metadataAndIndexedFieldChangeReindexes) {
   createIndex({"SCORE_FIELD", "__score"}, "renamed");
   RMCK::hset(ctx, "doc:1", "title", "hello");
@@ -379,21 +427,39 @@ TEST_F(ReindexSkipTest, metadataUpdateWithBorrowedReadersPreservesTheirSnapshots
   const t_docId first = docIdOf("doc:1");
   const RSDocumentMetadata *firstReader = DocTable_Borrow(&spec->docs, first);
   ASSERT_NE(firstReader, nullptr);
+  const auto firstFlags = firstReader->flags;
   const char *firstPayload = firstReader->payload->data;
+  const auto tableSize = spec->docs.size;
+  const auto maxDocId = spec->docs.maxDocId;
+  const auto numRecords = spec->stats.numRecords;
+  const auto invertedSize = spec->stats.invertedSize;
+  const auto totalBlocks = spec->stats.totalInvertedIndexBlocks;
+
+  auto expectIndexUnchanged = [&]() {
+    EXPECT_EQ(spec->docs.size, tableSize);
+    EXPECT_EQ(spec->docs.maxDocId, maxDocId);
+    EXPECT_EQ(spec->stats.numRecords, numRecords);
+    EXPECT_EQ(spec->stats.invertedSize, invertedSize);
+    EXPECT_EQ(spec->stats.totalInvertedIndexBlocks, totalBlocks);
+  };
 
   RMCK::hset(ctx, "doc:1", "__score", "0.5");
   RMCK::hset(ctx, "doc:1", "__payload", "replacement");
   notifyUpdate("doc:1", {"__score", "__payload"});
   const t_docId second = docIdOf("doc:1");
-  EXPECT_GT(second, first);
+  EXPECT_EQ(second, first);
+  expectIndexUnchanged();
   EXPECT_FLOAT_EQ(firstReader->score, 0.25);
-  EXPECT_TRUE(firstReader->flags & Document_Deleted);
+  EXPECT_EQ(firstReader->flags, firstFlags);
   ASSERT_TRUE(hasPayload(firstReader->flags));
   EXPECT_EQ(firstReader->payload->data, firstPayload);
   EXPECT_EQ(std::string(firstReader->payload->data, firstReader->payload->len), "original");
 
   const RSDocumentMetadata *secondReader = DocTable_Borrow(&spec->docs, second);
   ASSERT_NE(secondReader, nullptr);
+  EXPECT_NE(secondReader, firstReader);
+  const auto secondFlags = secondReader->flags;
+  const char *secondPayload = secondReader->payload->data;
   EXPECT_FLOAT_EQ(secondReader->score, 0.5);
   ASSERT_TRUE(hasPayload(secondReader->flags));
   EXPECT_EQ(std::string(secondReader->payload->data, secondReader->payload->len), "replacement");
@@ -403,14 +469,18 @@ TEST_F(ReindexSkipTest, metadataUpdateWithBorrowedReadersPreservesTheirSnapshots
   RedisModule_CloseKey(key);
   notifyUpdate("doc:1", {"__score", "__payload"});
   const t_docId third = docIdOf("doc:1");
-  EXPECT_GT(third, second);
+  EXPECT_EQ(third, second);
+  expectIndexUnchanged();
   EXPECT_FLOAT_EQ(secondReader->score, 0.5);
-  EXPECT_TRUE(secondReader->flags & Document_Deleted);
+  EXPECT_EQ(secondReader->flags, secondFlags);
   ASSERT_TRUE(hasPayload(secondReader->flags));
+  EXPECT_EQ(secondReader->payload->data, secondPayload);
   EXPECT_EQ(std::string(secondReader->payload->data, secondReader->payload->len), "replacement");
 
   const RSDocumentMetadata *current = DocTable_Borrow(&spec->docs, third);
   ASSERT_NE(current, nullptr);
+  EXPECT_NE(current, firstReader);
+  EXPECT_NE(current, secondReader);
   EXPECT_FLOAT_EQ(current->score, 0.25);
   EXPECT_FALSE(hasPayload(current->flags));
   DMD_Return(current);
@@ -420,6 +490,7 @@ TEST_F(ReindexSkipTest, metadataUpdateWithBorrowedReadersPreservesTheirSnapshots
   RMCK::hset(ctx, "doc:1", "__payload", "idle");
   notifyUpdate("doc:1", {"__score", "__payload"});
   EXPECT_EQ(docIdOf("doc:1"), third);
+  expectIndexUnchanged();
   current = DocTable_Borrow(&spec->docs, third);
   ASSERT_NE(current, nullptr);
   EXPECT_FLOAT_EQ(current->score, 0.75);
@@ -428,6 +499,21 @@ TEST_F(ReindexSkipTest, metadataUpdateWithBorrowedReadersPreservesTheirSnapshots
   DMD_Return(current);
   EXPECT_FLOAT_EQ(firstReader->score, 0.25);
   EXPECT_EQ(std::string(firstReader->payload->data, firstReader->payload->len), "original");
+  EXPECT_FLOAT_EQ(secondReader->score, 0.5);
+  EXPECT_EQ(std::string(secondReader->payload->data, secondReader->payload->len), "replacement");
+
+  RSDocumentMetadata *removed = DocTable_DeleteById(&spec->docs, third);
+  ASSERT_NE(removed, nullptr);
+  EXPECT_NE(removed, firstReader);
+  EXPECT_NE(removed, secondReader);
+  EXPECT_EQ(spec->docs.size, tableSize - 1);
+  EXPECT_EQ(spec->docs.maxDocId, maxDocId);
+  EXPECT_EQ(DocTable_Borrow(&spec->docs, third), nullptr);
+  DMD_Return(removed);
+  EXPECT_EQ(firstReader->flags, firstFlags);
+  EXPECT_FLOAT_EQ(firstReader->score, 0.25);
+  EXPECT_EQ(std::string(firstReader->payload->data, firstReader->payload->len), "original");
+  EXPECT_EQ(secondReader->flags, secondFlags);
   EXPECT_FLOAT_EQ(secondReader->score, 0.5);
   EXPECT_EQ(std::string(secondReader->payload->data, secondReader->payload->len), "replacement");
   DMD_Return(firstReader);

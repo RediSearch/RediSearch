@@ -87,6 +87,11 @@ DocTable NewDocTable(size_t cap, size_t max_size);
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
+// Caller holds the spec write lock and one borrow of the current table entry.
+// Consumes that borrow and returns an exclusive mutable borrow, replacing the entry with
+// the same ID if readers retain it. Detached readers keep their unchanged metadata.
+RSDocumentMetadata *DocTable_EnsureExclusive(DocTable *t, RSDocumentMetadata *dmd);
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *
@@ -220,7 +225,8 @@ void DMD_Free(const RSDocumentMetadata *);
 // acquire also orders the final free after earlier owners' accesses.
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_ACQ_REL)) {
+  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELEASE)) {
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     DMD_Free(dmd);
   }
 }

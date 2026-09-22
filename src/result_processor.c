@@ -1015,8 +1015,11 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
       return false;
     }
   } else {
-    if ((SearchResult_GetDocumentMetadata(r)->flags & Document_FailedToOpen) || (SearchResult_GetDocumentMetadata(r)->flags & Document_Deleted)) {
-        SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
+    const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+    // A reader's metadata can outlive its replacement and will not receive later deletion flags.
+    if ((dmd->flags & (Document_FailedToOpen | Document_Deleted)) ||
+        !DocTable_Exists(&self->sctx->spec->docs, dmd->id)) {
+      SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
   }
@@ -1291,6 +1294,8 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
 
+  // The GIL is already held; protect document-ID validation while loading buffered snapshots.
+  RedisSearchCtx_LockSpecRead(self->sctx);
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
@@ -1303,6 +1308,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
       loaderDropResult(&self->base_loader.base, curr_res);
     }
   }
+  RedisSearchCtx_UnlockSpec(self->sctx);
 
   // Reset the iterator
   self->curr_result_index = 0;

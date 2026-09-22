@@ -1120,9 +1120,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   md->score = doc->score;
   // Set the payload if needed
   if (doc->payload) {
-    if (!DocTable_SetPayload(&sctx->spec->docs, md, doc->payload, doc->payloadSize)) {
-      BAIL("Document metadata has no payload slot");
-    }
+    DocTable_SetPayload(&sctx->spec->docs, md, doc->payload, doc->payloadSize);
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
