@@ -1201,3 +1201,42 @@ TEST_F(RdbMockTest, testLegacyRealPayloadStillConsumed) {
     RMCK_FreeRdbIO(io);
   }
 }
+
+TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  DocTable table = NewDocTable(4, 4);
+  RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 4);
+  RMCK_SaveStringBuffer(io, "doc", 3);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, Document_DefaultFlags);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 0.5);
+  io->read_pos = 0;
+
+  // The mock stores numeric values as doubles; this exercises the loader's allocation logic.
+  auto originalLoadFloat = RedisModule_LoadFloat;
+  RedisModule_LoadFloat = [](RedisModuleIO *rdb) { return static_cast<float>(RMCK_LoadDouble(rdb)); };
+  int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+  RedisModule_LoadFloat = originalLoadFloat;
+  EXPECT_EQ(result, REDISMODULE_OK);
+
+  auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));
+  EXPECT_NE(dmd, nullptr);
+  if (dmd) {
+    EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+    EXPECT_FALSE(hasPayload(dmd->flags));
+    const size_t loadedSize = table.memsize;
+    EXPECT_EQ(DocTable_SetPayload(&table, dmd, "first", 5), 1);
+    EXPECT_EQ(table.memsize, loadedSize + sizeof(RSPayload) + 5);
+    DocTable_ClearPayload(&table, dmd);
+    EXPECT_EQ(table.memsize, loadedSize);
+    EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+    DMD_Return(dmd);
+  }
+  DocTable_Free(&table);
+  RMCK_FreeRdbIO(io);
+}

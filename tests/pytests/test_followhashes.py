@@ -263,8 +263,8 @@ def testMetadataLastFieldDeletion(env):
 
 
 @skip(cluster=True)
-def testScoreOnlyUpdatesPreserveIndexes():
-    """Score-only Hash notifications retain document IDs, postings, and vector entries."""
+def testMetadataOnlyUpdatesPreserveIndexes():
+    """Metadata-only Hash notifications retain document IDs, postings, and vector entries."""
     # Synchronous HNSW writes make backend deletion and indexing counters deterministic.
     env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
@@ -304,8 +304,11 @@ def testScoreOnlyUpdatesPreserveIndexes():
     env.assertEqual(before['missing'], [1, 'doc:1'])
     updates = [
         (('HSET', 'doc:1', 'score', '0.5'), b'0.5', None),
-        (('HSET', 'doc:1', 'score', '0.75', 'unread', 'x'), b'0.75', None),
-        (('HDEL', 'doc:1', 'score'), b'0.25', None),
+        (('HSET', 'doc:1', 'payload', b'a\x00\xab'), b'0.5', b'a\x00\xab'),
+        (('HSET', 'doc:1', 'score', '0.75', 'payload', 'last', 'unread', 'x'),
+         b'0.75', b'last'),
+        (('HDEL', 'doc:1', 'score', 'payload'), b'0.25', None),
+        (('HSET', 'doc:1', 'payload', ''), b'0.25', None),
         (('HSET', 'doc:1', 'score', '0.125', 'score', '0.5'), b'0.5', None),
         (('HINCRBYFLOAT', 'doc:1', 'score', '0.25'), b'0.75', None),
     ]
@@ -341,8 +344,8 @@ def testScoreOnlyUpdatesPreserveIndexes():
 
 
 @skip(cluster=True)
-def testSharedScoreAndPayloadFieldReindexes(env):
-    """A shared score/payload field reindexes and refreshes both values."""
+def testSharedScoreAndPayloadFieldUpdatesBoth(env):
+    """One Hash field configured for both metadata roles refreshes both values."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
                'SCORE_FIELD', 'metadata', 'PAYLOAD_FIELD', 'metadata',
                'SCHEMA', 'title', 'TEXT').ok()
@@ -352,7 +355,7 @@ def testSharedScoreAndPayloadFieldReindexes(env):
     first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
 
     conn.execute_command('HSET', 'doc:1', 'metadata', '0.5')
-    env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
     env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', '0.5', '0.5'])
 
@@ -392,7 +395,7 @@ def testMetadataUpdatesMatchFullReindex(env):
             for command in commands:
                 conn.execute_command(*command)
                 current = server.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-                if force_plain or 'payload' in command[2::2]:
+                if force_plain:
                     server.assertGreater(current, previous, message=command)
                 else:
                     server.assertEqual(current, previous, message=command)

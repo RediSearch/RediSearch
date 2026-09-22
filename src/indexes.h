@@ -83,7 +83,7 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
  *
  * `changedFields` / `numChangedFields` name the fields the originating command
  * modified, letting an existing RAM Hash document skip reindexing or update only
- * its score when that is the only relevant field changed. They come
+ * its score/payload when those are the only relevant fields changed. They come
  * from a hash subkey notification; pass `NULL` / `0` when the change set is
  * unknown — for JSON writes, the background scan, and any event that carries no
  * subkeys — which reindexes unconditionally.
