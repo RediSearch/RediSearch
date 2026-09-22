@@ -12,7 +12,7 @@ use query_error::QueryError;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     cmp::Ordering,
-    ffi::{CStr, c_char, c_int},
+    ffi::{c_char, c_int},
     mem::{self, ManuallyDrop},
     ptr, slice,
 };
@@ -198,15 +198,14 @@ pub unsafe extern "C" fn RLookupRow_MoveDynamicKey(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 2. The memory pointed to by `name` must contain a valid null terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
-///    This means in particular:
-///     1. `name_len` must be same as `strlen(name)`
-///     2. The entire memory range of this cstr must be contained within a single allocation!
-///     3. `name` must be non-null even for a zero-length cstr.
+/// 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+/// 3. `name` must be non-null even when `name_len` is `0`.
 /// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// No null terminator is required; `name_len` alone bounds the read. An interior
+/// NUL byte is not a safety precondition; it panics on the insert path, where the
+/// name is copied into an owned [`CString`](std::ffi::CString).
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -220,14 +219,9 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.as_mut() }.expect("lookup must not be null");
 
-    // Safety: ensured by caller (2., 3.)
-    let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
-
-        CStr::from_bytes_with_nul(bytes).expect("unable to create cstr from name")
-    };
+    debug_assert!(!name.is_null(), "name must not be null");
+    // SAFETY: ensured by caller (2., 3.)
+    let name = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len) };
 
     // Safety: ensured by caller (4.)
     let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("`row` must not be null");
@@ -241,7 +235,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     // and move the clone into the function.
     // We then make sure the original `value` is not dropped (which would decrease the refcount again)
     // by giving it to `mem::forget()`.
-    row.write_key_by_name(lookup, name, value.clone());
+    row.write_key_by_name_bytes(lookup, name, value.clone());
     mem::forget(value);
 }
 
@@ -256,15 +250,14 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 2. The memory pointed to by `name` must contain a valid null terminator at the
-///    end of the string.
-/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
-///    This means in particular:
-///     1. `name_len` must be same as `strlen(name)`
-///     2. The entire memory range of this cstr must be contained within a single allocation!
-///     3. `name` must be non-null even for a zero-length cstr.
+/// 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+/// 3. `name` must be non-null even when `name_len` is `0`.
 /// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// No null terminator is required; `name_len` alone bounds the read. An interior
+/// NUL byte is not a safety precondition; it panics on the insert path, where the
+/// name is copied into an owned [`CString`](std::ffi::CString).
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -278,14 +271,9 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.as_mut() }.expect("lookup must not be null");
 
-    // Safety: ensured by caller (2., 3.)
-    let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
-
-        CStr::from_bytes_with_nul(bytes).expect("unable to create cstr from name")
-    };
+    debug_assert!(!name.is_null(), "name must not be null");
+    // SAFETY: ensured by caller (2., 3.)
+    let name = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len) };
 
     // Safety: ensured by caller (4.)
     let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("`row` must not be null");
@@ -296,7 +284,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     let value = unsafe { into_shared_value(value) };
 
     // 'value' is moved directly into the function without affecting its refcount.
-    row.write_key_by_name(lookup, name, value);
+    row.write_key_by_name_bytes(lookup, name, value);
 }
 
 /// Write fields from a source row into this row.

@@ -17,7 +17,8 @@ from test_blocked_client_timeout import is_client_blocked
 
 def _exercise_cleanup(stage, debug_query=False):
     # Force each cancellation at a particular coordinator ownership transition.
-    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0', protocol=3)
+    # GC retains its own weak reference until its next timer, even after DROPINDEX.
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 NOGC', protocol=3)
     skipIfNoEnableAssert(env)
     verify_shard_init(env)
     points = {
@@ -55,6 +56,10 @@ def _exercise_cleanup(stage, debug_query=False):
 
             # The callback runs on main, so the observation point must self-release.
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', cleanup_point, 1).ok()
+            if stage in ('queued', 'prepare'):
+                # Only this index owns a reference manager on the coordinator.
+                # Destruction can run on main, so the observation must self-release.
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RefManagerFreed', 1).ok()
             coord_paused = stage == 'queued'
             if coord_paused:
                 env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -121,24 +126,31 @@ def _exercise_cleanup(stage, debug_query=False):
                 elif point:
                     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
                 thread.join(timeout=5)
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
                 env.cmd(debug_cmd(), 'SEND_ERROR', 0)
                 client.close()
                 pool.disconnect()
-                if stage != 'prepare':
-                    env.expect('FT.DROPINDEX', 'idx').ok()
+                try:
+                    if stage != 'prepare':
+                        env.expect('FT.DROPINDEX', 'idx').ok()
+                    if stage in ('queued', 'prepare'):
+                        wait_for_condition(
+                            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT',
+                                             'RefManagerFreed') == 1, {}),
+                            'Cancelled query leaked its index reference manager', timeout=5)
+                finally:
+                    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
                 getConnectionByEnv(env).execute_command('DEL', '{doc}:1')
 
 
 @skip(cluster=False)
 def test_timeout_cleanup_before_dispatch():
-    """A queued query must finish its blocked handle after cancellation."""
+    """A cancelled queued query must release its blocked handle and index reference."""
     _exercise_cleanup('queued')
 
 
 @skip(cluster=False)
 def test_timeout_cleanup_prepare_error():
-    """Preparation failure after cancellation must still finish the handle."""
+    """Preparation failure after cancellation must release the handle and index reference."""
     _exercise_cleanup('prepare')
 
 
@@ -168,5 +180,5 @@ def test_timeout_cleanup_during_reduce():
 
 @skip(cluster=False)
 def test_disconnect_cleanup_debug_before_dispatch():
-    """The debug SEARCH entry must also complete a cancelled queued query."""
+    """A cancelled queued debug search must also release its index reference."""
     _exercise_cleanup('queued', debug_query=True)

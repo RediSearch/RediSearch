@@ -170,6 +170,8 @@ def testInfoModulesBasic(env):
   env.expect('FT.CREATE', idx3, 'SCHEMA', 'vec_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'vec_hnsw', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'INITIAL_CAP', '10000', 'M', '40', 'EF_CONSTRUCTION', '250', 'EF_RUNTIME', '20',
+                                          'vec_hnsw_sq8', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
+                                          'COMPRESSION', 'SQ8',
                                           'vec_svs_vamana', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'vec_svs_vamana_COMPRESSED', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'COMPRESSION', 'LVQ4').ok()
@@ -181,7 +183,7 @@ def testInfoModulesBasic(env):
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 2, Sortable=1, CaseSensitive=1))
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 2, NoIndex=1))
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1))
-  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_vector']), get_search_field_info('Vector', 4, Flat=1, HNSW=1, SVS_VAMANA=2, SVS_VAMANA_Compressed=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_vector']), get_search_field_info('Vector', 5, Flat=1, HNSW=2, HNSW_Compressed=1, SVS_VAMANA=2, SVS_VAMANA_Compressed=1))
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 2, Sortable=1 ,NoIndex=1))
 
   configInfo = info['search_runtime_configurations']
@@ -207,6 +209,43 @@ def testInfoModulesBasic(env):
   # env.assertTrue('prefixes="TLV:","NY:"' in idx2Info['search_index_definition'])
   # env.assertTrue('default_language=' in idx2Info['search_index_definition'])
   # env.assertEqual(idx2Info['search_field_2'], 'identifier=T2,attribute=t2,type=TAG,SEPARATOR=","')
+
+
+@skip(cluster=True)
+def testInfoModulesHNSWCompressedLifecycle(env):
+  """Verify HNSW compressed field statistics across alter, reload, and drop lifecycle events."""
+  conn = env.getConnection()
+  plain_idx = 'plain_idx'
+  compressed_idx = 'compressed_idx'
+  plain_params = ['TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2']
+  compressed_params = plain_params + ['COMPRESSION', 'SQ8']
+
+  env.expect('FT.CREATE', plain_idx, 'SCHEMA', 'vec', 'VECTOR', 'HNSW', len(plain_params), *plain_params).ok()
+  fields_info = info_modules_to_dict(conn)['search_fields_statistics']
+  env.assertEqual(field_info_to_dict(fields_info['search_fields_vector']),
+                  get_search_field_info('Vector', 1, HNSW=1))
+
+  env.expect('FT.CREATE', compressed_idx, 'SCHEMA', 'vec', 'VECTOR', 'HNSW',
+             len(compressed_params), *compressed_params).ok()
+  fields_info = info_modules_to_dict(conn)['search_fields_statistics']
+  env.assertEqual(field_info_to_dict(fields_info['search_fields_vector']),
+                  get_search_field_info('Vector', 2, HNSW=2, HNSW_Compressed=1))
+
+  env.expect('FT.ALTER', compressed_idx, 'SCHEMA', 'ADD', 'vec2', 'VECTOR', 'HNSW',
+             len(compressed_params), *compressed_params).ok()
+  fields_info = info_modules_to_dict(conn)['search_fields_statistics']
+  env.assertEqual(field_info_to_dict(fields_info['search_fields_vector']),
+                  get_search_field_info('Vector', 3, HNSW=3, HNSW_Compressed=2))
+
+  env.dumpAndReload()
+  fields_info = info_modules_to_dict(conn)['search_fields_statistics']
+  env.assertEqual(field_info_to_dict(fields_info['search_fields_vector']),
+                  get_search_field_info('Vector', 3, HNSW=3, HNSW_Compressed=2))
+
+  env.expect('FT.DROPINDEX', compressed_idx).ok()
+  fields_info = info_modules_to_dict(conn)['search_fields_statistics']
+  env.assertEqual(field_info_to_dict(fields_info['search_fields_vector']),
+                  get_search_field_info('Vector', 1, HNSW=1))
 
 
 def testInfoModulesAlter(env):

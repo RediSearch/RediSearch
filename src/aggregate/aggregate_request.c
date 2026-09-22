@@ -1413,7 +1413,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       LegacyNumericFilter *filter = opts->legacy.filters[ii];
 
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, filter->field);
-      filter->base.fieldSpec = fs;
+      NumericFilter_SetField(&filter->base, fs);
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
           const HiddenString *fieldName = filter->field;
@@ -1446,7 +1446,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
 
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
-      gf->base.fieldSpec = fs;
+      GeoFilter_SetField(&gf->base, fs);
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
@@ -1532,7 +1532,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   }
-  vq->field = vectorField;
+  VectorQuery_SetField(vq, vectorField);
 
   QueryNode *vecNode = NewQueryNode(QN_VECTOR);
   vecNode->vn.vq = vq;
