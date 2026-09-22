@@ -1132,14 +1132,15 @@ def testTagIndexingInvalidUtf8LoweringOverflow(env):
 
 def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
     """Same as `testTagIndexingInvalidUtf8LoweringOverflow`, but for a
-    SORTABLE field. On this branch, a HASH field's sortable value is
-    normalized via `normalizeStr`/`RSSortingVector_PutStr`
-    (src/document.c, src/sortable.c), neither of which validates UTF-8, so
-    the overflow is reachable but no "Invalid UTF-8" indexing error is
-    raised: doc2 is indexed successfully like doc1.
+    SORTABLE field. `UNF` bypasses `normalizeStr`/`RSSortingVector_PutStr`
+    (src/document.c, src/sortable.c), which has its own unchecked
+    `nu_utf8_read` overflow on the same kind of input independent of the
+    `unicode_tolower` bug under test; without `UNF` this test would trip
+    that separate overflow under a sanitizer build instead of isolating
+    the indexing-time `unicode_tolower` path it's meant to cover.
     """
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE', 'UNF').ok()
     conn.execute_command('HSET', 'doc1', 't', 'hello')
     conn.execute_command('HSET', 'doc2', 't', b'caf' + _INVALID_UTF8_LEAD)
 
@@ -1151,4 +1152,7 @@ def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
     env.assertTrue(alive, message='server crashed indexing an invalid-UTF-8 sortable tag value')
 
     env.assertEqual(index_errors(env, 'idx_sortable')['indexing failures'], 0)
-    env.expect('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT').equal([2, 'doc1', 'doc2'])
+    # No SORTBY: on an OSS cluster doc1/doc2 may land on different shards
+    # and merge in either order, so compare unordered.
+    res = conn.execute_command('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc1', 'doc2']))
