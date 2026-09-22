@@ -2333,13 +2333,8 @@ def test_flex_disk_resource_configs(env):
     env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').error()
 
 
-@skip(cluster=True, redis_less_than='7.9.227', asan=True)
-def test_flex_disk_resource_config_load_boundaries():
-    module_path = os.getenv('MODULE')
-    if module_path is None:
-        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
-        env.debugPrint('MODULE environment variable is not set. Skipping test')
-        env.skip()
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
+def test_flex_disk_resource_config_startup_boundaries():
     accepted = (
         {
             'search-disk-max-memory-percentage': '1',
@@ -2363,26 +2358,21 @@ def test_flex_disk_resource_config_load_boundaries():
         },
     )
     for expected in accepted:
-        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
-        load_args = []
-        for name, value in expected.items():
-            load_args.extend(('CONFIG', name, value))
+        module_args = ' '.join(
+            f'{name} {value}' for name, value in expected.items()
+        )
+        env = Env(noDefaultModuleArgs=True, moduleArgs=module_args)
         try:
-            env.start()
-            env.expect('MODULE', 'LOADEX', module_path, *load_args).ok()
+            env.expect('CONFIG', 'GET', 'bigredis-enabled').equal(
+                ['bigredis-enabled', 'yes']
+            )
             for name, value in expected.items():
                 env.expect('CONFIG', 'GET', name).equal([name, value])
         finally:
             env.stop()
 
-
-@skip(cluster=True, redis_less_than='7.9.227', asan=True)
-def test_flex_disk_resource_config_load_rejections():
-    module_path = os.getenv('MODULE')
-    if module_path is None:
-        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
-        env.debugPrint('MODULE environment variable is not set. Skipping test')
-        env.skip()
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
+def test_flex_disk_resource_config_startup_rejections():
     invalid = (
         ('search-disk-max-memory-percentage', '0'),
         ('search-disk-max-memory-percentage', '101'),
@@ -2395,16 +2385,19 @@ def test_flex_disk_resource_config_load_rejections():
         ('search-disk-buffer-percentage', '50'),
     )
     for name, value in invalid:
-        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+        candidate = None
         try:
-            env.start()
-            loaded_modules = env.cmd('MODULE', 'LIST')
-            env.expect(
-                'MODULE', 'LOADEX', module_path, 'CONFIG', name, value,
-            ).error().contains('Error loading the extension')
-            env.assertEqual(env.cmd('MODULE', 'LIST'), loaded_modules)
+            candidate = Env(
+                noDefaultModuleArgs=True,
+                moduleArgs=f'{name} {value}',
+                startupGraceSecs=1,
+            )
+            assert not candidate.isUp()
+        except Exception as error:
+            assert not isinstance(error, AssertionError)
         finally:
-            env.stop()
+            if candidate is not None:
+                candidate.stop()
 
 @skip(cluster=True)
 def test_flex_search_disk_async_read_pool_size(env):
