@@ -1062,7 +1062,8 @@ typedef struct MetricsDiskAPI {
    * @brief Output aggregated disk metrics to Redis INFO
    *
    * Iterates over all collected index metrics, aggregates them, and outputs
-   * to the Redis INFO context using RedisModule_Info* functions.
+   * to the Redis INFO context using RedisModule_Info* functions. The caller has
+   * already selected and opened the disk section; this function only emits fields.
    *
    * @param disk Pointer to the disk context
    * @param ctx Redis module info context

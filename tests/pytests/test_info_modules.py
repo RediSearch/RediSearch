@@ -2942,3 +2942,39 @@ def test_vecsim_hnsw_tiered_info_metrics():
                   message="FT.INFO flat buffer should be 0 when WORKERS=0")
   env.assertEqual(field_stats_nw['direct_hnsw_insertions'], workers_0_vectors,
                   message="FT.INFO should show direct insertions when WORKERS=0")
+
+
+@skip(cluster=True)
+def testInfoSectionSelection(env):
+  """Selected sections retain their fields without emitting other section headers."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+  conn = env.getConnection()
+  callback = conn.response_callbacks['INFO']
+  conn.set_response_callback('INFO', lambda response: response)
+  try:
+    sections = [
+      'search_version', 'search_indexes', 'search_fields_statistics',
+      'search_memory', 'search_vector_index', 'search_cursors',
+      'search_garbage_collector', 'search_queries', 'search_warnings_and_errors',
+      'search_coordinator_warnings_and_errors', 'search_multi_threading',
+      'search_dialect_statistics', 'search_runtime_configurations',
+    ]
+    full = conn.execute_command('INFO', 'MODULES')
+    if isinstance(full, bytes):
+      full = full.decode()
+    if '# search_disk' in full:
+      sections.append('search_disk')
+    for section in sections:
+      result = conn.execute_command('INFO', section)
+      if isinstance(result, bytes):
+        result = result.decode()
+      lines = [line for line in result.splitlines() if line]
+      env.assertEqual([line for line in lines if line.startswith('#')], ['# ' + section])
+      env.assertGreater(len(lines), 1, message=result)
+    result = conn.execute_command('INFO', 'search_version', 'search_memory')
+    if isinstance(result, bytes):
+      result = result.decode()
+    env.assertEqual([line for line in result.splitlines() if line.startswith('#')],
+                    ['# search_version', '# search_memory'])
+  finally:
+    conn.set_response_callback('INFO', callback)
