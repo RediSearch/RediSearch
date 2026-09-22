@@ -206,8 +206,12 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
     RedisModule_InfoAddFieldLongLong(ctx, "Vector", RSGlobalStats.fieldsStats.numVectorFields);
     if (RSGlobalStats.fieldsStats.numVectorFieldsFlat > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
-    if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
+    if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0) {
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+      if (RSGlobalStats.fieldsStats.numVectorFieldsHNSWCompressed > 0)
+        RedisModule_InfoAddFieldLongLong(ctx, "HNSW_Compressed",
+                                         RSGlobalStats.fieldsStats.numVectorFieldsHNSWCompressed);
+    }
     if (RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana > 0) {
       RedisModule_InfoAddFieldLongLong(ctx, "SVS_VAMANA",
                                        RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana);
