@@ -147,6 +147,8 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_COORD_AGGREGATE_FINISH "AfterCoordAggregateFinish"
 #define SYNC_POINT_BEFORE_COORD_HYBRID_FINISH "BeforeCoordHybridFinish"
 #define SYNC_POINT_AFTER_COORD_HYBRID_FINISH "AfterCoordHybridFinish"
+#define SYNC_POINT_BEFORE_COORD_SEARCH_BAILOUT_FINISH "BeforeCoordSearchBailoutFinish"
+#define SYNC_POINT_BEFORE_FANOUT_FINISH "BeforeFanoutFinish"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
