@@ -2962,28 +2962,72 @@ dictType dictTypeHybridSearchResult = {
   .valDestructor = hybridSearchResultValueDestructor,
 };
 
- /*******************************************************************************************************************
-  *  Hybrid Merger Result Processor
-  *
-  * This result processor merges results from two upstream processors using a hybrid scoring function.
-  * It takes results from both upstreams and applies the provided function to combine their scores.
-  *******************************************************************************************************************/
- typedef struct {
- ResultProcessor base;
- RedisSearchCtx *sctx;
+/*******************************************************************************************************************
+ *  Hybrid Merger Result Processor
+ *
+ * This result processor merges results from two upstream processors using a hybrid scoring
+ * function. It takes results from both upstreams and applies the provided function to combine their
+ * scores.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;
+  RedisSearchCtx *sctx;
 
- HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
- ResultProcessor **upstreams;     // Dynamic array of upstream processors
- size_t numUpstreams;             // Number of upstream processors
- dict *hybridResults;             // keyPtr -> HybridSearchResult mapping
- dictIterator *iterator;          // Iterator for yielding results
- const RLookupKey *scoreKey;      // Key for writing score as field when YIELD_SCORE_AS is specified
- const RLookupKey *docKey;        // Key for reading document key when dmd is not available
- RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
- HybridLookupContext *lookupCtx;  // Lookup context for field merging
- HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
+  HybridScoringContext
+      *hybridScoringCtx;        // Store by pointer - RPHybridMerger is responsible for freeing it
+  ResultProcessor **upstreams;  // Dynamic array of upstream processors
+  size_t numUpstreams;          // Number of upstream processors
+  dict *hybridResults;          // keyPtr -> HybridSearchResult mapping
+  HybridSearchResult *ready;    // Committed entries not yet claimed by Next or Drain
+  size_t committedCount;
+  atomic_bool readyLock;
+  bool draining;
+  const RLookupKey *scoreKey;     // Key for writing score as field when YIELD_SCORE_AS is specified
+  const RLookupKey *docKey;       // Key for reading document key when dmd is not available
+  RPStatus *upstreamReturnCodes;  // Final return codes from each upstream
+  HybridLookupContext *lookupCtx;    // Lookup context for field merging
+  HybridExplainContext *explainCtx;  // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
 
 } RPHybridMerger;
+
+/* Only STRICT can race a row claim against background publication. */
+static void hybridMergerLock(RPHybridMerger *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  while (atomic_exchange_explicit(&self->readyLock, true, memory_order_acquire)) {
+  }
+}
+
+static void hybridMergerUnlock(RPHybridMerger *self) {
+  if (self->base.parent && self->base.parent->timeoutPolicy != TimeoutPolicy_ReturnStrict) return;
+  atomic_store_explicit(&self->readyLock, false, memory_order_release);
+}
+
+static bool hybridMergerIsDraining(RPHybridMerger *self) {
+  hybridMergerLock(self);
+  bool draining = self->draining;
+  hybridMergerUnlock(self);
+  return draining;
+}
+
+/* Claiming removes an entry from the ready list; the dictionary retains its lifetime. */
+static HybridSearchResult *hybridMergerClaim(RPHybridMerger *self, bool drain) {
+  hybridMergerLock(self);
+  if (drain) self->draining = true;
+  HybridSearchResult *result = (!drain && self->draining) ? NULL : self->ready;
+  if (result) self->ready = result->nextReady;
+  hybridMergerUnlock(self);
+  return result;
+}
+
+size_t RPHybridMerger_GetDrainCount(ResultProcessor *rp) {
+  RS_ASSERT(rp->type == RP_HYBRID_MERGER);
+  RPHybridMerger *self = (RPHybridMerger *)rp;
+  hybridMergerLock(self);
+  RS_ASSERT(self->draining);
+  size_t count = self->committedCount;
+  hybridMergerUnlock(self);
+  return count;
+}
 
 /* Generic helper function to check if any upstream has a specific return code */
 static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnCode) {
@@ -3037,84 +3081,113 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
   // Check if we've seen this document before
   HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(self->hybridResults, keyPtr);
-
-  if (!hybridResult) {
+  bool newEntry = !hybridResult;
+  if (newEntry) {
     // First time seeing this document - create new hybrid result
     hybridResult = HybridSearchResult_New(self->numUpstreams);
     dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
   }
 
-   SearchResult_SetScore(r, score);
-   // The merger holds `r` in its dictionary across further upstream Reads;
-   // preserve or drop the borrowed RSIndexResult so it does not dangle.
-   SearchResult_BufferIndexResult(&self->base, r);
-   HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
-   return true;
+  SearchResult_SetScore(r, score);
+  // The merger holds `r` in its dictionary across further upstream Reads;
+  // preserve or drop the borrowed RSIndexResult so it does not dangle.
+  SearchResult_BufferIndexResult(&self->base, r);
+  hybridMergerLock(self);
+  if (self->draining) {
+    hybridMergerUnlock(self);
+    return false;
+  }
+  SearchResult *replaced = hybridResult->searchResults[upstreamIndex];
+  HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+  if (newEntry) {
+    hybridResult->nextReady = self->ready;
+    self->ready = hybridResult;
+    ++self->committedCount;
+  }
+  hybridMergerUnlock(self);
+  if (replaced) {
+    SearchResult_Destroy(replaced);
+    rm_free(replaced);
+  }
+  return true;
  }
 
  /* Helper function to consume results from a single upstream */
- static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
+ static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults,
+                                            size_t upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
-   while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
-       double score = SearchResult_GetScore(r);
-       consumed++;
-       if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-         score = consumed;
-       }
-       if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
-         r = rm_calloc(1, sizeof(*r));
-         *r = SearchResult_New();
-       } else {
-         SearchResult_Clear(r);
-         --consumed; // avoid wrong rank in RRF
-       }
+   while (consumed < maxResults) {
+     if (hybridMergerIsDraining(self)) {
+       rc = RS_RESULT_TIMEDOUT;
+       break;
+     }
+     rc = upstream->Next(upstream, r);
+     if (rc != RS_RESULT_OK) break;
+     double score = SearchResult_GetScore(r);
+     consumed++;
+     if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+       score = consumed;
+     }
+     if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
+       r = rm_calloc(1, sizeof(*r));
+       *r = SearchResult_New();
+     } else {
+       SearchResult_Clear(r);
+       --consumed;  // avoid wrong rank in RRF
+     }
    }
+   SearchResult_Destroy(r);
    rm_free(r);
    return rc;
  }
 
- /* Yield phase - iterate through results and apply hybrid scoring */
-static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
-  RPHybridMerger *self = (RPHybridMerger *)rp;
+ /* A claimed entry is private; merging touches neither the dictionary nor live lookups. */
+ static void hybridMergerYieldClaimed(RPHybridMerger *self, HybridSearchResult *hybridResult,
+                                      SearchResult *r) {
+   SearchResult *mergedResult =
+       mergeSearchResults(hybridResult, self->hybridScoringCtx, self->explainCtx);
+   RS_ASSERT(mergedResult);
 
-  RS_ASSERT(self->iterator);
-  // Get next entry from iterator
-  dictEntry *entry = dictNext(self->iterator);
-  if (!entry) {
-    // No more results to yield
-    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-    return ret;
-  } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
-    // Timed out before we could yield all results
-    return RS_RESULT_TIMEDOUT;
-  }
+   // Override the output result with merged data
+   SearchResult_Override(r, mergedResult);
+   rm_free(mergedResult);
 
-  // Get the key and value before removing the entry
-  void *key = dictGetKey(entry);
-  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
-  RS_ASSERT(hybridResult);
+   // Add score as field if scoreKey is provided
+   if (self->scoreKey) {
+     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r),
+                         RSValue_NewNumber(SearchResult_GetScore(r)));
+   }
+ }
 
-  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
-  if (!mergedResult) {
-    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
-                        "Failed to merge hybrid subquery results");
-    return RS_RESULT_ERROR;
-  }
+ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   hybridMergerLock(self);
+   bool draining = self->draining;
+   bool exhausted = self->ready == NULL;
+   hybridMergerUnlock(self);
+   if (draining) return RS_RESULT_TIMEDOUT;
+   // Completed output keeps EOF precedence; a deadline must not consume a pending Drain row.
+   if (exhausted) return RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+   if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+     return RS_RESULT_TIMEDOUT;
+   }
+   HybridSearchResult *result = hybridMergerClaim(self, false);
+   if (!result) return RS_RESULT_TIMEDOUT;
+   hybridMergerYieldClaimed(self, result, r);
+   return RS_RESULT_OK;
+ }
 
-  // Override the output result with merged data
-  SearchResult_Override(r, mergedResult);
-  rm_free(mergedResult);
-
-  // Add score as field if scoreKey is provided
-  if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
-  }
-
-  return RS_RESULT_OK;
+ /* Drain closes publication even if no row has been committed yet. */
+ static RPDrainStatus RPHybridMerger_Drain(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   HybridSearchResult *result = hybridMergerClaim(self, true);
+   if (!result) return RP_DRAIN_EOF;
+   hybridMergerYieldClaimed(self, result, r);
+   return RP_DRAIN_OK;
  }
 
  /* Accumulation phase - consume window results from all upstreams */
@@ -3133,6 +3206,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   // Continuously try to consume from upstreams until all are consumed
   while (numConsumed < self->numUpstreams) {
     for (size_t i = 0; i < self->numUpstreams; i++) {
+      if (hybridMergerIsDraining(self)) {
+        rm_free(consumed);
+        return RS_RESULT_TIMEDOUT;
+      }
       if (consumed[i]) {
         continue;
       }
@@ -3163,9 +3240,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_TIMEDOUT;
   }
 
-  // Initialize iterator for yield phase
-  self->iterator = dictGetIterator(self->hybridResults);
-
   // Update total results to reflect the number of unique documents we'll yield
   rp->parent->totalResults = dictSize(self->hybridResults);
   // Merged-doc count excludes upstream loader drops; clear the skip correction
@@ -3180,11 +3254,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
  /* Free function for RPHybridMerger */
  static void RPHybridMerger_Free(ResultProcessor *rp) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
-
-   // Free the iterator
-   if (self->iterator) {
-    dictReleaseIterator(self->iterator);
-   }
 
    HybridScoringContext_Free(self->hybridScoringCtx);
 
@@ -3264,12 +3333,12 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
 
-   ret->iterator = NULL;
+   atomic_init(&ret->readyLock, false);
 
    ret->base.type = RP_HYBRID_MERGER;
    ret->base.Next = RPHybridMerger_Accum;
    ret->base.Free = RPHybridMerger_Free;
-   ret->base.Drain = RPDrain_EOF;
+   ret->base.Drain = RPHybridMerger_Drain;
 
    return &ret->base;
  }

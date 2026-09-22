@@ -152,6 +152,19 @@ struct RSValue *RLookupRow_Get(const RLookupKey *key, const struct RLookupRow *r
 struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
+ * Moves dynamic fields between rows using the same slot mapping, without a lookup.
+ * See [`RLookupRow::move_dynamic_fields_to`] for replacement and sorting-vector semantics.
+ *
+ * # Safety
+ *
+ * Both pointers must be [valid], non-null, distinct, and exclusively accessible
+ * for the duration of this call. Both rows must use the same slot mapping.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_MoveDynamicFields(struct RLookupRow *src_row, struct RLookupRow *dst_row);
+
+/**
  * Moves one dynamic key from the source row to the destination row without
  * changing its reference count. A missing dynamic value is ignored.
  *

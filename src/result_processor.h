@@ -483,6 +483,9 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
  */
 const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp);
 
+/* Main-thread snapshot of committed unique documents, available after the first Drain call. */
+size_t RPHybridMerger_GetDrainCount(ResultProcessor *rp);
+
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
 

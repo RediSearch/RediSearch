@@ -155,9 +155,8 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
  * Merge field data from multiple source SearchResults into target SearchResult's rowdata.
  */
 static void mergeRLookupRowsFromSourcesIntoTarget(HybridSearchResult *hybridResult,
-                            HybridLookupContext *lookupCtx,
                             SearchResult *targetResult) {
-  RS_ASSERT(hybridResult && lookupCtx);
+  RS_ASSERT(hybridResult);
 
   // Write fields from each source SearchResult
   for (size_t i = 0; i < hybridResult->numSources; i++) {
@@ -165,8 +164,8 @@ static void mergeRLookupRowsFromSourcesIntoTarget(HybridSearchResult *hybridResu
       SearchResult *sourceResult = hybridResult->searchResults[i];
       RS_ASSERT(sourceResult);
 
-      // move fields from source row to destination row
-      RLookupRow_MoveFieldsFrom(lookupCtx->tailLookup, SearchResult_GetRowDataMut(sourceResult), SearchResult_GetRowDataMut(targetResult));
+      RLookupRow_MoveDynamicFields(SearchResult_GetRowDataMut(sourceResult),
+                                  SearchResult_GetRowDataMut(targetResult));
     }
   }
 }
@@ -375,7 +374,7 @@ static RSScoreExplain *buildHybridScoreExplain(const HybridSearchResult *hybridR
 }
 
 SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx,
-                                 HybridLookupContext *lookupCtx, const HybridExplainContext *explainCtx) {
+                                 const HybridExplainContext *explainCtx) {
   RS_ASSERT(hybridResult && scoringCtx);
 
   // Pick the "primary" — first non-null source in index order. This biases
@@ -432,8 +431,6 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   // not double-free it.
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;
-  // Use a temporary row in the merge to avoid modifying `primary` while we
-  // still read from it.
-  mergeRLookupRowsFromSourcesIntoTarget(hybridResult, lookupCtx, primary);
+  mergeRLookupRowsFromSourcesIntoTarget(hybridResult, primary);
   return primary;
 }
