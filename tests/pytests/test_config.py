@@ -2320,6 +2320,7 @@ def testDefaultScorerConfig(env):
 @skip(cluster=True)
 def test_flex_disk_resource_configs(env):
     configs = {
+        'search-disk-max-memory-percentage': '60',
         'search-disk-wbm-budget-per-index-mb': '24',
         'search-disk-write-buffer-size-kb': '0',
         'search-disk-max-open-files': '1024',
@@ -2342,21 +2343,25 @@ def test_flex_disk_resource_config_load_boundaries():
         env.skip()
     accepted = (
         {
+            'search-disk-max-memory-percentage': '1',
             'search-disk-wbm-budget-per-index-mb': '1',
             'search-disk-write-buffer-size-kb': '0',
             'search-disk-max-open-files': '20',
         },
         {
+            'search-disk-max-memory-percentage': '60',
             'search-disk-wbm-budget-per-index-mb': '2',
             'search-disk-write-buffer-size-kb': '64',
             'search-disk-max-open-files': '21',
         },
         {
+            'search-disk-max-memory-percentage': '99',
             'search-disk-wbm-budget-per-index-mb': '3',
             'search-disk-write-buffer-size-kb': '68',
             'search-disk-max-open-files': '22',
         },
         {
+            'search-disk-max-memory-percentage': '100',
             'search-disk-wbm-budget-per-index-mb': '4',
             'search-disk-write-buffer-size-kb': '65536',
             'search-disk-max-open-files': str(INT_MAX),
@@ -2384,6 +2389,8 @@ def test_flex_disk_resource_config_load_rejections():
         env.debugPrint('MODULE environment variable is not set. Skipping test')
         env.skip()
     invalid = (
+        ('search-disk-max-memory-percentage', '0'),
+        ('search-disk-max-memory-percentage', '101'),
         ('search-disk-wbm-budget-per-index-mb', '0'),
         (
             'search-disk-wbm-budget-per-index-mb',

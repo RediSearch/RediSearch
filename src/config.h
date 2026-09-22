@@ -228,9 +228,11 @@ typedef struct {
   bool simulateInFlex;
   // If true, monitor document and field expiration for new indexes.
   bool monitorExpiration;
-  // Write-buffer-manager budget added per open index, in binary MiB.
+  // Maximum memory available to Search disk resources, as a percentage of shard memory.
+  uint8_t diskMaxMemoryPercentage;
+  // Per-index contribution to the shared WBM target for current live logical indexes.
   size_t diskWbmBudgetPerIndexMB;
-  // Per-column-family write-buffer size in KiB. Zero leaves the backend option unset.
+  // Per-column-family write-buffer size in KiB. Zero selects automatic schema sizing.
   size_t diskWriteBufferSizeKB;
   // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
   // Both default to false; users opt in via search-disk-drop-read-cache and
@@ -421,6 +423,9 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
+#define DEFAULT_DISK_MAX_MEMORY_PERCENTAGE 60
+#define DISK_MAX_MEMORY_PERCENTAGE_MIN 1
+#define DISK_MAX_MEMORY_PERCENTAGE_MAX 100
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 24
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
 #define DEFAULT_DISK_WRITE_BUFFER_SIZE_KB 0
@@ -496,6 +501,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
+    .diskMaxMemoryPercentage = DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,             \
     .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,           \
     .diskWriteBufferSizeKB = DEFAULT_DISK_WRITE_BUFFER_SIZE_KB,                \
     .diskDropReadCache = false,                                                \

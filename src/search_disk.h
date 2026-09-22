@@ -37,6 +37,15 @@ extern RedisSearchDisk *disk_db;
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
 
 /**
+ * @brief Read and validate the shard-memory limit required by Search Disk.
+ *
+ * @param ctx Redis module context
+ * @param shardMemoryBytes Receives the positive size_t-fitting value
+ * @return true when bigredis-max-ram is valid
+ */
+bool SearchDisk_ValidateShardMemoryConfig(RedisModuleCtx *ctx, size_t *shardMemoryBytes);
+
+/**
  * @brief Check if SearchDisk Is initialized and their APIs can be called
  *
  * @return true if it has been initialized
@@ -74,11 +83,14 @@ void SearchDisk_UpdateLogObfuscation();
  * @param type Document type
  * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
  *        without SST persistence to ensure stale data is cleared)
+ * @param isRestore If true, admit a persisted index under restore clamp semantics
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
+    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
+    DocumentType type, bool deleteBeforeOpen, bool isRestore, IndexSpec *c_index_spec);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -924,28 +936,11 @@ void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
- * @brief Update the buffer budget and WBM in response to RAM configuration changes
+ * @brief Update the shard memory used to derive Search disk resource limits.
  *
- * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
- * and updates the WriteBufferManager with the new size. Should be called in response
- * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
- *
- * @param ctx Redis module context
- * @param percentage Percentage of available memory to request (0-100)
+ * @param shardMemoryBytes Current bigredis-max-ram value in bytes
  */
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
-
-/**
- * @brief Reapply the max_open_files cap to all live disk databases.
- *
- * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
- * the configured value on the shared disk context (so newly created indexes use it)
- * and applies the resolved per-DB cap to every existing index's database at runtime.
- *
- * @param ctx Redis module context
- * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
- */
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
+void SearchDisk_UpdateShardMemory(size_t shardMemoryBytes);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)

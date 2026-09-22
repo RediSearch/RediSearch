@@ -2713,6 +2713,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-max-memory-percentage", DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      DISK_MAX_MEMORY_PERCENTAGE_MIN, DISK_MAX_MEMORY_PERCENTAGE_MAX, get_uint8_numeric_config,
+      set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskMaxMemoryPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
       ctx, "search-disk-wbm-budget-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       1, DISK_WBM_BUDGET_PER_INDEX_MAX_MB, get_size_t_numeric_config,
