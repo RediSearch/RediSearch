@@ -87,11 +87,6 @@ DocTable NewDocTable(size_t cap, size_t max_size);
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
-// Caller holds the spec write lock and one borrow of the current table entry.
-// Consumes that borrow and returns an exclusive mutable borrow, replacing the entry with
-// the same ID if readers retain it. Detached readers keep their unchanged metadata.
-RSDocumentMetadata *DocTable_EnsureExclusive(DocTable *t, RSDocumentMetadata *dmd);
-
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *
@@ -107,12 +102,9 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
  */
 sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
 
-// Caller holds the spec write lock. Returns 0 for NULL metadata/data or a DMD allocated
-// without Document_HasPayloadSlot; otherwise copies the payload and returns 1.
+/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
+ * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
-
-// Caller holds the spec write lock. Removes the payload while retaining its reserved slot.
-void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 
 bool DocTable_Exists(const DocTable *t, t_docId docId);
 
@@ -221,7 +213,7 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
-// Release publishes completed readers to the metadata writer's acquire uniqueness check;
+// Release publishes completed readers to the score writer's acquire uniqueness check;
 // acquire also orders the final free after earlier owners' accesses.
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;

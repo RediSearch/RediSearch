@@ -1015,14 +1015,8 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
       return false;
     }
   } else {
-    const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-    // Detached snapshots receive neither deletion flags nor key-name changes from RENAME.
-    const RSDocumentMetadata *current = DocTable_Borrow(&self->sctx->spec->docs, dmd->id);
-    bool valid = current && !(dmd->flags & (Document_FailedToOpen | Document_Deleted)) &&
-                 (current == dmd || sdscmp(current->keyPtr, dmd->keyPtr) == 0);
-    DMD_Return(current);
-    if (!valid) {
-      SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
+    if ((SearchResult_GetDocumentMetadata(r)->flags & Document_FailedToOpen) || (SearchResult_GetDocumentMetadata(r)->flags & Document_Deleted)) {
+        SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
   }
@@ -1297,8 +1291,6 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
 
-  // The GIL is already held; protect document-ID validation while loading buffered snapshots.
-  RedisSearchCtx_LockSpecRead(self->sctx);
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
@@ -1311,7 +1303,6 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
       loaderDropResult(&self->base_loader.base, curr_res);
     }
   }
-  RedisSearchCtx_UnlockSpec(self->sctx);
 
   // Reset the iterator
   self->curr_result_index = 0;

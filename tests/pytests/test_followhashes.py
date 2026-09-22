@@ -263,8 +263,8 @@ def testMetadataLastFieldDeletion(env):
 
 
 @skip(cluster=True)
-def testMetadataOnlyUpdatesPreserveIndexes():
-    """Metadata-only Hash notifications retain document IDs, postings, and vector entries."""
+def testScoreOnlyUpdatesPreserveIndexes():
+    """Score-only Hash notifications retain document IDs, postings, and vector entries."""
     # Synchronous HNSW writes make backend deletion and indexing counters deterministic.
     env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
@@ -304,11 +304,8 @@ def testMetadataOnlyUpdatesPreserveIndexes():
     env.assertEqual(before['missing'], [1, 'doc:1'])
     updates = [
         (('HSET', 'doc:1', 'score', '0.5'), b'0.5', None),
-        (('HSET', 'doc:1', 'payload', b'a\x00\xab'), b'0.5', b'a\x00\xab'),
-        (('HSET', 'doc:1', 'score', '0.75', 'payload', 'last', 'unread', 'x'),
-         b'0.75', b'last'),
-        (('HDEL', 'doc:1', 'score', 'payload'), b'0.25', None),
-        (('HSET', 'doc:1', 'payload', ''), b'0.25', None),
+        (('HSET', 'doc:1', 'score', '0.75', 'unread', 'x'), b'0.75', None),
+        (('HDEL', 'doc:1', 'score'), b'0.25', None),
         (('HSET', 'doc:1', 'score', '0.125', 'score', '0.5'), b'0.5', None),
         (('HINCRBYFLOAT', 'doc:1', 'score', '0.25'), b'0.75', None),
     ]
@@ -333,15 +330,19 @@ def testMetadataOnlyUpdatesPreserveIndexes():
     conn.execute_command('HSET', 'doc:1', 'title', 'goodbye', 'score', '1')
     after = index_state()
     env.assertGreater(after['metadata']['internal_id'], first, message=after)
-    for kind in ('tag', 'numeric', 'vector', 'geoshape'):
+    for kind in ('tag', 'numeric', 'geoshape'):
         env.assertEqual(after['operations'][kind], before['operations'][kind] + 1, message=after)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', 'goodbye', 'NOCONTENT').equal([1, 'doc:1'])
+    # Unchanged vectors may be relabeled instead of inserted again during reindexing.
+    env.expect('FT.SEARCH', 'idx', 'goodbye=>[KNN 1 @v $vec AS distance]',
+               'PARAMS', '2', 'vec', vector, 'RETURN', '1', 'distance').equal(
+                   [1, 'doc:1', ['distance', '0']])
 
 
 @skip(cluster=True)
-def testSharedScoreAndPayloadFieldUpdatesBoth(env):
-    """One Hash field configured for both metadata roles refreshes both values."""
+def testSharedScoreAndPayloadFieldReindexes(env):
+    """A shared score/payload field reindexes and refreshes both values."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
                'SCORE_FIELD', 'metadata', 'PAYLOAD_FIELD', 'metadata',
                'SCHEMA', 'title', 'TEXT').ok()
@@ -351,7 +352,7 @@ def testSharedScoreAndPayloadFieldUpdatesBoth(env):
     first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
 
     conn.execute_command('HSET', 'doc:1', 'metadata', '0.5')
-    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+    env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
     env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', '0.5', '0.5'])
 
@@ -385,12 +386,13 @@ def testMetadataUpdatesMatchFullReindex(env):
                 ('HSET', 'doc:1', 'payload', ''),
                 ('HSET', 'doc:1', 'payload', 'again'),
                 ('HDEL', 'doc:1', 'payload'),
+                ('HSET', 'doc:1', 'score', '0.5', 'payload', 'combined'),
             ]
             results = []
             for command in commands:
                 conn.execute_command(*command)
                 current = server.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-                if force_plain:
+                if force_plain or 'payload' in command[2::2]:
                     server.assertGreater(current, previous, message=command)
                 else:
                     server.assertEqual(current, previous, message=command)
@@ -405,6 +407,7 @@ def testMetadataUpdatesMatchFullReindex(env):
             server.assertEqual(results[5], [1, b'doc:1', b'0.25', None])
             server.assertEqual(results[6], [1, b'doc:1', b'0.25', b'again'])
             server.assertEqual(results[7], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[8], [1, b'doc:1', b'0.5', b'combined'])
             conn.execute_command('DEL', 'doc:1')
             server.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
             conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', 'recreated')

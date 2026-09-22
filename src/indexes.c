@@ -599,11 +599,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 }
 
 typedef enum {
-  IndexUpdate_Skip = 0,
-  IndexUpdate_Score = 1 << 0,
-  IndexUpdate_Payload = 1 << 1,
-  IndexUpdate_Metadata = IndexUpdate_Score | IndexUpdate_Payload,
-  IndexUpdate_Full = 1 << 2,
+  IndexUpdate_Skip,
+  IndexUpdate_Score,
+  IndexUpdate_Full,
 } IndexUpdateAction;
 
 static bool ruleFieldEquals(const char *ruleField, const char *field, size_t length) {
@@ -636,19 +634,17 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
       }
     }
     // Schema matches take priority: a metadata field may also have indexed/sortable content.
-    if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
+    if (ruleFieldEquals(spec->rule->lang_field, field, length) ||
+        ruleFieldEquals(spec->rule->payload_field, field, length)) {
       return IndexUpdate_Full;
     }
     if (ruleFieldEquals(spec->rule->score_field, field, length)) {
-      action |= IndexUpdate_Score;
-    }
-    if (ruleFieldEquals(spec->rule->payload_field, field, length)) {
-      action |= IndexUpdate_Payload;
+      action = IndexUpdate_Score;
     }
   }
 
-  if (action & IndexUpdate_Metadata) {
-    // The metadata writer checks existence under its write lock.
+  if (action == IndexUpdate_Score) {
+    // The score writer checks existence under its write lock.
     return action;
   }
 
@@ -667,84 +663,60 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
   return alreadyIndexed ? IndexUpdate_Skip : IndexUpdate_Full;
 }
 
-// Attempts a score/payload update for a Hash change classified as metadata-only.
+// Attempts an in-place score update for a Hash change classified as score-only.
 // Returns true if handled without reindexing; false requires the caller's full update path.
-static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                               IndexUpdateAction action) {
+static bool updateHashScore(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *keyName) {
   if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
     return false;
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
-  RedisModuleString *payload = NULL;
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RSDocumentMetadata *dmd = NULL;
   bool success = false;
   uint64_t docId = 0;
   const char *keyname = NULL;
   double score = 0;
-  size_t payloadSize = 0;
-  const char *payloadData = NULL;
 
   // HDEL removes the key before notifying us when it deletes the last field.
-  if (!k) {
+  if (!key) {
     goto cleanup;
   }
-  RS_ASSERT(RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_HASH);
+  RS_ASSERT(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH);
 
   // Expiration can change indexed content independently of the fields named by this write.
-  if (RedisModule_GetAbsExpire(k) != REDISMODULE_NO_EXPIRE ||
-      RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE ||
-      DocIdMeta_GetWithOpenKey(k, spec->specId, &docId) != REDISMODULE_OK) {
+  if (RedisModule_GetAbsExpire(key) != REDISMODULE_NO_EXPIRE ||
+      RedisModule_HashFieldMinExpire(key) != REDISMODULE_NO_EXPIRE ||
+      DocIdMeta_GetWithOpenKey(key, spec->specId, &docId) != REDISMODULE_OK) {
     goto cleanup;
   }
 
-  keyname = RedisModule_StringPtrLen(key, NULL);
-  if (action & IndexUpdate_Score) {
-    score = SchemaRule_HashScore(ctx, spec->rule, k, keyname);
-  }
-  if (action & IndexUpdate_Payload) {
-    payload = SchemaRule_HashPayload(ctx, spec->rule, k, keyname);
-    payloadData = payload ? RedisModule_StringPtrLen(payload, &payloadSize) : NULL;
-  }
+  keyname = RedisModule_StringPtrLen(keyName, NULL);
+  score = SchemaRule_HashScore(ctx, spec->rule, key, keyname);
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
-  if (!dmd) {
+  // Retained readers may access metadata after releasing the spec lock.
+  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
     goto cleanup;
   }
   RS_ASSERT(dmd->type == DocumentType_Hash);
   if ((dmd->flags & Document_FailedToOpen) ||
       __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
-      DocTable_GetFieldExpirations(&spec->docs, docId).len ||
-      ((action & IndexUpdate_Payload) && !(dmd->flags & Document_HasPayloadSlot))) {
+      DocTable_GetFieldExpirations(&spec->docs, docId).len) {
     goto cleanup;
   }
 
   IndexSpec_IncrActiveWrites(spec);
-  dmd = DocTable_EnsureExclusive(&spec->docs, dmd);
+  dmd->score = score;
   success = true;
-  if (action & IndexUpdate_Payload) {
-    if (payloadSize) {
-      success = DocTable_SetPayload(&spec->docs, dmd, payloadData, payloadSize);
-    } else {
-      // Full indexing treats an empty payload as absent too.
-      DocTable_ClearPayload(&spec->docs, dmd);
-    }
-  }
-  if (success && (action & IndexUpdate_Score)) {
-    dmd->score = score;
-  }
   IndexSpec_DecrActiveWrites(spec);
 
 cleanup:
   DMD_Return(dmd);
   RedisSearchCtx_UnlockSpec(&sctx);
-  if (payload) {
-    RedisModule_FreeString(ctx, payload);
-  }
-  if (k) {
-    RedisModule_CloseKey(k);
+  if (key) {
+    RedisModule_CloseKey(key);
   }
   return success;
 }
@@ -773,7 +745,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       IndexUpdateAction action =
           getHashUpdateAction(specOp->spec, ctx, key, type, changedFields, numChangedFields);
       if (action == IndexUpdate_Skip ||
-          ((action & IndexUpdate_Metadata) && updateHashMetadata(specOp->spec, ctx, key, action))) {
+          (action == IndexUpdate_Score && updateHashScore(specOp->spec, ctx, key))) {
         continue;
       }
       IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);

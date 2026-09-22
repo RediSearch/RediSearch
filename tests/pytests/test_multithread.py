@@ -1078,8 +1078,8 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
 
 
 @skip(cluster=True)
-def test_search_drops_detached_metadata_snapshot_after_reindex():
-    """A same-ID metadata snapshot must become stale when its live document is reindexed."""
+def test_score_update_reindexes_with_retained_reader():
+    """A score update falls back to reindexing while a query retains the document metadata."""
     env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
     try:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -1089,9 +1089,8 @@ def test_search_drops_detached_metadata_snapshot_after_reindex():
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE_FIELD', 'score',
                'SCHEMA', 'title', 'TEXT').ok()
-    conn.execute_command('HSET', 'doc:1', 'title', 'hello')
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'score', '0.25')
     first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-    query = ['FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title']
     sync_point = 'BeforeSafeLoaderGILLock'
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
     out = []
@@ -1099,7 +1098,8 @@ def test_search_drops_detached_metadata_snapshot_after_reindex():
 
     def run_query():
         try:
-            out.append(query_conn.execute_command(*query))
+            out.append(query_conn.execute_command(
+                'FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title'))
         except Exception as error:
             out.append(error)
 
@@ -1110,137 +1110,16 @@ def test_search_drops_detached_metadata_snapshot_after_reindex():
             lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
             f'Timeout waiting for {sync_point}', timeout=10)
         conn.execute_command('HSET', 'doc:1', 'score', '0.5')
-        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
-        conn.execute_command('HSET', 'doc:1', 'title', 'goodbye')
-        env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+        current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+        env.assertGreater(current, first, message=(first, current))
     finally:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
         reader.join(timeout=10)
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 
-    env.assertFalse(reader.is_alive(), message='stale-snapshot reader did not finish after signal')
+    env.assertFalse(reader.is_alive(), message='retained-reader query did not finish after signal')
     env.assertEqual(len(out), 1, message=out)
     env.assertFalse(isinstance(out[0], Exception), message=out)
     env.assertEqual(out[0], [0])
-
-
-@skip(cluster=True)
-def test_search_drops_detached_metadata_snapshot_after_rename():
-    """A retained snapshot must not load an unrelated document recreated at its old key."""
-    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
-    try:
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-    except Exception:
-        env.skip()  # Sync points require an ENABLE_ASSERT build.
-        return
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE_FIELD', 'score',
-               'SCHEMA', 'title', 'TEXT').ok()
-    conn.execute_command('HSET', 'doc:1', 'title', 'hello')
-    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-    query = ['FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title']
-    sync_point = 'BeforeSafeLoaderGILLock'
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
-    out = []
-    query_conn = env.getConnection()
-
-    def run_query():
-        try:
-            out.append(query_conn.execute_command(*query))
-        except Exception as error:
-            out.append(error)
-
-    reader = threading.Thread(target=run_query, daemon=True)
-    reader.start()
-    try:
-        wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-            f'Timeout waiting for {sync_point}', timeout=10)
-        conn.execute_command('HSET', 'doc:1', 'score', '0.5')
-        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
-        conn.execute_command('RENAME', 'doc:1', 'doc:2')
-        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:2'), first)
-        conn.execute_command('HSET', 'doc:1', 'title', 'goodbye')
-        env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
-    finally:
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-        reader.join(timeout=10)
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-
-    env.assertFalse(reader.is_alive(), message='stale-snapshot reader did not finish after signal')
-    env.assertEqual(len(out), 1, message=out)
-    env.assertFalse(isinstance(out[0], Exception), message=out)
-    env.assertEqual(out[0], [0])
-
-
-@skip(cluster=True)
-def test_metadata_update_preserves_payload_for_buffered_reader():
-    """A worker serializing an already-loaded row retains its old payload across Hash updates."""
-    # RETURN keeps reply serialization on the worker after the safe loader releases both locks.
-    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
-    try:
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-    except Exception:
-        env.skip()  # Sync points require an ENABLE_ASSERT build.
-        return
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
-               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
-    old_score = '0.25'
-    old_payload = 'original payload ' * 32
-    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', old_payload)
-    query = ['FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
-             'WITHPAYLOADS', 'RETURN', '1', 'title']
-    sync_point = 'BeforeSafeLoaderExitGIL'
-    updates = [
-        (('HSET', 'doc:1', 'score', '0.5'), '0.5', old_payload),
-        (('HSET', 'doc:1', 'payload', 'replacement payload ' * 64),
-         '0.75', 'replacement payload ' * 64),
-        (('HSET', 'doc:1', 'score', '0.5', 'payload', 'combined payload ' * 48),
-         '0.5', 'combined payload ' * 48),
-        (('HDEL', 'doc:1', 'score', 'payload'), '0.25', None),
-        (('HSET', 'doc:1', 'payload', 'restored payload ' * 24),
-         '0.75', 'restored payload ' * 24),
-    ]
-    baseline_info = to_dict(env.cmd('FT.INFO', 'idx'))
-
-    for command, new_score, new_payload in updates:
-        first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
-        out = []
-        query_conn = env.getConnection()
-
-        def run_query():
-            try:
-                out.append(query_conn.execute_command(*query))
-            except Exception as error:
-                out.append(error)
-
-        reader = threading.Thread(target=run_query, daemon=True)
-        reader.start()
-        try:
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                f'Timeout waiting for {sync_point}', timeout=10)
-            conn.execute_command(*command)
-            current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-            env.assertEqual(current, first, message=(command, first, current))
-        finally:
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-            reader.join(timeout=10)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        env.assertFalse(reader.is_alive(), message='payload reader did not finish after signal')
-        env.assertEqual(len(out), 1, message=out)
-        env.assertFalse(isinstance(out[0], Exception), message=out)
-        env.assertEqual(out[0], [1, 'doc:1', old_score, old_payload, ['title', 'hello']])
-        env.expect(*query).equal([1, 'doc:1', new_score, new_payload, ['title', 'hello']])
-        current_info = to_dict(env.cmd('FT.INFO', 'idx'))
-        for field in ('num_records', 'inverted_sz_mb', 'total_inverted_index_blocks'):
-            env.assertEqual(current_info[field], baseline_info[field],
-                            message=(command, field, baseline_info[field], current_info[field]))
-
-        # A completed reply can precede worker cleanup; drain before proving the idle fast path.
-        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-        conn.execute_command('HSET', 'doc:1', 'score', '0.75')
-        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), current)
-        old_score, old_payload = '0.75', new_payload
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'NOCONTENT').equal([1, 'doc:1', '0.5'])

@@ -78,14 +78,9 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_HasExpiration =
-      0x10,  // Document and/or at least one of its fields has an expiration time
-  Document_FailedToOpen =
-      0x20,  // Document was failed to opened by a loader (might expired) but not yet marked as
-             // deleted. This is an optimization to avoid attempting opening the document for
-             // loading. May be used UN-ATOMICALLY
-  Document_HasPayloadSlot =
-      0x40,  // RAM allocation includes the trailing pointer, even without a payload.
+  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)
