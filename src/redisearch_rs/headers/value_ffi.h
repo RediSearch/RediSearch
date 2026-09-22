@@ -755,8 +755,8 @@ struct RSValue *RSValue_NewUndefined(void);
 struct RSValue *RSValue_NullStatic(void);
 
 /**
- * Formats the numeric value of a [`Value::Number`] as a string into the
- * caller-provided buffer and returns the number of bytes written.
+ * Formats the numeric value of a [`Value::Number`] as a NUL-terminated string into the
+ * caller-provided buffer and returns the number of bytes written, excluding the terminator.
  *
  * # Safety
  *
