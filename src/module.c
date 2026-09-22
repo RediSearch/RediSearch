@@ -5013,8 +5013,22 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
     return REDISMODULE_ERR;
   }
+  if (SearchDisk_IsEnabled()) {
+    size_t shardMemoryBytes;
+    if (!SearchDisk_ValidateShardMemoryConfig(ctx, &shardMemoryBytes)) {
+      RedisModule_Log(ctx, "error",
+                      "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
+      return REDISMODULE_ERR;
+    }
+  }
   return REDISMODULE_OK;
 }
+
+#ifdef REDISEARCH_UNIT_TESTS
+int RediSearch_InitModuleConfigForTests(RedisModuleCtx *ctx) {
+  return RediSearch_InitModuleConfig(ctx, NULL, 0, false);
+}
+#endif
 
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -5065,15 +5079,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RediSearch_InitModuleConfig(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  }
-
-  if (SearchDisk_IsEnabled()) {
-    size_t shardMemoryBytes;
-    if (!SearchDisk_ValidateShardMemoryConfig(ctx, &shardMemoryBytes)) {
-      RedisModule_Log(ctx, "error",
-                      "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
-      return REDISMODULE_ERR;
-    }
   }
 
   // Init RediSearch internal search
