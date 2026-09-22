@@ -424,7 +424,7 @@ static void executeAggregateDeferred(void *arg) {
       // index's coordinator cursor budget (INDEX_CURSOR_LIMIT). Cursors_Reserve
       // demotes it to a weak ref; ownership of `spec_ref` stays here.
       if (AREQ_StartCursor(r, reply, spec_ref, status, true) != REDISMODULE_OK) {
-        AREQ_ReplyOrStoreError(r, replyCtx);
+        AREQ_ReplyErrorOrDefer(r, replyCtx);
         // Cursor reservation failed before runCursor could return the loan.
         r->sctx->redisCtx = NULL;
       }
@@ -441,7 +441,7 @@ static void executeAggregateDeferred(void *arg) {
     // reader ref.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
     QueryError_SetCode(&r->base.reply.err, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    AREQ_ReplyOrStoreError(r, replyCtx);
+    AREQ_ReplyErrorOrDefer(r, replyCtx);
     RedisModule_FreeThreadSafeContext(replyCtx);
   } else {
     // Timeout path skipped executePlan; the unblock below hands the request to
@@ -887,7 +887,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
     goto cleanup;
   }
 
-  AREQ_ReplyOrStoreError(r, ctx);
+  AREQ_ReplyErrorOrDefer(r, ctx);
 
 cleanup:
   // Return the ctx loan on every error path — the cycle-owned request outlives
@@ -1157,7 +1157,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
 // RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
 // check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
-// bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
+// bails are signaled via AREQ_ReplyErrorOrDefer. The timer waits and branches
 // on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
@@ -1194,7 +1194,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
-    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
+    // Pre-pipeline bail through AREQ_ReplyErrorOrDefer. Reachable on
     // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
     // cursorRead bails here when the index was dropped while the cursor idled.
     QueryError *err = &req->base.reply.err;

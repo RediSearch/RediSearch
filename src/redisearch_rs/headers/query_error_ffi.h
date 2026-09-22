@@ -62,6 +62,16 @@ extern "C" {
 void QueryError_ClearError(struct QueryError *query_error);
 
 /**
+ * Clears the warnings of a [`QueryError`], leaving its error code and messages untouched
+ * (the complement of [`QueryError_ClearError`], which keeps the warnings).
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+void QueryError_ClearWarnings(struct QueryError *query_error);
+
+/**
  * Clones the `src` [`QueryError`] into `dest`.
  *
  * This does nothing if `dest` already has an error set.

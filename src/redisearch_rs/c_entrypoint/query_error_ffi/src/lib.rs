@@ -347,6 +347,21 @@ pub unsafe extern "C" fn QueryError_ClearError(query_error: *mut OpaqueQueryErro
     query_error.clear();
 }
 
+/// Clears the warnings of a [`QueryError`], leaving its error code and messages untouched
+/// (the complement of [`QueryError_ClearError`], which keeps the warnings).
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryError_ClearWarnings(query_error: *mut OpaqueQueryError) {
+    // Safety: see safety requirement above.
+    let query_error =
+        unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
+
+    query_error.clear_warnings();
+}
+
 /// Sets the [`QueryErrorCode`] for a [`QueryError`].
 ///
 /// This does not mutate `query_error` if it already has an error set, or

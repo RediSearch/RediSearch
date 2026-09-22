@@ -1742,6 +1742,44 @@ def test_warning_maxprefixexpansions():
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
 
+def test_warning_not_carried_across_cursor_reads():
+  """
+  A warning belongs to the reply of the cycle that raised it. The request's error
+  slot outlives a cursor read, so this pins that the next FT.CURSOR READ does not
+  re-emit (and re-count) the previous read's warning. Max prefix expansions is
+  raised once, while the iterator tree is built at cursor creation, so it is the
+  warning most likely to leak.
+  """
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+  # Two matches for the single allowed expansion (`foo`), one more term (`fooo`)
+  # to push the expansion count over the limit. Same shard, so the limit is hit there.
+  conn.execute_command('HSET', 'doc1{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc2{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc3{3}', 't', 'fooo')
+  populated_shard_conn = env.getConnectionByKey('doc1{3}', 'HSET')
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Drain the cursor one row per read, recording each reply's warnings. Where the warning
+  # lands differs by mode (standalone: the creating reply; cluster: the read that consumes the
+  # shard reply carrying it), but it must land in exactly one reply.
+  warnings_per_read = []
+  rows = 0
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1')
+  while True:
+    warnings_per_read.append(res['warning'])
+    rows += len(res['results'])
+    if not cid:
+      break
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+  env.assertEqual(rows, 2, message=warnings_per_read)
+  env.assertGreaterEqual(len(warnings_per_read), 2, message=warnings_per_read)
+  env.assertEqual([w for w in warnings_per_read if w], [['Max prefix expansions limit was reached']],
+                  message=warnings_per_read)
+
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
 def test_multiple_warnings():
   """
   Tests that a query can return multiple warnings when more than one warning

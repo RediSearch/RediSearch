@@ -528,7 +528,13 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
     qctx->totalResults = QITR_ReportedTotal(qctx);
   }
   qctx->skippedResults = 0;
+  // The slot lives for the request, so warnings must go too or the next cursor read re-emits them
+  // (and re-counts them in the warning metrics). TODO: some warnings are query-scoped (max prefix
+  // expansions is raised once, when the iterator tree is built) and could deliberately be kept
+  // across cursor reads, the way QEXEC_S_MAX_TIMEOUT_CAPPED is; others (timeouts, shard OOM) are
+  // per chunk and must not be.
   QueryError_ClearError(qctx->err);
+  QueryError_ClearWarnings(qctx->err);
 }
 
 /**
@@ -777,6 +783,11 @@ static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResul
     if (AREQ_RequiresThreadsSyncResults(req)) {
       AREQ_SignalAggregateResultsComplete(req);
     }
+  } else {
+    // The timeout callback owns the reply; nothing of this cycle may leak into a later one through
+    // the request's error slot (SetCode is first-writer-wins).
+    QueryError_ClearError(AREQ_QueryProcessingCtx(req)->err);
+    QueryError_ClearWarnings(AREQ_QueryProcessingCtx(req)->err);
   }
   SearchResult_Destroy(r);
 }
@@ -1229,7 +1240,7 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 // The cycle failed before producing results; its error is in req->base.reply.err. With a reply
 // callback the main thread replies it from there, otherwise reply it right here.
-void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx) {
+void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
   QueryError *err = &req->base.reply.err;
   RS_ASSERT(QueryError_HasError(err));
   if (QueryRequest_UsesReplyCallback(&req->base)) {
@@ -1271,7 +1282,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    AREQ_ReplyOrStoreError(req, outctx);
+    AREQ_ReplyErrorOrDefer(req, outctx);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -1333,7 +1344,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  AREQ_ReplyOrStoreError(req, outctx);
+  AREQ_ReplyErrorOrDefer(req, outctx);
   // Return the ctx loan before `cleanup` frees outctx; the request may outlive
   // this cycle through the reply callback's reference.
   sctx->redisCtx = NULL;
@@ -2143,8 +2154,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
                                        "The index was dropped while the cursor was idle");
       // Reply before disposing: the cursor may hold the only request ref, so
       // freeing first would UAF the QueryRequest reply-mode read inside
-      // AREQ_ReplyOrStoreError.
-      AREQ_ReplyOrStoreError(req, ctx);
+      // AREQ_ReplyErrorOrDefer.
+      AREQ_ReplyErrorOrDefer(req, ctx);
       AREQ_CursorEndOfCycle(req, cursor, true);
       return;
     }
