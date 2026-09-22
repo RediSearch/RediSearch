@@ -177,7 +177,7 @@ impl<'a> RLookupRow<'a> {
     /// key.
     pub fn write_key_by_name(
         &mut self,
-        rlookup: &mut RLookup<'a>,
+        rlookup: &RLookup<'a>,
         name: impl Into<Cow<'a, CStr>>,
         val: SharedValue,
     ) {
@@ -193,7 +193,7 @@ impl<'a> RLookupRow<'a> {
     /// Panics if `name` contains a NUL byte.
     pub fn write_key_by_name_bytes(
         &mut self,
-        rlookup: &mut RLookup<'a>,
+        rlookup: &RLookup<'a>,
         name: &[u8],
         val: SharedValue,
     ) {
