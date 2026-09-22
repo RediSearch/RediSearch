@@ -233,6 +233,10 @@ ResultProcessor *RPMetricsLoader_New();
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
+// Transfers a Drain comparison diagnostic into caller-owned initialized storage.
+// Call after the last Drain (including LIMIT stops); never overlap another Drain call.
+bool RPSorter_TakeDrainError(ResultProcessor *sorter, QueryError *error);
+
 /**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
