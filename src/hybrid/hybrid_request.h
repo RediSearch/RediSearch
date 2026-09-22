@@ -93,7 +93,8 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
 void HybridRequest_WakeAbortChannels(HybridRequest *req);
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
-  return req->base.async.requiresAggregateResultsSync;
+  // The shared predicate keeps result synchronization aligned with safe state access.
+  return QueryRequest_RequiresReplyStateSafeAccess(&req->base);
 }
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
