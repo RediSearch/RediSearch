@@ -463,12 +463,6 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   req->base.reply.cv = cv;
   req->base.reply.limit = limit;
   req->base.reply.hasStoredResults = true;
-
-  // Deep copy error state since qctx->err points to a local variable in the caller
-  // which will go out of scope. QueryError contains heap-allocated strings.
-  QueryError_ClearError(&req->base.reply.err);
-  QueryError_CloneFrom(qctx->err, &req->base.reply.err);
-  QueryError_ClearError(qctx->err);
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
@@ -1233,18 +1227,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   rm_free(BCRctx);
 }
 
-// Helper for error handling in AREQ_Execute_Callback.
-// For FAIL policy (useReplyCallback=true): stores error for QueryReplyCallback to handle.
-// For RETURN policy: replies with error directly.
-void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
+// The cycle failed before producing results; its error is in req->base.reply.err. With a reply
+// callback the main thread replies it from there, otherwise reply it right here.
+void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx) {
+  QueryError *err = &req->base.reply.err;
+  RS_ASSERT(QueryError_HasError(err));
   if (QueryRequest_UsesReplyCallback(&req->base)) {
-    // Clear destination before cloning to avoid leaking any existing error strings.
-    // Deep copy since QueryError contains heap-allocated strings.
-    // QueryReplyCallback will clear the stored error after replying.
-    QueryError_ClearError(&req->base.reply.err);
-    QueryError_CloneFrom(status, &req->base.reply.err);
-    // Clear the original to avoid leaking heap-allocated strings.
-    QueryError_ClearError(status);
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
     // No current coord caller reaches here while a timer is waiting; kept as a
     // forward-compat invariant for future error paths. No-op for FAIL callers.
@@ -1252,8 +1240,8 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
       AREQ_SignalAggregateResultsComplete(req);
     }
   } else {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
-    QueryError_ReplyAndClear(ctx, status);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, !IsInternal(req));
+    QueryError_ReplyAndClear(ctx, err);
   }
 }
 
@@ -1277,13 +1265,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   }
 
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  QueryError status = QueryError_Default();
+  QueryError *status = &req->base.reply.err;
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    AREQ_ReplyOrStoreError(req, outctx, &status);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    AREQ_ReplyOrStoreError(req, outctx);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -1306,7 +1294,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
   }
@@ -1331,7 +1319,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
-    int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
+    int rc = AREQ_StartCursor(req, reply, execution_ref, status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       // Cursor reservation failed before runCursor could release the lock.
@@ -1345,7 +1333,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  AREQ_ReplyOrStoreError(req, outctx, &status);
+  AREQ_ReplyOrStoreError(req, outctx);
   // Return the ctx loan before `cleanup` frees outctx; the request may outlive
   // this cycle through the reply callback's reference.
   sctx->redisCtx = NULL;
@@ -1616,10 +1604,6 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ResultProcessor *rp = qctx->endProc;
   ChunkReplyState *stored = &req->base.reply;
-
-  // Point qctx->err to the stored error so serializeAndReplyResults/finishSendChunk can access it.
-  // This is the end of the request lifecycle, so no need to restore.
-  qctx->err = &stored->err;
 
   // Build ChunkSerializeState from stored results. RETURN_STRICT timeout paths
   // deplete cursor replies during serialization so the caller cannot keep
@@ -2002,26 +1986,31 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
+  // From here on the request owns the error slot: warnings raised while building the plan (e.g.
+  // max prefix expansions) must reach the reply through the pipeline's qctx->err.
+  if (rejectUserCursorOnDisk(argv, r, type, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
+  if (buildPipelineAndExecute(r, ctx, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
   return REDISMODULE_OK;
 
-error:
+error: {
+  // Before the request exists (or once prepareRequest freed it) the error is in `status`;
+  // afterwards it lives in the request's slot, which must be replied before the request is freed.
+  QueryError *failure = r ? &r->base.reply.err : &status;
   // Update global query errors statistics
   // If num shards == 1 we are in SA, and we count it as a coord error
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
-
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(failure), 1, GetNumShards_UnSafe() == 1);
+  int rc = QueryError_ReplyAndClear(ctx, failure);
   if (r) {
     AREQ_Free(r);
   }
-
-  return QueryError_ReplyAndClear(ctx, &status);
+  return rc;
+}
 }
 
 int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions) {
@@ -2124,7 +2113,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
+static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags) {
   AREQ *req = Cursor_AREQ(cursor);
   RS_ASSERT(req != NULL);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
@@ -2132,20 +2121,17 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   *reqFlags = AREQ_RequestFlags(req);
   *hasLoader = HasLoader(req);
   *initClock = IsProfile(req) || !IsInternal(req);
-  qctx->err = status;
   return qctx;
 }
 
 static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
-
-  QueryError status = QueryError_Default();
-
   QEFlags reqFlags = 0;
   bool hasLoader = false;
   bool initClock = false;
   AREQ *req = Cursor_AREQ(cursor);
   RS_LOG_ASSERT(req, "cursorRead reached with no cursor-carried AREQ");
-  QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
+  QueryError *status = &req->base.reply.err;
+  QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
@@ -2153,12 +2139,12 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     IndexSpec *execution_spec = StrongRef_Get(execution_ref);
     if (!execution_spec) {
-      QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
       // Reply before disposing: the cursor may hold the only request ref, so
       // freeing first would UAF the QueryRequest reply-mode read inside
       // AREQ_ReplyOrStoreError.
-      AREQ_ReplyOrStoreError(req, ctx, &status);
+      AREQ_ReplyOrStoreError(req, ctx);
       AREQ_CursorEndOfCycle(req, cursor, true);
       return;
     }
@@ -2601,8 +2587,6 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     // Notify the client that the query was aborted.
     RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
   } else {
-    QueryError status = QueryError_Default();
-    AREQ_QueryProcessingCtx(req)->err = &status;
     // Refresh the background-scan-OOM capture under the held execution
     // reference; the reply path reads only the capture.
     AREQ_QueryProcessingCtx(req)->bgScanOOM |=
@@ -2706,21 +2690,26 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
-  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
+  // From here on the request owns the error slot: warnings raised while building the plan (e.g.
+  // max prefix expansions) must reach the reply through the pipeline's qctx->err.
+  if (rejectUserCursorOnDisk(argv, r, type, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
+  if (buildPipelineAndExecute(r, ctx, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
   return REDISMODULE_OK;
 
-error:
+error: {
+  QueryError *failure = r ? &r->base.reply.err : &status;
+  int rc = QueryError_ReplyAndClear(ctx, failure);
   if (r) {
     AREQ_Free(r);
   }
-  return QueryError_ReplyAndClear(ctx, &status);
+  return rc;
+}
 }
 
 /**DEBUG COMMANDS - not for production! */

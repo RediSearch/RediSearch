@@ -1125,6 +1125,9 @@ static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) 
   req->reqConfig = RSGlobalConfig.requestConfigParams;
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &req->reqConfig, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
+  // The request's single error slot, valid before any pipeline is built (transient AREQs that
+  // only ever produce an empty reply never build one).
+  req->pipeline.qctx.err = &req->base.reply.err;
   /*
   unsigned int dialectVersion;
   long long queryTimeoutMS;
@@ -1918,7 +1921,9 @@ AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
 int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             const AggregationPipelineParams *aggregationParams,
                                             QueryError *status) {
-  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
+  // Build errors go to the caller's `status`; the running pipeline reports into the request's own
+  // error slot, which the reply phase reads whenever (and on whichever thread) it runs.
+  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, &req->base.reply.err);
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {

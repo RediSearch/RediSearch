@@ -52,7 +52,8 @@ static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *re
 // Helper function for empty replies for aggregate-style queries.
 // Compiles the query to get request flags and formatting, then uses sendChunk_ReplyOnly_EmptyResults.
 // Works for both single-shard and coordinator aggregate queries.
-// Assumes req has already been compiled, including REQFLAGS and AREQ_QueryProcessingCtx(req)->err has been set.
+// Assumes req has already been compiled, including REQFLAGS, and the error to report is in its
+// error slot (req->base.reply.err). Frees req.
 static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
@@ -92,31 +93,30 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode) {
 
     AREQ *req = AREQ_New(argv, argc);
-    QueryError status = QueryError_Default();
-    AREQ_QueryProcessingCtx(req)->err = &status;
+    QueryError *status = &req->base.reply.err;
 
     int profileArgs = parseProfileArgs(argv, argc, req);
     if (profileArgs == -1) {
+        int rc = QueryError_ReplyAndClear(ctx, status);
         AREQ_Free(req);
-        return QueryError_ReplyAndClear(ctx, &status);
+        return rc;
     }
 
     if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
+        int rc = QueryError_ReplyAndClear(ctx, status);
         AREQ_Free(req);
-        return QueryError_ReplyAndClear(ctx, &status);
+        return rc;
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
     // any errors that might have occurred during compilation
-    QueryError_SetError(&status, errCode, NULL);
-    QueryError_SetCode(&status, errCode);
+    QueryError_SetError(status, errCode, NULL);
+    QueryError_SetCode(status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-        QueryError_SetQueryOOMWarning(&status);
+        QueryError_SetQueryOOMWarning(status);
     }
 
-    int ret = empty_sendChunk_common(ctx, req);
-    QueryError_ClearError(&status);
-    return ret;
+    return empty_sendChunk_common(ctx, req);
 }
 
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile) {
@@ -208,46 +208,41 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
         AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
     }
 
-    QueryError status = QueryError_Default();
-    AREQ_QueryProcessingCtx(req)->err = &status;
+    QueryError *status = &req->base.reply.err;
 
     ApplyProfileOptions(AREQ_QueryProcessingCtx(req), &req->reqflags, execOptions);
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
+        int rc = QueryError_ReplyAndClear(ctx, status);
         AREQ_Free(req);
-        return QueryError_ReplyAndClear(ctx, &status);
+        return rc;
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
     // any errors that might have occurred during compilation
-    QueryError_SetError(&status, errCode, NULL);
-    QueryError_SetCode(&status, errCode);
+    QueryError_SetError(status, errCode, NULL);
+    QueryError_SetCode(status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-        QueryError_SetQueryOOMWarning(&status);
+        QueryError_SetQueryOOMWarning(status);
     }
 
-    int ret = empty_sendChunk_common(ctx, req);
-    QueryError_ClearError(&status);
-    return ret;
+    return empty_sendChunk_common(ctx, req);
 }
 
 int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal) {
     // Transient AREQ with no blocked-client cycle (see single_shard_common_query_reply_empty).
     AREQ *req = AREQ_New(NULL, 0);
-    QueryError status = QueryError_Default();
-    AREQ_QueryProcessingCtx(req)->err = &status;
+    QueryError *status = &req->base.reply.err;
 
-    QueryError_SetError(&status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_TIMED_OUT);
+    QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
     if (internal) {
         AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
     }
     req->base.cursorInfo.id = (uint64_t)cid;
 
-    int ret = empty_sendChunk_common(ctx, req);
-    QueryError_ClearError(&status);
-    return ret;
+    return empty_sendChunk_common(ctx, req);
 }
 
 int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
