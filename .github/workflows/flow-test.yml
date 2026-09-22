@@ -16,6 +16,10 @@ on:
         description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": ""}''). Use empty string for full tests.'
         type: string
         default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      test-timeout:
+        description: 'Timeout in minutes for each test step'
+        type: number
+        default: 120
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
@@ -63,6 +67,10 @@ on:
         description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
         type: string
         default: QUICK=1
+      test-timeout:
+        description: 'Timeout in minutes for each test step'
+        type: number
+        default: 120
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
         type: string
@@ -124,6 +132,7 @@ jobs:
       standalone: ${{ contains(inputs.options, 'standalone') || inputs.standalone == true }}
       unit-tests: ${{ contains(inputs.options, 'unit-tests') || inputs.unit-tests == true }}
       test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
+      test-timeout: ${{ inputs.test-timeout }}
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
