@@ -148,7 +148,7 @@ static inline const char *searchRequestCtx_Query(const searchRequestCtx *req, si
   RS_ASSERT(req->base.args.queryOffset < req->base.args.parseArgc);
   const char *query =
       RedisModule_StringPtrLen(req->base.args.argv[req->base.args.queryOffset], NULL);
-  // Preserve the first-NUL parsing boundary, as AREQ_Query does.
+  // Keep this in sync with the transitional handling in AREQ_Query() (aggregate/aggregate.h).
   if (len) *len = strlen(query);
   return query;
 }
