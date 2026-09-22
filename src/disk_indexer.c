@@ -336,13 +336,13 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
   dictReleaseIterator(iter);
   dictRelease(missing);
 
-  bool staged = SearchDisk_IndexMissingFields(
+  bool success = SearchDisk_IndexMissingFields(
       sctx->redisCtx, sctx->spec->diskSpec, aCtx->disk.batch, fields, numFields, aCtx->doc->docId);
   rm_free(fields);
 
-  if (!staged) {
+  if (!success) {
     QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
-                        "Failed to stage missing fields on disk");
+                        "Failed to add missing-field postings to the write batch");
     IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, aCtx->doc->docKey);
     aCtx->stateFlags |= ACTX_F_ERRORED;
   }

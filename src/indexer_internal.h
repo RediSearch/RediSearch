@@ -32,8 +32,9 @@ extern "C" {
 
 /**
  * Return an owned dictionary of INDEXMISSING fields absent from the document,
- * keyed by field name with FieldSpec values. Returns NULL when none are configured.
- * The caller releases the dictionary. Field expiration is not considered.
+ * mapping HiddenString * keys to borrowed FieldSpec * values from the schema.
+ * Returns NULL when none are configured. The caller releases the dictionary.
+ * Field expiration is not considered.
  */
 dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc);
 

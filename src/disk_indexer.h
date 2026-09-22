@@ -47,9 +47,6 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
  *
  * On commit failure, the apply step is skipped — no in-memory state was
  * mutated, so there is nothing to roll back.
- *
- * The RAM implementations of `writeExistingDocs` and `writeMissingFieldDocs` are not called
- * here. Missing fields are staged without RAM's query-time expiration handling.
  */
 void DiskIndexer_IndexDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
 
