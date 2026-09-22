@@ -232,6 +232,8 @@ typedef struct {
   uint8_t diskMaxMemoryPercentage;
   // Per-index contribution to the shared WBM target for current live logical indexes.
   size_t diskWbmBudgetPerIndexMB;
+  // Per-data-CF write-buffer size in KiB. Zero selects automatic schema sizing.
+  size_t diskWriteBufferSizeKB;
   // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
   // Both default to false; users opt in via search-disk-drop-read-cache and
   // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
@@ -426,6 +428,10 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DISK_MAX_MEMORY_PERCENTAGE_MAX 100
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 24
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
+#define DEFAULT_DISK_WRITE_BUFFER_SIZE_KB 0
+#define DISK_WRITE_BUFFER_SIZE_MIN_KB 64
+#define DISK_WRITE_BUFFER_SIZE_MAX_KB (64 * 1024)
+#define DISK_WRITE_BUFFER_SIZE_ALIGNMENT_KB 4
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024
 #define DISK_MAX_OPEN_FILES_MIN 20
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
@@ -497,6 +503,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .monitorExpiration = true,                                                 \
     .diskMaxMemoryPercentage = DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,             \
     .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,           \
+    .diskWriteBufferSizeKB = DEFAULT_DISK_WRITE_BUFFER_SIZE_KB,                \
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
