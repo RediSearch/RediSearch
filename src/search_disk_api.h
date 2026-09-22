@@ -140,6 +140,7 @@ typedef struct SearchDiskResourceConfig {
   size_t shardMemoryBytes;
   size_t maxMemoryPercentage;
   size_t wbmBudgetPerIndexMB;
+  size_t writeBufferSizeKB;
   int maxOpenFiles;
 } SearchDiskResourceConfig;
 
@@ -177,6 +178,9 @@ typedef struct BasicDiskAPI {
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @param isRestore If true, admit a persisted index and clamp shared WBM capacity to the
    *        current maximum; otherwise reject the new open when its required target exceeds it
+   * @param dataCfCount Number of column families expected to receive Search data: one document
+   *        table CF, one shared fulltext CF when indexed TEXT exists, and one CF per indexed
+   *        TAG, NUMERIC/GEO, or VECTOR field. The default CF and unused fulltext CF are excluded.
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
@@ -189,8 +193,8 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpec)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      bool deleteBeforeOpen, bool isRestore, const SearchDiskCompactionCallbacks *callbacks,
-      void *private_data);
+      bool deleteBeforeOpen, bool isRestore, size_t dataCfCount,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -272,6 +276,7 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param dataCfCount Same data-CF count as openIndexSpec
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
@@ -281,8 +286,8 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      RedisSearchDiskRdbState *rdbState, const SearchDiskCompactionCallbacks *callbacks,
-      void *private_data);
+      RedisSearchDiskRdbState *rdbState, size_t dataCfCount,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
