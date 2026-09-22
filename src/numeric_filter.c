@@ -104,10 +104,6 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
   return nf;
 }
 
-void NumericFilter_SetField(NumericFilter *nf, const FieldSpec *fs) {
-  nf->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
-}
-
 void NumericFilter_Free(NumericFilter *nf) {
   rm_free(nf);
 }
@@ -118,12 +114,12 @@ void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
 }
 
 NumericFilter *NewNumericFilter(double min, double max, bool inclusiveMin, bool inclusiveMax,
-                                bool asc, const FieldSpec *fs, const void* geoFilter) {
+                                bool asc, t_fieldIndex fieldIndex, const void* geoFilter) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;
-  NumericFilter_SetField(f, fs);
+  f->fieldIndex = fieldIndex;
   f->maxInclusive = inclusiveMax;
   f->minInclusive = inclusiveMin;
   f->geoFilter = geoFilter;
