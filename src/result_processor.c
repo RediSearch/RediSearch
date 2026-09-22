@@ -1985,7 +1985,19 @@ typedef struct {
   ResultProcessor base;
   rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
+  atomic_bool statsLock;
+  rs_wall_clock_ns_t drainTime;
+  uint64_t drainCount;
 } RPProfile;
+
+static void rpProfileLock(RPProfile *self) {
+  while (atomic_exchange_explicit(&self->statsLock, true, memory_order_acquire)) {
+  }
+}
+
+static void rpProfileUnlock(RPProfile *self) {
+  atomic_store_explicit(&self->statsLock, false, memory_order_release);
+}
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
@@ -1993,9 +2005,31 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   rs_wall_clock start;
   rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += rs_wall_clock_elapsed_ns(&start);
+  rs_wall_clock_ns_t elapsed = rs_wall_clock_elapsed_ns(&start);
+  rpProfileLock(self);
+  self->profileTime += elapsed;
   self->profileCount++;
+  rpProfileUnlock(self);
   return rc;
+}
+
+static RPDrainStatus rpprofileDrain(ResultProcessor *base, SearchResult *r) {
+  RPProfile *self = (RPProfile *)base;
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
+  self->drainTime += rs_wall_clock_elapsed_ns(&start);
+  self->drainCount++;
+  return rc;
+}
+
+RPProfileSnapshot RPProfile_GetDrainSnapshot(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  rpProfileLock(self);
+  RPProfileSnapshot snapshot = {self->profileTime, self->profileCount, self->drainTime,
+                                self->drainCount};
+  rpProfileUnlock(self);
+  return snapshot;
 }
 
 static void rpProfileFree(ResultProcessor *base) {
@@ -2007,11 +2041,12 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;
+  atomic_init(&rpp->statsLock, false);
   rpp->base.upstream = rp;
   rpp->base.parent = qctx;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
-  rpp->base.Drain = RPDrain_EOF;
+  rpp->base.Drain = rpprofileDrain;
   rpp->base.type = RP_PROFILE;
 
   return &rpp->base;
@@ -2034,7 +2069,9 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
 
 void RPProfile_IncrementCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
+  rpProfileLock(self);
   self->profileCount++;
+  rpProfileUnlock(self);
 }
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
