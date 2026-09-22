@@ -3324,13 +3324,12 @@ static RPDrainStatus RPCrash_Drain(ResultProcessor *base, SearchResult *r) {
 
 ResultProcessor *RPCrash_New(enum CrashLocation location) {
   RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPCrash_Drain;
   switch (location) {
     case CRASH_IN_C:
       ret->base.type = RP_CRASH;
       ret->base.Next = RPCrash_Next;
       ret->base.Free = RPCrash_Free;
-      ret->base.Drain = RPCrash_Drain;
       return &ret->base;
     case CRASH_IN_RUST:
       ret->base.type = RP_CRASH_IN_RUST;
