@@ -48,7 +48,7 @@ fn invalid_radius_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.radius = 0.0;
     // SAFETY: radius <= 0.0 triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn invalid_lon_too_high_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lon = GEO_LONG_MAX + 0.01;
     // SAFETY: lon > GEO_LONG_MAX triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn invalid_lon_too_low_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lon = GEO_LONG_MIN - 0.01;
     // SAFETY: lon < GEO_LONG_MIN triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn invalid_lat_too_high_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lat = GEO_LAT_MAX + 0.01;
     // SAFETY: lat > GEO_LAT_MAX triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
 }
 
 #[test]
@@ -80,5 +80,22 @@ fn invalid_lat_too_low_is_rejected() {
     let mut gf = geo_filter_stub();
     gf.lat = GEO_LAT_MIN - 0.01;
     // SAFETY: lat < GEO_LAT_MIN triggers the early-return before any pointer is used.
-    assert!(unsafe { build_geo_numeric_filters(&mut gf, std::ptr::null()) }.is_err());
+    assert!(unsafe { build_geo_numeric_filters(&mut gf) }.is_err());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Calls C NewNumericFilter and NumericFilter_Free")]
+fn numeric_filters_preserve_field_index_without_field_spec() {
+    let mut gf = geo_filter_stub();
+    gf.fieldIndex = 7;
+
+    // SAFETY: numericFilters is NULL and gf stays in place until the filters are freed.
+    let filters = unsafe { build_geo_numeric_filters(&mut gf) }.unwrap();
+    let field_indices: Vec<_> = filters.iter().map(|filter| filter.field_index).collect();
+    drop(filters);
+    // SAFETY: the array came from build_geo_numeric_filters and no references remain.
+    unsafe { rqe_iterators::free_geo_numeric_filters(gf.numericFilters.cast()) };
+
+    assert!(!field_indices.is_empty());
+    assert!(field_indices.iter().all(|&index| index == 7));
 }
