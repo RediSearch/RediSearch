@@ -3310,7 +3310,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
           RedisModule_Reply_SimpleString(reply, "score");
 
           if (req->withExplainScores) {
-            RedisModule_Reply_ArrayWithLen(reply, 2);
+            RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
               RedisModule_Reply_Double(reply, res->score);
               MR_ReplyWithMRReply(reply, res->explainScores);
             RedisModule_Reply_ArrayEnd(reply);
@@ -3353,7 +3353,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
         if (req->withExplainScores) {
-          RedisModule_Reply_ArrayWithLen(reply, 2);
+          RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
             RedisModule_Reply_Double(reply, res->score);
             MR_ReplyWithMRReply(reply, res->explainScores);
           RedisModule_Reply_ArrayEnd(reply);

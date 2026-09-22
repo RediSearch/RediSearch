@@ -199,7 +199,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       // This will become a string in RESP2
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
-      RedisModule_Reply_ArrayWithLen(reply, 2);
+      RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
       SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);

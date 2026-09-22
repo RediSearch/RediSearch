@@ -73,6 +73,9 @@
 #include "util/arr/arr.h"
 #include "util/references.h"
 
+// A cursor reply is [results, cursor id].
+#define RESULTS_WITH_CURSOR_REPLY_LEN 2
+
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
 typedef struct {
@@ -176,9 +179,8 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   if (has_map) {
     // One entry per section below, plus the trailing "values" placeholder.
-    const size_t entries = !!(options & QEXEC_F_IS_SEARCH) + !!(options & QEXEC_F_SEND_SCORES) +
-                           !!(options & QEXEC_F_SENDRAWIDS) + !!(options & QEXEC_F_SEND_PAYLOADS) +
-                           !!(options & QEXEC_F_SEND_SORTKEYS) + (size_t)need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
+    const uint32_t oneEntryEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
+    const size_t entries = __builtin_popcount(options & oneEntryEach) + (size_t)need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
     RedisModule_Reply_MapWithLen(reply, entries);
   }
 
@@ -199,7 +201,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
-      RedisModule_Reply_ArrayWithLen(reply, 2);
+      RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
       SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);
@@ -624,7 +626,7 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   if (IsProfile(req)) {
     Profile_PrepareMapForReply(reply);
   } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
+    RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
   RedisModule_Reply_Array(reply);
@@ -882,7 +884,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
  */
 static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
+    RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
   RedisModule_Reply_Map(reply);
@@ -1083,7 +1085,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (reply->resp3) {
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
+      RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
     }
     // RESP3 format - use map structure
     RedisModule_Reply_Map(reply);
@@ -1159,7 +1161,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
     } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
+      RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
     }
 
     // RESP2 format - use array structure
