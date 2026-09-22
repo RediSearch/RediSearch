@@ -1712,6 +1712,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   // Signal timeout to background thread so it skips storing results.
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/true);
+  BlockedClientTiming_Finish(&request->timing);
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -1737,6 +1738,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
     // The worker has not entered the stored-results phase yet. Reply in the
     // normal RETURN_STRICT cursor shape, depleted: once a cursor read times out
     // under RETURN_STRICT, the caller must not continue pulling from it.
+    BlockedClientTiming_Finish(&request->timing);
     return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }
 
@@ -1744,6 +1746,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply with an
   // exhausted cursor (id 0); the worker finishes once we release the GIL.
   if (QueryRequest_TimeoutPreemptSafeLoaderGIL(&req->base)) {
+    BlockedClientTiming_Finish(&request->timing);
     return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }
 
@@ -1761,6 +1764,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   } else {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
   }
+  BlockedClientTiming_Finish(&request->timing);
   return REDISMODULE_OK;
 }
 
@@ -2219,6 +2223,10 @@ typedef struct {
 } CursorReadCtx;
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
+  BlockedClientTiming_Start(&cr_ctx->cursor->query->timing);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   // Optimization (mirrors AREQ_Execute_Callback): if the timer fired while
   // we were queued, FAIL already replied and can close the cursor immediately.
@@ -2239,7 +2247,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
     AREQ_CursorEndOfCycle(req, cr_ctx->cursor, true);
   }
   RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
+  BlockedClientTiming_Finish(&req->base.timing);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
   RedisModule_UnblockClient(cr_ctx->bc, privdata);
   rm_free(cr_ctx);
