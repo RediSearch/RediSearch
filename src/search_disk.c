@@ -96,9 +96,10 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
-                             RSGlobalConfig.diskMaxOpenFiles);
+  disk_db = disk->basic.open(ctx, RSGlobalConfig.diskWbmBudgetPerIndexMB,
+                             RSGlobalConfig.diskWriteBufferSizeKB,
+                             RSGlobalConfig.hideUserDataFromLog, RSGlobalConfig.diskDropReadCache,
+                             RSGlobalConfig.diskUseDirectReads, RSGlobalConfig.diskMaxOpenFiles);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {

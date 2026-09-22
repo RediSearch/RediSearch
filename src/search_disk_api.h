@@ -140,14 +140,17 @@ typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
    * @param ctx Redis module context
-   * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @param wbmBudgetPerIndexMB Write-buffer-manager budget contribution per open index, in binary MiB
+   * @param writeBufferSizeKB Per-column-family write-buffer size in KiB; zero leaves the option unset
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
-   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
+   * @param maxOpenFiles Per-database open-file cap
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, size_t wbmBudgetPerIndexMB,
+                           size_t writeBufferSizeKB, bool logObfuscation, bool dropReadCache,
+                           bool useDirectReads, int maxOpenFiles);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**

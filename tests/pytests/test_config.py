@@ -2318,22 +2318,95 @@ def testDefaultScorerConfig(env):
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
 
 @skip(cluster=True)
-def test_flex_search_disk_buffer_percentage(env):
-    """Test search-disk-buffer-percentage validation in Flex mode"""
-    # Valid values should be accepted
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '50'])
+def test_flex_disk_resource_configs(env):
+    configs = {
+        'search-disk-wbm-budget-per-index-mb': '24',
+        'search-disk-write-buffer-size-kb': '0',
+        'search-disk-max-open-files': '1024',
+    }
+    wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
+    for name, default in configs.items():
+        env.expect('CONFIG', 'GET', name).equal([name, default])
+        env.assertNotIn(name, wildcard_result)
+        env.expect('CONFIG', 'SET', name, default).error()
+    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal([])
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').error()
 
-    # Boundary values
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '0').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '0'])
 
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '100').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '100'])
+@skip(cluster=True, redis_less_than='7.9.227', asan=True)
+def test_flex_disk_resource_config_load_boundaries():
+    module_path = os.getenv('MODULE')
+    if module_path is None:
+        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+        env.debugPrint('MODULE environment variable is not set. Skipping test')
+        env.skip()
+    accepted = (
+        {
+            'search-disk-wbm-budget-per-index-mb': '1',
+            'search-disk-write-buffer-size-kb': '0',
+            'search-disk-max-open-files': '20',
+        },
+        {
+            'search-disk-wbm-budget-per-index-mb': '2',
+            'search-disk-write-buffer-size-kb': '64',
+            'search-disk-max-open-files': '21',
+        },
+        {
+            'search-disk-wbm-budget-per-index-mb': '3',
+            'search-disk-write-buffer-size-kb': '68',
+            'search-disk-max-open-files': '22',
+        },
+        {
+            'search-disk-wbm-budget-per-index-mb': '4',
+            'search-disk-write-buffer-size-kb': '65536',
+            'search-disk-max-open-files': str(INT_MAX),
+        },
+    )
+    for expected in accepted:
+        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+        load_args = []
+        for name, value in expected.items():
+            load_args.extend(('CONFIG', name, value))
+        try:
+            env.start()
+            env.expect('MODULE', 'LOADEX', module_path, *load_args).ok()
+            for name, value in expected.items():
+                env.expect('CONFIG', 'GET', name).equal([name, value])
+        finally:
+            env.stop()
 
-    # Values above 100 should be rejected
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '101').error()\
-        .contains('argument must be between 0 and 100')
+
+@skip(cluster=True, redis_less_than='7.9.227', asan=True)
+def test_flex_disk_resource_config_load_rejections():
+    module_path = os.getenv('MODULE')
+    if module_path is None:
+        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+        env.debugPrint('MODULE environment variable is not set. Skipping test')
+        env.skip()
+    invalid = (
+        ('search-disk-wbm-budget-per-index-mb', '0'),
+        (
+            'search-disk-wbm-budget-per-index-mb',
+            str(UINT64_MAX // (1024 * 1024) + 1),
+        ),
+        ('search-disk-write-buffer-size-kb', '63'),
+        ('search-disk-write-buffer-size-kb', '65'),
+        ('search-disk-write-buffer-size-kb', '65535'),
+        ('search-disk-write-buffer-size-kb', '65537'),
+        ('search-disk-max-open-files', '19'),
+        ('search-disk-buffer-percentage', '50'),
+    )
+    for name, value in invalid:
+        env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+        try:
+            env.start()
+            loaded_modules = env.cmd('MODULE', 'LIST')
+            env.expect(
+                'MODULE', 'LOADEX', module_path, 'CONFIG', name, value,
+            ).error().contains('Error loading the extension')
+            env.assertEqual(env.cmd('MODULE', 'LIST'), loaded_modules)
+        finally:
+            env.stop()
 
 @skip(cluster=True)
 def test_flex_search_disk_async_read_pool_size(env):
