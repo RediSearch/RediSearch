@@ -6,11 +6,40 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+import threading
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
     assert(moduleArgs != '')
     env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
     return env
+
+# Regression helper for MOD-18356: a query is parsed (capturing a field index) on the main
+# thread, but its job only runs later on a worker thread. A concurrent FT.ALTER can reallocate
+# IndexSpec.fields in between, so the query must resolve fields through their stable index at
+# run time rather than a pointer captured at parse time.
+def assert_query_survives_field_alter_race(env, idx, query_args, expected_count):
+    result = {}
+    def run_query():
+        conn = getConnectionByEnv(env)
+        result['res'] = conn.execute_command(*query_args)
+
+    with paused_workers(env):
+        thread = threading.Thread(target=run_query, name='alter-race-query', daemon=True)
+        thread.start()
+
+        # Wait for the query's job to be queued, so it captured its field index before the
+        # ALTER below runs, but cannot evaluate it until the workers are resumed.
+        wait_for_condition(
+            lambda: (getWorkersThpoolStats(env)['totalPendingJobs'] >= 1, getWorkersThpoolStats(env)),
+            'Timed out waiting for the query to queue on the paused worker pool',
+        )
+
+        # Grows IndexSpec.fields, which may move it via rm_realloc.
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', 'extra', 'TEXT').ok()
+
+    thread.join(timeout=10)
+    env.assertFalse(thread.is_alive(), message='query did not complete after workers resumed')
+    env.assertEqual(result['res'][0], expected_count)
 
 def testEmptyBuffer():
     env = initEnv()
@@ -124,6 +153,123 @@ def test_delete_index_while_indexing():
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     stats = getWorkersThpoolStats(env)
     env.assertEqual(n_local_vector, stats['totalJobsDone'], message=stats)
+
+
+# Regression test for MOD-18356 (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_vector_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    dim = 4
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    query_vec = load_vectors_to_redis(env, n_vec=10, query_vec_index=0, vec_size=dim)
+
+    query_args = ('FT.SEARCH', 'idx', '*=>[KNN 3 @vector $blob]',
+                  'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_tag_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'tag', 'foo')
+
+    query_args = ('FT.SEARCH', 'idx', '@tag:{foo}', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_numeric_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i)
+
+    query_args = ('FT.SEARCH', 'idx', '@num:[0 10]', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race). WITHOUTCOUNT routes the
+# wildcard query through the SORTBY optimizer's partial-range path (query_optimizer.c /
+# NewOptimizerIterator), a separate field-index re-derivation site from the plain numeric
+# filter above.
+@skip(cluster=True)
+def test_numeric_optimizer_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i)
+
+    query_args = ('FT.SEARCH', 'idx', '*', 'SORTBY', 'num', 'LIMIT', 0, 3,
+                  'WITHOUTCOUNT', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race). Combining a scored predicate
+# with a filter on the SORTBY field routes through the optimizer's Hybrid mode instead: here
+# checkQueryTypes pulls the numeric node out of the query tree and reuses its already-parsed
+# NumericFilter (fieldIndex set at parse time) as the optimizer's own filter, rather than
+# building a fresh one - the wildcard case above never exercises that reuse.
+@skip(cluster=True)
+def test_numeric_optimizer_hybrid_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i, 't', f'hello{i}')
+
+    query_args = ('FT.SEARCH', 'idx', '(hello0|hello1|hello2) @num:[0 10]', 'SORTBY', 'num',
+                  'LIMIT', 0, 3, 'WITHOUTCOUNT', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_geo_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geo', 'GEO').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'geo', '1.23,4.56')
+
+    query_args = ('FT.SEARCH', 'idx', '@geo:[1.23 4.56 10 km]', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_missing_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'INDEXMISSING', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    query_args = ('FT.SEARCH', 'idx', 'ismissing(@txt)', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_geoshape_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
+    conn = getConnectionByEnv(env)
+    point = 'POINT(34.9010 29.7010)'
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'geom', point)
+
+    poly = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))'
+    query_args = ('FT.SEARCH', 'idx', '@geom:[within $poly]',
+                  'PARAMS', 2, 'poly', poly, 'RETURN', 0, 'DIALECT', 3)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
 
 
 def do_burst_threads_sanity(algo, data_type, test_name):

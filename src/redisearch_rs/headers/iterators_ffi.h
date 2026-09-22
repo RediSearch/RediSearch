@@ -234,7 +234,7 @@ QueryIterator *NewEmptyIterator(void);
  *    lifetime of all returned iterators.
  * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
  * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
- *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.fieldIndex` must be within `ctx.spec`'s current field count.
  *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
  *      freed by `GeoFilter_Free`.
  * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
@@ -512,9 +512,9 @@ QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double w
  * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
  *    for the lifetime of the returned iterator.
  * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
- *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
- *    returned iterator.
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_index` is
+ *    within `(*ctx).spec`'s current field count, and the field at that index must be of
+ *    numeric or geo type.
  * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
  * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
  *    index (not a field mask).

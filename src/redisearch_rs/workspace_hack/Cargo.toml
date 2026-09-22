@@ -17,6 +17,7 @@ publish = false
 [dependencies]
 bindgen = { version = "0.72", default-features = false, features = ["logging", "prettyplease"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
@@ -43,6 +44,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 [build-dependencies]
 bindgen = { version = "0.72", default-features = false, features = ["logging", "prettyplease"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
