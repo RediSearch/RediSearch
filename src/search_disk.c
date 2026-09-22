@@ -36,15 +36,31 @@ static bool asyncIOEnabled = true;
 static int VecSim_EnableThrottle(void);
 static int VecSim_DisableThrottle(void);
 
+#ifdef REDISEARCH_UNIT_TESTS
+static RedisSearchDiskAPI *testDiskApi = NULL;
+
+void SearchDisk_SetTestAPI(RedisSearchDiskAPI *api) {
+  testDiskApi = api;
+}
+#endif
+
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
 bool SearchDisk_HasAPI() {
+#ifdef REDISEARCH_UNIT_TESTS
+  return testDiskApi != NULL;
+#else
   return false;
+#endif
 }
 
 __attribute__((weak))
 RedisSearchDiskAPI *SearchDisk_GetAPI() {
+#ifdef REDISEARCH_UNIT_TESTS
+  return testDiskApi;
+#else
   return NULL;
+#endif
 }
 
 __attribute__((weak))

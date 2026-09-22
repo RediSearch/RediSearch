@@ -7,27 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-struct RedisSearchDiskAPI;
-static RedisSearchDiskAPI *fakeDiskApi;
-
-extern "C" bool SearchDisk_HasAPI() {
-  return fakeDiskApi != nullptr;
-}
-
-extern "C" RedisSearchDiskAPI *SearchDisk_GetAPI() {
-  return fakeDiskApi;
-}
-
-extern "C" void SearchDisk_SetAPI() {
-}
-
-extern "C" {
 #include "notifications.h"
 #include "search_disk.h"
-}
 
 #include "gtest/gtest.h"
+
 #include <cstring>
+
+extern "C" {
+extern RedisSearchDiskAPI *disk;
+extern bool isFlex;
+void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data);
+void SearchDisk_SetTestAPI(RedisSearchDiskAPI *api);
+}
 
 namespace {
 
@@ -119,7 +111,7 @@ class SearchDiskResourcesTest : public ::testing::Test {
     api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {};
     api.basic.updateShardMemory = updateShardMemory;
 
-    fakeDiskApi = &api;
+    SearchDisk_SetTestAPI(&api);
     disk = nullptr;
     disk_db = nullptr;
     isFlex = false;
@@ -130,7 +122,7 @@ class SearchDiskResourcesTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    fakeDiskApi = nullptr;
+    SearchDisk_SetTestAPI(nullptr);
     RedisModule_FreeThreadSafeContext(ctx);
   }
 

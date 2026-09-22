@@ -17,11 +17,15 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 __attribute__((weak))
 bool SearchDisk_HasAPI();
 
 __attribute__((weak))
- RedisSearchDiskAPI *SearchDisk_GetAPI();
+RedisSearchDiskAPI *SearchDisk_GetAPI();
 
 __attribute__((weak))
 void SearchDisk_SetAPI();
@@ -1016,3 +1020,7 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  * Intended for test teardown so a stuck pause can't poison the next test.
  */
 void SearchDisk_DebugResetCompactionController(void);
+
+#ifdef __cplusplus
+}
+#endif
