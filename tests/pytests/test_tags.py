@@ -1132,9 +1132,11 @@ def testTagIndexingInvalidUtf8LoweringOverflow(env):
 
 def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
     """Same as `testTagIndexingInvalidUtf8LoweringOverflow`, but for a
-    SORTABLE field: the lowering runs before SORTABLE's own UTF-8
-    validation, so the overflow is reachable ahead of the expected
-    "Invalid UTF-8" indexing error.
+    SORTABLE field. On this branch, a HASH field's sortable value is
+    normalized via `normalizeStr`/`RSSortingVector_PutStr`
+    (src/document.c, src/sortable.c), neither of which validates UTF-8, so
+    the overflow is reachable but no "Invalid UTF-8" indexing error is
+    raised: doc2 is indexed successfully like doc1.
     """
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE').ok()
@@ -1148,9 +1150,5 @@ def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
         alive = False
     env.assertTrue(alive, message='server crashed indexing an invalid-UTF-8 sortable tag value')
 
-    errors = index_errors(env, 'idx_sortable')
-    env.assertEqual(errors['indexing failures'], 1)
-    env.assertContains('Invalid UTF-8', errors['last indexing error'])
-    env.assertEqual(errors['last indexing error key'], 'doc2')
-
-    env.expect('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT').equal([1, 'doc1'])
+    env.assertEqual(index_errors(env, 'idx_sortable')['indexing failures'], 0)
+    env.expect('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT').equal([2, 'doc1', 'doc2'])
