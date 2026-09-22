@@ -1054,6 +1054,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);
+  BlockedClientTiming_Finish(&request->timing);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1185,6 +1186,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // paused/saturated); reply with a depleted cursor instead. The worker
     // observes the lost latch at its entry and frees the taken cursor without
     // storing a reply.
+    BlockedClientTiming_Finish(&request->timing);
     return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
@@ -1212,6 +1214,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);
   }
+  BlockedClientTiming_Finish(&request->timing);
   return REDISMODULE_OK;
 }
 

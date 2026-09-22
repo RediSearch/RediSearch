@@ -9,12 +9,14 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
+#include "concurrent_ctx.h"
 #include "cursor.h"
 #include "hybrid/hybrid_exec.h"
 #include "indexes.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "module.h"
 #include "profile/options.h"
 #include "query_eval_ffi.h"
 #include "redismock/util.h"
@@ -24,9 +26,21 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <tuple>
 
 extern "C" int RSExecuteAggregateOrSearch(RedisModuleCtx* ctx, RedisModuleString** argv, int argc,
                                           CommandType type, ProfileOptions profileOptions);
+extern "C" int DistAggregateReplyCallback(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
+extern "C" int DistAggregateTimeoutFailCallback(RedisModuleCtx* ctx, RedisModuleString** argv,
+                                                int argc);
+extern "C" int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx* ctx,
+                                                         RedisModuleString** argv, int argc);
+#ifdef ENABLE_ASSERT
+extern "C" bool SyncPoint_ArmWithTimeout(const char* name, long long autoReleaseMs);
+extern "C" bool SyncPoint_IsWaiting(const char* name);
+extern "C" void SyncPoint_Signal(const char* name);
+extern "C" void SyncPoint_ClearAll(void);
+#endif
 
 class BlockedClientTimingTest : public testing::Test {
  protected:
@@ -347,21 +361,52 @@ TEST_P(QueuedQueryTimingTest, TimeoutPublicationDoesNotWaitForMeasurementStart) 
 INSTANTIATE_TEST_SUITE_P(QueryCommands, QueuedQueryTimingTest,
                          testing::Values(COMMAND_SEARCH, COMMAND_AGGREGATE, COMMAND_HYBRID));
 
-class QueuedCursorTimingTest : public QueuedCommandTimingTest,
-                               public testing::WithParamInterface<RSTimeoutPolicy> {
+class QueuedCursorTimingTest
+    : public QueuedCommandTimingTest,
+      public testing::WithParamInterface<std::tuple<RSTimeoutPolicy, bool>> {
  protected:
   decltype(RedisModule_ReplyWithArray) savedReplyArray = RedisModule_ReplyWithArray;
   decltype(RedisModule_ReplyWithLongLong) savedReplyLongLong = RedisModule_ReplyWithLongLong;
   decltype(RedisModule_ReplySetArrayLength) savedSetArrayLength = RedisModule_ReplySetArrayLength;
+  int savedDistThreadPool = DIST_THREADPOOL;
+  redisearch_thpool_t* coordPool = nullptr;
+
+  RSTimeoutPolicy timeoutPolicy() const {
+    return std::get<0>(GetParam());
+  }
+  bool isCoordinator() const {
+    return std::get<1>(GetParam());
+  }
+
+  size_t cursorCount() const {
+    const auto stats = Cursors_GetInfoStats();
+    return isCoordinator() ? stats.total_internal : stats.total_user;
+  }
 
   void SetUp() override {
     QueuedCommandTimingTest::SetUp();
+    if (HasFatalFailure()) return;
     RedisModule_ReplyWithArray = [](RedisModuleCtx*, long) { return REDISMODULE_OK; };
     RedisModule_ReplyWithLongLong = [](RedisModuleCtx*, long long) { return REDISMODULE_OK; };
     RedisModule_ReplySetArrayLength = [](RedisModuleCtx*, long) {};
+    if (isCoordinator()) {
+      DIST_THREADPOOL = ConcurrentSearch_CreatePool(1);
+      coordPool = ConcurrentSearch_GetPool(DIST_THREADPOOL);
+      redisearch_thpool_pause_threads(coordPool);
+    }
   }
 
   void TearDown() override {
+    if (coordPool) {
+      // A failed assertion must not resume a cursor into its pipeline or free its active cycle.
+      if (request && !QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+        timeoutCallback(ctx, request->args.argv, request->args.argc);
+      }
+      if (redisearch_thpool_paused(coordPool)) redisearch_thpool_resume_threads(coordPool);
+      redisearch_thpool_wait(coordPool);
+      ConcurrentSearch_ThreadPoolDestroy();
+      DIST_THREADPOOL = savedDistThreadPool;
+    }
     QueuedCommandTimingTest::TearDown();
     RedisModule_ReplyWithArray = savedReplyArray;
     RedisModule_ReplyWithLongLong = savedReplyLongLong;
@@ -370,7 +415,7 @@ class QueuedCursorTimingTest : public QueuedCommandTimingTest,
 };
 
 TEST_P(QueuedCursorTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) {
-  RSGlobalConfig.requestConfigParams.timeoutPolicy = GetParam();
+  RSGlobalConfig.requestConfigParams.timeoutPolicy = timeoutPolicy();
   RMCK::ArgvList aggregateArgs(ctx, "FT.AGGREGATE", "queued-timing", "*", "WITHCURSOR", "COUNT",
                                "1");
   std::unique_ptr<AREQ, decltype(&AREQ_Free)> req(AREQ_New(aggregateArgs, aggregateArgs.size()),
@@ -387,14 +432,19 @@ TEST_P(QueuedCursorTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) 
   ASSERT_EQ(AREQ_BuildPipeline(req.get(), &error), REDISMODULE_OK);
   RedisSearchCtx_UnlockSpec(sctx);
   sctx->redisCtx = nullptr;
+  if (isCoordinator()) {
+    // The queued timeout skips execution, so a local pipeline suffices for either cursor kind.
+    AREQ_AddRequestFlags(req.get(), QEXEC_F_IS_COORDINATOR);
+    req->base.async.requiresAggregateResultsSync = timeoutPolicy() == TimeoutPolicy_ReturnStrict;
+  }
 
-  const size_t cursorCount = Cursors_GetInfoStats().total_user;
+  const size_t initialCursorCount = cursorCount();
   std::unique_ptr<Cursor, decltype(&Cursor_Free)> cursor(
-      Cursors_Reserve(&g_CursorsList, spec->own_ref, 1000, &error), Cursor_Free);
+      Cursors_Reserve(getCursorList(isCoordinator()), spec->own_ref, 1000, &error), Cursor_Free);
   ASSERT_NE(cursor, nullptr);
   cursor->query = &req->base;
   cursor->queryTimeoutMS = 0;
-  cursor->queryTimeoutPolicy = GetParam();
+  cursor->queryTimeoutPolicy = timeoutPolicy();
   req->base.cursorInfo.id = cursor->id;
   req.release();
   ASSERT_EQ(Cursor_Pause(cursor.get()), REDISMODULE_OK);
@@ -408,7 +458,9 @@ TEST_P(QueuedCursorTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) 
   ASSERT_EQ(rc, REDISMODULE_OK);
   ASSERT_NE(request, nullptr);
   ASSERT_NE(timeoutCallback, nullptr);
-  ASSERT_EQ(workersThreadPool_HighPriorityPendingJobsCount(), 1);
+  ASSERT_EQ(isCoordinator() ? redisearch_thpool_high_priority_pending_jobs(coordPool)
+                            : workersThreadPool_HighPriorityPendingJobsCount(),
+            1);
   EXPECT_EQ(starts.load(), 0);
   EXPECT_EQ(ends.load(), 0);
   EXPECT_EQ(unblocks.load(), 0);
@@ -418,16 +470,150 @@ TEST_P(QueuedCursorTimingTest, TimeoutBeforeWorkerPickupNeverMeasuresQueueTime) 
   EXPECT_EQ(starts.load(), 0);
   EXPECT_EQ(ends.load(), 0);
 
-  ASSERT_EQ(workersThreadPool_resume(), REDISMODULE_OK);
-  workersThreadPool_wait();
+  if (isCoordinator()) {
+    redisearch_thpool_resume_threads(coordPool);
+    redisearch_thpool_wait(coordPool);
+  } else {
+    ASSERT_EQ(workersThreadPool_resume(), REDISMODULE_OK);
+    workersThreadPool_wait();
+  }
   EXPECT_EQ(unblocks.load(), 1);
   EXPECT_EQ(starts.load(), 0);
   EXPECT_EQ(ends.load(), 0);
-  EXPECT_EQ(Cursors_GetInfoStats().total_user, cursorCount + 1);
+  EXPECT_EQ(cursorCount(), initialCursorCount + 1);
   freeData(ctx, request);
   request = nullptr;
-  EXPECT_EQ(Cursors_GetInfoStats().total_user, cursorCount);
+  EXPECT_EQ(cursorCount(), initialCursorCount);
 }
 
-INSTANTIATE_TEST_SUITE_P(TimeoutPolicies, QueuedCursorTimingTest,
+INSTANTIATE_TEST_SUITE_P(TimeoutPoliciesAndCursorKinds, QueuedCursorTimingTest,
+                         testing::Combine(testing::Values(TimeoutPolicy_Fail,
+                                                          TimeoutPolicy_ReturnStrict),
+                                          testing::Bool()));
+
+#ifdef ENABLE_ASSERT
+class CoordinatorCursorWaitTimingTest : public QueuedCommandTimingTest {
+ protected:
+  static constexpr const char* waitHook = "BeforeAggregateResultsWait";
+  decltype(RedisModule_ReplyWithError) savedReplyError = RedisModule_ReplyWithError;
+  std::atomic<int> elapsed{0};
+  int recordedDuration = 0;
+  int errorReplies = 0;
+  QueryErrorCode expectedError = QUERY_ERROR_CODE_DROPPED_BACKGROUND;
+
+  void SetUp() override {
+    QueuedCommandTimingTest::SetUp();
+    if (HasFatalFailure()) return;
+    RedisModule_BlockedClientMeasureTimeEnd = [](RedisModuleBlockedClient* bc) {
+      auto* self = static_cast<CoordinatorCursorWaitTimingTest*>(current);
+      EXPECT_EQ(bc, self->handle());
+      if (self->request->async.requiresAggregateResultsSync) {
+        pthread_mutex_lock(&self->request->async.aggregateResultsLock);
+        EXPECT_TRUE(self->request->async.aggregateResultsDone);
+        pthread_mutex_unlock(&self->request->async.aggregateResultsLock);
+      }
+      self->recordedDuration += self->elapsed.load();
+      ++self->ends;
+      return REDISMODULE_OK;
+    };
+    RedisModule_ReplyWithError = [](RedisModuleCtx*, const char* message) {
+      auto* self = static_cast<CoordinatorCursorWaitTimingTest*>(current);
+      EXPECT_STREQ(message, QueryError_Strerror(self->expectedError));
+      ++self->errorReplies;
+      return REDISMODULE_OK;
+    };
+  }
+
+  void TearDown() override {
+    SyncPoint_ClearAll();
+    if (request && !QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+      completeResults();
+    }
+    QueuedCommandTimingTest::TearDown();
+    RedisModule_ReplyWithError = savedReplyError;
+  }
+
+  void completeResults() {
+    QueryError status = QueryError_Default();
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    AREQ_ReplyOrStoreError(QueryRequest_GetAREQ(request), ctx, &status);
+  }
+
+  void beginRead(RSTimeoutPolicy policy) {
+    RSGlobalConfig.requestConfigParams.timeoutPolicy = policy;
+    expectedError = policy == TimeoutPolicy_Fail ? QUERY_ERROR_CODE_TIMED_OUT
+                                                 : QUERY_ERROR_CODE_DROPPED_BACKGROUND;
+    RMCK::ArgvList args(ctx, "FT.CURSOR", "READ", "queued-timing", "1");
+    std::unique_ptr<AREQ, decltype(&AREQ_Free)> req(AREQ_New(args, args.size()), AREQ_Free);
+    AREQ_AddRequestFlags(req.get(), QEXEC_F_IS_COORDINATOR | QEXEC_F_IS_CURSOR);
+    req->base.async.requiresAggregateResultsSync = policy == TimeoutPolicy_ReturnStrict;
+    RedisModuleBlockedClient* bc = RedisModule_BlockClient(
+        ctx, DistAggregateReplyCallback,
+        policy == TimeoutPolicy_Fail ? DistAggregateTimeoutFailCallback
+                                     : DistCursorReadTimeoutReturnStrictCallback,
+        QueryRequest_OnFree, 0);
+    QueryRequest_BeginCursorCycle(&req->base, bc, DistAggregateReplyCallback);
+    BlockedClientTiming_Begin(&req->base.timing, bc);
+    req.release();
+    if (policy == TimeoutPolicy_ReturnStrict) {
+      ASSERT_TRUE(QueryRequest_TryOwnStrictRead(request, QUERY_REQUEST_READ_OWNER_BG));
+    }
+    BlockedClientTiming_Start(&request->timing);
+  }
+};
+
+TEST_F(CoordinatorCursorWaitTimingTest, StrictTimeoutIncludesWorkUntilResultsComplete) {
+  ASSERT_NO_FATAL_FAILURE(beginRead(TimeoutPolicy_ReturnStrict));
+  ASSERT_TRUE(SyncPoint_ArmWithTimeout(waitHook, 5000));
+
+  std::thread completion([&] {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!SyncPoint_IsWaiting(waitHook) && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::yield();
+    }
+    EXPECT_TRUE(SyncPoint_IsWaiting(waitHook));
+    EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout));
+    EXPECT_EQ(ends.load(), 0);
+    // Publish completion even if the rendezvous fails, so the real callback cannot hang.
+    elapsed.store(40);
+    completeResults();
+    SyncPoint_Signal(waitHook);
+  });
+  const int rc = timeoutCallback(ctx, request->args.argv, request->args.argc);
+  completion.join();
+  EXPECT_EQ(rc, REDISMODULE_OK);
+  EXPECT_EQ(starts.load(), 1);
+  EXPECT_EQ(ends.load(), 1);
+  EXPECT_EQ(recordedDuration, 40);
+  EXPECT_EQ(errorReplies, 1);
+
+  elapsed.store(100);
+  BlockedClientTiming_Finish(&request->timing);
+  EXPECT_EQ(ends.load(), 1);
+  EXPECT_EQ(recordedDuration, 40);
+}
+
+class CoordinatorCursorFinishedTimingTest : public CoordinatorCursorWaitTimingTest,
+                                            public testing::WithParamInterface<RSTimeoutPolicy> {};
+
+TEST_P(CoordinatorCursorFinishedTimingTest, TimeoutAfterWorkerFinishPreservesDuration) {
+  ASSERT_NO_FATAL_FAILURE(beginRead(GetParam()));
+  completeResults();
+  elapsed.store(40);
+  BlockedClientTiming_Finish(&request->timing);
+  EXPECT_EQ(ends.load(), 1);
+  EXPECT_EQ(recordedDuration, 40);
+  EXPECT_EQ(unblocks.load(), 0);
+
+  elapsed.store(100);
+  ASSERT_EQ(timeoutCallback(ctx, request->args.argv, request->args.argc), REDISMODULE_OK);
+  EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout));
+  EXPECT_EQ(starts.load(), 1);
+  EXPECT_EQ(ends.load(), 1);
+  EXPECT_EQ(recordedDuration, 40);
+  EXPECT_EQ(errorReplies, 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(TimeoutPolicies, CoordinatorCursorFinishedTimingTest,
                          testing::Values(TimeoutPolicy_Fail, TimeoutPolicy_ReturnStrict));
+#endif
