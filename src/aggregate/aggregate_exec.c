@@ -529,10 +529,10 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   }
   qctx->skippedResults = 0;
   // The slot lives for the request, so warnings must go too or the next cursor read re-emits them
-  // (and re-counts them in the warning metrics). TODO: some warnings are query-scoped (max prefix
-  // expansions is raised once, when the iterator tree is built) and could deliberately be kept
-  // across cursor reads, the way QEXEC_S_MAX_TIMEOUT_CAPPED is; others (timeouts, shard OOM) are
-  // per chunk and must not be.
+  // (and re-counts them in the warning metrics). TODO(MOD-18840): some warnings are query-scoped
+  // (max prefix expansions is raised once, when the iterator tree is built) and could deliberately
+  // be kept across cursor reads, the way QEXEC_S_MAX_TIMEOUT_CAPPED is; others (timeouts, shard
+  // OOM) are per chunk and must not be.
   QueryError_ClearError(qctx->err);
   QueryError_ClearWarnings(qctx->err);
 }
@@ -783,11 +783,6 @@ static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResul
     if (AREQ_RequiresThreadsSyncResults(req)) {
       AREQ_SignalAggregateResultsComplete(req);
     }
-  } else {
-    // The timeout callback owns the reply; nothing of this cycle may leak into a later one through
-    // the request's error slot (SetCode is first-writer-wins).
-    QueryError_ClearError(AREQ_QueryProcessingCtx(req)->err);
-    QueryError_ClearWarnings(AREQ_QueryProcessingCtx(req)->err);
   }
   SearchResult_Destroy(r);
 }

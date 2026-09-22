@@ -1750,6 +1750,7 @@ def test_warning_not_carried_across_cursor_reads():
   raised once, while the iterator tree is built at cursor creation, so it is the
   warning most likely to leak.
   """
+  # RESP3 for the `warning` reply field; dialect 2 for the `fo*` prefix syntax.
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
   conn = env.getClusterConnectionIfNeeded()
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()

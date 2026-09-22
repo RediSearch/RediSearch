@@ -330,10 +330,8 @@ pub unsafe extern "C" fn QueryError_GetCode(
     query_error.code()
 }
 
-/// Clears any error set on a [`QueryErrorCode`].
-///
-/// This is equivalent to resetting `query_error` to the value returned by
-/// [`QueryError_Default`].
+/// Clears the error code and messages of a [`QueryError`], keeping its warnings
+/// (see [`QueryError_ClearWarnings`] for those).
 ///
 /// # Safety
 ///
