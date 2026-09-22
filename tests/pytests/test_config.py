@@ -6,6 +6,7 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 import os
+import tempfile
 
 from RLTest import Env
 from includes import *
@@ -2333,6 +2334,24 @@ def test_flex_disk_resource_configs(env):
     env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').error()
 
 
+def _disk_resource_startup_config(directives):
+    log_dir = tempfile.mkdtemp(prefix='redisearch-disk-resource-')
+    config_path = os.path.join(log_dir, 'redis.conf')
+    with open(config_path, 'w') as config:
+        for name, value in directives:
+            config.write(f'{name} {value}\n')
+    return log_dir, config_path
+
+
+def _disk_resource_startup_log(log_dir):
+    contents = []
+    for name in os.listdir(log_dir):
+        if name.endswith('.log'):
+            with open(os.path.join(log_dir, name), encoding='utf-8', errors='replace') as log:
+                contents.append(log.read())
+    return '\n'.join(contents)
+
+
 @skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
 def test_flex_disk_resource_config_startup_boundaries():
     accepted = (
@@ -2358,11 +2377,15 @@ def test_flex_disk_resource_config_startup_boundaries():
         },
     )
     for expected in accepted:
-        module_args = ' '.join(
-            f'{name} {value}' for name, value in expected.items()
+        log_dir, config_path = _disk_resource_startup_config(expected.items())
+        env = Env(
+            noDefaultModuleArgs=True,
+            redisConfigFile=config_path,
+            logDir=log_dir,
+            freshEnv=True,
         )
-        env = Env(noDefaultModuleArgs=True, moduleArgs=module_args)
         try:
+            env.assertTrue(env.isUp())
             env.expect('CONFIG', 'GET', 'bigredis-enabled').equal(
                 ['bigredis-enabled', 'yes']
             )
@@ -2371,33 +2394,64 @@ def test_flex_disk_resource_config_startup_boundaries():
         finally:
             env.stop()
 
+
 @skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
 def test_flex_disk_resource_config_startup_rejections():
     invalid = (
-        ('search-disk-max-memory-percentage', '0'),
-        ('search-disk-max-memory-percentage', '101'),
-        ('search-disk-wbm-budget-per-index-mb', '0'),
+        (
+            'search-disk-max-memory-percentage',
+            '0',
+            'argument must be between 1 and 100 inclusive',
+        ),
+        (
+            'search-disk-max-memory-percentage',
+            '101',
+            'argument must be between 1 and 100 inclusive',
+        ),
+        (
+            'search-disk-wbm-budget-per-index-mb',
+            '0',
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
+        ),
         (
             'search-disk-wbm-budget-per-index-mb',
             str(UINT64_MAX // (1024 * 1024) + 1),
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
         ),
-        ('search-disk-max-open-files', '19'),
-        ('search-disk-buffer-percentage', '50'),
+        (
+            'search-disk-max-open-files',
+            '19',
+            f'argument must be between 20 and {INT_MAX} inclusive',
+        ),
+        (
+            'search-disk-buffer-percentage',
+            '50',
+            'Module Configuration detected without loadmodule directive or no ApplyConfig call',
+        ),
     )
-    for name, value in invalid:
+    for name, value, diagnostic in invalid:
+        log_dir, config_path = _disk_resource_startup_config(((name, value),))
         candidate = None
         try:
             candidate = Env(
                 noDefaultModuleArgs=True,
-                moduleArgs=f'{name} {value}',
-                startupGraceSecs=1,
+                redisConfigFile=config_path,
+                logDir=log_dir,
+                freshEnv=True,
             )
-            assert not candidate.isUp()
-        except Exception as error:
-            assert not isinstance(error, AssertionError)
-        finally:
-            if candidate is not None:
-                candidate.stop()
+        except Exception:
+            pass
+        else:
+            is_up = candidate.isUp()
+            candidate.stop()
+            assert not is_up, f'Flex unexpectedly started with {name}={value}'
+
+        startup_log = _disk_resource_startup_log(log_dir)
+        if name == 'search-disk-buffer-percentage':
+            assert f">>> '{name} {value}'" in startup_log
+        else:
+            assert f'Issue during loading of configuration {name} :' in startup_log
+        assert diagnostic in startup_log
 
 @skip(cluster=True)
 def test_flex_search_disk_async_read_pool_size(env):
