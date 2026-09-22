@@ -53,6 +53,7 @@
 #include "debug_commands.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "util/hash/hash.h"
+#include "util/misc.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
@@ -564,6 +565,21 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   return AC_OK;
 }
 
+static int parseVectorField_GetHnswQuantType(ArgsCursor *ac, VecSimQuantType *quantType) {
+  const char *quantTypeStr;
+  size_t len;
+  int rc;
+  if ((rc = AC_GetString(ac, &quantTypeStr, &len, 0)) != AC_OK) {
+    return rc;
+  }
+  if (STR_EQCASE(quantTypeStr, len, VECSIM_SQ8)) {
+    *quantType = VecSimQuant_SQ8;
+  } else {
+    return AC_ERR_ENOENT;
+  }
+  return AC_OK;
+}
+
 // Parsing for Quantization parameter in SVS algorithm
 static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *quantBits) {
   const char *quantBitsStr;
@@ -594,22 +610,37 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
 #define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : ACTUAL_MEMORY_LIMIT / 10)
 
 static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
-  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
-  size_t elementSize = VecSimIndex_EstimateElementSize(params);
-  // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
-  params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  if (params->algoParams.hnswParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
-      " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
+  VecSimParams *primaryParams = params->algo == VecSimAlgo_TIERED
+                                    ? params->algoParams.tieredParams.primaryIndexParams
+                                    : params;
+  HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+  if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "COMPRESSION is not supported for disk-based vector indexes");
     return 0;
   }
-  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  index_size_estimation += elementSize * params->algoParams.hnswParams.blockSize;
+  const VecSimParams *estimateParams = primaryParams;
+  if (hnswParams->quantType == VecSimQuant_SQ8) {
+    estimateParams = params;
+  }
+  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
+  size_t elementSize = VecSimIndex_EstimateElementSize(estimateParams);
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  hnswParams->blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (hnswParams->blockSize == 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
+                                  " %zu exceeded maximum size allowed by server limit which is %zu",
+                                  elementSize, BLOCK_MEMORY_LIMIT);
+    return 0;
+  }
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(estimateParams);
+  index_size_estimation += elementSize * hnswParams->blockSize;
 
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
-    "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
-    params->algoParams.hnswParams.blockSize,  index_size_estimation);
+  RedisModule_Log(
+      RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
+      "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
+      hnswParams->blockSize, index_size_estimation);
   return 1;
 }
 
@@ -665,15 +696,23 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
   } else if (VecSimAlgo_SVS == params->algo) {
     valid = parseVectorField_validate_svs(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
-    return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
+    if (params->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+      valid = parseVectorField_validate_hnsw(params, status);
+    } else {
+      return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams,
+                                         status);
+    }
   }
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 #define VECSIM_ALGO_PARAM_MSG(algo, param) "vector similarity " algo " index `" param "`"
 
-static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status, bool *rerank) {
+static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status,
+                                 bool *rerank) {
   int rc;
+  TieredIndexParams *tieredParams = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+  HNSWParams *hnswParams = &tieredParams->primaryIndexParams->algoParams.hnswParams;
 
   // HNSW mandatory params.
   bool mandtype = false;
@@ -684,6 +723,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   bool mandEfConstruction = false;
   bool mandEfRuntime = false;
   bool rerank_seen = false;
+  bool trainingThresholdSet = false;
 
   // Get number of parameters and create a sub-cursor for them
   size_t expNumParam;
@@ -700,51 +740,71 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
 
   while (!AC_IsAtEnd(&subAc)) {
     if (AC_AdvanceIfMatch(&subAc, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(&subAc, &params->algoParams.hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(&subAc, &hnswParams->type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(&subAc, &params->algoParams.hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(&subAc, &hnswParams->metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status,  VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_M)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_M), rc);
         return 0;
       }
       mandM = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFCONSTRUCTION), rc);
         return 0;
       }
       mandEfConstruction = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
         return 0;
       }
       mandEfRuntime = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(&subAc, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      if ((rc = AC_GetDouble(&subAc, &hnswParams->epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_COMPRESSION)) {
+      if ((rc = parseVectorField_GetHnswQuantType(&subAc, &hnswParams->quantType)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_COMPRESSION),
+                          rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_TRAINING_THRESHOLD)) {
+      size_t *threshold = &tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
+      if ((rc = AC_GetSize(&subAc, threshold, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(
+            status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TRAINING_THRESHOLD), rc);
+        return 0;
+      }
+      if (*threshold > HNSW_QUANT_MAX_TRAINING_THRESHOLD) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                         "TRAINING_THRESHOLD cannot exceed %d",
+                                         HNSW_QUANT_MAX_TRAINING_THRESHOLD);
+        return 0;
+      }
+      trainingThresholdSet = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
       if (!isSpecOnDiskForValidation(sp)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -790,16 +850,30 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
     return 0;
   }
 
+  if (hnswParams->quantType != VecSimQuant_NONE && hnswParams->type != VecSimType_FLOAT32 &&
+      hnswParams->type != VecSimType_FLOAT16) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "COMPRESSION is only supported for FLOAT32 and FLOAT16 vector types");
+    return 0;
+  }
+  if (hnswParams->quantType == VecSimQuant_NONE && trainingThresholdSet) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "TRAINING_THRESHOLD is irrelevant when compression was not requested");
+    return 0;
+  }
+  if (hnswParams->quantType != VecSimQuant_NONE && !trainingThresholdSet) {
+    tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize =
+        HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD;
+  }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
-    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&
-        params->algoParams.hnswParams.type != VecSimType_FLOAT16) {
-      const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
+    if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
+      const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support %s vector type", typeName);
       return 0;
     }
-    if (params->algoParams.hnswParams.multi) {
+    if (hnswParams->multi) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support multi-value vectors");
       return 0;
@@ -827,9 +901,9 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   }
 
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
+  fs->vectorOpts.expBlobSize = hnswParams->dim * VecSimType_sizeof(hnswParams->type);
 
-  return parseVectorField_validate_hnsw(params, status);
+  return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
 }
 
 static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
@@ -1180,10 +1254,12 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
+    TieredIndexParams *tieredParams = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    VecSim_TieredParams_Init(tieredParams, sp_ref);
+    tieredParams->specificParams.tieredHnswParams.swapJobThreshold =
+        0;  // Will be set to default value.
 
-    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    VecSimParams *params = tieredParams->primaryIndexParams;
     params->algo = VecSimAlgo_HNSWLIB;
     params->algoParams.hnswParams.initialCapacity = SIZE_MAX;
     params->algoParams.hnswParams.blockSize = 0;
@@ -1191,10 +1267,12 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     params->algoParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     params->algoParams.hnswParams.multi = multi;
+    params->algoParams.hnswParams.quantType = VecSimQuant_NONE;
+    params->algoParams.hnswParams.quantParams = NULL;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     bool rerank = false;
-    result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
+    result = parseVectorField_hnsw(sp, fs, ac, status, &rerank);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
@@ -2672,7 +2750,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
+    if (encver >= INDEX_HNSW_QUANT_VERSION) {
+      if (VecSim_RdbLoad_v5(rdb, &f->vectorOpts.vecSimParams, sp_ref,
+                            HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
       if (VecSim_RdbLoad_v4(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;
       }
@@ -3133,6 +3216,8 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   return true;
 }
 
+// A new top-level schema-defining member saved here must be mirrored in
+// schemaFingerprint.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3538,6 +3623,135 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
   IndexSpec_RdbSave(rdb, value, contextFlags);
+}
+
+static void fingerprintHiddenString(Sha1Context *hash, const HiddenString *value) {
+  Sha1_UpdateU64(hash, value != NULL);
+  if (value) {
+    size_t len;
+    const char *bytes = HiddenString_GetUnsafe(value, &len);
+    Sha1_UpdateBuffer(hash, bytes, len);
+  }
+}
+
+static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *params) {
+  Sha1_UpdateU64(hash, params->algo);
+  switch (params->algo) {
+    case VecSimAlgo_BF: {
+      const BFParams *p = &params->algoParams.bfParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      break;
+    }
+    case VecSimAlgo_TIERED: {
+      const TieredIndexParams *p = &params->algoParams.tieredParams;
+      RS_ASSERT(p->primaryIndexParams);
+      if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+      } else {
+        RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
+        Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
+      }
+      fingerprintVectorParams(hash, p->primaryIndexParams);
+      break;
+    }
+    case VecSimAlgo_HNSWLIB: {
+      const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->M);
+      Sha1_UpdateU64(hash, p->efConstruction);
+      Sha1_UpdateU64(hash, p->efRuntime);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+    case VecSimAlgo_SVS: {
+      const SVSParams *p = &params->algoParams.svsParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->quantBits);
+      Sha1_UpdateU64(hash, p->graph_max_degree);
+      Sha1_UpdateU64(hash, p->construction_window_size);
+      Sha1_UpdateU64(hash, p->leanvec_dim);
+      Sha1_UpdateU64(hash, p->search_window_size);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+  }
+}
+
+static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isDisk) {
+  fingerprintHiddenString(hash, field->fieldName);
+  fingerprintHiddenString(hash, field->fieldPath ? field->fieldPath : field->fieldName);
+  Sha1_UpdateU64(hash, field->types);
+  Sha1_UpdateU64(hash, field->options);
+  Sha1_UpdateU64(hash, (uint64_t)(int64_t)field->sortIdx);
+  if (FIELD_IS(field, INDEXFLD_T_FULLTEXT) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->ftId);
+    Sha1_UpdateDouble(hash, field->ftWeight);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_TAG) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->tagOpts.tagFlags);
+    Sha1_UpdateU64(hash, (unsigned char)field->tagOpts.tagSep);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
+    Sha1_UpdateU64(hash, field->vectorOpts.expBlobSize);
+    fingerprintVectorParams(hash, &field->vectorOpts.vecSimParams);
+    if (isDisk && field->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo ==
+            VecSimAlgo_HNSWLIB) {
+      Sha1_UpdateU64(hash, field->vectorOpts.diskCtx.rerank);
+    }
+  }
+  if (FIELD_IS(field, INDEXFLD_T_GEOMETRY) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->geometryOpts.geometryCoords);
+  }
+}
+
+static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
+  Sha1_UpdateU64(hash, rule->type);
+  Sha1_UpdateU64(hash, array_len(rule->prefixes));
+  for (uint32_t i = 0; i < array_len(rule->prefixes); ++i) {
+    size_t len;
+    const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], &len);
+    Sha1_UpdateBuffer(hash, prefix, len);
+  }
+  fingerprintHiddenString(hash, rule->filter_exp_str);
+  Sha1_UpdateCString(hash, rule->lang_field);
+  Sha1_UpdateCString(hash, rule->score_field);
+  Sha1_UpdateCString(hash, rule->payload_field);
+  Sha1_UpdateDouble(hash, rule->score_default);
+  Sha1_UpdateU64(hash, rule->lang_default);
+  Sha1_UpdateU64(hash, rule->index_all);
+}
+
+// Hash values individually: raw structs contain padding, pointers, and live index state.
+static void schemaFingerprint(Sha1Context *hash, const void *value) {
+  const IndexSpec *sp = value;
+  Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_VERSION);
+  Sha1_UpdateU64(hash, sp->flags & ~Index_HasSmap);
+  Sha1_UpdateU64(hash, sp->numFields);
+  for (int i = 0; i < sp->numFields; ++i) {
+    fingerprintField(hash, &sp->fields[i], sp->diskSpec != NULL);
+  }
+  fingerprintRule(hash, sp->rule);
+  if (sp->flags & Index_HasCustomStopwords) {
+    Sha1_UpdateU64(hash, StopWordList_Fingerprint(sp->stopwords));
+  }
+  Sha1_UpdateU64(hash, sp->smap ? SynonymMap_Fingerprint(sp->smap) : 0);
+  if (sp->flags & Index_Temporary) {
+    Sha1_UpdateU64(hash, sp->timeout);
+  }
+}
+
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp) {
+  return Sha1_ComputeValue(schemaFingerprint, sp);
 }
 
 /**

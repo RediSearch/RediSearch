@@ -103,7 +103,8 @@ def testRDBCompatibility_vecsim():
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb',
-            'redisearch_8.0_with_vecsim.rdb']
+            'redisearch_8.0_with_vecsim.rdb',
+            'redisearch_8.10_with_vecsim.rdb']
 
     algorithms = ['FLAT', 'HNSW']
     if not getRDBFiles(env, rdbs):
@@ -139,7 +140,7 @@ def testRDBCompatibility_vecsim():
           'distance_metric', 'L2',
           'M', 16,
           'ef_construction', 200,
-          'ef_runtime', 10
+          'ef_runtime', 10,
         ], [
           'identifier', 'flat_vec',
           'attribute', 'flat_vec',
@@ -150,6 +151,16 @@ def testRDBCompatibility_vecsim():
           'distance_metric', 'L2',
         ]]
         assertInfoField(env, 'idx', 'attributes', expected_attr_info)
+
+        # A legacy HNSW field must remain loadable after saving in the current format.
+        os.unlink(rdbFilePath)
+        env.dumpAndReload()
+        waitForIndex(env, 'idx')
+        for vec_field in vec_fields:
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]',
+                       'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
+        assertInfoField(env, 'idx', 'attributes', expected_attr_info)
+        env.expect('DBSIZE').equal(100)
 
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())

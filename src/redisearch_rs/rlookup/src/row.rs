@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, lookup::TRANSIENT_FLAGS};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, lookup::TRANSIENT_FLAGS};
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
@@ -182,13 +182,22 @@ impl<'a> RLookupRow<'a> {
         val: SharedValue,
     ) {
         let name = name.into();
-        let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
-            cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
-        } else {
-            rlookup
-                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
-        };
+        self.write_key_by_name_bytes(rlookup, name.to_bytes(), val);
+    }
+
+    /// Like [`Self::write_key_by_name`], accepting name bytes without a NUL terminator.
+    /// Existing names need no [`CStr`] validation; new names are copied into the lookup.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` contains a NUL byte.
+    pub fn write_key_by_name_bytes(
+        &mut self,
+        rlookup: &mut RLookup<'a>,
+        name: &[u8],
+        val: SharedValue,
+    ) {
+        let key = rlookup.get_or_create_key_by_name(name);
         self.write_key(key, val);
     }
 
@@ -245,13 +254,8 @@ impl<'a> RLookupRow<'a> {
     ) {
         let dst_row = self;
 
-        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
-        let mut c = src_lookup.cursor();
-
-        while let Some(src_key) = c.current() {
-            if !src_key.is_tombstone()
-                && let Some(value) = src_row.get(src_key)
-            {
+        for src_key in src_lookup.iter() {
+            if let Some(value) = src_row.get(src_key) {
                 // Find corresponding key in destination lookup
                 let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
                     Some(k) => k.into_current().unwrap(),
@@ -271,20 +275,15 @@ impl<'a> RLookupRow<'a> {
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());
             }
-
-            c.move_next();
         }
     }
 
     /// Move data from the source row to the destination row. The source row is cleared.
     pub fn move_fields_from(&mut self, src: &mut Self, lookup: &RLookup) {
-        let mut c = lookup.cursor();
-        while let Some(key) = c.current() {
+        for key in lookup.iter() {
             if let Some(value) = src.get(key) {
                 self.write_key(key, value.to_owned());
             }
-
-            c.move_next();
         }
         src.wipe();
     }

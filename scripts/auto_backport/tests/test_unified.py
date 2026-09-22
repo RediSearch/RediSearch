@@ -268,6 +268,67 @@ class UnifiedTests(unittest.TestCase):
         with patch.object(unified, "backports", return_value=[pr]):
             self.assertTrue(unified.existing_row(self.ctx, "8.6")["status"].startswith("closed"))
 
+    def test_finalizer_preserves_auto_merge_failure_and_retry_repairs_existing_pr(self):
+        self.ctx["targets"] = ["8.6"]
+        url = "https://github.com/o/r/pull/3"
+        existing = {"target": "8.6", "status": "already open", "detail": url}
+        merge = ("pr", "merge", url, "--auto", "--merge")
+
+        def reject_merge(*args, **kwargs):
+            if args == merge:
+                raise subprocess.CalledProcessError(1, "gh", stderr="permission denied")
+            return ""
+
+        with patch.object(unified, "api_pages", return_value=[]), patch.object(
+                unified, "existing_row", side_effect=lambda *a: dict(existing)), patch.object(
+                common, "gh", side_effect=reject_merge) as gh:
+            unified.report(self.ctx)
+            self.assertEqual(self.outputs["has_failures"], "true")
+            self.assertIn("auto-merge failed", unified.saved("summary").with_suffix(".md").read_text())
+            self.assertIn(url, unified.saved("summary").with_suffix(".md").read_text())
+            result = unified.read(unified.saved("results"))["rows"]["8.6"]
+            self.assertEqual(result["status"], "error")
+            self.assertIn("auto-merge failed", result["detail"])
+            gh.assert_any_call(*merge)
+
+        # A new request deduplicates to this existing PR before reporting.
+        self.state["rows"]["8.6"] = dict(existing)
+        unified.write("results", self.state)
+        with patch.object(unified, "api_pages", return_value=[]), patch.object(common, "gh") as gh:
+            unified.report(self.ctx)
+            self.assertEqual(self.outputs["has_failures"], "false")
+            gh.assert_any_call(*merge)
+            self.assertFalse(any(c.args[:2] == ("pr", "create") for c in gh.call_args_list))
+
+    def test_finalizer_persists_reconciled_results_before_comment_failure(self):
+        url = "https://github.com/o/r/pull/3"
+        for status in ("clean", "already open", "conflicts(1)"):
+            with self.subTest(status=status):
+                self.state["rows"]["8.6"] = {"target": "8.6", "status": status, "detail": url}
+                unified.write("results", self.state)
+                recovered = {"target": "8.8", "status": "already merged", "detail": url}
+                with patch.object(unified, "existing_row", return_value=recovered), patch.object(
+                        unified, "api_pages", return_value=[]), patch.object(
+                        common, "gh", side_effect=subprocess.CalledProcessError(1, "gh")):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        unified.report(self.ctx)
+                result = unified.read(unified.saved("results"))
+                self.assertEqual(result["rows"]["8.8"], recovered)
+                self.assertEqual(result["rows"]["8.6"]["status"], "error")
+                self.assertIn(url, result["rows"]["8.6"]["detail"])
+                self.assertIn("auto-merge failed", result["rows"]["8.6"]["detail"])
+                self.assertEqual(result["comment_ids"], self.state["comment_ids"])
+
+    def test_finalizer_does_not_enable_auto_merge_on_closed_or_merged_prs(self):
+        for status in ("already merged", "closed — manual intervention"):
+            with self.subTest(status=status):
+                for row in self.state["rows"].values():
+                    row.update(status=status, detail="https://github.com/o/r/pull/3")
+                unified.write("results", self.state)
+                with patch.object(unified, "api_pages", return_value=[]), patch.object(common, "gh") as gh:
+                    unified.report(self.ctx)
+                    self.assertFalse(any(c.args[:2] == ("pr", "merge") for c in gh.call_args_list))
+
     def test_backport_lookup_checks_both_names_and_rejects_forks(self):
         def pr(repo):
             return {"head": {"repo": {"full_name": repo}, "ref": "backport-1-to-8.6"}, "base": {"ref": "8.6"}}
