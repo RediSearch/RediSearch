@@ -1959,6 +1959,66 @@ class TestTimeoutReached(object):
 
         self.run_timeout_tests(n_vec, query_vec)
 
+@skip(cluster=True)
+def testKnnCursorDepletesWhenCollectionAlwaysTimesOut():
+    """
+    A KNN cursor whose collection can never complete must still deplete.
+
+    `VECSIM_MOCK_TIMEOUT` makes every VecSim timeout check report expired, so
+    top-k collection aborts before yielding anything while the request clock
+    stays healthy. Under `ON_TIMEOUT RETURN` the cursor is paused rather than
+    closed, and each `FT.CURSOR READ` is given a fresh deadline — so an
+    implementation that discards the aborted scan and re-collects from scratch
+    never reaches EOF, and the client keeps receiving empty chunks until the
+    cursor idles out.
+    """
+    # ON_TIMEOUT RETURN is what keeps the cursor alive across a timed-out read;
+    # under FAIL it is closed and the scenario cannot arise. Debug commands
+    # supply the deterministic VecSim timeout.
+    env = Env(moduleArgs='ON_TIMEOUT RETURN', enableDebugCommand=True)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+               't', 'TEXT').ok()
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'v', 'bababada', 't', 'hello')
+
+    k = 10
+    query = ('FT.AGGREGATE', 'idx', f'(@t:hello)=>[KNN {k} @v $vec]', 'LOAD', '1', '@t',
+             'PARAMS', '2', 'vec', 'aaaaaaaa', 'WITHCURSOR', 'COUNT', k, 'DIALECT', '2')
+
+    def drain(chunk, cursor, max_reads=10):
+        """Read until the cursor depletes, or `max_reads` reads have been made.
+
+        Each chunk is `[row_count, *rows]`, so its rows are all but the first
+        element.
+        """
+        rows, reads = len(chunk) - 1, 0
+        while cursor != 0 and reads < max_reads:
+            chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += len(chunk) - 1
+            reads += 1
+        return cursor, reads, rows
+
+    # Control: the same cursor depletes, and yields the whole top-k, when VecSim
+    # is not reporting timeouts. Without this a hung cursor below could just as
+    # well mean the query never terminates at all.
+    cursor, _, rows = drain(*env.cmd(*query))
+    env.assertEqual((cursor, rows), (0, k), message='baseline cursor did not deplete')
+
+    with vecsimMockTimeoutContext(env):
+        cursor, reads, rows = drain(*env.cmd(*query))
+        if cursor != 0:
+            env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+
+    # An aborted collection yields nothing, so a terminating implementation
+    # reports EOF and no rows.
+    env.assertEqual((cursor, rows), (0, 0),
+                    message=f'cursor still alive after {reads} reads, having yielded '
+                            f'{rows} rows: every read restarts collection instead of '
+                            'terminating')
+
 @skip(no_json=True)
 def test_create_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
