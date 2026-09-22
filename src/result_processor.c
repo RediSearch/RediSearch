@@ -1016,9 +1016,12 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
     }
   } else {
     const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-    // A reader's metadata can outlive its replacement and will not receive later deletion flags.
-    if ((dmd->flags & (Document_FailedToOpen | Document_Deleted)) ||
-        !DocTable_Exists(&self->sctx->spec->docs, dmd->id)) {
+    // Detached snapshots receive neither deletion flags nor key-name changes from RENAME.
+    const RSDocumentMetadata *current = DocTable_Borrow(&self->sctx->spec->docs, dmd->id);
+    bool valid = current && !(dmd->flags & (Document_FailedToOpen | Document_Deleted)) &&
+                 (current == dmd || sdscmp(current->keyPtr, dmd->keyPtr) == 0);
+    DMD_Return(current);
+    if (!valid) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }

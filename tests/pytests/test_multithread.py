@@ -1125,6 +1125,55 @@ def test_search_drops_detached_metadata_snapshot_after_reindex():
 
 
 @skip(cluster=True)
+def test_search_drops_detached_metadata_snapshot_after_rename():
+    """A retained snapshot must not load an unrelated document recreated at its old key."""
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()  # Sync points require an ENABLE_ASSERT build.
+        return
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE_FIELD', 'score',
+               'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    query = ['FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title']
+    sync_point = 'BeforeSafeLoaderGILLock'
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    out = []
+    query_conn = env.getConnection()
+
+    def run_query():
+        try:
+            out.append(query_conn.execute_command(*query))
+        except Exception as error:
+            out.append(error)
+
+    reader = threading.Thread(target=run_query, daemon=True)
+    reader.start()
+    try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point}', timeout=10)
+        conn.execute_command('HSET', 'doc:1', 'score', '0.5')
+        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+        conn.execute_command('RENAME', 'doc:1', 'doc:2')
+        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:2'), first)
+        conn.execute_command('HSET', 'doc:1', 'title', 'goodbye')
+        env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+        reader.join(timeout=10)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+    env.assertFalse(reader.is_alive(), message='stale-snapshot reader did not finish after signal')
+    env.assertEqual(len(out), 1, message=out)
+    env.assertFalse(isinstance(out[0], Exception), message=out)
+    env.assertEqual(out[0], [0])
+
+
+@skip(cluster=True)
 def test_metadata_update_preserves_payload_for_buffered_reader():
     """A worker serializing an already-loaded row retains its old payload across Hash updates."""
     # RETURN keeps reply serialization on the worker after the safe loader releases both locks.
