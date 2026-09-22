@@ -326,7 +326,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     return;
   }
 
-  t_fieldIndex *fields = rm_malloc(numFields * sizeof(*fields));
+  t_fieldIndex *fields = rm_malloc(numFields * sizeof(t_fieldIndex));
   size_t n = 0;
   dictIterator *iter = dictGetIterator(missing);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
