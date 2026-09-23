@@ -41,15 +41,6 @@ extern RedisSearchDisk *disk_db;
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
 
 /**
- * @brief Read and validate the shard-memory limit required by Search Disk.
- *
- * @param ctx Redis module context
- * @param shardMemoryBytes Receives the positive size_t-fitting value
- * @return true when bigredis-max-ram is valid
- */
-bool SearchDisk_ValidateShardMemoryConfig(RedisModuleCtx *ctx, size_t *shardMemoryBytes);
-
-/**
  * @brief Check if SearchDisk Is initialized and their APIs can be called
  *
  * @return true if it has been initialized

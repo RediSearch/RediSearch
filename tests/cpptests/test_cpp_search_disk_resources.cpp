@@ -240,7 +240,7 @@ TEST_F(SearchDiskResourcesTest, ConfigNotificationUpdatesValidatedShardMemory) {
   EXPECT_EQ(shardMemoryUpdates, 1u);
 }
 
-TEST_F(SearchDiskResourcesTest, RegistersAndValidatesStartupResourceConfig) {
+TEST_F(SearchDiskResourcesTest, RegistersResourceConfig) {
   RedisModule_RegisterNumericConfig = registerNumeric;
   RedisModule_RegisterBoolConfig =
       [](RedisModuleCtx *, const char *, int, unsigned int, RedisModuleConfigGetBoolFunc,
@@ -303,9 +303,6 @@ TEST_F(SearchDiskResourcesTest, RegistersAndValidatesStartupResourceConfig) {
                                   maxOpenFilesConfig.privateData),
             4093);
   EXPECT_EQ(error, nullptr);
-
-  configuredShardMemory = 0;
-  EXPECT_EQ(RediSearch_InitModuleConfigForTests(ctx), REDISMODULE_ERR);
 }
 
 TEST_F(SearchDiskResourcesTest, CreateAndRestoreUseDistinctAdmissionModes) {

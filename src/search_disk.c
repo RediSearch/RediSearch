@@ -94,26 +94,15 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
-bool SearchDisk_ValidateShardMemoryConfig(RedisModuleCtx *ctx, size_t *shardMemoryBytes) {
-  long long configured = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
-  size_t converted = (size_t)configured;
-  if (configured <= 0 || (long long)converted != configured) {
-    return false;
-  }
-  *shardMemoryBytes = converted;
-  return true;
-}
-
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
     return false;
   }
 
-  size_t shard_memory_bytes;
-  if (!SearchDisk_ValidateShardMemoryConfig(ctx, &shard_memory_bytes)) {
-    RedisModule_Log(ctx, "error",
-                    "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
+  long long configured_shard_memory = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
+  if (configured_shard_memory <= 0) {
+    RedisModule_Log(ctx, "error", "Search Disk requires a positive bigredis-max-ram value");
     return false;
   }
 
@@ -130,7 +119,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   SearchDiskResourceConfig resource_config = {
-    .shardMemoryBytes = shard_memory_bytes,
+    .shardMemoryBytes = (size_t)configured_shard_memory,
     .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
