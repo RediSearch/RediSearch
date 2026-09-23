@@ -613,11 +613,10 @@ static bool ruleFieldEquals(const char *ruleField, const char *field, size_t len
 // FILTER expressions may depend on fields outside the schema. Unknown changes and disk
 // bookkeeping likewise cannot establish that the existing index entries can be retained.
 static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ctx,
-                                             RedisModuleString *key, DocumentType type,
+                                             RedisModuleString *key,
                                              RedisModuleString **changedFields,
                                              size_t numChangedFields) {
-  if (!changedFields || !numChangedFields || type != DocumentType_Hash || spec->diskSpec ||
-      spec->rule->filter_exp) {
+  if (!changedFields || spec->diskSpec || spec->rule->filter_exp) {
     return IndexUpdate_Full;
   }
 
@@ -767,7 +766,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
     if (specOp->op == SpecOp_Add) {
       IndexUpdateAction action =
-          getHashUpdateAction(specOp->spec, ctx, key, type, changedFields, numChangedFields);
+          getHashUpdateAction(specOp->spec, ctx, key, changedFields, numChangedFields);
       if (action == IndexUpdate_Skip || ((action & IndexUpdate_MetadataMask) &&
                                          updateHashMetadata(specOp->spec, ctx, key, action))) {
         continue;
