@@ -884,14 +884,14 @@ def testPartial(env):
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent')
     env.assertEqual([1, 'doc1'], res)
 
-    # Test updating of score and no fields
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    env.assertLess(float(res[2]), 1)
-    # env.assertEqual([1, 'doc1'], res)
+    # A partial write with no fields updates the document score independently of reindexing.
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertAlmostEqual(float(res[2]), 0.1, delta=1e-6, message=res)
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields'))
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    # We reindex though no new fields, just score is updated. this effects score
-    env.assertEqual(float(res[2]), 1)
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertEqual(float(res[2]), 1, message=res)
 
     # Test updating payloads
     res = env.cmd(

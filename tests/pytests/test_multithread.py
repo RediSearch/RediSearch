@@ -1221,3 +1221,96 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
                     message=f'group count {total} != returned groups {len(rows)}: {res}')
     env.assertEqual(total, 1,
                     message=f'expected exactly one surviving group, got {res}')
+
+
+def _update_metadata_with_paused_reader(env, conn, query, command, sync_point):
+    """Apply a metadata update while a query is paused, assert reindexing, and return its reply."""
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    out = []
+    query_conn = env.getConnection()
+
+    def run_query():
+        try:
+            out.append(query_conn.execute_command(*query))
+        except Exception as error:
+            out.append(error)
+
+    reader = threading.Thread(target=run_query, daemon=True)
+    reader.start()
+    try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point}', timeout=10)
+        conn.execute_command(*command)
+        current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+        env.assertGreater(current, first, message=(command, first, current))
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+        reader.join(timeout=10)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+    env.assertFalse(reader.is_alive(), message='retained-reader query did not finish after signal')
+    env.assertEqual(len(out), 1, message=out)
+    env.assertFalse(isinstance(out[0], Exception), message=out)
+    return out[0]
+
+
+@skip(cluster=True)
+def test_metadata_updates_reindex_with_retained_reader():
+    """Score and payload updates reindex while a query retains the document metadata."""
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()  # Sync points require an ENABLE_ASSERT build.
+        return
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', 'original')
+    query = ['FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title']
+    sync_point = 'BeforeSafeLoaderGILLock'
+    updates = [
+        (('HSET', 'doc:1', 'score', '0.5'), '0.5', 'original'),
+        (('HSET', 'doc:1', 'payload', 'replacement'), '0.5', 'replacement'),
+        (('HSET', 'doc:1', 'score', '0.75', 'payload', 'combined'), '0.75', 'combined'),
+    ]
+
+    for command, score, payload in updates:
+        result = _update_metadata_with_paused_reader(env, conn, query, command, sync_point)
+        env.assertEqual(result, [0])
+        env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+                   'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', score, payload])
+
+
+@skip(cluster=True)
+def test_retained_reader_serializes_old_payload_during_metadata_update():
+    """A buffered reply keeps its old payload while payload metadata is fully reindexed."""
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()  # Sync points require an ENABLE_ASSERT build.
+        return
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    old_score = '0.25'
+    old_payload = 'original payload ' * 32
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', old_payload)
+    query = ['FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+             'WITHPAYLOADS', 'RETURN', '1', 'title']
+    sync_point = 'BeforeSafeLoaderExitGIL'
+    updates = [
+        (('HSET', 'doc:1', 'payload', 'replacement payload ' * 64),
+         old_score, 'replacement payload ' * 64),
+        (('HSET', 'doc:1', 'score', '0.5', 'payload', 'combined payload ' * 48),
+         '0.5', 'combined payload ' * 48),
+    ]
+
+    for command, new_score, new_payload in updates:
+        result = _update_metadata_with_paused_reader(env, conn, query, command, sync_point)
+        env.assertEqual(result, [1, 'doc:1', old_score, old_payload, ['title', 'hello']])
+        env.expect(*query).equal([1, 'doc:1', new_score, new_payload, ['title', 'hello']])
+        old_score, old_payload = new_score, new_payload

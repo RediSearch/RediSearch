@@ -322,14 +322,20 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
 
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
+  RSDocumentFlags flags = aCtx->docFlags;
+  if (spec->rule && spec->rule->payload_field) {
+    // Reserve capacity now: adding a payload later must not require moving the DMD.
+    flags |= Document_HasPayloadSlot;
+  }
   RSDocumentMetadata *dmd =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
+      DocTable_Put(table, s, n, doc->score, flags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
     // Publish the key -> docId mapping. Crash on failure (matches the disk
     // post-commit policy) rather than leave a DMD with no mapping.
     int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
-    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed while indexing in memory mode");
+    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK,
+                         "DocIdMeta_Set failed while indexing in memory mode");
   }
 
   return dmd;
