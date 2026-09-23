@@ -1750,7 +1750,7 @@ def test_warning_not_carried_across_cursor_reads():
   raised once, while the iterator tree is built at cursor creation, so it is the
   warning most likely to leak.
   """
-  # RESP3 for the `warning` reply field; dialect 2 for the `fo*` prefix syntax.
+  # RESP3 for the `warning` reply field; dialect 2 for the prefix query syntax.
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
   conn = env.getClusterConnectionIfNeeded()
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
@@ -1767,7 +1767,7 @@ def test_warning_not_carried_across_cursor_reads():
   # shard reply carrying it), but it must land in exactly one reply.
   warnings_per_read = []
   rows = 0
-  res, cid = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1')
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1') # codespell:ignore fo
   while True:
     warnings_per_read.append(res['warning'])
     rows += len(res['results'])
