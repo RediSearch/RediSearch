@@ -14,6 +14,14 @@ import json
 DEFAULT_TRAINING_THRESHOLD = 10 * 1024
 MAX_TRAINING_THRESHOLD = 100 * 1024
 
+# Floor for the share of vectors that find themselves once the training batch has migrated into
+# the compressed HNSW backend, which a healthy backend clears with room to spare - it measures
+# around 0.94 at the default EF_RUNTIME. The margin is deliberate: the sampled queries all run
+# against one graph, so they miss together rather than independently, and the run-to-run spread is
+# wider than the sampling error alone. A backend that migration left badly connected falls near
+# zero, far below this.
+MIN_POST_MIGRATION_RECALL = 0.7
+
 
 def hnsw_params(data_type='FLOAT32', *extra):
     return [
@@ -474,21 +482,48 @@ def test_hnsw_sq8_default_training_batch():
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     assert_sq8_storage(env, DEFAULT_TRAINING_THRESHOLD - 1)
 
-    def check_queries(count):
-        for i in (0, count // 2, count - 1):
+    # HNSW answers approximately, so no individual vector is guaranteed to have its own exact
+    # match inside the default candidate window. Bound the aggregate instead: a migration that
+    # leaves the backend badly connected collapses self-recall.
+    SELF_QUERY_SAMPLES = 100
+
+    def check_queries(count, min_recall):
+        sample = sorted({i * (count - 1) // (SELF_QUERY_SAMPLES - 1)
+                         for i in range(SELF_QUERY_SAMPLES)})
+        hits = 0
+        for i in sample:
             result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $q AS dist]',
                              'PARAMS', 2, 'q', vectors[i].tobytes(),
                              'RETURN', 1, 'dist', 'DIALECT', 2)
-            env.assertEqual([result[0], *result[1::2]], [1, f'doc{i}'], message=result)
-            env.assertEqual(result[2][0], 'dist', message=result)
-            env.assertTrue(abs(float(result[2][1])) < 0.001, message=result)
+            if result[0] == 1 and result[1] == f'doc{i}':
+                hits += 1
+                # Which vector the search reaches is approximate; its quantization error is not.
+                env.assertEqual(result[2][0], 'dist', message=result)
+                env.assertTrue(abs(float(result[2][1])) < 0.001, message=result)
+                continue
+            # Missing at the default window is recall, which min_recall bounds. Missing when the
+            # window spans the index is not: the search still only reaches what the graph links,
+            # so this catches a vector that migration left unreachable - which an aggregate floor
+            # cannot, since one absent vector stays inside the tolerance.
+            widened = env.cmd('FT.SEARCH', 'idx',
+                              f'*=>[KNN 1 @v $q EF_RUNTIME {count} AS dist]',
+                              'PARAMS', 2, 'q', vectors[i].tobytes(),
+                              'RETURN', 1, 'dist', 'DIALECT', 2)
+            env.assertEqual([widened[0], *widened[1::2]], [1, f'doc{i}'], message=widened)
+        recall = hits / len(sample)
+        env.debugPrint(f'self-recall at default EF_RUNTIME after {count} inserts: '
+                       f'{hits}/{len(sample)} = {recall:.4f}', force=True)
+        env.assertGreaterEqual(recall, min_recall,
+                               message=f'self-recall {hits}/{len(sample)} after {count} inserts')
 
-    check_queries(DEFAULT_TRAINING_THRESHOLD - 1)
+    # Nothing has migrated yet, so these queries are served by a full scan of the flat buffer and
+    # every vector must find itself.
+    check_queries(DEFAULT_TRAINING_THRESHOLD - 1, 1.0)
     conn.execute_command('HSET', f'doc{DEFAULT_TRAINING_THRESHOLD - 1}',
                          'v', vectors[-1].tobytes())
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     assert_sq8_storage(env, 0, DEFAULT_TRAINING_THRESHOLD)
-    check_queries(DEFAULT_TRAINING_THRESHOLD)
+    check_queries(DEFAULT_TRAINING_THRESHOLD, MIN_POST_MIGRATION_RECALL)
 
 
 @skip(cluster=True)
