@@ -86,10 +86,6 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
 
   long long configured_memory_limit = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
-  if (configured_memory_limit <= 0) {
-    RedisModule_Log(ctx, "error", "Search Disk requires a positive bigredis-max-ram value");
-    return false;
-  }
 
   disk = SearchDisk_GetAPI();
   if (!disk) {
