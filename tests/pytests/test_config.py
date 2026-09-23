@@ -2321,7 +2321,8 @@ def testDefaultScorerConfig(env):
 def test_flex_disk_resource_configs(env):
     configs = {
         'search-disk-max-memory-percentage': '60',
-        'search-disk-wbm-budget-per-index-mb': '24',
+        'search-disk-min-memory-budget-percentage': '20',
+        'search-disk-wbm-budget-per-index-mb': '3',
         'search-disk-max-open-files': '1024',
     }
     wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
@@ -2343,21 +2344,25 @@ def test_flex_disk_resource_config_load_boundaries():
     accepted = (
         {
             'search-disk-max-memory-percentage': '1',
+            'search-disk-min-memory-budget-percentage': '1',
             'search-disk-wbm-budget-per-index-mb': '1',
             'search-disk-max-open-files': '20',
         },
         {
             'search-disk-max-memory-percentage': '60',
+            'search-disk-min-memory-budget-percentage': '20',
             'search-disk-wbm-budget-per-index-mb': '2',
             'search-disk-max-open-files': '21',
         },
         {
             'search-disk-max-memory-percentage': '99',
+            'search-disk-min-memory-budget-percentage': '99',
             'search-disk-wbm-budget-per-index-mb': '3',
             'search-disk-max-open-files': '22',
         },
         {
             'search-disk-max-memory-percentage': '100',
+            'search-disk-min-memory-budget-percentage': '100',
             'search-disk-wbm-budget-per-index-mb': '4',
             'search-disk-max-open-files': str(INT_MAX),
         },
@@ -2384,23 +2389,34 @@ def test_flex_disk_resource_config_load_rejections():
         env.debugPrint('MODULE environment variable is not set. Skipping test')
         env.skip()
     invalid = (
-        ('search-disk-max-memory-percentage', '0'),
-        ('search-disk-max-memory-percentage', '101'),
-        ('search-disk-wbm-budget-per-index-mb', '0'),
+        (('search-disk-max-memory-percentage', '0'),),
+        (('search-disk-max-memory-percentage', '101'),),
+        (('search-disk-min-memory-budget-percentage', '0'),),
+        (('search-disk-min-memory-budget-percentage', '101'),),
+        (('search-disk-wbm-budget-per-index-mb', '0'),),
         (
-            'search-disk-wbm-budget-per-index-mb',
-            str(UINT64_MAX // (1024 * 1024) + 1),
+            (
+                'search-disk-wbm-budget-per-index-mb',
+                str(UINT64_MAX // (1024 * 1024) + 1),
+            ),
         ),
-        ('search-disk-max-open-files', '19'),
-        ('search-disk-buffer-percentage', '50'),
+        (('search-disk-max-open-files', '19'),),
+        (
+            ('search-disk-min-memory-budget-percentage', '21'),
+            ('search-disk-max-memory-percentage', '20'),
+        ),
+        (('search-disk-buffer-percentage', '50'),),
     )
-    for name, value in invalid:
+    for directives in invalid:
         env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+        load_args = []
+        for name, value in directives:
+            load_args.extend(('CONFIG', name, value))
         try:
             env.start()
             loaded_modules = env.cmd('MODULE', 'LIST')
             env.expect(
-                'MODULE', 'LOADEX', module_path, 'CONFIG', name, value,
+                'MODULE', 'LOADEX', module_path, *load_args,
             ).error().contains('Error loading the extension')
             env.assertEqual(env.cmd('MODULE', 'LIST'), loaded_modules)
         finally:

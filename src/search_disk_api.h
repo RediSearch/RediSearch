@@ -139,6 +139,7 @@ typedef struct DiskGCRunStats {
 typedef struct SearchDiskResourceConfig {
   size_t shardMemoryBytes;
   size_t maxMemoryPercentage;
+  size_t minMemoryBudgetPercentage;
   size_t wbmBudgetPerIndexMB;
   int maxOpenFiles;
 } SearchDiskResourceConfig;
@@ -147,8 +148,9 @@ typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
    * @param ctx Redis module context
-   * @param resourceConfig Resource limits; the shared WBM target is the per-index budget
-   *        multiplied by the current live logical-index count, bounded by the max-memory cap
+   * @param resourceConfig Resource limits. The shared cache capacity uses the maximum-memory
+   *        percentage. The shared WBM target is the per-index budget multiplied by the current
+   *        live logical-index count, bounded by the minimum WBM budget and maximum-memory cap.
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache

@@ -5072,6 +5072,13 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
     return REDISMODULE_ERR;
   }
+  if (RSGlobalConfig.diskMinMemoryBudgetPercentage >
+      RSGlobalConfig.diskMaxMemoryPercentage) {
+    RedisModule_Log(ctx, "error",
+                    "search-disk-min-memory-budget-percentage must not exceed "
+                    "search-disk-max-memory-percentage");
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }
 

@@ -2707,6 +2707,17 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-min-memory-budget-percentage",
+      DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN, DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX,
+      get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskMinMemoryBudgetPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
       ctx, "search-disk-wbm-budget-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       1, DISK_WBM_BUDGET_PER_INDEX_MAX_MB, get_size_t_numeric_config,

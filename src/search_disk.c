@@ -116,6 +116,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   SearchDiskResourceConfig resource_config = {
     .shardMemoryBytes = shard_memory_bytes,
     .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
+    .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
   };
