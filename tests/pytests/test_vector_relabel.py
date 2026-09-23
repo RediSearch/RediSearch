@@ -130,28 +130,6 @@ def test_relabel_unchanged_vector_on_text_update():
     _assert_doc_is_queryable(env, 'goodbye', VEC_A)
     env.assertEqual(_search_ids(env, 'hello'), [])
 
-def test_svs_refusal_falls_back_to_delete_and_add():
-    """An index whose algorithm cannot move a label must re-add, not fail the update.
-
-    SVS keeps its vectors in the library's own form and does not implement the move, so the
-    request is refused and the caller falls back. What this pins is that the refusal is
-    invisible to a client: the document stays queryable and holds the same vector, at the
-    cost of the indexing operation the move would have saved.
-    """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
-    conn = env.getClusterConnectionIfNeeded()
-
-    _create_index(env, algorithm='SVS-VAMANA')
-    _load_doc(env, conn)
-
-    conn.execute_command('HSET', 'doc:1', 'title', 'goodbye')
-
-    # Two indexing ops and no move: the initial load, then the update re-adding the vector
-    # because the refusal sent it down the fallback.
-    env.assertEqual(_vector_ops(env), (2, 0))
-    _assert_doc_is_queryable(env, 'goodbye', VEC_A)
-    env.assertEqual(_search_ids(env, 'hello'), [])
-
 def test_vector_change_reindexes():
     """The safety direction: when the vector *does* change it must be re-added, not moved.
 

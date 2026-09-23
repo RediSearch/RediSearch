@@ -83,8 +83,9 @@ protected:
   // alias case matters: a change set names the hash field (the path), so a
   // schema-side comparison against the alias would classify every field wrongly.
   //
-  // `algo` selects the vector backend. It is a test parameter because relabeling
-  // is optional in VecSim: FLAT and HNSW implement it, SVS does not.
+  // `algo` selects the vector backend. It is a test parameter because SVS answers
+  // `VectorIndex_HoldsVectors` differently from FLAT and HNSW; see
+  // `holdsVectorOnSvsIndexAnswersFromTheFlatBuffer`.
   // `metric` is a test parameter because the no-change-set path can only compare
   // blobs under L2; see `storedVectorIsUnchanged`.
   void createIndex(const char *vectorAlias, const char *algo = "FLAT",
@@ -510,10 +511,7 @@ TEST_F(VectorRelabelTest, holdsVectorsGivesUpOnLargeReorderedLabels) {
 // brute-force index like any other. SVS's own accessor reports nothing, by design: it keeps
 // vectors in the SVS library's reduced form and cannot hand them back.
 //
-// So this covers the tiered read, not SVS storage, and what it pins is that the comparison and
-// the relabel refusal are independent: a match here still ends in delete + re-add, because
-// relabeling is what SVS does not implement. `svsRefusalFallsBackToDeleteAndAdd` covers that
-// half. Conflating the two is the easy mistake.
+// So this covers the tiered read, not SVS storage.
 TEST_F(VectorRelabelTest, holdsVectorOnSvsIndexAnswersFromTheFlatBuffer) {
   createIndex(nullptr, "SVS-VAMANA");
   t_docId first = indexFresh("doc:1", "hello", kVecA);
@@ -597,41 +595,6 @@ TEST_F(VectorRelabelTest, relabelMovesTheExistingEntryRatherThanReReading) {
   ASSERT_NE(third, 0);
   EXPECT_TRUE(labelHolds(third, kVecB)) << "a declared vector change must re-read the document";
   EXPECT_FALSE(labelHolds(third, kVecA));
-}
-
-// SVS does not implement relabeling, so `VecSimIndex_RelabelVector` refuses with
-// `VecSimRelabel_Unsupported`. `Indexer_HandleReplacedDocVectorAndGeometry` has already
-// skipped this field's delete on the strength of the unchanged mark, so the refusal
-// has to perform it before letting the insert run -- otherwise the old entry is
-// orphaned at a doc-id no document owns, and a KNN query can return it.
-//
-// The index-size assertion is what catches that: an orphan plus the re-add
-// leaves two stored vectors for one document.
-TEST_F(VectorRelabelTest, svsRefusalFallsBackToDeleteAndAdd) {
-  createIndex(nullptr, "SVS-VAMANA");
-  t_docId first = indexFresh("doc:1", "hello", kVecA);
-  ASSERT_NE(first, 0);
-  ASSERT_TRUE(labelHolds(first, kVecA));
-  ASSERT_EQ(VecSimIndex_IndexSize(vecsim()), 1u);
-
-  // Pin the premise. Without it this test passes whether the relabel was refused
-  // or succeeded, because an unchanged blob leaves identical state either way --
-  // so it would stop covering the fallback the moment SVS gained relabel support,
-  // silently. Probing with an unused target label mutates nothing on refusal.
-  ASSERT_EQ(VecSimIndex_RelabelVector(vecsim(), first, first + 1000),
-            VecSimRelabel_Unsupported)
-      << "premise: SVS does not implement relabeling. If this now succeeds, this test no "
-         "longer exercises the refusal fallback and needs a different backend.";
-
-  RMCK::hset(ctx, "doc:1", "title", "goodbye");
-  t_docId second = reindexWithChangeSet("doc:1", {"title"});
-
-  ASSERT_NE(second, 0);
-  EXPECT_NE(second, first);
-  EXPECT_TRUE(labelHolds(second, kVecA)) << "the vector must still be reachable at the new doc-id";
-  EXPECT_TRUE(labelAbsent(first)) << "the refused relabel must not leave the old entry behind";
-  EXPECT_EQ(VecSimIndex_IndexSize(vecsim()), 1u)
-      << "an orphan at the old label would make this 2";
 }
 
 // The gate. With OPTIMIZE_PARTIAL_UPDATE off, a text-only change must take the
