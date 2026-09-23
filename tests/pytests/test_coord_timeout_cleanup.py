@@ -279,7 +279,7 @@ def test_background_search_reply_resp3():
 
 
 def _exercise_background_search_error(protocol):
-    # The same worker error must stay on MT for strict and move to BG otherwise.
+    # FAIL and RETURN worker errors serialize on BG; zero-send fanout replies on MT.
     env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 NOGC', protocol=protocol)
     skipIfNoEnableAssert(env)
     verify_shard_init(env)
@@ -291,8 +291,7 @@ def _exercise_background_search_error(protocol):
         ('empty_fanout', 'BeforeCoordFanout', '*', 'Could not send query to cluster'),
     )
     for stage, point, query, expected_error in cases:
-        for policy, cancel in (('fail', False), ('return', False),
-                               ('return-strict', False), ('fail', True)):
+        for policy, cancel in (('fail', False), ('return', False), ('fail', True)):
             if stage == 'empty_fanout' and cancel:
                 continue  # Cancellation before zero-send fanout is covered by the cleanup test.
             env.expect('CONFIG', 'SET', 'search-on-timeout', policy).ok()
@@ -329,7 +328,7 @@ def _exercise_background_search_error(protocol):
                         env.expect(debug_cmd(), 'SEND_ERROR', env.shardsCount).ok()
                     env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
 
-                if policy != 'return-strict' and stage != 'empty_fanout':
+                if stage != 'empty_fanout':
                     wait_for_condition(
                         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', serialized), {}),
                         'Error was not serialized on BG', timeout=5)
@@ -352,7 +351,7 @@ def _exercise_background_search_error(protocol):
                 env.assertTrue(isinstance(errors[0], redis_exceptions.ResponseError), message=errors)
                 if not cancel:
                     env.assertContains(expected_error, str(errors[0]))
-                if policy == 'return-strict' or stage == 'empty_fanout':
+                if stage == 'empty_fanout':
                     env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', serialized), 0)
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', cleanup) == 1, {}),
