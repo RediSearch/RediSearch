@@ -457,6 +457,24 @@ mod tests {
         assert!(!ids.contains(&10));
         assert!(ids.contains(&3));
     }
+    /// A full heap's prefilter must admit an equal score, so the push can keep a
+    /// lower doc id over the higher one it evicts.
+    #[test]
+    fn may_retain_admits_tie_for_push_to_break() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        heap.push(5, 1.0);
+        heap.push(10, 1.0);
+
+        assert!(heap.may_retain(1.0), "a tie must reach the push");
+        assert!(heap.push(3, 1.0), "the lower doc id wins the tie");
+        let ids = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored.doc_id)
+            .collect_vec();
+        assert_eq!(ids, vec![3, 5]);
+    }
+
     #[test]
     fn heap_tiebreak_asc_evicts_higher_doc_id() {
         let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
