@@ -1047,7 +1047,7 @@ def testTagUNF():
 # it is embedded in.
 _INVALID_UTF8_LEAD = b'\xff'
 
-def _assertSurvivesInvalidUtf8TagToken(env, conn, query):
+def _assertSurvivesInvalidUtf8TagToken(env, conn, query, dialect=None):
     """Send `query` (a tag token ending in `_INVALID_UTF8_LEAD`) and assert
     the server survives it.
 
@@ -1060,9 +1060,15 @@ def _assertSurvivesInvalidUtf8TagToken(env, conn, query):
     detected heap-buffer-overflow; on a plain build it silently reads
     adjacent heap memory instead of crashing. A correct build bounds the
     read and stays responsive either way.
+
+    `dialect`, if given, is appended as `DIALECT <dialect>`; leave unset to
+    use the server's default dialect.
     """
+    args = ['FT.SEARCH', 'idx', query, 'NOCONTENT']
+    if dialect is not None:
+        args += ['DIALECT', dialect]
     try:
-        conn.execute_command('FT.SEARCH', 'idx', query, 'NOCONTENT')
+        conn.execute_command(*args)
     except Exception:
         # A graceful error reply is fine; a dropped connection means the
         # server crashed, which the liveness check below reports. Either
@@ -1096,8 +1102,57 @@ def testTagInvalidUtf8LoweringOverflow(env):
     _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'}')
     # Prefix token, through Query_EvalTagPrefixNode.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'*}')
-    # Wildcard token, through Query_EvalTagWildcardNode.
-    _assertSurvivesInvalidUtf8TagToken(env, conn, b"@t:{w'caf" + _INVALID_UTF8_LEAD + b"*'}")
+    # Wildcard token, through Query_EvalTagWildcardNode. `w'...'` needs DIALECT 2.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b"@t:{w'caf" + _INVALID_UTF8_LEAD + b"*'}",
+                                        dialect='2')
 
     # The server must still serve a well-formed tag query.
     env.expect('FT.SEARCH', 'idx', '@t:{hello}', 'NOCONTENT').equal([1, 'doc1'])
+
+def testTagIndexingInvalidUtf8LoweringOverflow(env):
+    """Regression: same `unicode_tolower` overflow as
+    `testTagInvalidUtf8LoweringOverflow`, but at indexing time via
+    `tokenizeTagString` (src/tag_index.c) instead of query time. A plain
+    (non-SORTABLE) TAG field has no UTF-8 validation, so the value reaches
+    `unicode_tolower` unchecked.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 't', b'caf' + _INVALID_UTF8_LEAD)
+
+    # check server is still alive
+    try:
+        alive = bool(conn.execute_command('PING'))
+    except redis.exceptions.ConnectionError:
+        alive = False
+    env.assertTrue(alive, message='server crashed indexing an invalid-UTF-8 tag value')
+
+    env.assertEqual(index_errors(env, 'idx')['indexing failures'], 0)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc1'])
+
+def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
+    """Same as `testTagIndexingInvalidUtf8LoweringOverflow`, but for a
+    SORTABLE field. `UNF` bypasses `normalizeStr`/`RSSortingVector_PutStr`
+    (src/document.c, src/sortable.c), which has its own unchecked
+    `nu_utf8_read` overflow on the same kind of input independent of the
+    `unicode_tolower` bug under test; without `UNF` this test would trip
+    that separate overflow under a sanitizer build instead of isolating
+    the indexing-time `unicode_tolower` path it's meant to cover.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE', 'UNF').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', b'caf' + _INVALID_UTF8_LEAD)
+
+    # check server is still alive
+    try:
+        alive = bool(conn.execute_command('PING'))
+    except redis.exceptions.ConnectionError:
+        alive = False
+    env.assertTrue(alive, message='server crashed indexing an invalid-UTF-8 sortable tag value')
+
+    env.assertEqual(index_errors(env, 'idx_sortable')['indexing failures'], 0)
+    # No SORTBY: on an OSS cluster doc1/doc2 may land on different shards
+    # and merge in either order, so compare unordered.
+    res = conn.execute_command('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc1', 'doc2']))
