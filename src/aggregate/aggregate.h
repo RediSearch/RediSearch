@@ -583,7 +583,7 @@ static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqC
   return false;
 }
 
-void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
+void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
