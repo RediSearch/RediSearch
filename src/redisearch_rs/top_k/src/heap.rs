@@ -147,22 +147,6 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         self.inner.len() >= self.capacity
     }
 
-    /// Whether an element scoring `score` could be retained: the heap has room,
-    /// or `score` is no worse than the worst element currently held.
-    ///
-    /// A tie reports `true`, leaving the doc-id tiebreak to the push, so a caller
-    /// using this to pre-filter candidates never discards one the heap would have
-    /// kept.
-    pub fn may_retain(&self, score: f64) -> bool {
-        if !self.is_full() {
-            return true;
-        }
-        match self.inner.peek() {
-            Some(worst) => self.order.compare(score, worst.result.score) != Ordering::Greater,
-            None => true,
-        }
-    }
-
     /// Returns the worst element currently retained (the one that would be evicted next),
     /// without removing it.
     pub fn peek_worst(&self) -> Option<ScoredResult> {
@@ -202,37 +186,63 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Use this when building the record is expensive (e.g. a deep copy): the
     /// closure is not called for an element the heap discards, so a rejected
     /// candidate costs only the score comparison.
+    #[inline]
     pub fn push_with_record_lazy(
         &mut self,
         doc_id: DocId,
         score: f64,
         make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
     ) -> bool {
-        // The record never participates in ordering, so a record-less probe
-        // decides retention; the record is attached only on the accept branches.
-        let mut entry = HeapEntry {
-            result: ScoredResult { doc_id, score },
+        let result = ScoredResult { doc_id, score };
+        if self.is_full()
+            && self
+                .inner
+                .peek()
+                .is_some_and(|worst| !self.is_better(result, worst))
+        {
+            return false;
+        }
+        self.insert_retained(result, make_record);
+        true
+    }
+
+    /// Whether `candidate` outranks `worst` under [`HeapEntry`]'s ordering, and
+    /// so displaces it from a full heap.
+    ///
+    /// An exact match (same score and doc id) does not outrank it, so the heap
+    /// never holds a duplicate.
+    fn is_better(&self, candidate: ScoredResult, worst: &HeapEntry<'index, O>) -> bool {
+        let probe = HeapEntry {
+            result: candidate,
             record: None,
             order: self.order,
         };
+        probe < *worst
+    }
 
-        if !self.is_full() {
-            entry.record = make_record();
-            self.inner.push(entry);
-            true
-        }
-        // The heap is full. Only insert if the new element is strictly better than the
-        // current worst (root). `entry > worst` means entry is worse → discard.
-        // `entry < worst` means entry is better → evict worst, insert entry.
-        // Equal (same score AND same doc_id) → discard to avoid duplicates.
-        else if let Some(mut worst) = self.inner.peek_mut()
-            && entry < *worst
-        {
-            entry.record = make_record();
+    /// Inserts `result`, which [`push_with_record_lazy`](Self::push_with_record_lazy)
+    /// accepted, evicting the worst element when the heap is full.
+    ///
+    /// Kept out of line so the rejection test inlines into scan loops on its own.
+    #[inline(never)]
+    fn insert_retained(
+        &mut self,
+        result: ScoredResult,
+        make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
+    ) {
+        let entry = HeapEntry {
+            result,
+            record: make_record(),
+            order: self.order,
+        };
+        if self.is_full() {
+            let mut worst = self
+                .inner
+                .peek_mut()
+                .expect("a full heap has capacity > 0 and so holds a worst element");
             *worst = entry;
-            true
         } else {
-            false
+            self.inner.push(entry);
         }
     }
 
@@ -456,23 +466,6 @@ mod tests {
         assert!(ids.contains(&5));
         assert!(!ids.contains(&10));
         assert!(ids.contains(&3));
-    }
-    /// A full heap's prefilter must admit an equal score, so the push can keep a
-    /// lower doc id over the higher one it evicts.
-    #[test]
-    fn may_retain_admits_tie_for_push_to_break() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
-        heap.push(5, 1.0);
-        heap.push(10, 1.0);
-
-        assert!(heap.may_retain(1.0), "a tie must reach the push");
-        assert!(heap.push(3, 1.0), "the lower doc id wins the tie");
-        let ids = heap
-            .drain_sorted()
-            .into_iter()
-            .map(|r| r.scored.doc_id)
-            .collect_vec();
-        assert_eq!(ids, vec![3, 5]);
     }
 
     #[test]
