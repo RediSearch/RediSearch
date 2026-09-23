@@ -78,28 +78,13 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
-bool SearchDisk_ValidateMemoryLimitConfig(RedisModuleCtx *ctx, size_t *memoryLimitBytes) {
-  long long configured = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
-  size_t converted = (size_t)configured;
-  if (configured <= 0 || (long long)converted != configured) {
-    return false;
-  }
-  *memoryLimitBytes = converted;
-  return true;
-}
-
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
     return false;
   }
 
-  size_t memory_limit_bytes;
-  if (!SearchDisk_ValidateMemoryLimitConfig(ctx, &memory_limit_bytes)) {
-    RedisModule_Log(ctx, "error",
-                    "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
-    return false;
-  }
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
 
   disk = SearchDisk_GetAPI();
   if (!disk) {
@@ -114,7 +99,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   SearchDiskResourceConfig resource_config = {
-    .memoryLimitBytes = memory_limit_bytes,
+    .memoryLimitBytes = (size_t)configured_memory_limit,
     .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
     .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,

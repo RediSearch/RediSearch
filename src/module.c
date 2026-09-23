@@ -5133,15 +5133,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    size_t memoryLimitBytes;
-    if (!SearchDisk_ValidateMemoryLimitConfig(ctx, &memoryLimitBytes)) {
-      RedisModule_Log(ctx, "error",
-                      "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
-      return REDISMODULE_ERR;
-    }
-  }
-
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");

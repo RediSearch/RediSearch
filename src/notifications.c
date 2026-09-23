@@ -763,13 +763,8 @@ static void onUpdatedMemoryLimit(RedisModuleCtx *ctx) {
   if (!SearchDisk_IsInitialized()) {
     return;
   }
-  size_t memory_limit_bytes;
-  if (!SearchDisk_ValidateMemoryLimitConfig(ctx, &memory_limit_bytes)) {
-    RedisModule_Log(ctx, "warning",
-                    "Ignoring invalid bigredis-max-ram value for Search Disk resources");
-    return;
-  }
-  SearchDisk_UpdateMemoryLimit(memory_limit_bytes);
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, BIGREDIS_MAX_RAM, 0);
+  SearchDisk_UpdateMemoryLimit((size_t)configured_memory_limit);
 }
 
 void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
