@@ -1094,6 +1094,10 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   // Check if results were stored (background thread completed successfully)
+  if (hreq->storedReplyState.replySerialized) {
+    return REDISMODULE_OK;
+  }
+
   if (!hreq->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     if (QueryError_HasError(&hreq->storedReplyState.err)) {

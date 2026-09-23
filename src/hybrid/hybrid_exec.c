@@ -123,6 +123,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 // the reply, or the RESP protocol used.
 static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("DuringHybridRowSerialization");
+#endif
   const uint32_t options = HREQ_RequestFlags(hreq);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
@@ -462,6 +465,10 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
       debugPauseStoreResultsHybrid(hreq, false); // pause after
+      if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !HybridRequest_TimedOut(hreq)) {
+        serializeStoredResults_hybrid(hreq, reply);
+        hreq->storedReplyState.replySerialized = true;
+      }
       return;
     }
 
@@ -476,7 +483,7 @@ done_err:
 
 /**
  * Serialize results from stored state (reply_callback path for FAIL policy).
- * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ * FAIL calls this on the worker after storing results.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
@@ -490,10 +497,9 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
 
-    // Point qctx->err to the local error so finishSendChunkReply_hybrid/replyWarningsWithSuffixes
-    // can access it. The original qctx->err pointed to a stack variable in RSExecDistHybrid
-    // which is now gone (background thread returned). This local `err` remains valid until
-    // we clear it at the end of this function.
+    // Callback serialization cannot use the worker's stack error. Worker serialization
+    // must restore it for the caller's remaining cleanup.
+    QueryError *originalError = qctx->err;
     qctx->err = &err;
 
     // Get stored results and rc
@@ -511,6 +517,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 
     // Clear the local error to avoid leak (QueryError may have allocated strings)
     QueryError_ClearError(&err);
+    qctx->err = originalError;
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
