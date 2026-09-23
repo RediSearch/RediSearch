@@ -1077,6 +1077,39 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
                     message=f'expected exactly one surviving group, got {res}')
 
 
+def _update_metadata_with_paused_reader(env, conn, query, command, sync_point):
+    """Apply a metadata update while a query is paused, assert reindexing, and return its reply."""
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    out = []
+    query_conn = env.getConnection()
+
+    def run_query():
+        try:
+            out.append(query_conn.execute_command(*query))
+        except Exception as error:
+            out.append(error)
+
+    reader = threading.Thread(target=run_query, daemon=True)
+    reader.start()
+    try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point}', timeout=10)
+        conn.execute_command(*command)
+        current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+        env.assertGreater(current, first, message=(command, first, current))
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+        reader.join(timeout=10)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+    env.assertFalse(reader.is_alive(), message='retained-reader query did not finish after signal')
+    env.assertEqual(len(out), 1, message=out)
+    env.assertFalse(isinstance(out[0], Exception), message=out)
+    return out[0]
+
+
 @skip(cluster=True)
 def test_metadata_updates_reindex_with_retained_reader():
     """Score and payload updates reindex while a query retains the document metadata."""
@@ -1090,6 +1123,7 @@ def test_metadata_updates_reindex_with_retained_reader():
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
                'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
     conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', 'original')
+    query = ['FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title']
     sync_point = 'BeforeSafeLoaderGILLock'
     updates = [
         (('HSET', 'doc:1', 'score', '0.5'), '0.5', 'original'),
@@ -1098,36 +1132,8 @@ def test_metadata_updates_reindex_with_retained_reader():
     ]
 
     for command, score, payload in updates:
-        first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
-        out = []
-        query_conn = env.getConnection()
-
-        def run_query():
-            try:
-                out.append(query_conn.execute_command(
-                    'FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title'))
-            except Exception as error:
-                out.append(error)
-
-        reader = threading.Thread(target=run_query, daemon=True)
-        reader.start()
-        try:
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                f'Timeout waiting for {sync_point}', timeout=10)
-            conn.execute_command(*command)
-            current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-            env.assertGreater(current, first, message=(command, first, current))
-        finally:
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-            reader.join(timeout=10)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-
-        env.assertFalse(reader.is_alive(), message='retained-reader query did not finish after signal')
-        env.assertEqual(len(out), 1, message=out)
-        env.assertFalse(isinstance(out[0], Exception), message=out)
-        env.assertEqual(out[0], [0])
+        result = _update_metadata_with_paused_reader(env, conn, query, command, sync_point)
+        env.assertEqual(result, [0])
         env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                    'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', score, payload])
 
@@ -1158,34 +1164,7 @@ def test_retained_reader_serializes_old_payload_during_metadata_update():
     ]
 
     for command, new_score, new_payload in updates:
-        first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
-        out = []
-        query_conn = env.getConnection()
-
-        def run_query():
-            try:
-                out.append(query_conn.execute_command(*query))
-            except Exception as error:
-                out.append(error)
-
-        reader = threading.Thread(target=run_query, daemon=True)
-        reader.start()
-        try:
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                f'Timeout waiting for {sync_point}', timeout=10)
-            conn.execute_command(*command)
-            current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
-            env.assertGreater(current, first, message=(command, first, current))
-        finally:
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-            reader.join(timeout=10)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-
-        env.assertFalse(reader.is_alive(), message='payload reader did not finish after signal')
-        env.assertEqual(len(out), 1, message=out)
-        env.assertFalse(isinstance(out[0], Exception), message=out)
-        env.assertEqual(out[0], [1, 'doc:1', old_score, old_payload, ['title', 'hello']])
+        result = _update_metadata_with_paused_reader(env, conn, query, command, sync_point)
+        env.assertEqual(result, [1, 'doc:1', old_score, old_payload, ['title', 'hello']])
         env.expect(*query).equal([1, 'doc:1', new_score, new_payload, ['title', 'hello']])
         old_score, old_payload = new_score, new_payload
