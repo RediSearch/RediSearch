@@ -108,9 +108,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
         return rc;
     }
 
-    // Set the error code after compiling the query, since we don't want to overwrite
-    // any errors that might have occurred during compilation
-    QueryError_SetError(status, errCode, NULL);
+    // The empty reply derives its warnings from the slot's code; the request itself succeeded, so no message.
     QueryError_SetCode(status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         QueryError_SetQueryOOMWarning(status);
@@ -122,7 +120,6 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile) {
 
     QueryError status = QueryError_Default();
-    QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         QueryError_SetQueryOOMWarning(&status);
@@ -218,9 +215,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
         return rc;
     }
 
-    // Set the error code after compiling the query, since we don't want to overwrite
-    // any errors that might have occurred during compilation
-    QueryError_SetError(status, errCode, NULL);
+    // The empty reply derives its warnings from the slot's code; the request itself succeeded, so no message.
     QueryError_SetCode(status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         QueryError_SetQueryOOMWarning(status);
@@ -234,7 +229,6 @@ int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool int
     AREQ *req = AREQ_New(NULL, 0);
     QueryError *status = &req->base.reply.err;
 
-    QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
     if (internal) {
