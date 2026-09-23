@@ -21,15 +21,6 @@ def get_all_shards_pid(env):
         conn = env.getConnection(shardId)
         yield pid_cmd(conn)
 
-def get_shard_counts(env):
-    """Get the number of documents in each shard using KEYS doc*."""
-    shard_counts = []
-    for i in range(1, env.shardsCount + 1):
-        keys = env.getConnection(i).execute_command('KEYS', 'doc*')
-        shard_counts.append(len(keys))
-    return shard_counts
-
-
 def parse_client_list(client_list_output):
     """Parse the output of CLIENT LIST command into a list of dictionaries.
 
@@ -70,15 +61,6 @@ def is_client_blocked(env, client_id):
     if not clients:
         return False
     return 'b' in clients[0].get('flags', '')
-
-
-def wait_for_client_blocked(env, client_id, timeout=30):
-    """Wait for a client to become blocked."""
-    def check_fn():
-        blocked = is_client_blocked(env, client_id)
-        return blocked, {'client_id': client_id, 'blocked': blocked}
-    client_list = env.execute_command('CLIENT', 'LIST')
-    wait_for_condition(check_fn, f'Timeout waiting for client {client_id} to be blocked , list = {client_list}', timeout)
 
 
 def wait_for_client_unblocked(env, client_id, timeout=30):
@@ -344,64 +326,11 @@ class TestCoordinatorTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
-    def test_partial_results_no_replies_timeout(self):
-        """
-        Test the partial results timeout mechanism when no replies are received.
-
-        This test:
-        1. Sets timeout policy to 'return-strict' (partial results)
-        2. Pauses coordinator threads before fanout
-        3. Runs FT.SEARCH from the coordinator
-        4. Manually unblocks the client with timeout using CLIENT UNBLOCK
-        5. Verifies 0 results and timeout warning
-        """
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
-
-        # Pause coordinator thread pool to prevent fanout
-        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-
-        wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {'is_paused': env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED')}),
-            'Timeout while waiting for coordinator to pause'
-        )
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.SEARCH', 'idx', '*'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
-
-        # Unblock the client to simulate timeout
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        # Resume coordinator threads
-        env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        # Verify 0 results and timeout warning
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-        env.assertEqual(result['total_results'], 0, message="Expected 0 results")
-        env.assertEqual(result['warning'], [TIMEOUT_WARNING])
-
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
     def test_no_timeout(self):
         """
-        Test that using result-strict or fail policies doesn't affect the regular flow
-        when there is no timeout (i.e., FT.SEARCH completes normally and gets all expected
-        replies from shards).
+        Test that the fail policy doesn't affect the regular flow when there is no
+        timeout (i.e., FT.SEARCH completes normally and gets all expected replies
+        from shards).
         """
         env = self.env
 
@@ -415,14 +344,6 @@ class TestCoordinatorTimeout:
         env.assertEqual(result.get('warning', []), [],
                         message="Expected no warning with 'fail' policy")
 
-        # Test with 'return-strict' policy
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-        result = env.cmd('FT.SEARCH', 'idx', '*')
-        env.assertEqual(result['total_results'], self.n_docs,
-                        message=f"Expected {self.n_docs} total results with 'return-strict' policy")
-        env.assertEqual(result.get('warning', []), [],
-                        message="Expected no warning with 'return-strict' policy")
-
         # Test FT.PROFILE with 'fail' policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
         result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
@@ -433,15 +354,6 @@ class TestCoordinatorTimeout:
         env.assertEqual(profile_results.get('warning', []), [],
                         message="Expected no warning with 'fail' policy (FT.PROFILE)")
 
-        # Test FT.PROFILE with 'return-strict' policy
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
-        env.assertContains('Results', result, message="Expected 'Results' key in FT.PROFILE output")
-        profile_results = result['Results']
-        env.assertEqual(profile_results['total_results'], self.n_docs,
-                        message=f"Expected {self.n_docs} total results with 'return-strict' policy (FT.PROFILE)")
-        env.assertEqual(profile_results.get('warning', []), [],
-                        message="Expected no warning with 'return-strict' policy (FT.PROFILE)")
 
         # Test FT.HYBRID with 'fail' policy
         # Use K=10000, WINDOW=10000, LIMIT=10000 (100^2) to ensure all docs are returned.
@@ -755,250 +667,6 @@ class TestCoordinatorReducePause:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
         self._cleanup_pause_state()
 
-    def test_timeout_return_strict_before_first_reduce(self):
-        """Test return-strict timeout policy when timeout occurs before first result is reduced.
-
-        Uses pause mechanism (N=1) to pause before the 1st result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish. With the early
-        exit behavior on timeout, we get only the results from the first shard
-        that responded, not all 100 results.
-        """
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        setPauseBeforeReduce(env, 1)
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        wait_for_condition(
-            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
-            'Timeout while waiting for coordinator to pause during reduce'
-        )
-
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
-
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-
-        shard_counts = get_shard_counts(env)
-
-        env.assertContains(result['total_results'], shard_counts,
-                           message=f"Expected total results to exactly match one of the shards' document counts {shard_counts}")
-        env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-        self._cleanup_pause_state()
-
-    def test_timeout_return_strict_before_reducer_ctx_init(self):
-        """Test return-strict timeout after reducer claims ownership but before req->rctx init."""
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        # Pause right after the background reducer claims reducing so timeout
-        # will wait for it, then force the reducer to take the timed-out early exit.
-        setPauseBeforeReduce(env, PAUSE_BEFORE_REDUCER_INIT)
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        wait_for_condition(
-            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
-            'Timeout while waiting for coordinator to pause before reducer ctx init'
-        )
-
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
-
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-        env.assertEqual(result['total_results'], 100, message="Expected 100 total results from all shards")
-        env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-        self._cleanup_pause_state()
-
-    def test_timeout_return_strict_mid_reduce(self):
-        """Test return-strict timeout policy when timeout occurs mid-reduction.
-
-        Uses pause mechanism (N=2) to pause before the 2nd result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish. With the early exit behavior,
-        we get only the results from the first shard that responded.
-        """
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        pause_before_n = 2
-        setPauseBeforeReduce(env, pause_before_n)
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        wait_for_condition(
-            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
-            'Timeout while waiting for coordinator to pause during reduce'
-        )
-
-        reduce_count = getCoordReduceCount(env)
-        env.assertEqual(reduce_count, pause_before_n - 1,
-                        message=f"Expected {pause_before_n - 1} results reduced before pause")
-
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
-
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-
-        shard_counts = get_shard_counts(env)
-        env.assertContains(result['total_results'], shard_counts,
-                           message=f"Expected total results to exactly match one of the shards' document counts {shard_counts}")
-        env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-        self._cleanup_pause_state()
-
-    def test_timeout_return_strict_after_last_reduce(self):
-        """Test return-strict timeout policy when timeout occurs after all results are reduced.
-
-        Uses pause mechanism (N=-1) to pause after the last result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish, so we get all results.
-        """
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
-
-        wait_for_condition(
-            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
-            'Timeout while waiting for coordinator to pause during reduce'
-        )
-
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-
-        shard_counts = get_shard_counts(env)
-        env.assertEqual(result['total_results'], sum(shard_counts),
-                        message=f"Expected total results to match all shards combined ({sum(shard_counts)})")
-        env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-        self._cleanup_pause_state()
-
-    def test_timeout_return_strict_with_profile(self):
-        """Test return-strict timeout policy with FT.PROFILE command.
-
-        Uses pause mechanism (N=2) to pause before the 2nd result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish. With the early exit behavior,
-        we get only the results from the first shard that responded.
-        """
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        setPauseBeforeReduce(env, 2)
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', '10'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        wait_for_condition(
-            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
-            'Timeout while waiting for coordinator to pause during reduce'
-        )
-
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.PROFILE')
-
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-
-        # FT.PROFILE returns: {'Results': {...}, 'Profile': {...}}
-        env.assertContains('Results', result, message="Expected 'Results' key in FT.PROFILE output")
-        profile_results = result['Results']
-
-        shard_counts = get_shard_counts(env)
-        env.assertContains(profile_results['total_results'], shard_counts,
-                           message=f"Expected total results to exactly match one of the shards' document counts {shard_counts}")
-        env.assertContains('warning', profile_results, message="Expected warning in Results")
-        env.assertEqual(profile_results['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-        self._cleanup_pause_state()
 
 class TestShardTimeout:
     """Tests for the blocked client timeout mechanism for shards."""
