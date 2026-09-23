@@ -153,18 +153,16 @@ static inline int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply) {
 // Declared collections. A postponed length costs Redis a placeholder node that also splits every element
 // written afterwards into its own block, so declare the length whenever it is known. The `len` elements
 // written next belong to this collection; it needs no End.
-// While a postponed collection is open, its counter must see this collection as one element, so the
-// declared elements are pre-subtracted here and paid back one by one as they are written.
 static inline int RedisModule_Reply_ArrayWithLen(RedisModule_Reply *reply, size_t len) {
   if (reply->cur) {
-    *reply->cur += 1 - (int)len;
+    *reply->cur += 1 - (int)len; // +1 for this array; its `len` elements will each add 1 to the same counter
   }
   REPLY_TRACK_OPEN(reply, REDISMODULE_REPLY_ARRAY, (int)len);
   return RedisModule_ReplyWithArray(reply->ctx, len);
 }
 static inline int RedisModule_Reply_MapWithLen(RedisModule_Reply *reply, size_t entries) {
   if (reply->cur) {
-    *reply->cur += 1 - 2 * (int)entries;
+    *reply->cur += 1 - 2 * (int)entries; // +1 for this map; its keys and values will each add 1 to the same counter
   }
   REPLY_TRACK_OPEN(reply, REDISMODULE_REPLY_MAP, 2 * (int)entries);
   return RedisModule_ReplyWithMap(reply->ctx, entries);
