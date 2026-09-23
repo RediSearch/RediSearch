@@ -138,13 +138,13 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
     str: *const c_char,
     status: Option<NonNull<OpaqueQueryError>>,
 ) -> bool {
-    // Safety: The caller must ensure that the pointer is valid (1.)
+    // SAFETY: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    // Safety: The caller must ensure str points to a valid C string (2.)
+    // SAFETY: The caller must ensure str points to a valid C string (2.)
     let str = unsafe { CStr::from_ptr(str) };
 
-    // Safety: The caller must ensure status points to a valid query error (3.)
+    // SAFETY: The caller must ensure status points to a valid query error (3.)
     let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
 
     let Ok(str) = str.to_str() else {
