@@ -6001,11 +6001,11 @@ class TestShardTimeout:
             )
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
-            # Verify coord timeout error metric incremented (standalone uses coord metrics)
+            # Both the MT timeout and the discarded BG error increment the counter.
             info_dict = info_modules_to_dict(env)
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                            str(base_err_coord + i + 1),
-                            message=f"Coordinator timeout error should be +{i+1} after {query_type} in pipeline")
+                            str(base_err_coord + 2 * (i + 1)),
+                            message=f"Expected MT and BG timeout errors after {query_type} in pipeline")
 
         # Verify no other metrics changed
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
@@ -6067,11 +6067,12 @@ class TestShardTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        # Standalone uses coord metrics for shard-side timeouts.
+        # Count both the MT timeout reply and the discarded BG timeout error.
+        env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message="Coord timeout error should be +1 after QI sync-point timeout")
+                        str(base_err_coord + 2),
+                        message="Coord timeout errors should include MT and BG after QI timeout")
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -6117,15 +6118,21 @@ class TestShardTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        resetStoreResultsDebug(env)
+        env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
         # Verify coord timeout error metric incremented by 1 (standalone uses coord metrics)
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {cmd_name} before store")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        allowed_metrics = [TIMEOUT_ERROR_COORD_METRIC]
+        if query_args[0] in ('FT.AGGREGATE', 'FT.CURSOR'):
+            # Streaming may encounter timeout after encoding its first row.
+            allowed_metrics.append(TIMEOUT_WARNING_COORD_METRIC)
+        _verify_metrics_not_changed(env, env, before_info, allowed_metrics)
 
         # Cleanup
-        resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_fail_timeout_after_store_impl(self, query_args, cmd_name=None):
@@ -6495,8 +6502,7 @@ class TestShardTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
+        The worker serializes each chunk; the MT callback only finalizes it.
         """
         env = self.env
 
@@ -6677,8 +6683,8 @@ class TestShardTimeout:
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message="Coordinator timeout error should be +1 after shard FAIL cursor-read timeout")
+                        str(base_err_coord + 2),
+                        message="Expected MT and BG timeout errors after shard FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
@@ -7301,16 +7307,81 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
-    def test_fail_dropped_index_during_queued_cursor_read(self):
-        """FAIL cursor-read replies the stored error when the index is dropped while queued.
+    def test_fail_early_error_serialized_before_timeout(self):
+        """A BG error is delivered once, or discarded when the MT timeout wins."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        previous_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        try:
+            for command in ('FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR'):
+                for timeout_wins in (False, True):
+                    env.expect('FT.CREATE', 'error_idx', 'PREFIX', '1', 'error_doc',
+                               'SCHEMA', 'name', 'TEXT').ok()
+                    writer = getConnectionByEnv(env)
+                    for i in range(2):
+                        writer.execute_command('HSET', f'error_doc{i}', 'name', 'hello')
+                    waitForIndex(env, 'error_idx')
+                    if command == 'FT.CURSOR':
+                        _, cursor = env.cmd('FT.AGGREGATE', 'error_idx', '*',
+                                            'WITHCURSOR', 'COUNT', '1')
+                        args = [command, 'READ', 'error_idx', cursor]
+                    else:
+                        args = [command, 'error_idx', '*']
+                    before = info_modules_to_dict(env)
+                    jobs = getWorkersThpoolStats(env)['totalJobsDone']
+                    replies = []
+                    # Hold one connection so PING detects any extra buffered error reply.
+                    with env.getConnection().client() as client:
+                        blocked_id = client.client_id()
+                        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+                        workers_paused = True
+                        setPauseAfterStoreResults(env, True, internal=False)
+                        def execute_query():
+                            try:
+                                replies.append(client.execute_command(*args))
+                            except redis_exceptions.ResponseError as error:
+                                replies.append(error)
 
-        Drops the index while the ``cursorRead_ctx`` job is queued in the
-        worker pool, so the worker takes the dropped-spec branch in
-        ``cursorRead`` and stores the error on ``storedReplyState.err``.
-        ``CursorReadReplyCallback`` then has no stored results and falls
-        into the ``QueryError_HasError`` branch, replying with the stored
-        error.
-        """
+                        query = threading.Thread(target=execute_query, daemon=True)
+                        try:
+                            query.start()
+                            wait_for_client_blocked(env, blocked_id)
+                            env.expect('FT.DROPINDEX', 'error_idx').ok()
+                            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+                            workers_paused = False
+                            wait_for_condition(
+                                lambda: (getIsStoreResultsPaused(env) == 1, {}),
+                                'Worker did not pause after serializing the early error')
+                            if timeout_wins:
+                                env.expect('CLIENT', 'UNBLOCK', blocked_id, 'TIMEOUT').equal(1)
+                            resetStoreResultsDebug(env)
+                            query.join(timeout=10)
+                            env.assertFalse(query.is_alive())
+                            env.assertEqual(len(replies), 1, message=replies)
+                            expected = TIMEOUT_ERROR if timeout_wins else 'dropped'
+                            env.assertContains(expected, str(replies[0]), message=replies)
+                            env.assertTrue(client.ping())
+                            wait_for_condition(
+                                lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > jobs, {}),
+                                'Worker did not finish the discarded error reply')
+                            allowed = [TIMEOUT_ERROR_COORD_METRIC] if timeout_wins else []
+                            _verify_metrics_not_changed(env, env, before, allowed)
+                            after = info_modules_to_dict(env)
+                            env.assertEqual(
+                                int(after[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+                                int(before[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+                                + int(timeout_wins))
+                        finally:
+                            resetStoreResultsDebug(env)
+                            if workers_paused:
+                                env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+                            query.join(timeout=10)
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous_policy).ok()
+
+    def test_fail_dropped_index_during_queued_cursor_read(self):
+        """FAIL serializes a queued cursor read's dropped-index error on the worker."""
         env = self.env
 
         # Use a dedicated index so we don't break the class-level shared 'idx'.
@@ -7398,8 +7469,8 @@ class TestShardTimeout:
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message="Coordinator timeout error should be +1 after sticky FAIL cursor-read timeout")
+                        str(base_err_coord + 2),
+                        message="Expected MT and BG timeout errors after sticky FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',

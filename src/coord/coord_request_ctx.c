@@ -85,7 +85,7 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     // timeoutPolicy is left at the default, so deriving it would clear the flag
     // the cursor set at WITHCURSOR time. The query exec path sets it explicitly
     // from the request-captured policy instead.
-    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+    ((AREQ *)req)->serializeOnMT = ctx->useReplyCallback;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }

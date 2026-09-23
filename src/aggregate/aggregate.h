@@ -55,8 +55,8 @@ typedef struct {
 
 /**
  * State needed for reply serialization in reply_callback path.
- * When using FAIL policy with workers, the background thread stores results here,
- * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ * Requests that serialize on MT store results here before calling UnblockClient.
+ * BG FAIL only parks its cursor here until the reply is accepted.
  *
  * ## Cursor ↔ AREQ Ownership
  *
@@ -78,7 +78,7 @@ typedef struct {
   cachedVars cv;           // Cached lookup variables for result serialization
   /**
    * NON-OWNING cursor handle for reply_callback path.
-   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
+   * See ownership model above. This is set in runCursor() when completion belongs to a callback,
    * and cleared by QueryReplyCallback after it handles cursor pause/free.
    * If timeout fires first, ChunkReplyState_Destroy cleans this up.
    */
@@ -331,11 +331,10 @@ typedef struct AREQ {
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
 
-  bool useReplyCallback;
+  // Store results for serialization by the main-thread reply callback.
+  bool serializeOnMT;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
+  // Stored results for MT serialization, or completion metadata for BG serialization.
   ChunkReplyState storedReplyState;
 } AREQ;
 
