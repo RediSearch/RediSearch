@@ -456,8 +456,6 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
  * @param limit Original limit passed to sendChunk (for RESP2 resultsLen calculation)
  */
 static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-
   req->base.reply.results = results;
   req->base.reply.rc = rc;
   req->base.reply.cv = cv;
