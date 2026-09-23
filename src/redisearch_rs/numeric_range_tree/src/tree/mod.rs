@@ -249,11 +249,15 @@ impl NumericRangeTree {
         self.root
     }
 
-    /// Whether any document is indexed under more than one value.
+    /// Whether any document has been indexed under more than one value.
     ///
     /// Ranges are value-disjoint, so a document with a single value occurs in
     /// exactly one range. Only when this is `true` can a document be reached
     /// twice by a value-ordered scan and need de-duplicating.
+    ///
+    /// The flag is never cleared, even once the documents that set it are
+    /// removed, so `true` may over-report: de-duplication can be redundant,
+    /// but is never skipped when needed.
     pub const fn has_multivalued_docs(&self) -> bool {
         self.has_multivalued_docs
     }
