@@ -150,6 +150,7 @@ pub unsafe extern "C" fn Profile_PrintIterators(
         return;
     };
 
+    let ctx = NonNull::new(ctx).expect("`ctx` must not be null");
     // SAFETY: precondition 1.
     let mut replier = unsafe { Replier::new(ctx) };
     let mut profile_ctx = ProfilePrintCtx::new(limited, print_profile_clock);
