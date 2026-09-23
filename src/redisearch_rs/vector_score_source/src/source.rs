@@ -724,9 +724,8 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn reset_profile_clears_batch_metrics() {
-        let index = build_flat_index(20, 1);
-        // SAFETY: index is freed after the source is dropped at end of scope.
-        let mut source = unsafe { flat_source(index, 3, 20) };
+        let index = TestIndex::flat(20, 1);
+        let mut source = flat_source(&index, 3, 20);
 
         // Two batches, the second computed larger, so every counter is non-zero.
         source.next_batch().unwrap();
@@ -746,10 +745,6 @@ mod tests {
             ),
             (0, 0, 0)
         );
-
-        drop(source);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 
     /// A zero seeded child estimate means no doc can match: `next_batch` must
