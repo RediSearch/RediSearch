@@ -1046,7 +1046,6 @@ void RMCK_ResetRdbIO(RedisModuleIO *io) {
 
 REPLY_FUNC(WithLongLong, long long)
 REPLY_FUNC(WithSimpleString, const char *)
-REPLY_FUNC(WithArray, size_t)
 REPLY_FUNC(WithStringBuffer, const char *, size_t)
 REPLY_FUNC(WithDouble, double)
 REPLY_FUNC(WithString, RedisModuleString)
@@ -1075,8 +1074,36 @@ int RMCK_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
   return REDISMODULE_OK;
 }
 
-int RMCK_ReplySetArrayLength(RedisModuleCtx *, size_t) {
+// Collection opens and deferred-length closes are logged so tests can check the exact
+// sequence a reply builder issues (postponed vs declared lengths).
+static void logReplyCollection(RedisModuleCtx *ctx, const char *what, long len) {
+  if (!ctx) return;
+  ctx->reply_log.push_back(len == REDISMODULE_POSTPONED_LEN ? std::string(what) + ":postponed"
+                                                            : std::string(what) + ":" + std::to_string(len));
+}
+
+int RMCK_ReplyWithArray(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "array", len);
   return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithMap(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "map", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "setarray", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplySetMapLength(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "setmap", len);
+  return REDISMODULE_OK;
+}
+
+std::vector<std::string> &RMCK_GetReplyLog(RedisModuleCtx *ctx) {
+  return ctx->reply_log;
 }
 
 void RMCK_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int) {
@@ -1446,7 +1473,7 @@ void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
 }
 
 int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
-  return 0;
+  return ctx ? ctx->ctx_flags : 0;
 }
 
 void RMCK_SelectDb(RedisModuleCtx *ctx, int newid) {
@@ -1821,13 +1848,16 @@ static void registerApis() {
   REGISTER_API(Log);
   REGISTER_API(Call);
 
-  // REGISTER_API(ReplyWithLongLong);
+  REGISTER_API(ReplyWithLongLong);
   REGISTER_API(ReplyWithSimpleString);
-  // REGISTER_API(ReplyWithArray);
+  REGISTER_API(ReplyWithArray);
+  REGISTER_API(ReplyWithMap);
+  REGISTER_API(ReplySetArrayLength);
+  REGISTER_API(ReplySetMapLength);
   // REGISTER_API(ReplyWithStringBuffer);
   // REGISTER_API(ReplyWithDouble);
   // REGISTER_API(ReplyWithString);
-  // REGISTER_API(ReplyWithNull);
+  REGISTER_API(ReplyWithNull);
   REGISTER_API(ReplyWithError);
   REGISTER_API(ReplyWithErrorFormat);
 

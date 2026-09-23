@@ -21,8 +21,8 @@ static void recExplainReply(RedisModule_Reply *reply, const RSScoreExplain *scrE
      (depth >= REDIS_ARRAY_LIMIT - 1 && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT))) {
     RedisModule_Reply_SimpleString(reply, scrExp->str);
   } else {
-    RedisModule_Reply_Array(reply);
-      RedisModule_ReplyKV_Array(reply, scrExp->str);
+    RedisModule_Reply_ArrayWithLen(reply, SE_REPLY_NODE_ARITY);
+      RedisModule_ReplyKV_ArrayWithLen(reply, scrExp->str, numChildren);
       for (int i = 0; i < numChildren; i++) {
         recExplainReply(reply, &scrExp->children[i], depth + 2);
       }
@@ -39,9 +39,12 @@ static void recExplainDestroy(RSScoreExplain *scrExp) {
   rm_free(scrExp->str);
 }
 
+// Always emits exactly one element: callers open the enclosing array with a declared length.
 void SEReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp) {
   if (scrExp != NULL) {
     recExplainReply(reply, scrExp, 1);
+  } else {
+    RedisModule_Reply_Null(reply);
   }
 }
 
