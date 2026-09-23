@@ -602,7 +602,7 @@ typedef enum {
   IndexUpdate_Skip = 0,
   IndexUpdate_Score = 1 << 0,
   IndexUpdate_Payload = 1 << 1,
-  IndexUpdate_Metadata = IndexUpdate_Score | IndexUpdate_Payload,
+  IndexUpdate_MetadataMask = IndexUpdate_Score | IndexUpdate_Payload,
   IndexUpdate_Full = 1 << 2,
 } IndexUpdateAction;
 
@@ -616,8 +616,8 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
                                              RedisModuleString *key, DocumentType type,
                                              RedisModuleString **changedFields,
                                              size_t numChangedFields) {
-  if (!changedFields || !numChangedFields || type != DocumentType_Hash || !spec->rule ||
-      spec->rule->type != DocumentType_Hash || spec->diskSpec || spec->rule->filter_exp) {
+  if (!changedFields || !numChangedFields || type != DocumentType_Hash || spec->diskSpec ||
+      spec->rule->filter_exp) {
     return IndexUpdate_Full;
   }
 
@@ -647,21 +647,17 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
     }
   }
 
-  if (action & IndexUpdate_Metadata) {
+  if (action & IndexUpdate_MetadataMask) {
     // The metadata writer checks existence under its write lock.
     return action;
   }
 
-  // Last, because it is the only check that takes a lock. Same locking rationale as
-  // Indexes_UpdateMatchingDocExpiration: read lock suffices for a DMD chain traversal and
-  // refcount, and notification callbacks are serialized on the main thread.
+  // Last, because it is the only check that takes a lock. A read lock protects the
+  // document-table chain traversal.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisSearchCtx_LockSpecRead(&sctx);
-  const RSDocumentMetadata *dmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
-  const bool alreadyIndexed = dmd != NULL;
-  if (dmd) {
-    DMD_Return(dmd);
-  }
+  t_docId docId = IndexSpec_GetDocIdByKeyR(spec, ctx, key);
+  const bool alreadyIndexed = DocTable_Exists(&spec->docs, docId);
   RedisSearchCtx_UnlockSpec(&sctx);
   // Even a hash with no schema fields must be registered for counts, * and ismissing().
   return alreadyIndexed ? IndexUpdate_Skip : IndexUpdate_Full;
@@ -772,8 +768,8 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     if (specOp->op == SpecOp_Add) {
       IndexUpdateAction action =
           getHashUpdateAction(specOp->spec, ctx, key, type, changedFields, numChangedFields);
-      if (action == IndexUpdate_Skip ||
-          ((action & IndexUpdate_Metadata) && updateHashMetadata(specOp->spec, ctx, key, action))) {
+      if (action == IndexUpdate_Skip || ((action & IndexUpdate_MetadataMask) &&
+                                         updateHashMetadata(specOp->spec, ctx, key, action))) {
         continue;
       }
       IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
