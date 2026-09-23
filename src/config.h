@@ -230,6 +230,8 @@ typedef struct {
   bool monitorExpiration;
   // Maximum memory available to Search disk resources, as a percentage of shard memory.
   uint8_t diskMaxMemoryPercentage;
+  // Minimum shared WBM capacity, as a percentage of shard memory.
+  uint8_t diskMinMemoryBudgetPercentage;
   // Per-index contribution to the shared WBM target for current live logical indexes.
   size_t diskWbmBudgetPerIndexMB;
   // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
@@ -424,7 +426,10 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_DISK_MAX_MEMORY_PERCENTAGE 60
 #define DISK_MAX_MEMORY_PERCENTAGE_MIN 1
 #define DISK_MAX_MEMORY_PERCENTAGE_MAX 100
-#define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 24
+#define DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE 20
+#define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN 1
+#define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX 100
+#define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 3
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024
 #define DISK_MAX_OPEN_FILES_MIN 20
@@ -496,6 +501,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskMaxMemoryPercentage = DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,             \
+    .diskMinMemoryBudgetPercentage = DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE, \
     .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,           \
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \

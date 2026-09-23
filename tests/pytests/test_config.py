@@ -2322,7 +2322,8 @@ def testDefaultScorerConfig(env):
 def test_flex_disk_resource_configs(env):
     configs = {
         'search-disk-max-memory-percentage': '60',
-        'search-disk-wbm-budget-per-index-mb': '24',
+        'search-disk-min-memory-budget-percentage': '20',
+        'search-disk-wbm-budget-per-index-mb': '3',
         'search-disk-max-open-files': '1024',
     }
     wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
@@ -2357,21 +2358,25 @@ def test_flex_disk_resource_config_startup_boundaries():
     accepted = (
         {
             'search-disk-max-memory-percentage': '1',
+            'search-disk-min-memory-budget-percentage': '1',
             'search-disk-wbm-budget-per-index-mb': '1',
             'search-disk-max-open-files': '20',
         },
         {
             'search-disk-max-memory-percentage': '60',
+            'search-disk-min-memory-budget-percentage': '20',
             'search-disk-wbm-budget-per-index-mb': '2',
             'search-disk-max-open-files': '21',
         },
         {
             'search-disk-max-memory-percentage': '99',
+            'search-disk-min-memory-budget-percentage': '99',
             'search-disk-wbm-budget-per-index-mb': '3',
             'search-disk-max-open-files': '22',
         },
         {
             'search-disk-max-memory-percentage': '100',
+            'search-disk-min-memory-budget-percentage': '100',
             'search-disk-wbm-budget-per-index-mb': '4',
             'search-disk-max-open-files': str(INT_MAX),
         },
@@ -2395,63 +2400,90 @@ def test_flex_disk_resource_config_startup_boundaries():
             env.stop()
 
 
+def _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue=None):
+    log_dir, config_path = _disk_resource_startup_config(directives)
+    candidate = None
+    try:
+        candidate = Env(
+            noDefaultModuleArgs=True,
+            redisConfigFile=config_path,
+            logDir=log_dir,
+            freshEnv=True,
+        )
+    except Exception:
+        pass
+    else:
+        is_up = candidate.isUp()
+        candidate.stop()
+        configured = ', '.join(f'{name}={value}' for name, value in directives)
+        assert not is_up, f'Flex unexpectedly started with {configured}'
+
+    startup_log = _disk_resource_startup_log(log_dir)
+    if config_issue is not None:
+        value = dict(directives)[config_issue]
+        if config_issue == 'search-disk-buffer-percentage':
+            assert f">>> '{config_issue} {value}'" in startup_log
+        else:
+            assert f'Issue during loading of configuration {config_issue} :' in startup_log
+    assert diagnostic in startup_log
+
+
 @skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
 def test_flex_disk_resource_config_startup_rejections():
     invalid = (
         (
-            'search-disk-max-memory-percentage',
-            '0',
+            (('search-disk-max-memory-percentage', '0'),),
             'argument must be between 1 and 100 inclusive',
-        ),
-        (
             'search-disk-max-memory-percentage',
-            '101',
+        ),
+        (
+            (('search-disk-max-memory-percentage', '101'),),
             'argument must be between 1 and 100 inclusive',
+            'search-disk-max-memory-percentage',
         ),
         (
-            'search-disk-wbm-budget-per-index-mb',
-            '0',
+            (('search-disk-min-memory-budget-percentage', '0'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-min-memory-budget-percentage',
+        ),
+        (
+            (('search-disk-min-memory-budget-percentage', '101'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-min-memory-budget-percentage',
+        ),
+        (
+            (('search-disk-wbm-budget-per-index-mb', '0'),),
             f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
-        ),
-        (
             'search-disk-wbm-budget-per-index-mb',
-            str(UINT64_MAX // (1024 * 1024) + 1),
-            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
         ),
         (
-            'search-disk-max-open-files',
-            '19',
+            (('search-disk-wbm-budget-per-index-mb',
+              str(UINT64_MAX // (1024 * 1024) + 1)),),
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
+            'search-disk-wbm-budget-per-index-mb',
+        ),
+        (
+            (('search-disk-max-open-files', '19'),),
             f'argument must be between 20 and {INT_MAX} inclusive',
+            'search-disk-max-open-files',
         ),
         (
-            'search-disk-buffer-percentage',
-            '50',
+            (
+                ('search-disk-min-memory-budget-percentage', '21'),
+                ('search-disk-max-memory-percentage', '20'),
+            ),
+            'search-disk-min-memory-budget-percentage must not exceed '
+            'search-disk-max-memory-percentage',
+            None,
+        ),
+        (
+            (('search-disk-buffer-percentage', '50'),),
             'Module Configuration detected without loadmodule directive or no ApplyConfig call',
+            'search-disk-buffer-percentage',
         ),
     )
-    for name, value, diagnostic in invalid:
-        log_dir, config_path = _disk_resource_startup_config(((name, value),))
-        candidate = None
-        try:
-            candidate = Env(
-                noDefaultModuleArgs=True,
-                redisConfigFile=config_path,
-                logDir=log_dir,
-                freshEnv=True,
-            )
-        except Exception:
-            pass
-        else:
-            is_up = candidate.isUp()
-            candidate.stop()
-            assert not is_up, f'Flex unexpectedly started with {name}={value}'
-
-        startup_log = _disk_resource_startup_log(log_dir)
-        if name == 'search-disk-buffer-percentage':
-            assert f">>> '{name} {value}'" in startup_log
-        else:
-            assert f'Issue during loading of configuration {name} :' in startup_log
-        assert diagnostic in startup_log
+    for directives, diagnostic, config_issue in invalid:
+        _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue)
 
 @skip(cluster=True)
 def test_flex_search_disk_async_read_pool_size(env):

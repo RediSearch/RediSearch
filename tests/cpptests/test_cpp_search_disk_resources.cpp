@@ -68,6 +68,8 @@ class SearchDiskResourcesTest : public ::testing::Test {
   Restore<decltype(isFlex)> flex{isFlex};
   Restore<decltype(RSGlobalConfig.diskMaxMemoryPercentage)> maxMemoryPercentage{
       RSGlobalConfig.diskMaxMemoryPercentage};
+  Restore<decltype(RSGlobalConfig.diskMinMemoryBudgetPercentage)> minMemoryPercentage{
+      RSGlobalConfig.diskMinMemoryBudgetPercentage};
   Restore<decltype(RSGlobalConfig.diskWbmBudgetPerIndexMB)> wbmBudgetPerIndex{
       RSGlobalConfig.diskWbmBudgetPerIndexMB};
   Restore<decltype(RSGlobalConfig.diskMaxOpenFiles)> maxOpenFiles{
@@ -77,6 +79,7 @@ class SearchDiskResourcesTest : public ::testing::Test {
   RedisModuleCtx *ctx = nullptr;
 
   static inline NumericRegistration maxMemoryConfig{};
+  static inline NumericRegistration minMemoryConfig{};
   static inline NumericRegistration wbmBudgetConfig{};
   static inline NumericRegistration maxOpenFilesConfig{};
   static inline long long configuredShardMemory = 0;
@@ -107,6 +110,8 @@ class SearchDiskResourcesTest : public ::testing::Test {
     NumericRegistration *registration = nullptr;
     if (std::strcmp(name, "search-disk-max-memory-percentage") == 0) {
       registration = &maxMemoryConfig;
+    } else if (std::strcmp(name, "search-disk-min-memory-budget-percentage") == 0) {
+      registration = &minMemoryConfig;
     } else if (std::strcmp(name, "search-disk-wbm-budget-per-index-mb") == 0) {
       registration = &wbmBudgetConfig;
     } else if (std::strcmp(name, "search-disk-max-open-files") == 0) {
@@ -161,6 +166,7 @@ class SearchDiskResourcesTest : public ::testing::Test {
     updatedShardMemory = 0;
     shardMemoryUpdates = 0;
     maxMemoryConfig = NumericRegistration{};
+    minMemoryConfig = NumericRegistration{};
     wbmBudgetConfig = NumericRegistration{};
     maxOpenFilesConfig = NumericRegistration{};
     openRdbStateCalled = false;
@@ -199,6 +205,7 @@ class SearchDiskResourcesTest : public ::testing::Test {
 
 TEST_F(SearchDiskResourcesTest, InitializeForwardsEveryConfiguredResource) {
   RSGlobalConfig.diskMaxMemoryPercentage = 73;
+  RSGlobalConfig.diskMinMemoryBudgetPercentage = 29;
   RSGlobalConfig.diskWbmBudgetPerIndexMB = 37;
   RSGlobalConfig.diskMaxOpenFiles = 4093;
 
@@ -206,6 +213,7 @@ TEST_F(SearchDiskResourcesTest, InitializeForwardsEveryConfiguredResource) {
 
   EXPECT_EQ(openedConfig.shardMemoryBytes, 987654321u);
   EXPECT_EQ(openedConfig.maxMemoryPercentage, 73u);
+  EXPECT_EQ(openedConfig.minMemoryBudgetPercentage, 29u);
   EXPECT_EQ(openedConfig.wbmBudgetPerIndexMB, 37u);
   EXPECT_EQ(openedConfig.maxOpenFiles, 4093);
 }
@@ -272,6 +280,11 @@ TEST_F(SearchDiskResourcesTest, RegistersResourceConfig) {
   EXPECT_EQ(maxMemoryConfig.flags, expectedFlags);
   EXPECT_EQ(maxMemoryConfig.min, DISK_MAX_MEMORY_PERCENTAGE_MIN);
   EXPECT_EQ(maxMemoryConfig.max, DISK_MAX_MEMORY_PERCENTAGE_MAX);
+  ASSERT_TRUE(minMemoryConfig.seen);
+  EXPECT_EQ(minMemoryConfig.defaultValue, DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE);
+  EXPECT_EQ(minMemoryConfig.flags, expectedFlags);
+  EXPECT_EQ(minMemoryConfig.min, DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN);
+  EXPECT_EQ(minMemoryConfig.max, DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX);
   ASSERT_TRUE(wbmBudgetConfig.seen);
   EXPECT_EQ(wbmBudgetConfig.defaultValue, DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB);
   EXPECT_EQ(wbmBudgetConfig.flags, expectedFlags);
@@ -290,6 +303,12 @@ TEST_F(SearchDiskResourcesTest, RegistersResourceConfig) {
   EXPECT_EQ(maxMemoryConfig.get("search-disk-max-memory-percentage",
                                 maxMemoryConfig.privateData),
             73);
+  ASSERT_EQ(minMemoryConfig.set("search-disk-min-memory-budget-percentage", 29,
+                                minMemoryConfig.privateData, &error),
+            REDISMODULE_OK);
+  EXPECT_EQ(minMemoryConfig.get("search-disk-min-memory-budget-percentage",
+                                minMemoryConfig.privateData),
+            29);
   ASSERT_EQ(wbmBudgetConfig.set("search-disk-wbm-budget-per-index-mb", 37,
                                wbmBudgetConfig.privateData, &error),
             REDISMODULE_OK);
