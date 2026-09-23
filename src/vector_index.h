@@ -162,7 +162,7 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fs, bool create_if_
  *
  * Returns whether the entry was moved, i.e. whether the caller should skip its insert. On a
  * refusal the old entry is dropped here, so the caller can insert into a clean label: VecSim
- * refuses when the index type does not implement relabeling (SVS), when the old label holds
+ * refuses when the index type does not implement relabeling, when the old label holds
  * nothing, and when the new label is already taken.
  */
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId);
