@@ -55,8 +55,8 @@ typedef struct {
 
 /**
  * State needed for reply serialization in reply_callback path.
- * When using FAIL policy with workers, the background thread stores results here,
- * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ * Workers collect results here before serialization. The normal reply callback
+ * completes bookkeeping and publishes cursors, even when BG already encoded the reply.
  *
  * ## Cursor ↔ AREQ Ownership
  *
@@ -74,6 +74,8 @@ typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
+  bool replySerialized;    // Bytes are ready; completion and cursor publication are still pending
+  bool cursorDone;         // Serialization outcome used by completion on the main thread
   QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
   cachedVars cv;           // Cached lookup variables for result serialization
   /**
@@ -332,10 +334,10 @@ typedef struct AREQ {
   bool skipTimeoutChecks;
 
   bool useReplyCallback;
+  // Selected by shard/standalone dispatch; callbacks still own cursor publication.
+  bool serializeReplyInBackground;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
+  // Pending reply state and cursor publication for callback-based execution.
   ChunkReplyState storedReplyState;
 } AREQ;
 
