@@ -78,13 +78,13 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
-bool SearchDisk_ValidateShardMemoryConfig(RedisModuleCtx *ctx, size_t *shardMemoryBytes) {
+bool SearchDisk_ValidateMemoryLimitConfig(RedisModuleCtx *ctx, size_t *memoryLimitBytes) {
   long long configured = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
   size_t converted = (size_t)configured;
   if (configured <= 0 || (long long)converted != configured) {
     return false;
   }
-  *shardMemoryBytes = converted;
+  *memoryLimitBytes = converted;
   return true;
 }
 
@@ -94,8 +94,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
-  size_t shard_memory_bytes;
-  if (!SearchDisk_ValidateShardMemoryConfig(ctx, &shard_memory_bytes)) {
+  size_t memory_limit_bytes;
+  if (!SearchDisk_ValidateMemoryLimitConfig(ctx, &memory_limit_bytes)) {
     RedisModule_Log(ctx, "error",
                     "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
     return false;
@@ -114,7 +114,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   SearchDiskResourceConfig resource_config = {
-    .shardMemoryBytes = shard_memory_bytes,
+    .memoryLimitBytes = memory_limit_bytes,
     .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
     .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
@@ -675,7 +675,7 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
   disk->index.closeConsistencyWindow(sp->diskSpec, reopenNumericGate);
 }
 
-void SearchDisk_UpdateShardMemory(size_t shardMemoryBytes) {
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   RS_ASSERT(disk && disk_db);
-  disk->basic.updateShardMemory(disk_db, shardMemoryBytes);
+  disk->basic.updateMemoryLimit(disk_db, memoryLimitBytes);
 }

@@ -37,13 +37,13 @@ extern RedisSearchDisk *disk_db;
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
 
 /**
- * @brief Read and validate the shard-memory limit required by Search Disk.
+ * @brief Read and validate the memory limit required by Search Disk.
  *
  * @param ctx Redis module context
- * @param shardMemoryBytes Receives the positive size_t-fitting value
+ * @param memoryLimitBytes Receives the positive size_t-fitting value
  * @return true when bigredis-max-ram is valid
  */
-bool SearchDisk_ValidateShardMemoryConfig(RedisModuleCtx *ctx, size_t *shardMemoryBytes);
+bool SearchDisk_ValidateMemoryLimitConfig(RedisModuleCtx *ctx, size_t *memoryLimitBytes);
 
 /**
  * @brief Check if SearchDisk Is initialized and their APIs can be called
@@ -936,11 +936,11 @@ void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
- * @brief Update the shard memory used to derive Search disk resource limits.
+ * @brief Update the memory limit used to derive Search disk resource limits.
  *
- * @param shardMemoryBytes Current bigredis-max-ram value in bytes
+ * @param memoryLimitBytes Current bigredis-max-ram value in bytes
  */
-void SearchDisk_UpdateShardMemory(size_t shardMemoryBytes);
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)

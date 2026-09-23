@@ -5134,8 +5134,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (SearchDisk_IsEnabled()) {
-    size_t shardMemoryBytes;
-    if (!SearchDisk_ValidateShardMemoryConfig(ctx, &shardMemoryBytes)) {
+    size_t memoryLimitBytes;
+    if (!SearchDisk_ValidateMemoryLimitConfig(ctx, &memoryLimitBytes)) {
       RedisModule_Log(ctx, "error",
                       "Search Disk requires a positive bigredis-max-ram value that fits in size_t");
       return REDISMODULE_ERR;
