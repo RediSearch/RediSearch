@@ -307,6 +307,8 @@ type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>
 /// [`build_union`].
 unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
+    // SAFETY: the caller guarantees `base` is a valid owning pointer, so it is non-null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
     for child in wrapper.inner.children_mut() {
@@ -324,7 +326,7 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
         // iterator back in place.
         unsafe { *slot = profiled.into_raw().as_ptr() };
     }
-    base
+    base.as_ptr()
 }
 
 /// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`]
@@ -420,11 +422,7 @@ unsafe fn build_union_with_q_str_opt(
     use crate::union_reducer::{NewUnionIterator, new_union_iterator};
 
     let variant = match new_union_iterator(children, quick_exit, min_union_iter_heap) {
-        NewUnionIterator::ReducedEmpty(empty) => {
-            let ptr = RQEIteratorWrapper::boxed_new(empty);
-            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-            return unsafe { NonNull::new_unchecked(ptr) };
-        }
+        NewUnionIterator::ReducedEmpty(empty) => return RQEIteratorWrapper::boxed_new(empty),
         NewUnionIterator::ReducedSingle(child) => return child.into_raw(),
         NewUnionIterator::Flat(flat) => UnionVariant::FlatFull(flat),
         NewUnionIterator::FlatQuick(flat) => UnionVariant::FlatQuick(flat),
@@ -438,7 +436,5 @@ unsafe fn build_union_with_q_str_opt(
         query_string: q_str.map(SharedPtr::from_ref),
     };
     dispatch.set_result_weight(weight);
-    let ptr = RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children));
-    // SAFETY: `boxed_new_inner` uses `Box::into_raw`, which is guaranteed non-null.
-    unsafe { NonNull::new_unchecked(ptr) }
+    RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
 }

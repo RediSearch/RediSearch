@@ -9,8 +9,6 @@
 
 //! Evaluation of `QN_OPTIONAL` query nodes.
 
-use std::ptr::NonNull;
-
 use rqe_iterators::{
     interop::RQEIteratorWrapper,
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
@@ -67,13 +65,11 @@ pub(crate) fn eval<'index>(
         }
         // Genuine compound iterators: lower via `boxed_new_compound` so the
         // profiler keeps the `ProfileChildren` callback into the child.
-        NewOptionalIterator::Optional(opt) => Evaluated::RustCompound(
-            NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
-                .expect("optional iterator must not be null"),
-        ),
-        NewOptionalIterator::OptionalOptimized(opt) => Evaluated::RustCompound(
-            NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
-                .expect("optional iterator must not be null"),
-        ),
+        NewOptionalIterator::Optional(opt) => {
+            Evaluated::RustCompound(RQEIteratorWrapper::boxed_new_compound(opt))
+        }
+        NewOptionalIterator::OptionalOptimized(opt) => {
+            Evaluated::RustCompound(RQEIteratorWrapper::boxed_new_compound(opt))
+        }
     }
 }

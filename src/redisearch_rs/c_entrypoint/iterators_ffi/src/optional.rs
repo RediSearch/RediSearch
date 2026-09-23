@@ -43,7 +43,7 @@ pub unsafe extern "C" fn NewOptionalIterator(
         // SAFETY: thanks to 2. `new_wildcard_iterator` pulls the disk snapshot
         // (if any) from `query.sctx.diskSnapshot` itself.
         let wc = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, 0.0) };
-        return RQEIteratorWrapper::boxed_new(wc);
+        return RQEIteratorWrapper::boxed_new(wc).as_ptr();
     };
 
     // SAFETY: thanks to 1.
@@ -52,11 +52,13 @@ pub unsafe extern "C" fn NewOptionalIterator(
     let result = unsafe { new_optional_iterator(child, weight, query, max_doc_id) };
 
     match result {
-        OptionalIteratorOutcome::WildcardFallback(wc) => RQEIteratorWrapper::boxed_new(wc),
+        OptionalIteratorOutcome::WildcardFallback(wc) => RQEIteratorWrapper::boxed_new(wc).as_ptr(),
         OptionalIteratorOutcome::WildcardPassthrough(child) => child.into_raw().as_ptr(),
-        OptionalIteratorOutcome::Optional(opt) => RQEIteratorWrapper::boxed_new_compound(opt),
+        OptionalIteratorOutcome::Optional(opt) => {
+            RQEIteratorWrapper::boxed_new_compound(opt).as_ptr()
+        }
         OptionalIteratorOutcome::OptionalOptimized(opt_opt) => {
-            RQEIteratorWrapper::boxed_new_compound(opt_opt)
+            RQEIteratorWrapper::boxed_new_compound(opt_opt).as_ptr()
         }
     }
 }

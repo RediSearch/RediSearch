@@ -21,7 +21,7 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
     weight: f64,
 ) -> *mut QueryIterator {
     let it = NewWildcardIterator::NotOptimized(Wildcard::new(max_id, weight));
-    RQEIteratorWrapper::boxed_new(it)
+    RQEIteratorWrapper::boxed_new(it).as_ptr()
 }
 
 /// Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
@@ -81,5 +81,5 @@ pub unsafe extern "C" fn NewWildcardIterator(
     let query = NonNull::new(q.cast_mut()).expect("q is null");
     // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, weight) };
-    RQEIteratorWrapper::boxed_new(it)
+    RQEIteratorWrapper::boxed_new(it).as_ptr()
 }

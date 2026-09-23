@@ -178,8 +178,6 @@ impl CRQEIterator {
         I: RQEIterator<'index> + ProfilePrint + 'index,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
-        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-        let ptr = unsafe { NonNull::new_unchecked(ptr) };
         // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
         // required callbacks populated by `boxed_new`.
         unsafe { CRQEIterator::new(ptr) }
@@ -363,9 +361,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         match self.type_ {
             IteratorType::Intersect => {
-                let ptr = std::ptr::from_ref(self.as_ref());
                 // SAFETY:
-                // - `type_ == INTERSECT_ITERATOR` guarantees `ptr` was produced by
+                // - `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
                 //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
                 //   inner type (`NewIntersectionIterator` is the sole constructor of a C
                 //   wrapped intersection).
@@ -373,16 +370,17 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 //   rather than manual `size_of` arithmetic, making it immune to alignment
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
                 let n = unsafe {
-                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
-                        .inner
-                        .num_children()
+                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
+                        NonNull::from_ref(self.as_ref()),
+                    )
+                    .inner
+                    .num_children()
                 };
                 1.0 / n.max(1) as f64
             }
             IteratorType::Union if prioritize_union_children => {
-                let ptr = std::ptr::from_ref(self.as_ref());
                 // SAFETY:
-                // - `type_ == Union` guarantees `ptr` was produced by
+                // - `type_ == Union` guarantees `self` was produced by
                 //   `RQEIteratorWrapper::boxed_new_inner` with
                 //   `UnionOpaque<CRQEIterator>` as the inner type
                 //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
@@ -391,7 +389,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
                 let n = unsafe {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
-                        ptr,
+                        NonNull::from_ref(self.as_ref()),
                     )
                     .inner
                     .num_children_active()
@@ -474,7 +472,7 @@ impl CRQEIterator {
             // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
             // user today) across the outer `Profile` rebox.
             // SAFETY: `result` was just constructed above and has no other alias yet.
-            unsafe { crate::interop::patch_vtable(result.as_raw().as_ptr(), |h| h.SkipTo = None) };
+            unsafe { crate::interop::patch_vtable(result.as_raw(), |h| h.SkipTo = None) };
         }
         result
     }

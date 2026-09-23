@@ -9,8 +9,6 @@
 
 //! Evaluation of `QN_NOT` query nodes.
 
-use std::ptr::NonNull;
-
 use rqe_iterators::{
     interop::RQEIteratorWrapper,
     not_reducer::{NewNotIterator, new_not_iterator},
@@ -72,13 +70,11 @@ pub(crate) fn eval<'index>(
     match outcome {
         NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(Box::new(wc)),
         NewNotIterator::ReducedEmpty(empty) => Evaluated::RustLeaf(Box::new(empty)),
-        NewNotIterator::Not(it) => Evaluated::RustCompound(
-            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
-                .expect("not iterator must not be null"),
-        ),
-        NewNotIterator::NotOptimized(it) => Evaluated::RustCompound(
-            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
-                .expect("not iterator must not be null"),
-        ),
+        NewNotIterator::Not(it) => {
+            Evaluated::RustCompound(RQEIteratorWrapper::boxed_new_compound(it))
+        }
+        NewNotIterator::NotOptimized(it) => {
+            Evaluated::RustCompound(RQEIteratorWrapper::boxed_new_compound(it))
+        }
     }
 }

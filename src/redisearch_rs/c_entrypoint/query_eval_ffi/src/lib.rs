@@ -182,7 +182,7 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
         // The returned handle is heap-allocated and self-owning; erasing its
         // borrow is sound because the index data it reads outlives it
         // (precondition 1).
-        Some(it) => it.into_c_iterator(),
+        Some(it) => it.into_c_iterator().as_ptr(),
         None => std::ptr::null_mut(),
     }
 }
@@ -256,5 +256,7 @@ pub unsafe extern "C" fn QAST_Iterate(
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) outlives it.
-    qast_iterate(&mut ctx, node, config).into_c_iterator()
+    qast_iterate(&mut ctx, node, config)
+        .into_c_iterator()
+        .as_ptr()
 }
