@@ -228,9 +228,9 @@ typedef struct {
   bool simulateInFlex;
   // If true, monitor document and field expiration for new indexes.
   bool monitorExpiration;
-  // Maximum memory available to Search disk resources, as a percentage of shard memory.
+  // Maximum memory available to Search disk resources, as a percentage of the memory limit.
   uint8_t diskMaxMemoryPercentage;
-  // Minimum shared WBM capacity, as a percentage of shard memory.
+  // Minimum shared WBM capacity, as a percentage of the memory limit.
   uint8_t diskMinMemoryBudgetPercentage;
   // Per-index contribution to the shared WBM target for current live logical indexes.
   size_t diskWbmBudgetPerIndexMB;

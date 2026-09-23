@@ -36,31 +36,16 @@ static bool asyncIOEnabled = true;
 static int VecSim_EnableThrottle(void);
 static int VecSim_DisableThrottle(void);
 
-#ifdef REDISEARCH_UNIT_TESTS
-static RedisSearchDiskAPI *testDiskApi = NULL;
-
-void SearchDisk_SetTestAPI(RedisSearchDiskAPI *api) {
-  testDiskApi = api;
-}
-#endif
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
 bool SearchDisk_HasAPI() {
-#ifdef REDISEARCH_UNIT_TESTS
-  return testDiskApi != NULL;
-#else
   return false;
-#endif
 }
 
 __attribute__((weak))
 RedisSearchDiskAPI *SearchDisk_GetAPI() {
-#ifdef REDISEARCH_UNIT_TESTS
-  return testDiskApi;
-#else
   return NULL;
-#endif
 }
 
 __attribute__((weak))
@@ -100,8 +85,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
-  long long configured_shard_memory = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
-  if (configured_shard_memory <= 0) {
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
+  if (configured_memory_limit <= 0) {
     RedisModule_Log(ctx, "error", "Search Disk requires a positive bigredis-max-ram value");
     return false;
   }
@@ -119,7 +104,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   SearchDiskResourceConfig resource_config = {
-    .shardMemoryBytes = (size_t)configured_shard_memory,
+    .memoryLimitBytes = (size_t)configured_memory_limit,
     .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
     .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
@@ -694,7 +679,7 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
   disk->index.closeConsistencyWindow(sp->diskSpec, reopenNumericGate);
 }
 
-void SearchDisk_UpdateShardMemory(size_t shardMemoryBytes) {
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   RS_ASSERT(disk && disk_db);
-  disk->basic.updateShardMemory(disk_db, shardMemoryBytes);
+  disk->basic.updateMemoryLimit(disk_db, memoryLimitBytes);
 }

@@ -759,17 +759,17 @@ static void onUpdatedLogLevel(RedisModuleCtx *ctx) {
   RedisModule_FreeString(ctx, level);
 }
 
-static void onUpdatedShardMemory(RedisModuleCtx *ctx) {
+static void onUpdatedMemoryLimit(RedisModuleCtx *ctx) {
   if (!SearchDisk_IsInitialized()) {
     return;
   }
-  long long configured_shard_memory = getRedisConfigNumeric(ctx, BIGREDIS_MAX_RAM, 0);
-  if (configured_shard_memory <= 0) {
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, BIGREDIS_MAX_RAM, 0);
+  if (configured_memory_limit <= 0) {
     RedisModule_Log(ctx, "warning",
                     "Ignoring invalid bigredis-max-ram value for Search Disk resources");
     return;
   }
-  SearchDisk_UpdateShardMemory((size_t)configured_shard_memory);
+  SearchDisk_UpdateMemoryLimit((size_t)configured_memory_limit);
 }
 
 void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
@@ -784,7 +784,7 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
       onUpdatedHideUserDataFromLogs(ctx);
     }
     if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
-      onUpdatedShardMemory(ctx);
+      onUpdatedMemoryLimit(ctx);
     }
     if (strcmp(conf, REDIS_LOGLEVEL) == 0) {
       onUpdatedLogLevel(ctx);

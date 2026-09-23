@@ -118,9 +118,6 @@ set_source_files_properties(
 # Create the rscore object library
 add_library(rscore OBJECT ${SOURCES})
 add_dependencies(rscore generate_command_info)
-if(BUILD_SEARCH_UNIT_TESTS)
-    target_compile_definitions(rscore PRIVATE REDISEARCH_UNIT_TESTS)
-endif()
 if(MAX_WORKER_THREADS)
     target_compile_definitions(rscore PRIVATE MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()

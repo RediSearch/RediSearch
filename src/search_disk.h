@@ -942,11 +942,11 @@ void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
- * @brief Update the shard memory used to derive Search disk resource limits.
+ * @brief Update the memory limit used to derive Search disk resource limits.
  *
- * @param shardMemoryBytes Current bigredis-max-ram value in bytes
+ * @param memoryLimitBytes Current bigredis-max-ram value in bytes
  */
-void SearchDisk_UpdateShardMemory(size_t shardMemoryBytes);
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)

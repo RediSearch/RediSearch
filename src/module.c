@@ -5023,12 +5023,6 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   return REDISMODULE_OK;
 }
 
-#ifdef REDISEARCH_UNIT_TESTS
-int RediSearch_InitModuleConfigForTests(RedisModuleCtx *ctx) {
-  return RediSearch_InitModuleConfig(ctx, NULL, 0, false);
-}
-#endif
-
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 

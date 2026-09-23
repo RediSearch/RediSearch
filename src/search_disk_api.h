@@ -137,7 +137,7 @@ typedef struct DiskGCRunStats {
 } DiskGCRunStats;
 
 typedef struct SearchDiskResourceConfig {
-  size_t shardMemoryBytes;
+  size_t memoryLimitBytes;
   size_t maxMemoryPercentage;
   size_t minMemoryBudgetPercentage;
   size_t wbmBudgetPerIndexMB;
@@ -297,12 +297,12 @@ typedef struct BasicDiskAPI {
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
   /**
-   * @brief Update the shard memory used to derive Search disk resource limits.
+   * @brief Update the memory limit used to derive Search disk resource limits.
    *
    * @param disk Pointer to the disk context
-   * @param shardMemoryBytes Current bigredis-max-ram value in bytes
+   * @param memoryLimitBytes Current bigredis-max-ram value in bytes
    */
-  void (*updateShardMemory)(RedisSearchDisk *disk, size_t shardMemoryBytes);
+  void (*updateMemoryLimit)(RedisSearchDisk *disk, size_t memoryLimitBytes);
 
   /**
    * Create a result processor that loads document fields from disk asynchronously.
