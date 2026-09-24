@@ -254,6 +254,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
                            requestConfig->queryTimeoutMS);
   QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
+  BlockedClientTiming_Init(&request->timing);
   QueryRequest_SetEndProcRef(request, NULL);
   if (argv) {
     QueryRequest_HoldArgs(&request->args, argv, argc);
@@ -273,6 +274,7 @@ void QueryRequest_Destroy(QueryRequest *request) {
   RS_ASSERT(!RegistryInfo_IsLinked(&request->registryInfo));
   QueryRequest_ResetReply(request);
   QueryRequestAsyncState_Destroy(&request->async);
+  BlockedClientTiming_Destroy(&request->timing);
   QueryRequest_SetEndProcRef(request, NULL);
   if (request->args.argv) {
     if (MainThread_Is()) {
