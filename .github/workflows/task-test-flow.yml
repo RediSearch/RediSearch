@@ -211,6 +211,10 @@ jobs:
           # job ships its install tree as an artifact and we unpack it below.
           build-redis: 'false'
 
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
+
       - name: Set Artifact Names
         id: artifact-names
         env:
@@ -571,7 +575,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'standalone'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -580,7 +584,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'coordinator'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

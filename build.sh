@@ -63,6 +63,24 @@ EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclu
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 
+LCOV_BRANCH_ARGS=(--branch-coverage)
+LCOV_CAPTURE_ARGS=(--branch-coverage --filter branch,region,branch_region)
+LCOV_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative)
+LCOV_REMOVE_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative,unused)
+
+require_lcov_2() {
+  local lcov_version
+  if ! lcov_version=$(lcov --version 2>&1); then
+    echo "[coverage] Error: LCOV 2 or newer is required; lcov is unavailable: ${lcov_version}" >&2
+    exit 1
+  fi
+
+  if [[ ! "${lcov_version}" =~ LCOV\ version\ ([0-9]+)(\.|$) ]] || (( BASH_REMATCH[1] < 2 )); then
+    echo "[coverage] Error: LCOV 2 or newer is required; found: ${lcov_version}" >&2
+    exit 1
+  fi
+}
+
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
@@ -336,9 +354,12 @@ end_group() {
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
-  lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
+  require_lcov_2
+  lcov --zerocounters --directory $BINROOT --base-directory $ROOT \
+    "${LCOV_BRANCH_ARGS[@]}"
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
-    --ignore-errors inconsistent,corrupt,mismatch,negative \
+    "${LCOV_CAPTURE_ARGS[@]}" \
+    "${LCOV_ERROR_ARGS[@]}" \
     --exclude '*/_deps/*'
   end_group
 }
@@ -361,27 +382,62 @@ capture_coverage() {
   # cover lcov versions that classify the same disagreement under that name.
   # 'negative' covers the same race producing a corrupted (wrapped-negative) hit count.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
-    --ignore-errors inconsistent,corrupt,mismatch,negative \
+    "${LCOV_CAPTURE_ARGS[@]}" \
+    "${LCOV_ERROR_ARGS[@]}" \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
-    --ignore-errors inconsistent,corrupt,mismatch,negative
+    "${LCOV_BRANCH_ARGS[@]}" \
+    "${LCOV_ERROR_ARGS[@]}"
 
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
-    --ignore-errors inconsistent,corrupt,mismatch,negative \
+    "${LCOV_BRANCH_ARGS[@]}" \
+    "${LCOV_ERROR_ARGS[@]}" \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
   # Remove coverage for directories we don't want (ignore if no file matches)
-  lcov -o $BINROOT/$NAME.info --ignore-errors inconsistent,corrupt,mismatch,negative,unused --remove $BINROOT/source.info \
+  lcov -o $BINROOT/$NAME.info --remove $BINROOT/source.info \
+    "${LCOV_BRANCH_ARGS[@]}" \
+    "${LCOV_REMOVE_ERROR_ARGS[@]}" \
     "*/tests/*" \
 
   end_group
 
   # Clean up temporary files
   rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/source.info
+}
+
+#-----------------------------------------------------------------------------
+# Function: capture_rust_module_coverage
+# Capture coverage from Rust code linked into redisearch.so
+#-----------------------------------------------------------------------------
+capture_rust_module_coverage() {
+  local name=$1
+  local module=$2
+  local rust_target_libdir
+  local llvm_tools_dir
+  local raw_profiles
+
+  raw_profiles=("$BINROOT/${name}-"*.profraw)
+  if [[ ${#raw_profiles[@]} -eq 1 && ! -f "${raw_profiles[0]}" ]]; then
+    echo "Error: no Rust module coverage profiles found for $name" >&2
+    exit 1
+  fi
+
+  rust_target_libdir=$(rustc $RUST_TOOLCHAIN_MODIFIER --print target-libdir)
+  llvm_tools_dir="$(dirname "$rust_target_libdir")/bin"
+  "$llvm_tools_dir/llvm-profdata" merge --sparse "${raw_profiles[@]}" \
+    --output="$BINROOT/$name.profdata"
+  "$llvm_tools_dir/llvm-cov" export "$module" \
+    --format=lcov \
+    --instr-profile="$BINROOT/$name.profdata" \
+    --ignore-filename-regex='/.cargo/|/.rustup/|/bin/redisearch_rs/' \
+    > "$BINROOT/$name.info"
+
+  rm -f "${raw_profiles[@]}" "$BINROOT/$name.profdata"
 }
 
 #-----------------------------------------------------------------------------
@@ -710,6 +766,21 @@ prepare_cmake_arguments() {
     RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
     export RUSTDOCFLAGS
   fi
+  if [[ $COV == "1" ]]; then
+    if [[ $OS_NAME != "macos" ]]; then
+      # Rust is linked into redisearch.so as a static library, so rustc does not
+      # perform the final link and cannot add its profiling runtime automatically.
+      local rust_target_libdir
+      local rust_profile_runtimes
+      rust_target_libdir=$(rustc $RUST_TOOLCHAIN_MODIFIER --print target-libdir)
+      rust_profile_runtimes=("$rust_target_libdir"/libprofiler_builtins-*.rlib)
+      if [[ ${#rust_profile_runtimes[@]} -ne 1 || ! -f "${rust_profile_runtimes[0]}" ]]; then
+        echo "Error: expected one Rust profiling runtime in $rust_target_libdir" >&2
+        exit 1
+      fi
+      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_COVERAGE_PROFILE_RUNTIME=${rust_profile_runtimes[0]}"
+    fi
+  fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
@@ -732,6 +803,11 @@ prepare_cmake_arguments() {
         echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed at ${lld_path}"
       fi
     fi
+  fi
+
+  CMAKE_RUSTFLAGS="$RUSTFLAGS"
+  if [[ $COV == "1" ]]; then
+    CMAKE_RUSTFLAGS="${CMAKE_RUSTFLAGS:+${CMAKE_RUSTFLAGS} }-C instrument-coverage -Zcoverage-options=branch"
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process
@@ -787,9 +863,9 @@ run_cmake() {
 
   if [[ "$VERBOSE" == "1" ]]; then
     echo "Running CMake with verbose output..."
-    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
+    RUSTFLAGS="$CMAKE_RUSTFLAGS" $CMAKE_CMD --trace-expand
   else
-    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
+    RUSTFLAGS="$CMAKE_RUSTFLAGS" $CMAKE_CMD
   fi
 }
 
@@ -952,11 +1028,12 @@ select_rust_test_flags() {
     # require C symbols to be defined even if they aren't invoked at runtime.
     RUST_TEST_OPTIONS="
       --profile=$RUST_PROFILE
+      --branch
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
-      --codecov
+      --cobertura
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*,top_k_bencher/*"
-      --output-path=$BINROOT/rust_cov.info
+      --output-path=$BINROOT/rust_cov.xml
     "
   elif [[ "$RUN_MIRI" == "1" ]]; then
     RUST_TEST_COMMAND="miri nextest run"
@@ -1056,10 +1133,10 @@ archive_rust_tests() {
   local archive_cmd archive_opts
   if [[ $COV == 1 ]]; then
     archive_cmd="llvm-cov nextest-archive"
-    # Drop the llvm-cov-specific reporting flags (--doctests, --codecov, etc.)
+    # Drop the llvm-cov-specific reporting flags (--doctests, --cobertura, etc.)
     # that don't apply to archive creation; keep the crate exclusions and use
     # nextest's --cargo-profile.
-    archive_opts="--cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
+    archive_opts="--branch --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
   else
     archive_cmd="nextest archive"
     archive_opts="$RUST_TEST_OPTIONS"
@@ -1115,11 +1192,12 @@ run_rust_tests_from_archive() {
     # llvm-cov target dir that `report` scans (this job has no local
     # bin/redisearch_rs target — it's excluded from the build artifact), so
     # report finds nothing.
-    cargo $RUST_TOOLCHAIN_MODIFIER llvm-cov nextest \
+    NEXTEST_PROFILE=coverage cargo $RUST_TOOLCHAIN_MODIFIER llvm-cov nextest \
       --archive-file "$RUST_TEST_ARCHIVE_PATH" \
-      --codecov \
+      --branch \
+      --cobertura \
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*,top_k_bencher/*" \
-      --output-path="$BINROOT/rust_cov.info" \
+      --output-path="$BINROOT/rust_cov.xml" \
       $TEST_FILTER
     RUST_TEST_RESULT=$?
   else
@@ -1250,7 +1328,17 @@ run_python_tests() {
   # runs no tests, so no .gcda files are produced and lcov capture would fail).
   # COV itself stays set so $BINDIR still resolves to the coverage build variant.
   if [[ $COV == 1 && "${LIST:-0}" != 1 ]]; then
+    if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      DEPLOYMENT_TYPE="standalone"
+    else
+      DEPLOYMENT_TYPE="coordinator"
+    fi
     prepare_coverage_capture
+    if [[ $OS_NAME != "macos" ]]; then
+      RUST_FLOW_COVERAGE_NAME="rust_flow_$DEPLOYMENT_TYPE"
+      rm -f "$BINROOT/${RUST_FLOW_COVERAGE_NAME}-"*.profraw
+      export LLVM_PROFILE_FILE="$BINROOT/${RUST_FLOW_COVERAGE_NAME}-%8m.profraw"
+    fi
   fi
 
   # Use the runtests.sh script for Python tests
@@ -1270,12 +1358,10 @@ run_python_tests() {
   fi
 
   if [[ $COV == 1 && "${LIST:-0}" != 1 ]]; then
-    if [[ "$REDIS_STANDALONE" == "1" ]]; then
-      DEPLOYMENT_TYPE="standalone"
-    else
-      DEPLOYMENT_TYPE="coordinator"
-    fi
     capture_coverage flow_$DEPLOYMENT_TYPE
+    if [[ $OS_NAME != "macos" ]]; then
+      capture_rust_module_coverage "$RUST_FLOW_COVERAGE_NAME" "$MODULE"
+    fi
   fi
 }
 

@@ -431,6 +431,12 @@ target_link_libraries(redisearch
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
 
+if(DEFINED RUST_COVERAGE_PROFILE_RUNTIME)
+    target_link_libraries(redisearch
+        "-Wl,-u,__llvm_profile_runtime"
+        "${RUST_COVERAGE_PROFILE_RUNTIME}")
+endif()
+
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch redisearch_rs)
 

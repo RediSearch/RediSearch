@@ -240,6 +240,10 @@ jobs:
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
+
       # Build RedisJSON once and cache it, restoring on subsequent runs with the
       # same key. Produces bin/rejson.so and exports REJSON_PATH, which the
       # flow-test and flaky-test-enumeration steps reuse instead of rebuilding.
@@ -608,7 +612,7 @@ jobs:
         if: inputs.coverage && inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          files: bin/flow_standalone.info,bin/flow_coordinator.info,bin/rust_flow_standalone.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -617,7 +621,7 @@ jobs:
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -626,7 +630,7 @@ jobs:
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -635,7 +639,7 @@ jobs:
         if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/unit.info,bin/rust_cov.info
+          files: bin/unit.info,bin/rust_cov.xml
           disable_search: true
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
