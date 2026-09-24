@@ -59,18 +59,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 // blocked client's AREQ reference. Callback-based paths already handle success.
 static void BlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
-  // FAIL has no reply callback. Its timeout callback sets the flag on the main
-  // thread before this cleanup runs; timed-out cursors must not become idle.
-  if (req->encodeReplyInBackground && !AREQ_TimedOut(req) &&
-      !(req->stateflags & QEXEC_S_ITERDONE)) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
-    if (cursor) {
-      Cursor_Pause(cursor);
-    }
-  } else {
-    AREQ_CleanUpStoredCursor(req);
-  }
+  AREQ_FinalizeStoredCursor(req);
   AREQ_DecrRef(req);
 }
 
@@ -320,7 +309,8 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 #ifdef ENABLE_ASSERT
   if (req->encodeReplyInBackground) {
     // Pause after a row is encoded; signaling disarms the hook for later rows.
-    SyncPoint_Wait(SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE
+                                      : SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
   }
 #endif
 
@@ -561,7 +551,8 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
 #ifdef ENABLE_ASSERT
   if (req->encodeReplyInBackground) {
-    SyncPoint_Wait(SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE
+                                      : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
   }
 #endif
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
@@ -1065,7 +1056,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
 #ifdef ENABLE_ASSERT
   if (req->encodeReplyInBackground) {
-    SyncPoint_Wait(SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
+                                      : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
   }
 #endif
   if (sctx->spec) {
@@ -2418,17 +2410,13 @@ static bool cursorIsDiskBacked(const Cursor *cursor) {
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Coord+FAIL is the only path that attaches a CoordRequestCtx as privdata
-  // and arms a reply_callback; shard, single-shard and coord+RETURN paths all
-  // see reqCtx == NULL and fall back to the inline Reply API.
+  // Coordinator FAIL/RETURN_STRICT reads carry a CoordRequestCtx for timeout
+  // handling. Only RETURN_STRICT defers serialization to a reply callback.
   RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
   CoordRequestCtx *reqCtx = upstreamBC
       ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
       : NULL;
-  // Only the coord+FAIL path meets the precondition for
-  // CoordRequestCtx_ReplyOrStoreError (useReplyCallback == true).
-  RS_ASSERT(!reqCtx || reqCtx->useReplyCallback);
-  // Reused across all coord+FAIL early-error sites below.
+  RS_ASSERT(!reqCtx || reqCtx->type == COMMAND_AGGREGATE);
   QueryError err = QueryError_Default();
 
   if (argc < 4) {

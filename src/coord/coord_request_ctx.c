@@ -42,8 +42,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
-      // Dispose any cursor stashed in storedReplyState.cursor by runCursor.
-      AREQ_CleanUpStoredCursor(ctx->areq);
+      AREQ_FinalizeStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }
   } else {
@@ -71,21 +70,16 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
-  // Propagate policy-derived flags from the sticky ctx (single source of truth):
-  // useReplyCallback for FAIL/RETURN_STRICT, plus the aggregate-results sync that
-  // RETURN_STRICT needs. Mirrors the callbacks armed at dispatch in module.c.
+  // Propagate the policy-derived flags captured at dispatch in module.c.
   if (ctx->type == COMMAND_HYBRID) {
     HybridRequest *hreq = (HybridRequest *)req;
     hreq->useReplyCallback = ctx->useReplyCallback;
     hreq->syncCtx.requiresAggregateResultsSync =
         (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    // Do not derive requiresAggregateResultsSync here: the FT.CURSOR READ path
-    // attaches an existing cursor AREQ (aggregate_exec.c) via a ctx whose
-    // timeoutPolicy is left at the default, so deriving it would clear the flag
-    // the cursor set at WITHCURSOR time. The query exec path sets it explicitly
-    // from the request-captured policy instead.
-    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+    AREQ *areq = (AREQ *)req;
+    areq->useReplyCallback = ctx->useReplyCallback;
+    areq->encodeReplyInBackground = ctx->timeoutPolicy == TimeoutPolicy_Fail;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }

@@ -333,7 +333,7 @@ typedef struct AREQ {
 
   bool useReplyCallback;
 
-  // Selected per dispatch for shard/standalone FAIL workers. The blocked-client
+  // Selected per dispatch for FAIL workers. The blocked-client
   // timer owns the deadline, and free-data cleanup finalizes the pending cursor.
   bool encodeReplyInBackground;
 
@@ -535,13 +535,12 @@ AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 
 /**
- * Free a cursor parked in `req->storedReplyState.cursor`, if any.
- * Used by cleanup paths to release a cursor left behind when the
- * blocked-client timeout fires before the reply callback runs and
- * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `storedReplyState.cursor` is NULL.
+ * Finalize a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Called by blocked-client free-data cleanup after worker completion.
+ * Background FAIL pauses successful nonterminal cursors; all other pending
+ * cursors are freed. Callback-based replies already finalized their cursors.
  */
-void AREQ_CleanUpStoredCursor(AREQ *req);
+void AREQ_FinalizeStoredCursor(AREQ *req);
 
 /**
  * Start the cursor on the current request

@@ -3799,8 +3799,13 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
+  CoordRequestCtx *reqCtx = privdata;
+  if (reqCtx->type == COMMAND_AGGREGATE && reqCtx->timeoutPolicy == TimeoutPolicy_Fail &&
+      RedisModule_BlockedClientDisconnected(ctx)) {
+    // A discarded reply must not leave its pending cursor idle.
+    CoordRequestCtx_SetTimedOut(reqCtx);
+  }
+  CoordRequestCtx_Free(reqCtx);
 }
 
 // Forward declaration for initQueryTimeout (defined later in file)
@@ -3903,12 +3908,13 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
   CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+    bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
+    handlerCtx.bcCtx.reply_callback = useReplyCallback ? DistAggregateReplyCallback : NULL;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, useReplyCallback);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4093,11 +4099,13 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
           info.queryTimeoutMS, capped);
       }
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+      CoordRequestCtx_SetTimeoutPolicy(reqCtx, info.queryTimeoutPolicy);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
-      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+      bool useReplyCallback = info.queryTimeoutPolicy == TimeoutPolicy_ReturnStrict;
+      handlerCtx.bcCtx.reply_callback = useReplyCallback ? DistAggregateReplyCallback : NULL;
       handlerCtx.bcCtx.timeoutMS = (size_t)capped;
-      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+      CoordRequestCtx_SetUseReplyCallback(reqCtx, useReplyCallback);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
         handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
       } else {
