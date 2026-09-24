@@ -475,8 +475,11 @@ def test_hnsw_sq8_default_training_batch():
     assert_sq8_storage(env, DEFAULT_TRAINING_THRESHOLD - 1)
 
     def check_queries(count):
+        # Check training and migration correctness without depending on
+        # HNSW recall at the default search breadth.
+        query = f'*=>[KNN 1 @v $q]=>{{$EF_RUNTIME: {count}; $YIELD_DISTANCE_AS: dist}}'
         for i in (0, count // 2, count - 1):
-            result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $q AS dist]',
+            result = env.cmd('FT.SEARCH', 'idx', query,
                              'PARAMS', 2, 'q', vectors[i].tobytes(),
                              'RETURN', 1, 'dist', 'DIALECT', 2)
             env.assertEqual([result[0], *result[1::2]], [1, f'doc{i}'], message=result)
