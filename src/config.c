@@ -318,7 +318,6 @@ static long long get_uint8_numeric_config(const char *name, void *privdata) {
   return (long long)(*(uint8_t *)privdata);
 }
 
-
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -2697,7 +2696,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-max-memory-percentage", DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,
+      ctx, "search-disk-memory-limit-percentage", DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       DISK_MAX_MEMORY_PERCENTAGE_MIN, DISK_MAX_MEMORY_PERCENTAGE_MAX, get_uint8_numeric_config,
       set_uint8_numeric_config, NULL,
@@ -2707,7 +2706,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-min-memory-budget-percentage",
+      ctx, "search-disk-write-buffer-min-percentage",
       DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN, DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX,
@@ -2718,7 +2717,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-wbm-budget-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
+      ctx, "search-disk-write-buffer-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       1, DISK_WBM_BUDGET_PER_INDEX_MAX_MB, get_size_t_numeric_config,
       set_size_t_numeric_config, NULL,

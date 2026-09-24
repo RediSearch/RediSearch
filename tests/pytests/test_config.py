@@ -2321,9 +2321,9 @@ def testDefaultScorerConfig(env):
 @skip(cluster=True)
 def test_flex_disk_resource_configs(env):
     configs = {
-        'search-disk-max-memory-percentage': '60',
-        'search-disk-min-memory-budget-percentage': '20',
-        'search-disk-wbm-budget-per-index-mb': '3',
+        'search-disk-memory-limit-percentage': '60',
+        'search-disk-write-buffer-min-percentage': '20',
+        'search-disk-write-buffer-per-index-mb': '3',
         'search-disk-max-open-files': '1024',
     }
     wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
@@ -2331,8 +2331,6 @@ def test_flex_disk_resource_configs(env):
         env.expect('CONFIG', 'GET', name).equal([name, default])
         env.assertNotIn(name, wildcard_result)
         env.expect('CONFIG', 'SET', name, default).error()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal([])
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').error()
 
 
 def _disk_resource_startup_config(directives):
@@ -2357,27 +2355,27 @@ def _disk_resource_startup_log(log_dir):
 def test_flex_disk_resource_config_startup_boundaries():
     accepted = (
         {
-            'search-disk-max-memory-percentage': '1',
-            'search-disk-min-memory-budget-percentage': '1',
-            'search-disk-wbm-budget-per-index-mb': '1',
+            'search-disk-memory-limit-percentage': '1',
+            'search-disk-write-buffer-min-percentage': '1',
+            'search-disk-write-buffer-per-index-mb': '1',
             'search-disk-max-open-files': '20',
         },
         {
-            'search-disk-max-memory-percentage': '60',
-            'search-disk-min-memory-budget-percentage': '20',
-            'search-disk-wbm-budget-per-index-mb': '2',
+            'search-disk-memory-limit-percentage': '60',
+            'search-disk-write-buffer-min-percentage': '20',
+            'search-disk-write-buffer-per-index-mb': '2',
             'search-disk-max-open-files': '21',
         },
         {
-            'search-disk-max-memory-percentage': '99',
-            'search-disk-min-memory-budget-percentage': '99',
-            'search-disk-wbm-budget-per-index-mb': '3',
+            'search-disk-memory-limit-percentage': '99',
+            'search-disk-write-buffer-min-percentage': '99',
+            'search-disk-write-buffer-per-index-mb': '3',
             'search-disk-max-open-files': '22',
         },
         {
-            'search-disk-max-memory-percentage': '100',
-            'search-disk-min-memory-budget-percentage': '100',
-            'search-disk-wbm-budget-per-index-mb': '4',
+            'search-disk-memory-limit-percentage': '100',
+            'search-disk-write-buffer-min-percentage': '100',
+            'search-disk-write-buffer-per-index-mb': '4',
             'search-disk-max-open-files': str(INT_MAX),
         },
     )
@@ -2420,11 +2418,7 @@ def _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue=
 
     startup_log = _disk_resource_startup_log(log_dir)
     if config_issue is not None:
-        value = dict(directives)[config_issue]
-        if config_issue == 'search-disk-buffer-percentage':
-            assert f">>> '{config_issue} {value}'" in startup_log
-        else:
-            assert f'Issue during loading of configuration {config_issue} :' in startup_log
+        assert f'Issue during loading of configuration {config_issue} :' in startup_log
     assert diagnostic in startup_log
 
 
@@ -2432,35 +2426,35 @@ def _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue=
 def test_flex_disk_resource_config_startup_rejections():
     invalid = (
         (
-            (('search-disk-max-memory-percentage', '0'),),
+            (('search-disk-memory-limit-percentage', '0'),),
             'argument must be between 1 and 100 inclusive',
-            'search-disk-max-memory-percentage',
+            'search-disk-memory-limit-percentage',
         ),
         (
-            (('search-disk-max-memory-percentage', '101'),),
+            (('search-disk-memory-limit-percentage', '101'),),
             'argument must be between 1 and 100 inclusive',
-            'search-disk-max-memory-percentage',
+            'search-disk-memory-limit-percentage',
         ),
         (
-            (('search-disk-min-memory-budget-percentage', '0'),),
+            (('search-disk-write-buffer-min-percentage', '0'),),
             'argument must be between 1 and 100 inclusive',
-            'search-disk-min-memory-budget-percentage',
+            'search-disk-write-buffer-min-percentage',
         ),
         (
-            (('search-disk-min-memory-budget-percentage', '101'),),
+            (('search-disk-write-buffer-min-percentage', '101'),),
             'argument must be between 1 and 100 inclusive',
-            'search-disk-min-memory-budget-percentage',
+            'search-disk-write-buffer-min-percentage',
         ),
         (
-            (('search-disk-wbm-budget-per-index-mb', '0'),),
+            (('search-disk-write-buffer-per-index-mb', '0'),),
             f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
-            'search-disk-wbm-budget-per-index-mb',
+            'search-disk-write-buffer-per-index-mb',
         ),
         (
-            (('search-disk-wbm-budget-per-index-mb',
+            (('search-disk-write-buffer-per-index-mb',
               str(UINT64_MAX // (1024 * 1024) + 1)),),
             f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
-            'search-disk-wbm-budget-per-index-mb',
+            'search-disk-write-buffer-per-index-mb',
         ),
         (
             (('search-disk-max-open-files', '19'),),
@@ -2469,17 +2463,12 @@ def test_flex_disk_resource_config_startup_rejections():
         ),
         (
             (
-                ('search-disk-min-memory-budget-percentage', '21'),
-                ('search-disk-max-memory-percentage', '20'),
+                ('search-disk-write-buffer-min-percentage', '21'),
+                ('search-disk-memory-limit-percentage', '20'),
             ),
-            'search-disk-min-memory-budget-percentage must not exceed '
-            'search-disk-max-memory-percentage',
+            'search-disk-write-buffer-min-percentage must not exceed '
+            'search-disk-memory-limit-percentage',
             None,
-        ),
-        (
-            (('search-disk-buffer-percentage', '50'),),
-            'Module Configuration detected without loadmodule directive or no ApplyConfig call',
-            'search-disk-buffer-percentage',
         ),
     )
     for directives, diagnostic, config_issue in invalid:
