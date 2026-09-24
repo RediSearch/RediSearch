@@ -492,6 +492,7 @@ struct MultiThreadedRedisBlockedCtx {
   RedisModuleBlockedClient *bc;
   size_t pending_threads;
   size_t num_io_threads;
+  bool timingStarted;
   pthread_mutex_t lock;
   // Accumulate partial replies
   dict *replyDict;
@@ -509,11 +510,16 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = mt_bc->bc;
 
   pthread_mutex_lock(&mt_bc->lock);
+  if (!mt_bc->timingStarted) {
+    RedisModule_BlockedClientMeasureTimeStart(bc);
+    mt_bc->timingStarted = true;
+  }
   MRConnManager_FillStateDict(&ioRuntime->conn_mgr, mt_bc->replyDict);
   size_t pending_threads = --mt_bc->pending_threads;
   pthread_mutex_unlock(&mt_bc->lock);
 
   if (pending_threads == 0) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     // We are the last ones to reply, so we can now send the response (from the unblock callback)
     RedisModule_UnblockClient(bc, mt_bc);
   }
@@ -528,7 +534,6 @@ static int connectionPoolStateReply(RedisModuleCtx *ctx, RedisModuleString **arg
   void *p = RedisModule_GetBlockedClientPrivateData(ctx);
   struct MultiThreadedRedisBlockedCtx *mt_bc = (struct MultiThreadedRedisBlockedCtx *)p;
   MRConnManager_ReplyState(mt_bc->replyDict, ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(mt_bc->bc);
   return REDISMODULE_OK;
 }
 
@@ -541,19 +546,22 @@ static void freeConnectionPoolStateCtx(RedisModuleCtx *ctx, void *p) {
 }
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, connectionPoolStateReply, NULL, freeConnectionPoolStateCtx, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc =
+      RedisModule_BlockClient(ctx, connectionPoolStateReply, NULL, freeConnectionPoolStateCtx, 0);
   struct MultiThreadedRedisBlockedCtx *mt_bc = rm_new(struct MultiThreadedRedisBlockedCtx);
   mt_bc->num_io_threads = cluster_g->num_io_threads;
   mt_bc->pending_threads = cluster_g->num_io_threads;
+  mt_bc->timingStarted = false;
   mt_bc->replyDict = dictCreate(&dictTypeHeapStringsListVal, NULL);
   mt_bc->bc = bc;
   pthread_mutex_init(&mt_bc->lock, NULL);
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-    struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
+    struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx =
+        rm_new(struct ReducedConnPoolStateCtx);
     reducedConnPoolStateCtx->ioRuntime = cluster_g->io_runtimes_pool[i];
     reducedConnPoolStateCtx->mt_ctx = mt_bc;
-    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, reducedConnPoolStateCtx);
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState,
+                          reducedConnPoolStateCtx);
   }
 }
 
