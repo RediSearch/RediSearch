@@ -35,11 +35,8 @@ typedef struct LegacyNumericFilter {
 } LegacyNumericFilter;
 
 NumericFilter *NewNumericFilter(double min, double max, bool inclusiveMin, bool inclusiveMax,
-                                bool asc, const FieldSpec *fs, const void* geoFilter);
+                                bool asc, t_fieldIndex fieldIndex, const void* geoFilter);
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
-
-// Sets `nf->fieldIndex` from `fs` (or RS_INVALID_FIELD_INDEX if NULL).
-void NumericFilter_SetField(NumericFilter *nf, const FieldSpec *fs);
 void NumericFilter_Free(NumericFilter *nf);
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf);
 

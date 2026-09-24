@@ -24,6 +24,7 @@ extern "C" {
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "util/arr.h"
 #include "util/references.h"
 #include "types_ffi.h"
@@ -1243,6 +1244,109 @@ TEST_F(IndexTest, testIndexFlags) {
   VVW_Free(h.vw);
 }
 
+TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
+  DocTable dt = NewDocTable(10, 10);
+  const size_t emptySize = dt.memsize;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(&dt, "doc", 3, 0.5, Document_HasPayloadSlot, nullptr, 0, DocumentType_Hash);
+  const t_docId id = dmd->id;
+  const size_t baseSize = emptySize + sizeof(RSDocumentMetadata) + sdsAllocSize(dmd->keyPtr);
+  const size_t tableSize = dt.size;
+  EXPECT_EQ(dt.memsize, baseSize);
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  EXPECT_FALSE(hasPayload(dmd->flags));
+  EXPECT_EQ(dmd->payload, nullptr);
+  dmd->docLen = 7;
+  dmd->maxTermFreq = 3;
+  dmd->expirationTimeNs = 123456789;
+
+  const std::vector<std::string> payloads = {std::string("a\0b", 3), "longer payload", "x"};
+  for (const auto &payload : payloads) {
+    EXPECT_EQ(DocTable_SetPayload(&dt, dmd, payload.data(), payload.size()), 1);
+    EXPECT_EQ(dt.memsize, baseSize + sizeof(RSPayload) + payload.size());
+    EXPECT_TRUE(hasPayload(dmd->flags));
+    ASSERT_NE(dmd->payload, nullptr);
+    EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), payload);
+    EXPECT_EQ(dmd->payload->data[payload.size()], '\0');
+  }
+
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, baseSize);
+  EXPECT_FALSE(hasPayload(dmd->flags));
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  EXPECT_EQ(dmd->payload, nullptr);
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, baseSize);
+
+  // The low-level setter retains empty payload support; the Hash update path clears it.
+  EXPECT_EQ(DocTable_SetPayload(&dt, dmd, "", 0), 1);
+  EXPECT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(dmd->payload->len, 0u);
+  EXPECT_EQ(dt.memsize, baseSize + sizeof(RSPayload));
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, baseSize);
+  EXPECT_EQ(DocTable_SetPayload(&dt, dmd, "again", 5), 1);
+  EXPECT_EQ(dt.memsize, baseSize + sizeof(RSPayload) + 5);
+
+  EXPECT_EQ(dmd->id, id);
+  EXPECT_EQ(dt.maxDocId, id);
+  EXPECT_EQ(dt.size, tableSize);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  EXPECT_EQ(dmd->docLen, 7u);
+  EXPECT_EQ(dmd->maxTermFreq, 3u);
+  EXPECT_EQ(dmd->expirationTimeNs, 123456789);
+  EXPECT_STREQ(dmd->keyPtr, "doc");
+  EXPECT_EQ(RSSortingVector_Length(&dmd->sortVector), 0u);
+
+  const RSDocumentMetadata *borrowed = DocTable_Borrow(&dt, id);
+  DMD_Return(dmd);
+  RSDocumentMetadata *removed = DocTable_DeleteById(&dt, id);
+  ASSERT_EQ(removed, borrowed);
+  EXPECT_EQ(dt.memsize, emptySize);
+  EXPECT_EQ(dt.size, tableSize - 1);
+  EXPECT_EQ(DocTable_Borrow(&dt, id), nullptr);
+  DMD_Return(removed);
+  EXPECT_TRUE(borrowed->flags & Document_Deleted);
+  EXPECT_EQ(std::string(borrowed->payload->data, borrowed->payload->len), "again");
+  DMD_Return(borrowed);
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
+  DocTable dt = NewDocTable(10, 10);
+  const size_t emptySize = dt.memsize;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, "payload", 7, DocumentType_Hash);
+  const t_docId id = dmd->id;
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, emptySize + sizeof(RSDocumentMetadata) + sdsAllocSize(dmd->keyPtr));
+  DMD_Return(dmd);
+  DMD_Return(DocTable_DeleteById(&dt, id));
+  EXPECT_EQ(dt.memsize, emptySize);
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
+  DocTable dt = NewDocTable(10, 10);
+  const size_t emptySize = dt.memsize;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  const t_docId id = dmd->id;
+  const size_t leanSize =
+      emptySize + sizeof(RSDocumentMetadata) - sizeof(RSPayload *) + sdsAllocSize(dmd->keyPtr);
+  EXPECT_EQ(dt.memsize, leanSize);
+  EXPECT_EQ(DocTable_SetPayload(&dt, dmd, "payload", 7), 0);
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, leanSize);
+  EXPECT_FALSE(hasPayload(dmd->flags));
+  EXPECT_FALSE(dmd->flags & Document_HasPayloadSlot);
+  DMD_Return(dmd);
+  DMD_Return(DocTable_DeleteById(&dt, id));
+  EXPECT_EQ(dt.memsize, emptySize);
+  DocTable_Free(&dt);
+}
+
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
   DocTable dt = NewDocTable(10, 10);
@@ -1280,7 +1384,7 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_TRUE(!(strncmp(pl, (char *)buf, dmd->payload->len)));
 
     ASSERT_EQ((int)dmd->score, i);
-    ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
+    ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload | Document_HasPayloadSlot));
 
     // key -> docId is no longer stored in the DocTable (it lives on the Redis
     // key as DocIdMeta); delete by the docId we already hold.

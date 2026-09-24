@@ -13,7 +13,7 @@ use libc::size_t;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use redis_json_api::RedisJsonApi;
 use rlookup::JsonDocumentFormat;
-use rlookup::{DocumentLoader, HashDocumentFormat};
+use rlookup::{DocumentLoader, HashDocumentFormat, HashFieldNames};
 use rlookup::{
     IndexSpec, IndexSpecCache, LoadFieldProfile, OpaqueRLookup, OpaqueRLookupRow, RLookup,
     RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow,
@@ -688,6 +688,31 @@ pub struct LoadIndividualKeysOptions {
     /// Optional per-key profiling buffer, `nkeys` entries long, for the
     /// `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
     pub profile_fields: *mut LoadFieldProfile,
+    /// Optional [`HashFieldNames`] shared by every document this loader
+    /// processes (see [`HashFieldNames_New`]). Null makes each load build its
+    /// field names afresh.
+    pub field_names: *const HashFieldNames,
+}
+
+/// Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn HashFieldNames_New() -> *mut HashFieldNames {
+    Box::into_raw(Box::new(HashFieldNames::new()))
+}
+
+/// Free a cache created by [`HashFieldNames_New`]. Null is a no-op.
+///
+/// # Safety
+///
+/// 1. `names` must be null or a pointer returned by [`HashFieldNames_New`]. Each non-null
+///    pointer may be passed here exactly once, by exactly one thread, with no load in
+///    progress on it and no `LoadIndividualKeysOptions` referencing it used afterwards.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn HashFieldNames_Free(names: *mut HashFieldNames) {
+    if !names.is_null() {
+        // SAFETY: ensured by caller (1.)
+        drop(unsafe { Box::from_raw(names) });
+    }
 }
 
 /// Load values from the document `dmd` into `dst_row`
@@ -794,6 +819,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 /// 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
 ///    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
 ///    pointer to a properly initialized key that outlives this call.
+/// 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
+///    has not been freed, and no other thread may access it for the duration of this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -857,7 +884,11 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 
     let res = match dmd.type_() {
         DocumentType::Hash => {
-            let format = HashDocumentFormat::new(ctx, opts.force_string);
+            let mut format = HashDocumentFormat::new(ctx, opts.force_string);
+            // SAFETY: ensured by caller (6.)
+            if let Some(names) = unsafe { opts.field_names.as_ref() } {
+                format = format.with_field_names(names);
+            }
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)

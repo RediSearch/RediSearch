@@ -58,17 +58,12 @@ pub enum GeoRangeError {
 ///
 /// # Safety
 ///
-/// 1. `fs` must be a valid non-null pointer to a [`ffi::FieldSpec`] for the duration of this
-///    call — the field currently at `gf.fieldIndex`, re-derived by the caller from the spec
-///    actually held at evaluation time. `fs` itself is not retained: `NewNumericFilter` reads
-///    only `fs->index` into each `NumericFilter`, so the returned filters (cached in
-///    `gf.numericFilters`) safely outlive `fs`, including across cursor reads.
-/// 2. `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
-///    to `*gf` and must be released by `GeoFilter_Free` (which frees it through
-///    [`free_geo_numeric_filters`]).
+/// `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
+/// to `*gf` and must be released by `GeoFilter_Free` (which frees it through
+/// [`free_geo_numeric_filters`]).
 pub unsafe fn build_geo_numeric_filters<'index>(
     gf: &'index mut GeoFilter,
-    fs: *const ffi::FieldSpec,
+    field_index: ffi::t_fieldIndex,
 ) -> Result<Vec<&'index NumericFilter>, InvalidGeoInput> {
     if gf.radius <= 0.0 {
         return Err(InvalidGeoInput::InvalidRadius(gf.radius));
@@ -86,7 +81,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     let numeric_filters = Box::into_raw(Box::new(
         [std::ptr::null_mut::<NumericFilter>(); geo::GEO_RANGE_COUNT],
     ));
-    // SAFETY: 2. guarantees gf.numericFilters is NULL and writable.
+    // SAFETY: per this function's safety contract, gf.numericFilters is NULL and writable.
     gf.numericFilters = numeric_filters.cast();
 
     let mut filters: Vec<&'index NumericFilter> = Vec::new();
@@ -94,7 +89,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
         if range.min == range.max {
             continue;
         }
-        // SAFETY: fs is valid per the caller's safety contract.
+        // SAFETY: FFI call; `gf` is a valid `GeoFilter` for the duration of this call.
         let filt_ptr = unsafe {
             ffi::NewNumericFilter(
                 range.min as f64,
@@ -102,7 +97,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
                 true, // inclusiveMin
                 true, // inclusiveMax
                 true, // ascending
-                fs,
+                field_index,
                 (gf as *const GeoFilter).cast(),
             )
         } as *mut NumericFilter;
@@ -190,23 +185,20 @@ pub unsafe fn new_geo_range_iterator<'index>(
     let sctx_ref = unsafe { sctx.as_ref() };
     // SAFETY: 1. guarantees sctx.spec is valid and non-null.
     let spec = unsafe { &mut *sctx_ref.spec };
+    let field_index = gf.fieldIndex;
     debug_assert!(
-        gf.fieldIndex < spec.numFields,
+        field_index < spec.numFields,
         "field_index must be within the spec's current field count"
     );
+    // SAFETY: 3. is forwarded from this function's safety contract.
+    let filters = unsafe { build_geo_numeric_filters(gf, field_index)? };
+
     // Re-derive the field's current pointer from the spec's field array via the stable
-    // index captured at parse time.
+    // index captured at parse time, to open the numeric/geo index below.
     // SAFETY: `field_index` is within `spec.numFields` (checked above), so this stays
     // within the bounds of the `numFields`-sized array `spec.fields` points to.
-    let fs_ptr = unsafe { spec.fields.add(gf.fieldIndex as usize) };
-
-    // SAFETY: `fs_ptr` is valid per the derivation above; 2–3. are forwarded from this
-    // function's safety contract.
-    let filters = unsafe { build_geo_numeric_filters(gf, fs_ptr)? };
-
-    // Open the numeric/geo index once for all ranges.
-    // SAFETY: `fs_ptr` is valid and exclusively borrowed here, after `filters` above
-    // has finished using it only as a `*const` pointer.
+    let fs_ptr = unsafe { spec.fields.add(field_index as usize) };
+    // SAFETY: `fs_ptr` is valid per the derivation above.
     let fs = unsafe { &mut *fs_ptr };
     // SAFETY: 1–2.
     let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress) })

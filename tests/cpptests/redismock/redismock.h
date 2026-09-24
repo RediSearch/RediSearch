@@ -42,6 +42,9 @@ void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
 void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta);
 bool RMCK_KeyMetaHasRename(RedisModuleKeyMetaClassId classId);
 std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
+// Sequence of collection opens ("array:N", "map:N", ":postponed") and deferred-length closes
+// ("setarray:N", "setmap:N") issued on this ctx.
+std::vector<std::string> &RMCK_GetReplyLog(RedisModuleCtx *ctx);
 
 // Configure the mock cluster topology used by RedisModule_GetClusterNodesList /
 // GetClusterNodeInfo / GetClusterNodeSlotRanges / GetMyClusterID. Tests

@@ -997,6 +997,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
+  // Owned; NULL when loading all fields.
+  struct HashFieldNames *fieldNames;
   QueryError status;
 } RPLoader;
 
@@ -1052,6 +1054,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
           .cached_only = false,
           .status = &self->status,
           .profile_fields = self->profileFields,
+          .field_names = self->fieldNames,
       };
       ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
@@ -1071,9 +1074,11 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 // Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
 // the iterator yielding it and the safe loader loading it (the safe loader releases the
 // spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
-// that window) - so serializing it would produce a doc id followed by a nil field-array
-// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
-// with Redis locked throughout and never sees them.
+// that window). Both loaders drop such results right after loading (see rploaderNext and
+// rpSafeLoader_Load); the plain loader runs with Redis locked throughout and rarely sees
+// them. This is the invariant the serializers assert: no flagged row reaches them, so the
+// field map is always declared. Should one slip through in a release build, it serializes
+// as an empty field map, not as a stray null that would break the declared length.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }
@@ -1114,6 +1119,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
+  HashFieldNames_Free(lc->fieldNames);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1133,6 +1139,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
+    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;

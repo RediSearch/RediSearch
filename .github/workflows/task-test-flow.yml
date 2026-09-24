@@ -440,6 +440,10 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 0
+          # unstable refuses an unauthenticated cluster bus by default
+          # (redis/redis#15722); oss-cluster shards don't use TLS, so waive it
+          # explicitly. Other redis-ref values lack the option (MOD-18751).
+          RLTEST_ARGS: ${{ inputs.redis-ref == 'unstable' && '--cluster_bus_port_protected_mode no' || '' }}
           # RLTest writes failed test ids here (relative -> runtests.sh resolves
           # under $ROOT); consumed by the flaky-record + focused-log steps below.
           FAILEDFILE: .failed_coordinator.txt

@@ -7,30 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Rust implementation of the vector top-k iterator and its C accessor functions.
-//!
-//! This module provides [`NewVectorTopKIterator`] together with the accessor
-//! shims that C callers use to bind the iterator's vector-score `RLookupKey`.
+//! Rust implementation of the vector top-k iterator, exposed to C.
 
 use std::{ffi::c_void, ptr::NonNull};
 
-use ffi::{
-    QueryIterator, QueryRequestTimeout, RLookupKey, RLookupKeyHandle, RedisSearchCtx, VecSimIndex,
-    VecSimQueryParams,
-};
+use ffi::{QueryIterator, QueryRequestTimeout, RedisSearchCtx, VecSimIndex, VecSimQueryParams};
 use field::FieldFilterContext;
 use rqe_iterators::{
-    ExpirationChecker, FieldExpirationChecker, IteratorType,
+    ExpirationChecker, FieldExpirationChecker,
     c2rust::CRQEIterator,
     interop::{RQEIteratorWrapper, patch_vtable},
 };
-use vector_score_source::{NewVectorTopK, VectorTopKIterator, new_vector_top_k};
+use vector_score_source::{NewVectorTopK, new_vector_top_k};
 
 /// Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
 ///
 /// This call can reduce to an `Empty` iterator, whose `type_` is
-/// [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
-/// accessors below must not be called on such a handle.
+/// [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The accessors in
+/// [`vector_score_source::interop`] must not be called on such a handle.
 ///
 /// Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
 /// for a hybrid (filtered) query.
@@ -58,6 +52,8 @@ use vector_score_source::{NewVectorTopK, VectorTopKIterator, new_vector_top_k};
 /// 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
+/// [`IteratorType::Hybrid`]: rqe_iterators::IteratorType::Hybrid
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewVectorTopKIterator(
     index: *mut VecSimIndex,
@@ -142,71 +138,4 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
             ptr
         }
     }
-}
-
-/// Cast a `*mut QueryIterator` back to
-/// its full Rust wrapper so accessors can reach `VectorScoreSource`.
-///
-/// # Safety
-///
-/// 1. `iter` is non-null, [valid], and was returned by [`NewVectorTopKIterator`]
-///    for a query that did not reduce to `Empty`, so its `type_` is
-///    [`IteratorType::Hybrid`].
-/// 2. No other reference to the wrapper is live for the duration of the returned
-///    borrow.
-/// 3. The `index` and `sctx` given to that [`NewVectorTopKIterator`] call are
-///    still alive.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-unsafe fn wrapper_mut(
-    iter: *mut QueryIterator,
-) -> &'static mut RQEIteratorWrapper<VectorTopKIterator<'static>> {
-    // SAFETY: guaranteed by 1.
-    debug_assert!(matches!(unsafe { (*iter).type_ }, IteratorType::Hybrid));
-    // SAFETY: 1 pins the inner type ; `NewVectorTopKIterator` boxes only
-    // `VectorTopKIterator` with a `FieldExpirationChecker` ; 2 gives the unique
-    // handle ; 3 makes the `'static` inner lifetime sound.
-    unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::mut_ref_from_header_ptr(iter) }
-}
-
-/// Return a mutable reference to the `RLookupKey *` stored inside this iterator.
-///
-/// The key is initially `NULL`; the metrics-loader result processor writes
-/// through this pointer to set the iterator's score-output key.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
-///    not reduce to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_GetOwnKeyRef(it: *mut QueryIterator) -> *mut *mut RLookupKey {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_mut(it) };
-    // `own_key` boxes a `*mut RLookupKey<'static>`; return the address of the
-    // boxed slot (the pointee), not of the `Box` field, so the pointer handed to
-    // C stays valid across iterator moves (e.g. the `FT.PROFILE` rebox). The slot
-    // holds an `RLookupKey<'static>`, whose `#[repr(C)]` prefix is `ffi::RLookupKey`,
-    // so the pointer-to-pointer reinterprets to the C type the caller expects.
-    (&raw mut *wrapper.inner.source_mut().own_key).cast::<*mut RLookupKey>()
-}
-
-/// Set the [`RLookupKeyHandle`] back-reference on this iterator.
-///
-/// The handle is used to invalidate the key pointer when the iterator is freed.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
-///    not reduce to `Empty`, whose `index` and `sctx` are still alive.
-/// 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
-    it: *mut QueryIterator,
-    handle: *mut RLookupKeyHandle,
-) {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_mut(it) };
-    wrapper.inner.source_mut().key_handle = handle;
 }

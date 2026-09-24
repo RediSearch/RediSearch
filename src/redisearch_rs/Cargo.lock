@@ -2075,7 +2075,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=705606f0286627ae0faf1f1bdce0316751ffa599#705606f0286627ae0faf1f1bdce0316751ffa599"
 dependencies = [
  "backtrace",
  "bindgen",
@@ -2098,7 +2098,7 @@ dependencies = [
 [[package]]
 name = "redis-module-common"
 version = "0.1.1"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=705606f0286627ae0faf1f1bdce0316751ffa599#705606f0286627ae0faf1f1bdce0316751ffa599"
 dependencies = [
  "serde",
 ]
@@ -2106,7 +2106,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=705606f0286627ae0faf1f1bdce0316751ffa599#705606f0286627ae0faf1f1bdce0316751ffa599"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2130,6 +2130,7 @@ dependencies = [
 name = "redis_mock"
 version = "0.0.1"
 dependencies = [
+ "cc",
  "ffi",
  "global_config",
  "libc",
@@ -3615,6 +3616,7 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
+ "itoa",
  "libc",
  "nul_terminated_bytes",
  "query_error",
@@ -3689,6 +3691,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "field",
  "index_result",
  "redis_mock",
  "redis_reply",
