@@ -418,6 +418,13 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
   static void name(RSAddDocumentCtx *aCtx, const DocumentField *field,        \
                    const FieldSpec *fs, FieldIndexerData *fdata)
 
+typedef int (*FieldBulkIndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                                    const DocumentField *field, const FieldSpec *fs,
+                                    FieldIndexerData *fdata, QueryError *status);
+
+typedef void (*FieldBulkApplierFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+                                     const FieldSpec *fs, FieldIndexerData *fdata);
+
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
 #define FIELD_BULK_FINALIZER(name) static void name(IndexBulkData *bulk, RedisSearchCtx *ctx)
@@ -936,6 +943,53 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
+static FieldBulkIndexerFunc bulkIndexerMap[] = {
+    [IXFLDPOS_TAG] = tagIndexer,
+    [IXFLDPOS_NUMERIC] = numericIndexer,
+    [IXFLDPOS_GEO] = numericIndexer,
+    [IXFLDPOS_VECTOR] = vectorIndexer,
+    [IXFLDPOS_GEOMETRY] = geometryIndexer,
+};
+
+// No vector entry: an entry that moved can be an indexing or relabeling op, and only the insert
+// sites know which happened. They keep both counters instead (see `vectorIndexer`).
+static FieldBulkApplierFunc bulkApplierMap[] = {
+    [IXFLDPOS_TAG] = tagApplier,
+    [IXFLDPOS_NUMERIC] = numericApplier,
+    [IXFLDPOS_GEO] = geoApplier,
+    [IXFLDPOS_GEOMETRY] = geometryApplier,
+};
+
+// `FieldSpec_ShouldSampleIndexingTime` skips the clock read on most calls: a
+// schema with many non-text fields (numeric/tag/geo) otherwise pays a clock
+// read plus atomics for every field, every phase, every document, which
+// measurably regresses bulk-load throughput.
+static int timedBulkIndex(FieldBulkIndexerFunc indexer, RSAddDocumentCtx *cur,
+                          RedisSearchCtx *sctx, const DocumentField *field,
+                          const FieldSpec *fs, FieldIndexerData *fdata,
+                          QueryError *status) {
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(cur->doc->docId);
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
+  int rc = indexer(cur, sctx, field, fs, fdata, status);
+  if (sample) {
+    FieldSpec_AddIndexingTime(&cur->spec->fields[fs->index], FIELD_INDEXING_INDEX,
+                              rs_wall_clock_now_ns() - start);
+  }
+  return rc;
+}
+
+static void timedBulkApply(FieldBulkApplierFunc applier, RSAddDocumentCtx *aCtx,
+                           const DocumentField *field, const FieldSpec *fs,
+                           FieldIndexerData *fdata) {
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(aCtx->doc->docId);
+  rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
+  applier(aCtx, field, fs, fdata);
+  if (sample) {
+    FieldSpec_AddIndexingTime(&aCtx->spec->fields[fs->index], FIELD_INDEXING_APPLY,
+                              rs_wall_clock_now_ns() - start);
+  }
+}
+
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status) {
@@ -943,34 +997,13 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
     // see which types are supported in the current field...
     if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
-      switch (ii) {
-        case IXFLDPOS_TAG:
-          rc = tagIndexer(cur, sctx, field, fs, fdata, status);
-          break;
-        case IXFLDPOS_NUMERIC:
-        case IXFLDPOS_GEO:
-          rc = numericIndexer(cur, sctx, field, fs, fdata, status);
-          break;
-        case IXFLDPOS_VECTOR:
-          // Disk mode: defer the actual `VecSimIndex_AddVector` to
-          // `applyVectorInserts` (called after the batch commits) so a
-          // failed commit never leaves the vector index referencing a
-          // doc-id that was not persisted. The vector blob in
-          // `fdata->vector` is borrowed (not copied) and lives until
-          // `AddDocumentCtx_Free`, so it is safe to read post-commit.
-          if (cur->disk.batch) break;
-          rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
-          break;
-        case IXFLDPOS_GEOMETRY:
-          rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
-          break;
-        case IXFLDPOS_FULLTEXT:
-          break;
-        default:
-          rc = -1;
-          QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "BUG: invalid index type");
-          break;
+      FieldBulkIndexerFunc indexer = bulkIndexerMap[ii];
+      if (!indexer) {
+        continue;
       }
+      // Disk mode defers the actual vector add until after the write batch commits.
+      if (ii == IXFLDPOS_VECTOR && cur->disk.batch) continue;
+      rc = timedBulkIndex(indexer, cur, sctx, field, fs, fdata, status);
     }
   }
   return rc;
@@ -980,14 +1013,9 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
                       const FieldSpec *fs, FieldIndexerData *fdata) {
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
     if (!(field->indexAs & INDEXTYPE_FROM_POS(ii))) continue;
-    switch (ii) {
-      case IXFLDPOS_TAG:      tagApplier(aCtx, field, fs, fdata);      break;
-      case IXFLDPOS_NUMERIC:  numericApplier(aCtx, field, fs, fdata);  break;
-      case IXFLDPOS_GEO:      geoApplier(aCtx, field, fs, fdata);      break;
-      // No vector applier: an entry that moved can be an indexing or relabeling op, and only the insert
-      // sites know which happened. They keep both counters instead.
-      case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
-      case IXFLDPOS_FULLTEXT: break;
+    FieldBulkApplierFunc applier = bulkApplierMap[ii];
+    if (applier) {
+      timedBulkApply(applier, aCtx, field, fs, fdata);
     }
   }
 }
@@ -995,6 +1023,9 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   Document *doc = aCtx->doc;
   int ourRv = REDISMODULE_OK;
+  // See `FieldSpec_ShouldSampleIndexingTime`: skips the clock read on most
+  // documents rather than once per field per document.
+  const bool sample = FieldSpec_ShouldSampleIndexingTime(doc->docId);
 
   for (size_t i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
@@ -1007,7 +1038,13 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
 
       PreprocessorFunc pp = preprocessorMap[ii];
-      if (pp(aCtx, sctx, ff, fs, fdata, &aCtx->status) != 0) {
+      rs_wall_clock_ns_t start = sample ? rs_wall_clock_now_ns() : 0;
+      int rc = pp(aCtx, sctx, ff, fs, fdata, &aCtx->status);
+      if (sample) {
+        FieldSpec_AddIndexingTime(&aCtx->spec->fields[fs->index], FIELD_INDEXING_PREPROCESS,
+                                  rs_wall_clock_now_ns() - start);
+      }
+      if (rc != 0) {
         IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
         FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
         ourRv = REDISMODULE_ERR;

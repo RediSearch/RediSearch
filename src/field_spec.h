@@ -15,6 +15,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rs_wall_clock.h"
 
 struct TagIndex;
 struct NumericRangeTree;
@@ -76,6 +77,37 @@ typedef enum {
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
+
+typedef enum {
+  FIELD_INDEXING_PREPROCESS = 0,
+  FIELD_INDEXING_INDEX = 1,
+  FIELD_INDEXING_APPLY = 2,
+  FIELD_INDEXING_NUM_PHASES,
+} FieldIndexingPhase;
+
+typedef struct FieldIndexingPhaseStats {
+  uint64_t count;
+  rs_wall_clock_ns_t totalTimeNs;
+  rs_wall_clock_ns_t maxTimeNs;
+} FieldIndexingPhaseStats;
+
+typedef struct FieldIndexingStats {
+  FieldIndexingPhaseStats phases[FIELD_INDEXING_NUM_PHASES];
+} FieldIndexingStats;
+
+// Indexing-time instrumentation samples 1-in-`RS_INDEXING_TIME_SAMPLE_RATE`
+// documents rather than every one: a clock read plus atomic updates per field
+// per phase on every write measurably regresses bulk-load throughput,
+// especially for schemas with many fields. `count`/`totalTimeNs` still give an
+// unbiased average over the sampled documents; `maxTimeNs` becomes a max over
+// the sample rather than every document, which can understate the true max —
+// an extension of the racy-max trade-off already accepted in
+// `FieldSpec_AddIndexingTime`.
+#define RS_INDEXING_TIME_SAMPLE_RATE 16 // must be a power of two
+
+static inline bool FieldSpec_ShouldSampleIndexingTime(t_docId docId) {
+  return (docId & (RS_INDEXING_TIME_SAMPLE_RATE - 1)) == 0;
+}
 
 // Flags for tag fields
 typedef enum {
@@ -143,6 +175,7 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
+  FieldIndexingStats indexingStats;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))
@@ -198,6 +231,45 @@ void FieldSpec_AddError(FieldSpec *, ConstErrorMessage withoutUserData, ConstErr
 
 static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *queryError, RedisModuleString *key) {
   FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
+
+// Indexing worker threads call this concurrently with each other and with FT.INFO's
+// unlocked read of the same counters (see `FieldSpec_GetIndexingStats`), so every
+// field is updated atomically rather than with plain ++/+=. The three fields are
+// updated as independent atomics rather than under one lock: a concurrent reader
+// can therefore observe a torn combination of a phase's sample (e.g. a `count`
+// bump not yet paired with its `totalTimeNs`), including transiently seeing
+// `maxTimeNs` exceed `totalTimeNs`. These are informational stats on a per-document
+// indexing hot path, so this is an accepted trade-off rather than a lock: it
+// self-corrects on the next read once all writers finish.
+//
+// `maxTimeNs` is a plain load-then-store rather than a CAS retry loop: under
+// concurrent writers to the same field a losing update can be silently dropped
+// (the max just doesn't advance for that one sample), which is fine for an
+// informational max — a CAS loop's occasional retries add real cost here since
+// this runs once per field per phase per document.
+static inline void FieldSpec_AddIndexingTime(FieldSpec *fs, FieldIndexingPhase phase,
+                                             rs_wall_clock_ns_t duration) {
+  FieldIndexingPhaseStats *stats = &fs->indexingStats.phases[phase];
+  __atomic_fetch_add(&stats->count, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&stats->totalTimeNs, duration, __ATOMIC_RELAXED);
+  if (duration > __atomic_load_n(&stats->maxTimeNs, __ATOMIC_RELAXED)) {
+    __atomic_store_n(&stats->maxTimeNs, duration, __ATOMIC_RELAXED);
+  }
+}
+
+// Snapshot `fs->indexingStats` with atomic loads, matching the atomic writes in
+// `FieldSpec_AddIndexingTime`. Callers (FT.INFO) read this without the spec lock.
+static inline FieldIndexingStats FieldSpec_GetIndexingStats(const FieldSpec *fs) {
+  FieldIndexingStats stats = {0};
+  for (int phase = 0; phase < FIELD_INDEXING_NUM_PHASES; ++phase) {
+    const FieldIndexingPhaseStats *src = &fs->indexingStats.phases[phase];
+    FieldIndexingPhaseStats *dst = &stats.phases[phase];
+    dst->count = __atomic_load_n(&src->count, __ATOMIC_RELAXED);
+    dst->totalTimeNs = __atomic_load_n(&src->totalTimeNs, __ATOMIC_RELAXED);
+    dst->maxTimeNs = __atomic_load_n(&src->maxTimeNs, __ATOMIC_RELAXED);
+  }
+  return stats;
 }
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
