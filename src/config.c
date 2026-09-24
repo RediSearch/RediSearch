@@ -209,6 +209,9 @@ static long long get_uint_numeric_config(const char *name, void *privdata) {
 
 // True only while RedisModule_LoadConfigs (called from RediSearch_InitModuleConfig) is running.
 static bool loadingStartupConfig = false;
+static bool diskWriteBufferMinPercentageConfigured = false;
+static bool legacyDiskBufferPercentageConfigured = false;
+static uint8_t legacyDiskBufferPercentage = DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE;
 
 void RSConfig_SetLoadingStartupConfig(bool loading) {
   loadingStartupConfig = loading;
@@ -318,6 +321,47 @@ static long long get_uint8_numeric_config(const char *name, void *privdata) {
   return (long long)(*(uint8_t *)privdata);
 }
 
+static int set_disk_write_buffer_min_percentage_config(const char *name, long long val,
+                                                        void *privdata,
+                                                        RedisModuleString **err) {
+  int rc = set_uint8_numeric_config(name, val, privdata, err);
+  if (rc == REDISMODULE_OK && loadingStartupConfig) {
+    diskWriteBufferMinPercentageConfigured = true;
+  }
+  return rc;
+}
+
+static int set_legacy_disk_buffer_percentage_config(const char *name, long long val,
+                                                     void *privdata,
+                                                     RedisModuleString **err) {
+  int rc = set_uint8_numeric_config(name, val, privdata, err);
+  if (rc == REDISMODULE_OK && loadingStartupConfig) {
+    legacyDiskBufferPercentageConfigured = true;
+  }
+  return rc;
+}
+
+void RSConfig_ApplyLegacyDiskBufferPercentage(void) {
+  if (!legacyDiskBufferPercentageConfigured) {
+    return;
+  }
+  if (diskWriteBufferMinPercentageConfigured) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "search-disk-buffer-percentage is deprecated and ignored because "
+                    "search-disk-write-buffer-min-percentage is also configured");
+    return;
+  }
+
+  uint8_t translatedPercentage =
+    legacyDiskBufferPercentage == 0 ? 1 : legacyDiskBufferPercentage;
+  uint8_t effectivePercentage =
+    MIN(translatedPercentage, RSGlobalConfig.diskMaxMemoryPercentage);
+  RSGlobalConfig.diskMinMemoryBudgetPercentage = effectivePercentage;
+  RedisModule_Log(RSDummyContext, "warning",
+                  "search-disk-buffer-percentage is deprecated; applying its value as "
+                  "search-disk-write-buffer-min-percentage=%u",
+                  effectivePercentage);
+}
 
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
@@ -2697,7 +2741,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-max-memory-percentage", DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,
+      ctx, "search-disk-memory-limit-percentage", DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       DISK_MAX_MEMORY_PERCENTAGE_MIN, DISK_MAX_MEMORY_PERCENTAGE_MAX, get_uint8_numeric_config,
       set_uint8_numeric_config, NULL,
@@ -2707,22 +2751,31 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-min-memory-budget-percentage",
+      ctx, "search-disk-write-buffer-min-percentage",
       DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN, DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX,
-      get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      get_uint8_numeric_config, set_disk_write_buffer_min_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskMinMemoryBudgetPercentage)
     )
   )
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-wbm-budget-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
+      ctx, "search-disk-write-buffer-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       1, DISK_WBM_BUDGET_PER_INDEX_MAX_MB, get_size_t_numeric_config,
       set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.diskWbmBudgetPerIndexMB)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      0, 100, get_uint8_numeric_config, set_legacy_disk_buffer_percentage_config, NULL,
+      (void *)&legacyDiskBufferPercentage
     )
   )
 

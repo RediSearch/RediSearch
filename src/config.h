@@ -313,6 +313,9 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
  * consult this to fall back to their current value with a warning instead of returning
  * REDISMODULE_ERR, which would abort module init. */
 void RSConfig_SetLoadingStartupConfig(bool loading);
+/* Resolves the deprecated disk-buffer setting after loading so the replacement wins
+ * independently of directive order. */
+void RSConfig_ApplyLegacyDiskBufferPercentage(void);
 
 /**
  * Writes the retrieval of the configuration value to the network.

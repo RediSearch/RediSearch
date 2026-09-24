@@ -110,7 +110,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
-    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+    RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
   }
 
