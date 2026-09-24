@@ -33,8 +33,3 @@ add_test(NAME test_distagg COMMAND test_distagg)
 
 # Add the coord_tests subdirectory
 add_subdirectory(coord_tests)
-
-file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
-add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp llapi_test_helpers.cpp stacktrace.cpp)
-target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
-set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
