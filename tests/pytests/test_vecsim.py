@@ -919,6 +919,11 @@ def test_hybrid_query_with_text_vamana():
 
     query_data = create_np_array_typed([1] * dim, data_type)
 
+    # Empty filter test
+    # Expect to find no result (internally, build the child iterator as empty iterator).
+    env.expect('FT.SEARCH', 'idx', f'(nothing)=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'EMPTY_MODE')
+
     # MOD-18890 diagnostic: baseline plain (non-hybrid) KNN recall check right after the
     # initial bulk load, BEFORE any of the "other"-tagging HSETs below (i.e. before any
     # relabel has happened). Log-only, no assertion. By construction the true nearest
@@ -930,11 +935,6 @@ def test_hybrid_query_with_text_vamana():
     baseline_actual_ids = [baseline_res[i] for i in range(1, len(baseline_res), 2)]
     baseline_expected_ids = [str(i + 1) for i in range(baseline_k)]
     env.debugPrint(f"MOD-18890: PRE-HSET baseline plain graph KNN ids expected={baseline_expected_ids} actual={baseline_actual_ids}", force=True)
-
-    # Empty filter test
-    # Expect to find no result (internally, build the child iterator as empty iterator).
-    env.expect('FT.SEARCH', 'idx', f'(nothing)=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
-    env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'EMPTY_MODE')
 
     # Scenario 1: Large subset (>21%) + small index (<75K) → ADHOC_BF
     expected_res = [10]
