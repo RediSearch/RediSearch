@@ -314,12 +314,47 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   }
 }
 
+// Missing postings share the document batch; a partial failure aborts all its writes.
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  if (aCtx->stateFlags & ACTX_F_ERRORED) return;
+
+  dict *missing = Indexer_GetDocumentMissingFields(sctx->spec, aCtx->doc);
+  if (!missing) return;
+  size_t numFields = dictSize(missing);
+  if (numFields == 0) {
+    dictRelease(missing);
+    return;
+  }
+
+  t_fieldIndex *fields = rm_malloc(numFields * sizeof(t_fieldIndex));
+  size_t n = 0;
+  dictIterator *iter = dictGetIterator(missing);
+  for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
+    const FieldSpec *fs = dictGetVal(entry);
+    fields[n++] = fs->index;
+  }
+  dictReleaseIterator(iter);
+  dictRelease(missing);
+
+  bool success = SearchDisk_IndexMissingFields(
+      sctx->redisCtx, sctx->spec->diskSpec, aCtx->disk.batch, fields, numFields, aCtx->doc->docId);
+  rm_free(fields);
+
+  if (!success) {
+    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to add missing-field postings to the write batch");
+    IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, aCtx->doc->docKey);
+    aCtx->stateFlags |= ACTX_F_ERRORED;
+  }
+}
+
 void DiskIndexer_IndexDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // Stage onto the per-document write batch.
   if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
     stageText(aCtx, ctx);
   }
   bulkStageFields(aCtx, ctx);
+  writeMissingFieldDocs(aCtx, ctx);
 
   // Commit fence — returns false if the batch was aborted or the commit
   // failed; in either case the apply step must not run.

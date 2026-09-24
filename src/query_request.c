@@ -14,6 +14,7 @@
 #include "config.h"
 #include "coord/rmr/chan.h"
 #include "hybrid/hybrid_request.h"
+#include "module.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
@@ -181,6 +182,28 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
   pthread_cond_destroy(&state->aggregateResultsCond);
 }
 
+bool QueryRequest_TryClaimResults(QueryRequest *request) {
+  bool expected = false;
+  return atomic_compare_exchange_strong_explicit(&request->async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed, memory_order_relaxed);
+}
+
+void QueryRequest_SignalResultsComplete(QueryRequest *request) {
+  pthread_mutex_lock(&request->async.aggregateResultsLock);
+  request->async.aggregateResultsDone = true;
+  // A request has at most one timeout callback waiting for result production.
+  pthread_cond_signal(&request->async.aggregateResultsCond);
+  pthread_mutex_unlock(&request->async.aggregateResultsLock);
+}
+
+void QueryRequest_WaitForResultsComplete(QueryRequest *request) {
+  pthread_mutex_lock(&request->async.aggregateResultsLock);
+  while (!request->async.aggregateResultsDone) {
+    pthread_cond_wait(&request->async.aggregateResultsCond, &request->async.aggregateResultsLock);
+  }
+  pthread_mutex_unlock(&request->async.aggregateResultsLock);
+}
+
 void QueryRequest_Free(QueryRequest *request) {
   if (!request) {
     return;
@@ -191,6 +214,9 @@ void QueryRequest_Free(QueryRequest *request) {
       return;
     case QUERY_REQUEST_KIND_HYBRID:
       HybridRequest_Free((HybridRequest *)request);
+      return;
+    case QUERY_REQUEST_KIND_COORD_SEARCH:
+      searchRequestCtx_Free((searchRequestCtx *)request);
       return;
     default:
       RS_ABORT_ALWAYS("Invalid query request kind");

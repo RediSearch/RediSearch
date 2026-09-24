@@ -997,6 +997,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
+  // Owned; NULL when loading all fields.
+  struct HashFieldNames *fieldNames;
   QueryError status;
 } RPLoader;
 
@@ -1052,6 +1054,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
           .cached_only = false,
           .status = &self->status,
           .profile_fields = self->profileFields,
+          .field_names = self->fieldNames,
       };
       ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
@@ -1114,6 +1117,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
+  HashFieldNames_Free(lc->fieldNames);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1133,6 +1137,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
+    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;

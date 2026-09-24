@@ -31,6 +31,14 @@ extern "C" {
 #endif
 
 /**
+ * Return an owned dictionary of INDEXMISSING fields absent from the document,
+ * mapping HiddenString * keys to borrowed FieldSpec * values from the schema.
+ * Returns NULL when none are configured. The caller releases the dictionary.
+ * Field expiration is not considered.
+ */
+dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc);
+
+/**
  * Dispose of the replaced document's VecSim and Geometry entries: drop each one, except a
  * vector field whose entry is to be moved onto the new doc-id (relabel), which is left for the
  * vector-insert site.

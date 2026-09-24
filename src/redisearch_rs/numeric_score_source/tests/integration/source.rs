@@ -82,6 +82,28 @@ fn tree_from(pairs: &[(u64, f64)]) -> NumericRangeTree {
     tree
 }
 
+/// Documents in each leaf of [`split_tree`].
+const SPLIT_LEAF_DOCS: usize = 8;
+
+/// Build a tree that splits into two value-disjoint leaves of
+/// [`SPLIT_LEAF_DOCS`] documents each, with `doc_id == value == i`.
+///
+/// An unfiltered window sized from `k == SPLIT_LEAF_DOCS` covers the
+/// best-scored leaf exactly, leaving no slack: whatever that leaf fails to
+/// deliver can only be made up by expanding into the other one.
+fn split_tree() -> NumericRangeTree {
+    let tree = build_tree(2 * SPLIT_LEAF_DOCS as u64, false, 0);
+    let leaves = tree.find_windowed(&full_range(), RangeWindow::UNBOUNDED);
+    assert_eq!(leaves.len(), 2, "fixture must split into two leaves");
+    assert!(
+        leaves
+            .iter()
+            .all(|leaf| leaf.num_docs() as usize == SPLIT_LEAF_DOCS),
+        "fixture leaves must be evenly sized"
+    );
+    tree
+}
+
 /// Whole-field filter: matches every value, ascending.
 ///
 /// `NumericFilter::default()` bounds the window at `0.0..f64::MAX`, which drops
@@ -110,6 +132,21 @@ fn run_unfiltered(pairs: &[(u64, f64)], k: usize, ascending: bool) -> Vec<(DocId
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     got
+}
+
+/// Drive an unfiltered top-k iterator to exhaustion, returning the yielded pairs
+/// alongside the number of window expansions it took to produce them.
+///
+/// This source never asks for the adhoc strategy, so every strategy switch the
+/// iterator counts is an expansion.
+fn drain_with_expansions<'index, V: DocValidity + 'index, E: ExpirationChecker + 'index>(
+    source: NumericScoreSource<'index, V, E>,
+    k: usize,
+) -> (Vec<(DocId, f64)>, usize) {
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+    let got = drain_top_k(&mut it);
+    let expansions = it.metrics().strategy_switches;
+    (got, expansions)
 }
 
 /// Drive a filtered top-k iterator to exhaustion. The child filter passes
@@ -448,6 +485,135 @@ fn validity_and_expiration_compose() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     assert_eq!(got, vec![(5, 3.0), (4, 2.0), (2, 1.0)]);
+}
+
+#[test]
+fn unfiltered_window_sized_for_k_needs_no_expansion() {
+    // k matches the best-scored leaf's document count, so the initial window
+    // fills the heap on its own. An undersized window would surface here as an
+    // expansion.
+    let tree = split_tree();
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
+
+    let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
+
+    assert_eq!(expansions, 0);
+    assert_eq!(
+        got,
+        vec![
+            (16, 16.0),
+            (15, 15.0),
+            (14, 14.0),
+            (13, 13.0),
+            (12, 12.0),
+            (11, 11.0),
+            (10, 10.0),
+            (9, 9.0),
+        ]
+    );
+}
+
+#[test]
+fn unfiltered_retry_expands_window_past_deleted_docs() {
+    // The top-valued doc is deleted but still indexed, so the window covering
+    // the best-scored leaf leaves the heap one short of k. Only an expansion
+    // into the next leaf can supply the missing result.
+    let tree = split_tree();
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+        .with_validity(DeletedDocs::from_iter([16]));
+
+    let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
+
+    assert_eq!(expansions, 1);
+    assert_eq!(
+        got,
+        vec![
+            (15, 15.0),
+            (14, 14.0),
+            (13, 13.0),
+            (12, 12.0),
+            (11, 11.0),
+            (10, 10.0),
+            (9, 9.0),
+            (8, 8.0),
+        ]
+    );
+}
+
+#[test]
+fn unfiltered_retry_expands_window_past_field_expired_docs() {
+    // Field-level TTL drops records after the window was sized — the same
+    // shortfall a deletion causes — so the expansion has to cover it too.
+    let tree = split_tree();
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+        .with_expiration(ExpiredDocs::from_iter([16, 15]));
+
+    let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
+
+    assert_eq!(expansions, 1);
+    assert_eq!(
+        got,
+        vec![
+            (14, 14.0),
+            (13, 13.0),
+            (12, 12.0),
+            (11, 11.0),
+            (10, 10.0),
+            (9, 9.0),
+            (8, 8.0),
+            (7, 7.0),
+        ]
+    );
+}
+
+#[test]
+fn unfiltered_retry_keeps_multivalue_doc_on_its_best_value() {
+    // A multivalue doc carries one value in each leaf, so the expanded window
+    // meets it again on its worse value. Windows are strictly worse-scored than
+    // their predecessors, so that second occurrence must stay suppressed and the
+    // doc keep the score it was collected on.
+    let mut tree = split_tree();
+    let multivalue_doc = 100;
+    tree.add(multivalue_doc, 12.5, false, true, 0);
+    tree.add(multivalue_doc, 2.5, false, true, 0);
+
+    // The extra value lifts the leaf's count by one; deleting the top-valued doc
+    // then makes the window fall short and expand.
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+        .with_validity(DeletedDocs::from_iter([16]));
+
+    let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS + 1);
+
+    assert_eq!(expansions, 1);
+    assert_eq!(
+        got,
+        vec![
+            (15, 15.0),
+            (14, 14.0),
+            (13, 13.0),
+            (multivalue_doc, 12.5),
+            (12, 12.0),
+            (11, 11.0),
+            (10, 10.0),
+            (9, 9.0),
+            (8, 8.0),
+        ]
+    );
+}
+
+#[test]
+fn unfiltered_retry_yields_fewer_than_k_once_the_tree_is_exhausted() {
+    // Every doc of the first window and half of the second are deleted, so no
+    // window can fill the heap. The retry must run the tree out and yield the
+    // survivors rather than spinning on empty expansions.
+    let tree = split_tree();
+    let deleted = DeletedDocs::from_iter([9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4]);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false).with_validity(deleted);
+
+    let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
+
+    assert_eq!(expansions, 1);
+    assert_eq!(got, vec![(8, 8.0), (7, 7.0), (6, 6.0), (5, 5.0)]);
 }
 
 /// A clock context whose deadline is already in the past.

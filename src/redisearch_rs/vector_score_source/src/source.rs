@@ -16,11 +16,11 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestTimeout, RLookupKeyHandle, RS_VecSimCheckTimeout, VecSearchMode,
-    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
+    QueryRequestTimeout, RS_VecSimCheckTimeout, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
+    VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
-use rlookup::RLookupKey;
+use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -119,22 +119,27 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
 
-    /// Score key for this iterator's metric output. The C metrics loader writes
-    /// through the address returned by the own-key accessor. Boxed so that
+    /// Score key for this iterator's metric output. The metrics loader writes
+    /// through the address returned by [`interop::own_key_ref`]. Boxed so that
     /// address stays stable across iterator moves (e.g. the rebox performed
-    /// during `FT.PROFILE`), keeping the C-side key handle valid. Holds a null
-    /// pointer until the loader sets it.
+    /// during `FT.PROFILE`), keeping the key handle valid. Holds a null pointer
+    /// until the loader sets it.
+    ///
+    /// [`interop::own_key_ref`]: crate::interop::own_key_ref
     pub own_key: Box<*mut RLookupKey<'index>>,
-    /// Back-reference to the handle that points to [`own_key`](Self::own_key).
-    /// Set by the C side alongside `own_key`; null until then.
-    pub key_handle: *mut RLookupKeyHandle,
+    /// Back-reference to the handle that points to [`own_key`](Self::own_key),
+    /// so dropping this source can mark the key slot dead. Null until
+    /// [`interop::set_key_handle`] installs one.
+    ///
+    /// [`interop::set_key_handle`]: crate::interop::set_key_handle
+    pub key_handle: *mut RLookupKeyHandle<'index>,
 }
 
 impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
     fn drop(&mut self) {
         if !self.key_handle.is_null() {
-            // SAFETY: key_handle is non-null only when VectorTopK_SetKeyHandle
-            // stored a valid, live RLookupKeyHandle pointer here.
+            // SAFETY: a non-null `key_handle` is one the setter's contract
+            // requires to outlive this source.
             unsafe {
                 (*self.key_handle).is_valid = false;
             }
@@ -143,8 +148,9 @@ impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index` and `timeout` pointers are non-owning; the constructor contract requires
-// both to outlive the source. Everything else is owned and managed by the struct itself.
+// thread). The `index`, `timeout`, `own_key` and `key_handle` pointers are non-owning; the
+// constructor contract requires the first two to outlive the source, and the caller keeps the
+// key pointers valid for as long. Everything else is owned and managed by the struct itself.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
@@ -580,6 +586,8 @@ mod tests {
     use rqe_iterators::NoOpChecker;
     use top_k::ScoreSource;
 
+    use ffi::QueryRequestTimeout;
+
     use super::refine_child_estimated;
     use crate::{
         VectorScoreSource,
@@ -698,6 +706,29 @@ mod tests {
         source.next_batch().unwrap();
         assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
         assert_eq!(source.num_iterations, 3, "batches keep accumulating");
+    }
+
+    /// The source borrows the request-owned timeout rather than copying it, and
+    /// hands VecSim that same storage — so a later change to the request's
+    /// timeout state is observed by work already in flight.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn borrows_the_request_timeout() {
+        let index = TestIndex::flat(3, 1);
+        let mut source = flat_source(&index, 3, 3);
+
+        assert_eq!(
+            source.timeout.as_ptr(),
+            index.timeout_ptr(),
+            "the source must hold the caller's timeout, not a copy"
+        );
+
+        source.next_batch().unwrap();
+        assert_eq!(
+            source.query_params.timeoutCtx.cast::<QueryRequestTimeout>(),
+            index.timeout_ptr(),
+            "VecSim must be handed the same timeout storage"
+        );
     }
 
     /// A zero seeded child estimate means no doc can match: `next_batch` must

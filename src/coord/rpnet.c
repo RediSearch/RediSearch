@@ -588,7 +588,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       RS_LOG_ASSERT(scoreValue && MRReply_Type(scoreValue) == MR_REPLY_DOUBLE,
                     "invalid score record");
       SearchResult_SetScore(r, MRReply_Double(scoreValue));
-      if (explainReply) {
+      // A shard with no explanation for the row sends nil in its slot.
+      if (explainReply && MRReply_Type(explainReply) != MR_REPLY_NIL) {
         SearchResult_SetScoreExplain(r, SE_FromMRReply(explainReply));
       }
     } else {
