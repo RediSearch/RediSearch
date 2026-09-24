@@ -1404,7 +1404,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       LegacyNumericFilter *filter = opts->legacy.filters[ii];
 
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, filter->field);
-      NumericFilter_SetField(&filter->base, fs);
+      filter->base.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
           const HiddenString *fieldName = filter->field;
