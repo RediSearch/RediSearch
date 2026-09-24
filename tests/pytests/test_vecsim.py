@@ -892,6 +892,46 @@ def test_memory_info():
         #verify vecsim memory == redisearch memory
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
+# MOD-18890 diagnostic: reproduce the SVS-VAMANA bulk-construction recall bug directly in CI,
+# many times in a single run, independent of the hybrid/text-filter/relabel machinery in
+# test_hybrid_query_with_text_vamana below. Each iteration builds a fresh index the same way
+# (WORKERS 8, same size), then does a single plain (non-hybrid) KNN query -- no text filter,
+# no HSETs, no relabel -- and checks whether the graph's own top-k recall is exact. By
+# construction (query vector = [1]*dim, distance = dim*(id-1)**2), the true nearest neighbors
+# are ids "1".."k" in order. This isolates the bug to graph construction alone, and is not
+# meant to be a permanent test -- it is intentionally flaky, to get a CI-visible repro count.
+def test_svs_vamana_construction_recall_repro():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    index_size = 1500 * 2 * env.shardsCount
+    data_type = 'FLOAT32'
+    num_iterations = 15
+    k = 12
+    query_data = create_np_array_typed([1] * dim, data_type)
+    expected_ids = [str(i + 1) for i in range(k)]
+    failures = []
+
+    for attempt in range(num_iterations):
+        conn.execute_command('FLUSHALL')
+        create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
+        load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+        wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+        res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN {k} @v $vec_param]',
+                       'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                       'RETURN', 1, '__v_score', 'LIMIT', 0, k)
+        actual_ids = [res[i] for i in range(1, len(res), 2)]
+        env.debugPrint(f"MOD-18890: repro attempt {attempt + 1}/{num_iterations}: expected={expected_ids} actual={actual_ids}", force=True)
+        if actual_ids != expected_ids:
+            failures.append((attempt + 1, actual_ids))
+
+    env.debugPrint(f"MOD-18890: repro summary: {len(failures)}/{num_iterations} iterations showed degraded recall", force=True)
+    env.assertEqual(len(failures), 0,
+                    message=f"MOD-18890 repro: {len(failures)}/{num_iterations} iterations showed degraded "
+                            f"VAMANA graph recall right after bulk construction (no relabel/hybrid involved). "
+                            f"Failing attempts: {failures}")
+
 # This test validates the SVS-VAMANA hybrid search mode selection heuristic.
 # The heuristic automatically chooses between HYBRID_ADHOC_BF and HYBRID_BATCHES modes
 # based on subset size ratio, index size, and k value using these thresholds:

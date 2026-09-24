@@ -31,3 +31,6 @@ jobs:
       # with "unknown command 'JSON.SET'" without it. Drop `fail-fast` so an unrelated
       # failure on one architecture doesn't cancel the other.
       options: standalone,coordinator,rejson
+      # Restrict to test_vecsim.py (not the full pytest suite), so iterating doesn't pay
+      # for every unrelated test file every push.
+      job-test-config: '{"test": "TEST=test_vecsim.py"}'
