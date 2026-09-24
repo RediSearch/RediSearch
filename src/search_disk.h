@@ -67,6 +67,14 @@ void SearchDisk_UpdateLogObfuscation();
 // Basic API wrappers
 
 /**
+ * @brief Return whether one more disk index fits the configured write-buffer budget.
+ *
+ * Applies only to new index creation. Restore paths always proceed and let the
+ * disk backend clamp the shared write-buffer capacity.
+ */
+bool SearchDisk_CanCreateIndex(void);
+
+/**
  * @brief Open an index, **Important** must be called once and only once for every index
  * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
@@ -74,14 +82,13 @@ void SearchDisk_UpdateLogObfuscation();
  * @param type Document type
  * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
  *        without SST persistence to ensure stale data is cleared)
- * @param isRestore If true, admit a persisted index under restore clamp semantics
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
     RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
-    DocumentType type, bool deleteBeforeOpen, bool isRestore, IndexSpec *c_index_spec);
+    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
