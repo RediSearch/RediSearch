@@ -1698,8 +1698,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   r->encodeReplyInBackground = false;
   if (RunInThread(ctx)) {
     r->encodeReplyInBackground = r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
-                                 !IsCoordinator(r) && !IsHybrid(r) &&
-                                 (IsSearch(r) || IsAggregate(r));
+                                 !(AREQ_RequestFlags(r) & QEXEC_F_BUILDPIPELINE_NO_ROOT) &&
+                                 !IsHybrid(r) && (IsSearch(r) || IsAggregate(r));
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     BlockClientCtx blockClientCtx = {0};
@@ -2127,7 +2127,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RS_ASSERT(cursor->execState != NULL);
     cursor->execState->encodeReplyInBackground =
         cursor->execState->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !cursor->is_coord &&
-        !cursor->hybrid_ref.rm && !IsCoordinator(cursor->execState) && !IsHybrid(cursor->execState);
+        !cursor->hybrid_ref.rm &&
+        !(AREQ_RequestFlags(cursor->execState) & QEXEC_F_BUILDPIPELINE_NO_ROOT) &&
+        !IsHybrid(cursor->execState);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {
       AREQ *req = cursor->execState;

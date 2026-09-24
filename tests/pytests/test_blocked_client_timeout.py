@@ -943,10 +943,11 @@ class TestCoordinatorTimeout:
                 cursor_id, baseline, before_info, base_err_coord,
                 'FAIL internal _FT.CURSOR READ timeout')
 
-            # Count the timeout callback and discarded worker error on the target
-            # shard; other shards remain unchanged.
+            # Only the timeout callback counts on the target shard: the shard
+            # pipeline does not observe the timed-out flag, so the worker's
+            # discarded reply carries no timeout error. Other shards stay flat.
             for c, base in zip(all_shards, base_err_shards):
-                expected = base + (2 if pid_cmd(c) == target_pid else 0)
+                expected = base + (1 if pid_cmd(c) == target_pid else 0)
                 wait_for_info_metric(
                     c, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
                     str(expected),
@@ -1032,8 +1033,9 @@ class TestCoordinatorTimeout:
                 cursor_id, baseline, before_info, base_err_coord,
                 'FAIL queued internal _FT.CURSOR READ timeout')
 
-            # Count the timeout callback and discarded worker error on the target
-            # shard; other shards remain unchanged.
+            # Only the timeout callback counts on the target shard: the queued
+            # worker takes the early-exit branch without running the pipeline.
+            # Other shards stay flat.
             for c, base in zip(all_shards, base_err_shards):
                 expected = base + (1 if pid_cmd(c) == target_pid else 0)
                 wait_for_info_metric(
@@ -1855,11 +1857,12 @@ class TestShardTimeout:
             )
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
-            # Count both the timeout callback and the worker encoding its timeout error.
+            # Only the timeout callback counts: the shard pipeline does not observe the
+            # timed-out flag, so the worker's discarded reply carries no timeout error.
             info_dict = info_modules_to_dict(env)
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                            str(base_err_coord + 2 * (i + 1)),
-                            message=f"Coordinator timeout error should be +{2 * (i + 1)} after {query_type} in pipeline")
+                            str(base_err_coord + i + 1),
+                            message=f"Coordinator timeout error should be +{i+1} after {query_type} in pipeline")
 
         # Verify no other metrics changed
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
@@ -2015,11 +2018,12 @@ class TestShardTimeout:
 
         _wait_for_cursor_cleanup(env, baseline, 'shard FAIL cursor-read timeout')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        # Count both the timeout callback and the worker's timeout error.
+        # Only the timeout callback counts: the shard pipeline does not observe the
+        # timed-out flag, so the worker's discarded reply carries no timeout error.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coordinator timeout error should be +2 after shard FAIL cursor-read timeout")
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after shard FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
@@ -2164,11 +2168,12 @@ class TestShardTimeout:
         _wait_for_cursor_cleanup(env, baseline,
                                  'sticky FAIL shard cursor-read timeout under RETURN global')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        # Count both the timeout callback and the worker's timeout error.
+        # Only the timeout callback counts: the shard pipeline does not observe the
+        # timed-out flag, so the worker's discarded reply carries no timeout error.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coordinator timeout error should be +2 after sticky FAIL cursor-read timeout")
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after sticky FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',
