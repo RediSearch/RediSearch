@@ -2242,12 +2242,6 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("CoordSearchRequestFree");
 #endif
-  // The reply buffer needs the server lock to free; this runs from free_privdata on the main thread.
-  RedisModule_EndReply(&r->rows);
-  if (r->rows.ctx) {
-    RedisModule_FreeThreadSafeContext(r->rows.ctx);
-    r->rows.ctx = NULL;
-  }
   searchReducerCtx *rctx = r->rctx;
   if (rctx) {
     if (rctx->pq) {
@@ -3381,10 +3375,10 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
 
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
   searchRequestCtx *req = rCtx->searchCtx;
-  // The reducer serializes the rows into req->rows as it finishes; a reducer that stopped on a
+  // The reducer serializes the rows into the request's reply buffer as it finishes; a reducer that stopped on a
   // timeout leaves the rest in the heap, and the partial-results timeout callback replies them too.
-  if (rCtx->pq) {
-    serializeSearchRows(&req->rows, rCtx, false);
+  if (rCtx->pq && req->base.reply.rows.ctx) {
+    serializeSearchRows(&req->base.reply.rows, rCtx, false);
   }
 
   //-------------------------------------------------------------------------------------------
@@ -3436,9 +3430,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     }
 
     // The buffer counted its rows, so the results array is declared and filled by one move.
-    RedisModule_ReplyKV_ArrayWithLen(reply, "results", req->rows.count); // >results
-    if (req->rows.ctx) {
-      int moved = RedisModule_Reply_Buffered(reply, &req->rows);
+    RedisModule_ReplyKV_ArrayWithLen(reply, "results", RedisModule_Reply_BufferedCount(&req->base.reply.rows)); // >results
+    if (req->base.reply.rows.ctx) {
+      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
       RS_ASSERT(moved == REDISMODULE_OK);
     }
   }
@@ -3447,8 +3441,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
-    if (req->rows.ctx) {
-      int moved = RedisModule_Reply_Buffered(reply, &req->rows);
+    if (req->base.reply.rows.ctx) {
+      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
       RS_ASSERT(moved == REDISMODULE_OK);
     }
   }
@@ -3523,8 +3517,6 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
     } else {
       sendSearchResults(reply, &rCtx);
     }
-    RedisModule_EndReply(&req->rows);
-    req->rows.ctx = NULL;
 }
 
 static void searchResultReducer_wrapper(void *mc_v) {
@@ -3732,7 +3724,7 @@ cleanup:
     // Under FAIL a timeout replies an error, so the rows are abandoned mid-way; RETURN_STRICT
     // replies the rows, so the background serializer finishes and the timeout callback waits for it.
     const bool stopOnTimeout = !fromTimeout && req->base.timeout.policy == TimeoutPolicy_Fail;
-    serializeSearchRows(&req->rows, rCtx, stopOnTimeout);
+    serializeSearchRows(&req->base.reply.rows, rCtx, stopOnTimeout);
     if (profile) {
       req->rowSerializationTime = rs_wall_clock_now_ns() - serializationStart;
     }
@@ -4875,8 +4867,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   req->mrctx = mrctx;
   // Block client with the base request available to every search callback.
   RedisModuleBlockedClient *bc = DistSearchBlockClientWithTimeout(ctx, &req->base, queryTimeoutMS);
-  // Rows are serialized into this module-owned buffer by the reducer and moved by the reply callback.
-  req->rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(ctx));
 
   // Set the blocked client in MRCtx
   MRCtx_SetBlockedClient(mrctx, bc);

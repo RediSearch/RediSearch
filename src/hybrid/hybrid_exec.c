@@ -416,7 +416,7 @@ static bool replyBufferedChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *re
     return false;
   }
 
-  prepareSendChunkReply_hybrid(hreq, reply, qctx, hreq->base.reply.rows.count);
+  prepareSendChunkReply_hybrid(hreq, reply, qctx, RedisModule_Reply_BufferedCount(&hreq->base.reply.rows));
 
   int moved = RedisModule_Reply_Buffered(reply, &hreq->base.reply.rows);
   RS_ASSERT(moved == REDISMODULE_OK);

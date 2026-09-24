@@ -105,10 +105,10 @@ static void trackClose(RedisModule_Reply *reply, int type, int count) {
 }
 
 // `buffer`'s top-level elements become elements of `reply`'s innermost collection, then the buffer's shadow is emptied.
-static void trackBuffered(RedisModule_Reply *reply, RedisModule_Reply *buffer) {
+static void trackBuffered(RedisModule_Reply *reply, RedisModule_Reply *buffer, int elements) {
   Frame *b = topFrame(buffer);
   RS_LOG_ASSERT_FMT(array_len(buffer->frames) == 1, "reply: buffer moved with an open collection: %s", replyJson(buffer));
-  RS_LOG_ASSERT_FMT(b->count == buffer->count, "reply: buffer counted %d elements, shadow saw %d: %s", buffer->count, b->count, replyJson(buffer));
+  RS_LOG_ASSERT_FMT(b->count == elements, "reply: buffer counted %d elements, shadow saw %d: %s", elements, b->count, replyJson(buffer));
   if (b->count) {
     trackElement(reply); // separator for the first moved element
     reply->json = sdscatsds(reply->json, buffer->json);
@@ -132,13 +132,13 @@ static void trackEnd(RedisModule_Reply *reply) {
 }
 
 #define REPLY_TRACK_CLOSE(reply, type, count) trackClose(reply, type, count)
-#define REPLY_TRACK_BUFFERED(reply, buffer) trackBuffered(reply, buffer)
+#define REPLY_TRACK_BUFFERED(reply, buffer, elements) trackBuffered(reply, buffer, elements)
 #define REPLY_TRACK_END(reply) trackEnd(reply)
 
 #else
 
 #define REPLY_TRACK_CLOSE(reply, type, count) ((void)0)
-#define REPLY_TRACK_BUFFERED(reply, buffer) ((void)0)
+#define REPLY_TRACK_BUFFERED(reply, buffer, elements) ((void)0)
 #define REPLY_TRACK_END(reply) ((void)0)
 
 #endif
@@ -150,13 +150,24 @@ RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
   return reply;
 }
 
+RedisModule_Reply RedisModule_NewReplyBuffer(RedisModuleCtx *bufferCtx) {
+  RedisModule_Reply reply = RedisModule_NewReply(bufferCtx);
+  // The buffer's own counter: no Redis collection is opened for it, RedisModule_Reply_Buffered reads it.
+  int *count = array_ensure_tail(&reply.counts, int);
+  *count = 0;
+  reply.cur = count;
+  return reply;
+}
+
 int RedisModule_EndReply(RedisModule_Reply *reply) {
   REPLY_TRACK_END(reply);
-  RS_LOG_ASSERT(!reply->cur, "incomplete reply: a postponed collection is still open");
+  // A buffer keeps its own counter open for its whole life.
+  RS_LOG_ASSERT(!reply->cur || array_len(reply->counts) == 1, "incomplete reply: a postponed collection is still open");
   if (reply->counts) {
     array_free(reply->counts);
     reply->counts = NULL;
   }
+  reply->cur = NULL; // a closed buffer is closed again by its owner's destroy path
   if (reply->scratch) {
     rm_free(reply->scratch);
     reply->scratch = NULL;
@@ -257,10 +268,13 @@ int RedisModule_Reply_SetEnd(RedisModule_Reply *reply) {
 }
 
 int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer) {
-  RS_ASSERT(!buffer->cur);
-  REPLY_TRACK_BUFFERED(reply, buffer);
-  *_RedisModule_Reply_Counter(reply) += buffer->count;
-  buffer->count = 0;
+  RS_ASSERT(buffer->cur && array_len(buffer->counts) == 1); // a buffer with no collection left open
+  int elements = *buffer->cur;
+  *buffer->cur = 0;
+  REPLY_TRACK_BUFFERED(reply, buffer, elements);
+  if (reply->cur) {
+    *reply->cur += elements;
+  }
   return RedisModule_ReplyWithBufferedReply(reply->ctx, buffer->ctx);
 }
 

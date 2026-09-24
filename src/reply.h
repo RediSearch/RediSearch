@@ -48,8 +48,7 @@ struct RedisModule_Reply_Frame {
 typedef struct RedisModule_Reply {
   RedisModuleCtx *ctx;
   bool resp3;
-  int count;           // top-level elements written so far (what RedisModule_Reply_Buffered moves)
-  int *cur;            // element counter of the innermost open postponed collection, or NULL for `count`
+  int *cur;            // element counter of the innermost open postponed collection, or NULL
   arrayof(int) counts; // element counters of the open postponed collections
   char *scratch;       // see RedisModule_Reply_PrefixedStringBuffer
   size_t scratch_cap;
@@ -71,6 +70,10 @@ static inline bool RedisModule_IsRESP3(RedisModule_Reply *reply) {
 }
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
+/* A reply over a RedisModule_CreateReplyBufferContext context. It opens one counter at creation, so its
+ * top-level elements are counted by the same path that counts a postponed collection's, and
+ * RedisModule_Reply_Buffered moves exactly that many. */
+RedisModule_Reply RedisModule_NewReplyBuffer(RedisModuleCtx *bufferCtx);
 int RedisModule_EndReply(RedisModule_Reply *reply);
 
 #ifdef ENABLE_ASSERT
@@ -83,14 +86,11 @@ void _RedisModule_Reply_TrackOpen(RedisModule_Reply *reply, int type, int known)
 #define REPLY_TRACK_OPEN(reply, type, known) ((void)0)
 #endif
 
-// The counter the next element belongs to: the innermost open postponed collection, else the reply itself.
-static inline int *_RedisModule_Reply_Counter(RedisModule_Reply *reply) {
-  return reply->cur ? reply->cur : &reply->count;
-}
-
 // Count one element written to ctx.
 static inline void RedisModule_Reply_CountElement(RedisModule_Reply *reply) {
-  ++*_RedisModule_Reply_Counter(reply);
+  if (reply->cur) {
+    ++*reply->cur;
+  }
 }
 
 // Account for one element that was written directly through ctx, bypassing the wrapper.
@@ -158,12 +158,16 @@ static inline int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply) {
 // written afterwards into its own block, so declare the length whenever it is known. The `len` elements
 // written next belong to this collection; it needs no End.
 static inline int RedisModule_Reply_ArrayWithLen(RedisModule_Reply *reply, size_t len) {
-  *_RedisModule_Reply_Counter(reply) += 1 - (int)len; // +1 for this array; its `len` elements will each add 1 to the same counter
+  if (reply->cur) {
+    *reply->cur += 1 - (int)len; // +1 for this array; its `len` elements will each add 1 to the same counter
+  }
   REPLY_TRACK_OPEN(reply, REDISMODULE_REPLY_ARRAY, (int)len);
   return RedisModule_ReplyWithArray(reply->ctx, len);
 }
 static inline int RedisModule_Reply_MapWithLen(RedisModule_Reply *reply, size_t entries) {
-  *_RedisModule_Reply_Counter(reply) += 1 - 2 * (int)entries; // +1 for this map; its keys and values will each add 1 to the same counter
+  if (reply->cur) {
+    *reply->cur += 1 - 2 * (int)entries; // +1 for this map; its keys and values will each add 1 to the same counter
+  }
   REPLY_TRACK_OPEN(reply, REDISMODULE_REPLY_MAP, 2 * (int)entries);
   return RedisModule_ReplyWithMap(reply->ctx, entries);
 }
@@ -183,9 +187,13 @@ int RedisModule_Reply_Map(RedisModule_Reply *reply);
 int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
-/* Move the complete top-level elements accumulated in `buffer` (a reply over a
- * RedisModule_CreateReplyBufferContext context) into the current collection of `reply`, in O(1).
- * `buffer` must have no open collection; it is left empty and reusable, its scratch retained. */
+// Top-level elements accumulated in a RedisModule_NewReplyBuffer reply so far.
+static inline size_t RedisModule_Reply_BufferedCount(const RedisModule_Reply *buffer) {
+  return (size_t)*buffer->cur;
+}
+/* Move the complete top-level elements accumulated in `buffer` (a RedisModule_NewReplyBuffer reply)
+ * into the current collection of `reply`, in O(1). `buffer` must have no open collection; it is left
+ * empty and reusable, its scratch retained. */
 int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer);
 /* Based on the value type, serialize the value into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);

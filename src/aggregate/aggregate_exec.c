@@ -783,7 +783,8 @@ static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (handleSendChunkError(req, reply, qctx, rc)) return true;
 
   const bool withRows = shouldReplyWithRows(req, rc);
-  const size_t rows = withRows ? req->base.reply.rows.count : 0;
+  // Top-level buffer elements: one per row in RESP3, a flat run per row in RESP2.
+  const size_t rows = withRows ? RedisModule_Reply_BufferedCount(&req->base.reply.rows) : 0;
   if (reply->resp3) {
     prepareSendChunkReply_Resp3(req, reply, rows);
   } else {

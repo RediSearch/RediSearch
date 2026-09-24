@@ -141,7 +141,6 @@ typedef struct {
   bool queryOOM;
   bool timedOut;
 
-  RedisModule_Reply rows;
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
