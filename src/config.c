@@ -320,22 +320,19 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
 static int set_search_disk_max_open_files_config(const char *name, long long val,
   void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  // -1 means unlimited. A positive cap becomes the disk backend's open-file cache size,
-  // which is (cap - 10) after reserving ~10 descriptors for non-data files; caps of 0..10
-  // would underflow that to an effectively unbounded cache and silently disable the limit,
-  // so require -1 or >= DISK_MAX_OPEN_FILES_MIN. Validated here (rather than via the config
-  // min bound) because -1 must stay valid while 0..10 must not.
-  if (val != -1 && val < DISK_MAX_OPEN_FILES_MIN) {
-    RS_ASSERT(err);
-    *err = RedisModule_CreateStringPrintf(NULL,
-      "search-disk-max-open-files must be -1 (unlimited) or >= %d", DISK_MAX_OPEN_FILES_MIN);
-    return REDISMODULE_ERR;
+  // The cap is the unit the process-wide file-descriptor reservation is granted in, so raising
+  // it can be refused if the process can't reserve enough descriptors for every live index at
+  // the new cap. A refusal leaves both the stored value and every live database on the old cap;
+  // lowering the cap always succeeds.
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    if (SearchDisk_UpdateMaxOpenFiles(RSDummyContext, (int)val) != REDISMODULE_OK) {
+      RS_ASSERT(err);
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "search-disk-max-open-files: could not reserve enough file descriptors to raise the cap to %lld", val);
+      return REDISMODULE_ERR;
+    }
   }
   *(int *)privdata = (int)val;
-  // Reapply the new cap to every live disk database (mirrors buffer-percentage).
-  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
-    SearchDisk_UpdateMaxOpenFiles(RSDummyContext, (int)val);
-  }
   return REDISMODULE_OK;
 }
 
@@ -2733,7 +2730,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-max-open-files", DEFAULT_DISK_MAX_OPEN_FILES,
-      REDISMODULE_CONFIG_UNPREFIXED, -1,
+      REDISMODULE_CONFIG_UNPREFIXED, DISK_MAX_OPEN_FILES_MIN,
       INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
       (void *)&(RSGlobalConfig.diskMaxOpenFiles)
     )

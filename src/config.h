@@ -236,11 +236,12 @@ typedef struct {
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
-  // Per-DB cap on the number of files kept open. Valid values: -1 (unlimited) or >= 11.
-  // The disk backend reserves ~10 descriptors for non-data files and uses (cap - 10) as its
-  // open-file cache size, so caps of 0..10 would underflow that to an effectively unbounded
-  // cache — silently disabling the limit — rather than bounding it. Values in that range are
-  // rejected (see set_search_disk_max_open_files_config).
+  // Per-DB cap on the number of files kept open, and the unit the process-wide file-descriptor
+  // reservation is granted in: raising this multiplies the FD cost of every live index.
+  // Deployments with few, very large indexes may need to raise it; deployments with many
+  // indexes should leave it at the default. -1 (unlimited) is rejected — the reservation has no
+  // cost to compute for it. Values below DISK_MAX_OPEN_FILES_MIN are rejected (see
+  // set_search_disk_max_open_files_config).
   int diskMaxOpenFiles;
   // Concurrent async document-metadata reads a single query iterator keeps in flight.
   unsigned int diskAsyncReadPoolSize;
@@ -424,16 +425,18 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
-#define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+#define DEFAULT_DISK_MAX_OPEN_FILES 200   // open-file cap; -1 = unlimited
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
 #define DISK_ASYNC_READ_QUEUE_FACTOR_MAX 16
 static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <= UINT16_MAX,
               "queue depth must fit IndexResultAsyncReadState's uint16_t queueSize");
-// Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
-// underflows to unbounded, so a positive cap must leave at least one cached reader.
-#define DISK_MAX_OPEN_FILES_MIN 11
+// Smallest accepted positive cap. SpeedB's SanitizeOptions clips the table cache size to
+// [20, GetMaxOpenFiles()] regardless of what is requested, so anything below 20 was already
+// silently raised to 20 — reject it here instead of letting the requested and effective caps
+// diverge.
+#define DISK_MAX_OPEN_FILES_MIN 20
 #define DEFAULT_MAX_INDEXES 200000
 
 // default configuration

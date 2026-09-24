@@ -1851,9 +1851,12 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      // Most commonly a refused file-descriptor reservation for the new index (the process
+      // can't grant search-disk-max-open-files more descriptors), not a bug — do not assert.
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+        "Could not open disk index: not enough file descriptors available; "
+        "lower search-disk-max-open-files or reduce the number of indexes");
       goto failure;
     }
   }
