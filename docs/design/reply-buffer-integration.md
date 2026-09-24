@@ -58,7 +58,7 @@ guaranteed to run on the main thread — only the request's original blocked-cli
 reference is.
 
 The API is unreleased. Search rejects loading when either API is absent, and the
-shared CI dependency builds upstream commit `7ade4235dd405c3bdbd609739bf761910db6848d`,
+shared CI dependency builds upstream commit `021fdb3a63d884c7952c3fdc59017710caa4d66d`,
 including PR, merge-queue, and periodic validation, manual tests, and benchmarks.
 There is no fallback for older cores. Upstream approval, merge, and a supported
 packaged core version remain prerequisites for landing this change.
