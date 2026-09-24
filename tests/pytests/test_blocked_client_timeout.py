@@ -1098,7 +1098,7 @@ class TestCoordinatorTimeout:
 
     def _assert_cursor_freed_and_metric_bumped(self, cursor_id, baseline_cursor_total,
                                                before_info, base_err_coord, context):
-        """Post-FAIL-timeout assertions: cursor gone, coord error +1, other metrics unchanged."""
+        """Verify cursor cleanup and timeout accounting after worker completion."""
         env = self.env
         _wait_for_cursor_cleanup(env, baseline_cursor_total, context)
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
@@ -1184,6 +1184,39 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
+    def test_fail_timeout_before_cursor_argument_error(self):
+        """A queued cursor argument error must not be counted after its timeout reply."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy, cursor_id, _, before_info, base_err_coord = _setup_fail_cursor_state(env)
+        freed = _get_coord_req_ctx_free_count(env)
+        thread = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 'invalid']),
+            daemon=True)
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+                'Coordinator did not pause', timeout=5)
+            thread.start()
+            client = wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
+            env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+            thread.join(timeout=5)
+            env.assertFalse(thread.is_alive())
+        finally:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            thread.join(timeout=5)
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+        wait_for_condition(
+            lambda: (_get_coord_req_ctx_free_count(env) == freed + 1, {}),
+            'Timed-out cursor worker did not finish', timeout=5)
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1))
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id).ok()
+
     def test_fail_timeout_internal_cursor_read(self):
         """FAIL timeout fired on a non-coord shard's _FT.CURSOR READ BC timer.
 
@@ -1219,8 +1252,7 @@ class TestCoordinatorTimeout:
             prev_policy, cursor_id, baseline, before_info, base_err_coord = \
                 _setup_fail_cursor_state(env)
 
-            # Only the timed-out shard counts the timeout callback and the
-            # worker's discarded timeout error; other shards stay flat.
+            # Only the timed-out shard counts the timeout; other shards stay flat.
             base_err_shards = [
                 int(info_modules_to_dict(c)[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
                 for c in all_shards
@@ -1255,9 +1287,9 @@ class TestCoordinatorTimeout:
                 cursor_id, baseline, before_info, base_err_coord,
                 'FAIL internal _FT.CURSOR READ timeout')
 
-            # The target shard counts both timeout errors; other shards are unchanged.
+            # The target shard counts the timeout once; other shards are unchanged.
             for c, base in zip(all_shards, base_err_shards):
-                expected = base + (2 if pid_cmd(c) == target_pid else 0)
+                expected = base + (1 if pid_cmd(c) == target_pid else 0)
                 wait_for_info_metric(
                     c, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
                     str(expected),
@@ -1646,14 +1678,6 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
-    def test_fail_timeout_before_coord_store_aggregate(self):
-        """Test timeout occurring before coordinator stores results for FT.AGGREGATE."""
-        self._test_fail_timeout_before_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
-
-    def test_fail_timeout_after_coord_store_aggregate(self):
-        """Test timeout occurring after coordinator stores results for FT.AGGREGATE."""
-        self._test_fail_timeout_after_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
-
     def test_fail_timeout_before_coord_store_hybrid(self):
         """Test timeout occurring before coordinator stores results for FT.HYBRID."""
         self._test_fail_timeout_before_coord_store_impl([
@@ -1671,46 +1695,6 @@ class TestCoordinatorTimeout:
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
-
-    def _test_fail_timeout_coord_store_cursor_read_impl(self, before):
-        """FAIL timeout on FT.CURSOR READ paused before/after coord AREQ_StoreResults."""
-        env = self.env
-        skipIfNoEnableAssert(env)
-
-        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(env)
-
-        if before:
-            setPauseBeforeStoreResults(env, True, internal=False)
-        else:
-            setPauseAfterStoreResults(env, True, internal=False)
-
-        try:
-            t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
-            wait_for_condition(
-                lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-                'Timeout while waiting for FT.CURSOR READ to pause around store results'
-            )
-            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-            wait_for_client_unblocked(env, blocked_client_id)
-            t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
-        finally:
-            resetStoreResultsDebug(env)
-
-        # Wait for the worker's post-timeout wind-down before asserting.
-        self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
-                                                    base_err_coord,
-                                                    'FAIL coord-store cursor-read timeout')
-
-        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
-
-    def test_fail_timeout_before_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just before coord AREQ_StoreResults."""
-        self._test_fail_timeout_coord_store_cursor_read_impl(before=True)
-
-    def test_fail_timeout_after_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just after coord AREQ_StoreResults."""
-        self._test_fail_timeout_coord_store_cursor_read_impl(before=False)
 
     def test_sticky_policy_fail_aggregate_config_return_cursor_read(self):
         """Cursor created under FAIL keeps FAIL semantics after CONFIG SET to RETURN."""
@@ -1838,7 +1822,7 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
 
-        # FAIL semantics held: -TIMEOUT error, cursor freed, coord error metric +1.
+        # The timeout callback counts the error once.
         self._assert_cursor_freed_and_metric_bumped(
             cursor_id, baseline, before_info, base_err_coord,
             'sticky FAIL cursor-read timeout between reads under RETURN global')
@@ -6002,11 +5986,11 @@ class TestShardTimeout:
             )
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
-            # Count both the timeout callback and the worker encoding its timeout error.
+            # The timeout callback counts the error once.
             info_dict = info_modules_to_dict(env)
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                            str(base_err_coord + 2 * (i + 1)),
-                            message=f"Coordinator timeout error should be +{2 * (i + 1)} after {query_type} in pipeline")
+                            str(base_err_coord + i + 1),
+                            message=f"Coordinator timeout error should be +{i + 1} after {query_type} in pipeline")
 
         # Verify no other metrics changed
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
@@ -6071,13 +6055,46 @@ class TestShardTimeout:
         # Wait for the worker to encode its discarded timeout error as well.
         env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
-        # Count both the timeout callback and the worker's timeout error.
+        # The timeout callback counts the error once.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coord timeout error should be +2 after QI sync-point timeout")
+                        str(base_err_coord + 1),
+                        message="Coord timeout error should be +1 after QI sync-point timeout")
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_before_execution_plan_error(self):
+        """A plan error after the timeout callback must not add another error metric."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@name', 'AS']
+        # LOAD aliases are validated when the worker builds the pipeline.
+        env.expect(*command).error().contains('must be accompanied with NAME')
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        point = 'BeforeSpecLock'
+        thread = threading.Thread(target=run_cmd_expect_timeout, args=(env, command), daemon=True)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        try:
+            thread.start()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                'Worker did not reach execution-plan preparation', timeout=5)
+            client = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+            env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+            thread.join(timeout=5)
+            env.assertFalse(thread.is_alive())
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            thread.join(timeout=5)
+            env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1))
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
     def _test_fail_timeout_reply_boundary_impl(self, query_args, before, cmd_name=None):
         """Pause FAIL around encoding, or around stored results for HYBRID."""
@@ -6623,11 +6640,11 @@ class TestShardTimeout:
 
         _wait_for_cursor_cleanup(env, baseline, 'shard FAIL cursor-read timeout')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        # Count both the timeout callback and the worker's timeout error.
+        # The timeout callback counts the error once.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coordinator timeout error should be +2 after shard FAIL cursor-read timeout")
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after shard FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
@@ -7345,11 +7362,11 @@ class TestShardTimeout:
         _wait_for_cursor_cleanup(env, baseline,
                                  'sticky FAIL shard cursor-read timeout under RETURN global')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        # Count both the timeout callback and the worker's timeout error.
+        # The timeout callback counts the error once.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coordinator timeout error should be +2 after sticky FAIL cursor-read timeout")
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after sticky FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',
@@ -8372,6 +8389,8 @@ def _exercise_background_fail_timeout(stage):
                 env.assertNotEqual(cursor_id, 0)
                 command = ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 2]
 
+            before_info = info_modules_to_dict(env)
+            base_errors = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
             original = env.getConnection().connection_pool
             kwargs = dict(original.connection_kwargs, retry=Retry(NoBackoff(), 0),
                           socket_timeout=5)
@@ -8413,6 +8432,9 @@ def _exercise_background_fail_timeout(stage):
                     f'{kind}: abandoned reply leaked a cursor', timeout=5)
                 if cursor_id is not None:
                     env.expect('FT.CURSOR', 'READ', 'idx', cursor_id).error().contains('Cursor not found')
+                after_info = info_modules_to_dict(env)
+                env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+                                base_errors + 1)
                 env.assertTrue(client.ping())
                 env.assertEqual(client.client_id(), client_id)
                 # A subsequent worker query also detects stale per-dispatch
@@ -8577,3 +8599,214 @@ def test_background_fail_timeout_while_queued():
 @skip(cluster=True)
 def test_background_fail_index_dropped_while_queued():
     _exercise_background_fail_queued_cleanup(True)
+
+
+def _new_env(protocol):
+    # Explicit FAIL workers and both wire protocols exercise background encoding.
+    env = Env(protocol=protocol,
+              moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL DEFAULT_DIALECT 2 NOGC')
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for n in range(8):
+        conn.execute_command('HSET', f'{{doc}}:{n}', 'n', n,
+                             'value', 'invalid' if n == 3 else str(n),
+                             'payload', 'prefix\x00suffix\r\n' + 'w' * 4096)
+    return env
+
+
+def _aggregate(timeout=0, withcount=False):
+    return ['FT.AGGREGATE', 'idx', '*', *(['WITHCOUNT'] if withcount else []),
+            'TIMEOUT', timeout, 'LOAD', 3, '@n', '@value', '@payload',
+            'SORTBY', 2, '@n', 'ASC']
+
+
+def _exercise_cancellation(protocol, cancellation):
+    env = _new_env(protocol)
+    stages = ('During',) if cancellation == 'deadline' else ('Before', 'During', 'After')
+    for stage in stages:
+        point = f'{stage}CoordBackgroundReplyEncode'
+        for kind in ('aggregate', 'profile', 'withcount', 'cursor_initial', 'cursor_read',
+                     'withcount_cursor_initial', 'withcount_cursor_read'):
+            timeout = 1000 if cancellation == 'deadline' else 10000
+            command = _aggregate(timeout, withcount=kind.startswith('withcount'))
+            baseline = _background_fail_cursor_total(env)
+            cursor_id = None
+            if kind == 'profile':
+                command = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', *command[2:]]
+            elif kind.endswith('cursor_initial'):
+                command += ['WITHCURSOR', 'COUNT', 2]
+            elif kind.endswith('cursor_read'):
+                _, cursor_id = env.cmd(*command, 'WITHCURSOR', 'COUNT', 2)
+                env.assertNotEqual(cursor_id, 0)
+                command = ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 2]
+            before_info = info_modules_to_dict(env)
+            base_errors = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+            freed = _get_coord_req_ctx_free_count(env)
+            original = env.getConnection().connection_pool
+            pool = ConnectionPool(connection_class=original.connection_class,
+                                  **dict(original.connection_kwargs,
+                                         retry=Retry(NoBackoff(), 0), socket_timeout=5))
+            client = Redis(connection_pool=pool, single_connection_client=True)
+            client_id = client.client_id()
+            results, errors = [], []
+
+            def query():
+                try:
+                    results.append(client.execute_command(*command))
+                except Exception as error:
+                    errors.append(error)
+
+            thread = threading.Thread(target=query, daemon=True)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+            try:
+                thread.start()
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point),
+                             {'results': results, 'errors': errors}),
+                    f'{kind} did not reach {point}', timeout=5)
+                if cancellation == 'timeout':
+                    env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+                elif cancellation == 'disconnect':
+                    env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+                thread.join(timeout=5)
+                env.assertFalse(thread.is_alive(), message=f'{kind}: waited for encoding')
+                env.assertEqual(results, [])
+                env.assertEqual(len(errors), 1, message=errors)
+                if cancellation != 'disconnect':
+                    env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
+                    env.assertContains('Timeout limit was reached', str(errors[0]))
+                    env.assertTrue(client.ping())
+                    env.assertEqual(client.client_id(), client_id)
+                else:
+                    env.assertTrue(isinstance(errors[0], ConnectionError), message=errors)
+                env.assertEqual(_get_coord_req_ctx_free_count(env), freed)
+                env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), 1)
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+                wait_for_condition(
+                    lambda: (_get_coord_req_ctx_free_count(env) == freed + 1, {}),
+                    f'{kind}: blocked request was not freed', timeout=5)
+                env.assertEqual(_background_fail_cursor_total(env), baseline)
+                after_info = info_modules_to_dict(env)
+                env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+                                base_errors + (0 if cancellation == 'disconnect' else 1))
+                if cursor_id is not None:
+                    env.expect('FT.CURSOR', 'READ', 'idx', cursor_id).error().contains('Cursor not found')
+                if cancellation != 'disconnect':
+                    env.assertTrue(client.ping())
+                    env.assertEqual(client.client_id(), client_id)
+            finally:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+                thread.join(timeout=5)
+                client.close()
+                pool.disconnect()
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+
+@skip(cluster=False)
+def test_coord_background_fail_timeout_resp2():
+    """Timeout discards RESP2 replies before, during, and after worker encoding."""
+    _exercise_cancellation(2, 'timeout')
+
+
+@skip(cluster=False)
+def test_coord_background_fail_timeout_resp3():
+    """Timeout discards RESP3 replies before, during, and after worker encoding."""
+    _exercise_cancellation(3, 'timeout')
+
+
+@skip(cluster=False)
+def test_coord_background_fail_disconnect_resp2():
+    """Disconnect retains worker ownership until completion and frees cursors."""
+    _exercise_cancellation(2, 'disconnect')
+
+
+@skip(cluster=False)
+def test_coord_background_fail_disconnect_resp3():
+    """Disconnect during RESP3 encoding releases the request and pending cursor."""
+    _exercise_cancellation(3, 'disconnect')
+
+
+@skip(cluster=False)
+def test_coord_background_fail_deadline_resp2():
+    """The real blocked-client deadline remains active during RESP2 encoding."""
+    _exercise_cancellation(2, 'deadline')
+
+
+@skip(cluster=False)
+def test_coord_background_fail_deadline_resp3():
+    """The real blocked-client deadline remains active during RESP3 encoding."""
+    _exercise_cancellation(3, 'deadline')
+
+
+def _reply_parity(protocol):
+    env = _new_env(protocol)
+    for timeout in (0, 10000):
+        commands = [
+            _aggregate(timeout), _aggregate(timeout, withcount=True),
+            [debug_cmd(), *_aggregate(timeout), 'PAUSE_BEFORE_RP_N', 'Network', 1000,
+             'DEBUG_PARAMS_COUNT', 3],
+            ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', timeout, 'LOAD', 1, '@n'],
+            ['FT.AGGREGATE', 'idx', '@n:[100 200]', 'TIMEOUT', timeout],
+            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', *_aggregate(timeout)[2:]],
+        ]
+        for command in commands:
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'return-strict')
+            expected = env.cmd(*command)
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'fail')
+            actual = env.cmd(*command)
+            if command[0] == 'FT.PROFILE':
+                expected = expected['Results'] if protocol == 3 else expected[0]
+                actual = actual['Results'] if protocol == 3 else actual[0]
+            env.assertEqual(actual, expected, message=str(command))
+
+        for withcount in (False, True):
+            chunk, cursor = env.cmd(*_aggregate(timeout, withcount), 'WITHCURSOR', 'COUNT', 2)
+            values = []
+            while True:
+                rows = ([row['extra_attributes'] for row in chunk['results']] if protocol == 3
+                        else [to_dict(row) for row in chunk[1:]])
+                values.extend(int(row['n']) for row in rows)
+                if not cursor:
+                    break
+                chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 2)
+            env.assertEqual(values, list(range(8)))
+            env.assertEqual(_background_fail_cursor_total(env), 0)
+
+    # GROUPBY puts expression evaluation after coordinator reduction. A later
+    # invalid value must discard earlier valid rows in the same chunk.
+    query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0, 'LOAD', 1, '@value',
+             'GROUPBY', 1, '@n', 'REDUCE', 'FIRST_VALUE', 1, '@value', 'AS', 'value',
+             'SORTBY', 2, '@n', 'ASC']
+    for expression in (['APPLY', '@value + 1', 'AS', 'incremented'],
+                       ['FILTER', '(@value + 1) > 0']):
+        command = query + expression
+        _assert_background_fail_late_error(env, command)
+        _assert_background_fail_late_error(env, command + ['WITHCURSOR', 'COUNT', 8])
+        _, cursor = env.cmd(*command, 'WITHCURSOR', 'COUNT', 2)
+        env.assertNotEqual(cursor, 0)
+        _assert_background_fail_late_error(env, ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 2])
+        env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('Cursor not found')
+
+    env.expect(debug_cmd(), *_aggregate(), 'DEBUG_PARAMS_COUNT', 0).error().contains('Invalid DEBUG_PARAMS_COUNT')
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+               'UNKNOWN_DEBUG_OPTION', 'DEBUG_PARAMS_COUNT', 1).error().contains('Unrecognized argument')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'UNKNOWN_OPTION').error()
+    env.expect('FT.AGGREGATE', 'idx', '@n:[').error()
+    _, cursor = env.cmd(*_aggregate(), 'WITHCURSOR', 'COUNT', 2)
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 'invalid').error().contains('Bad value for COUNT')
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
+    env.assertTrue(env.cmd('PING'))
+
+
+@skip(cluster=False)
+def test_coord_background_fail_reply_parity_resp2():
+    """Worker replies preserve counts, cursor chunks, profiles, and error atomicity."""
+    _reply_parity(2)
+
+
+@skip(cluster=False)
+def test_coord_background_fail_reply_parity_resp3():
+    """Worker RESP3 replies match callback replies, including late errors."""
+    _reply_parity(3)
