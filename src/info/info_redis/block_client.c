@@ -37,8 +37,8 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 }
 
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref, BlockClientCtx *blockClientCtx) {
-  // Assert that if timeoutMS is provided, then both callbacks must be provided.
-  RS_ASSERT(blockClientCtx->timeoutMS == 0 || (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
+  // A timeout callback is required for deadlines; replies may be buffered by a worker.
+  RS_ASSERT(blockClientCtx->timeoutMS == 0 || blockClientCtx->timeoutCallback != NULL);
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
@@ -63,8 +63,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
   RS_ASSERT(blockClientCtx != NULL);
   RS_ASSERT(cursor->execState != NULL);
-  RS_ASSERT(blockClientCtx->timeoutMS == 0 ||
-            (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
+  RS_ASSERT(blockClientCtx->timeoutMS == 0 || blockClientCtx->timeoutCallback != NULL);
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
