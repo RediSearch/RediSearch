@@ -23,7 +23,7 @@ use rqe_iterators::{
 
 use crate::{
     heap::{HeapResult, ScoredResult, TopKHeap},
-    order::{Ascending, ScoreOrdering},
+    order::{Ascending, ScoreOrdering, TiebreakStrategy},
     traits::{BatchStrategy, ScoreBatch, ScoreSource},
 };
 
@@ -116,6 +116,10 @@ pub struct TopKIterator<
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
     order: O,
+    /// Settles equal-score ties. Defaults to
+    /// [`LowerDocIdWins`](TiebreakStrategy::LowerDocIdWins); override with
+    /// [`with_tiebreak`](Self::with_tiebreak).
+    tiebreak: TiebreakStrategy,
     /// When `true`, filtered modes skip deep-copying the child's rich result
     /// subtree and yield its metrics with the source's score attached.
     /// Set when the downstream pipeline needs no rich results (no relevance
@@ -174,6 +178,16 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
+    /// Set which doc id wins an equal-score tie, for a query whose last sort key
+    /// makes the higher doc id the better one.
+    ///
+    /// Call before collection starts; it rebuilds the (still empty) heap.
+    pub fn with_tiebreak(mut self, tiebreak: TiebreakStrategy) -> Self {
+        self.tiebreak = tiebreak;
+        *self.heap = TopKHeap::new(self.k, self.order, tiebreak);
+        self
+    }
+
     pub fn new_with_mode(
         source: S,
         child: Option<C>,
@@ -182,7 +196,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         mode: TopKMode,
     ) -> Self {
         Self {
-            heap: ManuallyDrop::new(TopKHeap::new(k, order)),
+            heap: ManuallyDrop::new(TopKHeap::new(k, order, TiebreakStrategy::LowerDocIdWins)),
             source,
             child,
             mode,
@@ -190,6 +204,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             direct_batch: None,
             k,
             order,
+            tiebreak: TiebreakStrategy::LowerDocIdWins,
             can_trim_deep_results: false,
             phase: Phase::NotStarted,
             results: ManuallyDrop::new(Vec::new()),
@@ -327,7 +342,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     // rescans every match from scratch, so batch-phase entries
                     // are redundant. Keeping them would re-admit the same doc id
                     // (TopKHeap::push only de-dups against the worst element).
-                    *self.heap = TopKHeap::new(self.k, self.order);
+                    *self.heap = TopKHeap::new(self.k, self.order, self.tiebreak);
                     self.collect_adhoc()?;
                     return Ok(());
                 }
@@ -420,7 +435,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     /// the [`Yielding`](Phase::Yielding) phase.
     fn finalize_collection(&mut self) {
         // Replace heap with a fresh one; drain_sorted consumes the old one.
-        let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.order));
+        let old_heap = std::mem::replace(
+            &mut *self.heap,
+            TopKHeap::new(self.k, self.order, self.tiebreak),
+        );
         *self.results = old_heap.drain_sorted();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
@@ -604,7 +622,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
 
     #[inline(always)]
     fn rewind(&mut self) {
-        *self.heap = TopKHeap::new(self.k, self.order);
+        *self.heap = TopKHeap::new(self.k, self.order, self.tiebreak);
         self.results.clear();
         *self.current = None;
         self.source.rewind();

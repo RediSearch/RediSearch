@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
-use crate::order::{Ascending, ScoreOrdering};
+use crate::order::{Ascending, ScoreOrdering, TiebreakStrategy};
 
 /// A (doc_id, score) pair stored in the heap.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,7 +59,7 @@ impl<'index, O: ScoreOrdering> From<HeapEntry<'index, O>> for HeapResult<'index>
 /// - `compare(a, b) == Less`  → `a` is **better** than `b`.
 /// - `compare(a, b) == Greater` → `a` is **worse** than `b` (= heap-max, evicted first).
 ///
-/// Ties on score are broken by doc id: the lower doc id is **better**.
+/// Ties on score are broken by doc id, in the direction `tiebreak` names.
 struct HeapEntry<'index, O: ScoreOrdering> {
     result: ScoredResult,
     /// The child's record captured at match time, carried alongside the score
@@ -67,6 +67,8 @@ struct HeapEntry<'index, O: ScoreOrdering> {
     record: Option<RSIndexResult<'index>>,
     /// Score ordering, carried so [`Ord`] can be implemented without extra state.
     order: O,
+    /// Which doc id wins an equal-score tie, carried for the same reason.
+    tiebreak: TiebreakStrategy,
 }
 
 impl<O: ScoreOrdering> PartialEq for HeapEntry<'_, O> {
@@ -91,8 +93,13 @@ impl<O: ScoreOrdering> Ord for HeapEntry<'_, O> {
         match score_ord {
             Ordering::Less => Ordering::Less,
             Ordering::Greater => Ordering::Greater,
-            // Tie on score: higher doc_id is worse (evicted first) → Greater
-            Ordering::Equal => self.result.doc_id.cmp(&other.result.doc_id),
+            Ordering::Equal => {
+                let id_ord = self.result.doc_id.cmp(&other.result.doc_id);
+                match self.tiebreak {
+                    TiebreakStrategy::LowerDocIdWins => id_ord,
+                    TiebreakStrategy::HigherDocIdWins => id_ord.reverse(),
+                }
+            }
         }
     }
 }
@@ -118,17 +125,19 @@ pub struct TopKHeap<'index, O: ScoreOrdering = Ascending> {
     inner: BinaryHeap<HeapEntry<'index, O>>,
     capacity: usize,
     order: O,
+    tiebreak: TiebreakStrategy,
 }
 
 impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
-    /// Creates a new heap that holds at most `capacity` elements,
-    /// using `order` to determine which score is better.
-    pub fn new(capacity: NonZeroUsize, order: O) -> Self {
+    /// Creates a new heap that holds at most `capacity` elements, using `order`
+    /// to determine which score is better and `tiebreak` to settle equal ones.
+    pub fn new(capacity: NonZeroUsize, order: O, tiebreak: TiebreakStrategy) -> Self {
         let capacity = capacity.into();
         Self {
             inner: BinaryHeap::with_capacity(capacity),
             capacity,
             order,
+            tiebreak,
         }
     }
 
@@ -216,6 +225,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
             result: candidate,
             record: None,
             order: self.order,
+            tiebreak: self.tiebreak,
         };
         probe < *worst
     }
@@ -258,12 +268,14 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// would silently exceed capacity.
     pub fn rebuild_from(&mut self, results: impl IntoIterator<Item = HeapResult<'index>>) {
         let order = self.order;
+        let tiebreak = self.tiebreak;
         self.inner = results
             .into_iter()
             .map(|r| HeapEntry {
                 result: r.scored,
                 record: r.record,
                 order,
+                tiebreak,
             })
             .collect();
         debug_assert!(self.inner.len() <= self.capacity);
@@ -299,16 +311,35 @@ mod tests {
 
     use super::*;
     use crate::order::Descending;
+    use crate::order::TiebreakStrategy::{HigherDocIdWins, LowerDocIdWins};
 
     fn non_zero_capacity(capacity: usize) -> NonZeroUsize {
         NonZeroUsize::new(capacity).unwrap()
+    }
+
+    #[test]
+    fn tiebreak_higher_doc_id_wins_evicts_the_lower_one() {
+        // Equal scores throughout, so only the tiebreak decides retention. The
+        // default direction would have kept the two lowest ids instead.
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending, HigherDocIdWins);
+        heap.push(1, 1.0);
+        heap.push(2, 1.0);
+        heap.push(3, 1.0);
+
+        let kept = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored.doc_id)
+            .sorted()
+            .collect_vec();
+        assert_eq!(kept, vec![2, 3]);
     }
 
     /// Ascending comparator: lower score is better (e.g. vector distance).
     /// Descending comparator: higher score is better (e.g. numeric SORTBY).
     #[test]
     fn heap_fewer_than_k_preserves_all() {
-        let mut heap = TopKHeap::new(non_zero_capacity(5), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(5), Ascending, LowerDocIdWins);
         heap.push(1, 3.0);
         heap.push(2, 1.0);
         heap.push(3, 2.0);
@@ -327,7 +358,7 @@ mod tests {
 
     #[test]
     fn heap_evicts_worst_when_full_asc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending, LowerDocIdWins);
         heap.push(1, 5.0);
         heap.push(2, 3.0);
         heap.push(3, 4.0);
@@ -352,7 +383,7 @@ mod tests {
 
     #[test]
     fn heap_evicts_worst_when_full_desc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Descending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Descending, LowerDocIdWins);
         heap.push(1, 1.0);
         heap.push(2, 3.0);
         heap.push(3, 2.0);
@@ -376,7 +407,7 @@ mod tests {
 
     #[test]
     fn heap_capacity_one_keeps_best_asc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(1), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(1), Ascending, LowerDocIdWins);
         heap.push(1, 5.0);
         heap.push(2, 3.0);
         heap.push(3, 4.0);
@@ -394,7 +425,7 @@ mod tests {
 
     #[test]
     fn heap_tie_breaking_keeps_lower_doc_id() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending, LowerDocIdWins);
         heap.push(10, 1.0);
         heap.push(5, 1.0);
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie)
@@ -413,7 +444,7 @@ mod tests {
 
     #[test]
     fn heap_exact_duplicate_not_inserted_when_full() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending, LowerDocIdWins);
         heap.push(1, 1.0);
         heap.push(2, 2.0);
 
@@ -432,7 +463,7 @@ mod tests {
 
     #[test]
     fn heap_tie_breaking_keeps_lower_doc_id_desc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Descending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Descending, LowerDocIdWins);
         heap.push(10, 1.0);
         heap.push(5, 1.0);
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie, regardless of sort direction)
@@ -451,7 +482,7 @@ mod tests {
 
     #[test]
     fn heap_tiebreak_desc_evicts_higher_doc_id() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Descending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Descending, LowerDocIdWins);
         heap.push(5, 1.0);
         heap.push(10, 1.0);
         heap.push(3, 1.0);
@@ -470,7 +501,7 @@ mod tests {
 
     #[test]
     fn heap_tiebreak_asc_evicts_higher_doc_id() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending, LowerDocIdWins);
         heap.push(5, 1.0);
         heap.push(10, 1.0);
         heap.push(3, 1.0);
@@ -489,7 +520,7 @@ mod tests {
 
     #[test]
     fn heap_peek_worst_returns_eviction_candidate() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending, LowerDocIdWins);
         heap.push(1, 2.0);
         heap.push(2, 5.0);
         heap.push(3, 3.0);
@@ -499,7 +530,7 @@ mod tests {
 
     #[test]
     fn drain_sorted_best_first_asc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(4), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(4), Ascending, LowerDocIdWins);
         for (id, score) in [(1, 4.0), (2, 1.0), (3, 3.0), (4, 2.0)] {
             heap.push(id, score);
         }
@@ -516,7 +547,7 @@ mod tests {
 
     #[test]
     fn drain_sorted_best_first_desc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(4), Descending);
+        let mut heap = TopKHeap::new(non_zero_capacity(4), Descending, LowerDocIdWins);
         for (id, score) in [(1, 4.0), (2, 1.0), (3, 3.0), (4, 2.0)] {
             heap.push(id, score);
         }
@@ -533,7 +564,7 @@ mod tests {
 
     #[test]
     fn pop_worst_removes_eviction_candidate_asc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending, LowerDocIdWins);
         heap.push(1, 2.0);
         heap.push(2, 5.0);
         heap.push(3, 3.0);
@@ -547,7 +578,7 @@ mod tests {
 
     #[test]
     fn pop_worst_removes_eviction_candidate_desc() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Descending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Descending, LowerDocIdWins);
         heap.push(1, 4.0);
         heap.push(2, 1.0);
         heap.push(3, 2.0);
@@ -561,19 +592,19 @@ mod tests {
 
     #[test]
     fn pop_worst_on_empty_returns_none() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending, LowerDocIdWins);
         assert!(heap.pop_worst().is_none());
     }
 
     #[test]
     fn peek_worst_on_empty_returns_none() {
-        let heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        let heap = TopKHeap::new(non_zero_capacity(3), Ascending, LowerDocIdWins);
         assert!(heap.peek_worst().is_none());
     }
 
     #[test]
     fn pop_worst_allows_reinsertion() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending, LowerDocIdWins);
         heap.push(1, 3.0);
         heap.push(2, 1.0);
         heap.pop_worst();
@@ -586,7 +617,7 @@ mod tests {
 
     #[test]
     fn drain_unsorted_empties_heap_and_returns_all() {
-        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending, LowerDocIdWins);
         heap.push(1, 2.0);
         heap.push(2, 5.0);
         heap.push(3, 3.0);
@@ -615,7 +646,7 @@ mod tests {
 
     #[test]
     fn heap_is_empty_and_is_full() {
-        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending, LowerDocIdWins);
         assert!(heap.is_empty());
         assert!(!heap.is_full());
 
