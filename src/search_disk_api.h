@@ -177,8 +177,6 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
-   * @param isRestore If true, admit a persisted index and clamp shared WBM capacity to the
-   *        current maximum; otherwise reject the new open when its required target exceeds it
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
@@ -191,8 +189,7 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpec)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      bool deleteBeforeOpen, bool isRestore, const SearchDiskCompactionCallbacks *callbacks,
-      void *private_data);
+      bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -297,12 +294,15 @@ typedef struct BasicDiskAPI {
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
   /**
-   * @brief Update the memory limit used to derive Search disk resource limits.
+   * @brief Apply the complete resource state owned by Core.
    *
    * @param disk Pointer to the disk context
    * @param memoryLimitBytes Current bigredis-max-ram value in bytes
+   * @param logicalIndexCount Current logical disk-index count
+   * @return true if all derived capacities were applied
    */
-  void (*updateMemoryLimit)(RedisSearchDisk *disk, size_t memoryLimitBytes);
+  bool (*updateResourceState)(RedisSearchDisk *disk, size_t memoryLimitBytes,
+                              size_t logicalIndexCount);
 
   /**
    * Create a result processor that loads document fields from disk asynchronously.
