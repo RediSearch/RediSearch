@@ -34,11 +34,16 @@ from unittest import SkipTest
 import inspect
 import math
 import tempfile
+import hashlib
 import faker
 import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
-REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
+# Other checkouts must not replace a fixture before Redis opens it.
+REDISEARCH_CACHE_DIR = os.path.join(
+    tempfile.gettempdir(), 'redisearch-rdbs',
+    hashlib.sha256(os.fsencode(os.path.realpath(TEST_RDBS_DIR))).hexdigest(),
+)
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 
@@ -1395,13 +1400,9 @@ def access_nested_list(lst, index):
     return result
 
 def getRDBFile(env, file_name, depth=0):
-    # Materialise a bundled RDB fixture from tests/pytests/test_rdbs/<file_name>.zip
-    # into REDISEARCH_CACHE_DIR/<file_name>. Extraction is idempotent: if the
-    # target file already exists with non-zero size we skip re-extracting.
+    # Refresh from the bundled ZIP: an existing copy may belong to another revision.
     src = os.path.join(TEST_RDBS_DIR, file_name + '.zip')
     dst = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    if os.path.exists(dst) and os.path.getsize(dst) > 0:
-        return True
     if not os.path.exists(src):
         env.assertTrue(
             False,
@@ -1410,10 +1411,12 @@ def getRDBFile(env, file_name, depth=0):
         )
         return False
     import zipfile
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
     try:
-        with zipfile.ZipFile(src, 'r') as z:
-            z.extract(os.path.basename(file_name), os.path.dirname(dst))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with zipfile.ZipFile(src, 'r') as z, tempfile.TemporaryDirectory(dir=os.path.dirname(dst)) as tmp:
+            extracted = z.extract(os.path.basename(file_name), tmp)
+            # Publish only complete files, including when test processes run in parallel.
+            os.replace(extracted, dst)
     except (zipfile.BadZipFile, KeyError, OSError) as e:
         env.assertTrue(
             False,

@@ -6,6 +6,81 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+import common
+import importlib.util
+from pathlib import Path
+from unittest.mock import Mock, patch
+import zipfile
+
+
+@skip(cluster=True)
+def test_getRDBFile_isolates_checkouts(env):
+    """A later open must read this checkout's fixture after another checkout refreshes."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        name = 'fixture.rdb'
+        readers = []
+        for checkout, contents in [('checkout_a', b'REDIS0013'), ('checkout_b', b'REDIS0015')]:
+            source = root / checkout
+            fixtures = source / 'test_rdbs'
+            fixtures.mkdir(parents=True)
+            module_path = source / 'common.py'
+            module_path.write_bytes(Path(common.__file__).read_bytes())
+            spec = importlib.util.spec_from_file_location(checkout, module_path)
+            fixture_common = importlib.util.module_from_spec(spec)
+            with patch('tempfile.gettempdir', return_value=str(root / 'cache')):
+                spec.loader.exec_module(fixture_common)
+            with zipfile.ZipFile(fixtures / (name + '.zip'), 'w') as z:
+                z.writestr(name, contents)
+            env.assertTrue(fixture_common.getRDBFile(env, name))
+            link = source / 'dump.rdb'
+            link.symlink_to(Path(fixture_common.REDISEARCH_CACHE_DIR, name))
+            readers.append((link, contents))
+
+        for link, contents in readers:
+            env.assertEqual(link.read_bytes(), contents)
+
+
+@skip(cluster=True)
+def test_getRDBFile_refreshes_existing_fixture(env):
+    """Replacing a bundled fixture refreshes the cache without changing its name."""
+    with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as cache:
+        name = 'fixture.rdb'
+        archive = Path(source, name + '.zip')
+        destination = Path(cache, name)
+        destination.write_bytes(b'stale fixture')
+        with patch.multiple(common, TEST_RDBS_DIR=source, REDISEARCH_CACHE_DIR=cache):
+            for contents in (b'first fixture', b'updated fixture'):
+                with zipfile.ZipFile(archive, 'w') as z:
+                    z.writestr(name, contents)
+                previous = destination.read_bytes()
+                with destination.open('rb') as reader:
+                    env.assertTrue(getRDBFile(env, name))
+                    env.assertEqual(reader.read(), previous)
+                env.assertEqual(destination.read_bytes(), contents)
+                env.assertEqual(os.listdir(cache), [name])
+
+
+@skip(cluster=True)
+def test_getRDBFile_failed_extraction_preserves_existing_fixture(env):
+    """A ZIP checksum failure leaves the previous fixture intact and no temporary files."""
+    with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as cache:
+        name = 'fixture.rdb'
+        archive = Path(source, name + '.zip')
+        destination = Path(cache, name)
+        destination.write_bytes(b'previous fixture')
+        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED) as z:
+            z.writestr(name, b'new fixture')
+        archive.write_bytes(archive.read_bytes().replace(b'new fixture', b'bad fixture'))
+        failure_env = Mock(spec=Env)
+        with patch.multiple(common, TEST_RDBS_DIR=source, REDISEARCH_CACHE_DIR=cache):
+            env.assertFalse(getRDBFile(failure_env, name))
+        failure_env.assertTrue.assert_called_once_with(
+            False, message=ANY, depth=1,
+        )
+        env.assertContains('Bad CRC-32', failure_env.assertTrue.call_args.kwargs['message'])
+        env.assertEqual(destination.read_bytes(), b'previous fixture')
+        env.assertEqual(os.listdir(cache), [name])
 
 def test_compare_lists(env):
     #test types
