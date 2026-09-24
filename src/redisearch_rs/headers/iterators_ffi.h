@@ -14,6 +14,7 @@
 #include "query.h"
 #include "VecSim/vec_sim.h"
 #include "field.h"
+#include "numeric_score_source.h"
 #include "query_types.h"
 #include "rqe_core.h"
 #include "rqe_iterators.h"
@@ -526,6 +527,11 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  * `filter` is read once to copy the numeric range parameters; it is not
  * retained after this call.
  *
+ * `mode` is the strategy the query plan chose, reported as the profile's
+ * `Optimizer mode`. It is not acted on, and it is not derivable here: a filtered
+ * range whose window never widens is
+ * [`PartialRange`](NumericOptimizerMode::PartialRange) despite having a child.
+ *
  * # Safety
  *
  * 1. `tree` is non-null and [valid] for a [`NumericRangeTree`] that outlives the
@@ -541,7 +547,7 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, enum NumericOptimizerMode mode, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Create an optional iterator over `child`, applying shortcircuit reductions where possible.

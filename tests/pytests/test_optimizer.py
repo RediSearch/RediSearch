@@ -318,9 +318,10 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
 
+    # A wildcard filter cannot exclude anything, so it is elided rather than
+    # intersected and the entry has no child subtree.
     profiler =  {'Iterators profile':
-                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'WILDCARD', 'Number of reading operations', 3400]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range'],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 10],
                     ['Type', 'Loader', 'Results processed', 10],

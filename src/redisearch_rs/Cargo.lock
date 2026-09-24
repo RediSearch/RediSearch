@@ -1569,6 +1569,7 @@ name = "numeric_score_source"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "cheadergen",
  "index_result",
  "inverted_index",
  "itertools 0.15.0",
