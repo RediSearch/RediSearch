@@ -304,11 +304,16 @@ typedef struct BasicDiskAPI {
    * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
    * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
    *
+   * Raising the cap can be refused if the process can't reserve enough file descriptors for
+   * every live index at the new cap; on refusal the cap is left unchanged. Lowering always
+   * succeeds.
+   *
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
-   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
+   * @param maxOpenFiles Configured per-DB cap
+   * @return true if the cap was stored, false if it was refused
    */
-  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
+  bool (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
 
   /**
    * Create a result processor that loads document fields from disk asynchronously.
@@ -630,12 +635,14 @@ typedef struct IndexDiskAPI {
    * @brief Apply a new max_open_files cap to this index's database at runtime.
    *
    * Bounds the number of files this index's database keeps open, recycling the
-   * least-recently-used ones and reopening on demand.
+   * least-recently-used ones and reopening on demand. Only called once the process has
+   * already reserved the file descriptors the new cap needs (BasicDiskAPI.updateMaxOpenFiles).
    *
    * @param index Pointer to the disk index
-   * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
+   * @param maxOpenFiles New per-DB cap
+   * @return true if the cap was applied, false on failure
    */
-  void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
+  bool (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
    * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.

@@ -682,14 +682,18 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   dictReleaseIterator(iter);
 }
 
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
+int SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
   RS_ASSERT(disk && disk_db);
 
-  // Store the configured value on the shared context so new DBs pick it up.
-  disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles);
+  // Store the configured value on the shared context so new DBs pick it up. A raise can be
+  // refused if the process can't reserve enough file descriptors for it; refuse the whole
+  // operation without touching any database rather than partially applying it.
+  if (!disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles)) {
+    return REDISMODULE_ERR;
+  }
   // Reapply to every existing index's database.
   if (!specDict_g) {
-    return;
+    return REDISMODULE_OK;
   }
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
@@ -702,4 +706,5 @@ void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
     }
   }
   dictReleaseIterator(iter);
+  return REDISMODULE_OK;
 }

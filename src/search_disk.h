@@ -953,10 +953,15 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
  * the configured value on the shared disk context (so newly created indexes use it)
  * and applies the resolved per-DB cap to every existing index's database at runtime.
  *
+ * Raising the cap can be refused if the process can't reserve enough file descriptors for
+ * every live index at the new cap; on refusal, no database (and not the stored cap) is
+ * changed. Lowering always succeeds.
+ *
  * @param ctx Redis module context
- * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
+ * @param maxOpenFiles Configured per-DB cap
+ * @return REDISMODULE_OK if applied, REDISMODULE_ERR if refused
  */
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
+int SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
