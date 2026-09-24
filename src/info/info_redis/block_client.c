@@ -35,17 +35,19 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req,
                                                        int timeoutMS, RedisModuleCmdFunc replyCallback,
                                                        RedisModuleCmdFunc timeoutCallback) {
-  // Assert that if timeoutMS is provided, then both callbacks must be provided.
-  RS_ASSERT(timeoutMS == 0 || (timeoutCallback != NULL && replyCallback != NULL));
+  // A timeout callback is required for deadlines; replies may be buffered by a worker.
+  RS_ASSERT(timeoutMS == 0 || timeoutCallback != NULL);
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // AREQ ownership: shared between blockedClientReqCtx (background thread) and BlockedQueryNode (timeout callback, reply callback).
-  // Take a reference for the timeout callback access via node->privdata.
-  // This reference is released in FreeQueryNode via the freePrivData callback after timeout/reply callback completes.
+  // AREQ ownership: shared between blockedClientReqCtx (background thread) and BlockedQueryNode
+  // (timeout callback, reply callback). Take a reference for the timeout callback access via
+  // node->privdata. This reference is released in FreeQueryNode via the freePrivData callback after
+  // timeout/reply callback completes, which also finalizes any cursor left pending by a background
+  // FAIL worker.
   AREQ_IncrRef(req);
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, req,
-                                                    (BlockedQueryNode_FreePrivData)AREQ_DecrRef);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(
+      blockedQueries, spec_ref, req, (BlockedQueryNode_FreePrivData)BlockClient_FreeAREQ);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
