@@ -26,5 +26,8 @@ jobs:
       redis-ref: unstable
       # Skip C/C++ and Rust unit tests (heavy, unrelated to this investigation) and just
       # run the pytest standalone+coordinator flows that actually exercise
-      # test_hybrid_query_with_text_vamana.
-      options: standalone,coordinator,fail-fast
+      # test_hybrid_query_with_text_vamana. Keep `rejson` -- lots of unrelated tests
+      # (e.g. test_hybrid_json.py) depend on the RedisJSON module being loaded and fail
+      # with "unknown command 'JSON.SET'" without it. Drop `fail-fast` so an unrelated
+      # failure on one architecture doesn't cancel the other.
+      options: standalone,coordinator,rejson
