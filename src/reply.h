@@ -70,10 +70,6 @@ static inline bool RedisModule_IsRESP3(RedisModule_Reply *reply) {
 }
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
-/* A reply over a RedisModule_CreateReplyBufferContext context. It opens one counter at creation, so its
- * top-level elements are counted by the same path that counts a postponed collection's, and
- * RedisModule_Reply_Buffered moves exactly that many. */
-RedisModule_Reply RedisModule_NewReplyBuffer(RedisModuleCtx *bufferCtx);
 int RedisModule_EndReply(RedisModule_Reply *reply);
 
 #ifdef ENABLE_ASSERT
@@ -187,14 +183,12 @@ int RedisModule_Reply_Map(RedisModule_Reply *reply);
 int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
-// Top-level elements accumulated in a RedisModule_NewReplyBuffer reply so far.
-static inline size_t RedisModule_Reply_BufferedCount(const RedisModule_Reply *buffer) {
-  return (size_t)*buffer->cur;
-}
-/* Move the complete top-level elements accumulated in `buffer` (a RedisModule_NewReplyBuffer reply)
- * into the current collection of `reply`, in O(1). `buffer` must have no open collection; it is left
- * empty and reusable, its scratch retained. */
-int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer);
+/* Move the `elements` complete top-level elements accumulated in `buffer` (a reply over a
+ * RedisModule_CreateReplyBufferContext context) into the current collection of `reply`, in O(1).
+ * Nothing is counted while writing into a buffer; the caller knows what it wrote, and assert builds
+ * verify `elements` against the shadow. `buffer` must have no open collection; it is left empty and
+ * reusable, its scratch retained. */
+int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer, size_t elements);
 /* Based on the value type, serialize the value into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 

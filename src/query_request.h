@@ -43,6 +43,7 @@ typedef struct {
   uint32_t requiredFlags;
   SendReplyFlags replyFlags;
   int apiVersion;
+  size_t rowElements; // top-level reply elements one row writes (1 for a row map; a flat run in RESP2 FT.SEARCH)
 } cachedVars;
 
 /**
@@ -51,6 +52,7 @@ typedef struct {
 typedef struct {
   // The context is borrowed from Redis; the wrapper owns its reusable scratch.
   RedisModule_Reply rows;
+  size_t bufferedElements; // top-level elements written into `rows`, counted by the row serializers
   int rc;                 // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   /* Whether the cycle reached StoreResults, as opposed to bailing before the pipeline with only
    * `err` set. TODO(MOD-17486): once every bail reports into `err` and every cycle stores, the

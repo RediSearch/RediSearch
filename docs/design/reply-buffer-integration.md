@@ -41,21 +41,19 @@ Redis never frees the result on its own — the module must call
 unload. Creation and freeing both require the server lock (the main thread, or a
 worker holding the GIL); serialization and moves follow the destination's normal
 threading rules. Every moved fragment consists of complete elements with no open
-postponed collections. A successful move empties the source and updates wrapper
-counts together, but does not free it — the source buffer is still reusable, and
-still owned by whoever created it.
+postponed collections. Nothing is counted while writing into a buffer: the caller
+states how many top-level elements it wrote (one per row map; a flat run per row for
+RESP2 FT.SEARCH), and assert builds verify that against the wrapper's shadow. A
+successful move empties the source but does not free it — the source buffer is
+still reusable, and still owned by whoever created it.
 
-Search follows the same "capture under the GIL at block time, release from
-free_privdata on the main thread" pattern it already uses for `argv`/`MRCtx`:
-buffers are created from the command's own `ctx` right after
-`RedisModule_BlockClient` (still on the main thread, before any worker sees the
-request), and freed explicitly from each request kind's free_privdata callback
-—`QueryRequest_OnFree` for AREQ/HYBRID/cursor cycles, `DistSearchFreePrivData`
-for coordinator SEARCH. The latter reads and frees the buffer *before* releasing
-its own `MRCtx` reference, because `MRCtx`'s internal refcount teardown (which
-the reducer and fan-out-dispatch jobs also hold references into) is not otherwise
-guaranteed to run on the main thread — only the request's original blocked-client
-reference is.
+Every request kind embeds a `QueryRequest`, and its blocked-client cycle owns the
+buffer: `QueryRequest_BeginCycle` creates it from the command's own `ctx` right
+after `RedisModule_BlockClient` (still on the main thread, before any worker sees
+the request), and `QueryRequest_OnFree` — Redis's free_privdata callback,
+guaranteed main thread — closes and frees it. Coordinator SEARCH serializes its
+reduced rows into that same buffer from the reducer and moves them in its reply
+callback.
 
 The API is unreleased. Search rejects loading when either API is absent, and the
 shared CI dependency builds upstream commit `021fdb3a63d884c7952c3fdc59017710caa4d66d`,

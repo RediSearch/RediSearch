@@ -3290,6 +3290,7 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
       if (ROW_SERIALIZATION_ABORTED()) {
         break;
       }
+      req->base.reply.bufferedElements++; // one row map
       RedisModule_Reply_MapWithLen(reply, entries); // >> result
         searchResult *res = results[i];
 
@@ -3331,12 +3332,14 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
         RedisModule_Reply_EmptyArray(reply);
     }
   } else {
-    // RESP2 is flat: each result's fields follow in sequence.
+    // RESP2 is flat: each result's fields follow in sequence, one element per section below.
+    const size_t rowElements = 1 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
       if (ROW_SERIALIZATION_ABORTED()) {
         break;
       }
       searchResult *res = results[pos];
+      req->base.reply.bufferedElements += rowElements;
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
         if (req->withExplainScores) {
@@ -3430,9 +3433,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     }
 
     // The buffer counted its rows, so the results array is declared and filled by one move.
-    RedisModule_ReplyKV_ArrayWithLen(reply, "results", RedisModule_Reply_BufferedCount(&req->base.reply.rows)); // >results
+    RedisModule_ReplyKV_ArrayWithLen(reply, "results", req->base.reply.bufferedElements); // >results
     if (req->base.reply.rows.ctx) {
-      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
+      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows, req->base.reply.bufferedElements);
       RS_ASSERT(moved == REDISMODULE_OK);
     }
   }
@@ -3442,7 +3445,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
     if (req->base.reply.rows.ctx) {
-      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
+      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows, req->base.reply.bufferedElements);
       RS_ASSERT(moved == REDISMODULE_OK);
     }
   }

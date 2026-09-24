@@ -166,6 +166,20 @@ static bool serializationTimedOut(void *arg) {
 }
 #endif
 
+// Top-level elements serializeResult writes per row. RESP3 rows are one map; RESP2 rows are a flat run of
+// one element per section below, which is why this mirrors serializeResult's section conditions exactly.
+static size_t replyRowElements(const AREQ *req, uint32_t options, bool resp3) {
+  if (resp3) return 1;
+  const uint32_t oneElementEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
+  size_t elements = __builtin_popcount(options & oneElementEach) + !(options & QEXEC_F_SEND_NOFIELDS);
+  if (options & QEXEC_F_REQUIRED_FIELDS) {
+    const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
+    const size_t requiredFieldsCount = array_len(req->requiredFields);
+    elements += requiredFieldsCount > requiredFieldsFrom ? requiredFieldsCount - requiredFieldsFrom : 0;
+  }
+  return elements;
+}
+
 static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *r, const cachedVars *cv) {
   AREQ *req = QueryRequest_GetAREQ(request);
   const uint32_t options = cv->options;
@@ -183,6 +197,7 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
     RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
     return;
   }
+  request->reply.bufferedElements += cv->rowElements;
 
   if (has_map) {
     // One entry per section below, plus the trailing "values" placeholder.
@@ -784,14 +799,14 @@ static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc) {
 
   const bool withRows = shouldReplyWithRows(req, rc);
   // Top-level buffer elements: one per row in RESP3, a flat run per row in RESP2.
-  const size_t rows = withRows ? RedisModule_Reply_BufferedCount(&req->base.reply.rows) : 0;
+  const size_t rows = withRows ? req->base.reply.bufferedElements : 0;
   if (reply->resp3) {
     prepareSendChunkReply_Resp3(req, reply, rows);
   } else {
     prepareSendChunkReply_Resp2(req, reply, qctx, rows);
   }
   if (withRows) {
-    int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows);
+    int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows, rows);
     RS_ASSERT(moved == REDISMODULE_OK);
   }
   bool cursorDone = shouldSetCursorDone(req, rc);
@@ -826,6 +841,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       .replyFlags = ((reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
                     ((reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
       .apiVersion = sctx->apiVersion,
+      .rowElements = replyRowElements(req, reqFlags, RedisModule_IsRESP3(reply)),
   };
 
   // Set the chunk size limit for the query

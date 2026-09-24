@@ -189,6 +189,7 @@ static void serializeResult_hybrid(QueryRequest *request, RedisModule_Reply *rep
   // Expired rows never get here: the loaders drop them (see loaderResultIsEmittable), which is what lets
   // the field map be declared. One that slipped through would serialize as an empty map, not a stray null.
   RS_ASSERT(!(SearchResult_GetFlags(r) & Result_ExpiredDoc));
+  request->reply.bufferedElements++; // one row map
 
   // Fields are entries of the result map itself.
   const size_t fields = withFields ? RedisModule_Reply_RLookupRowLen(lk, rowData, RLOOKUP_F_NOFLAGS, RLOOKUP_F_HIDDEN) : 0;
@@ -416,9 +417,10 @@ static bool replyBufferedChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *re
     return false;
   }
 
-  prepareSendChunkReply_hybrid(hreq, reply, qctx, RedisModule_Reply_BufferedCount(&hreq->base.reply.rows));
+  const size_t rows = hreq->base.reply.bufferedElements;
+  prepareSendChunkReply_hybrid(hreq, reply, qctx, rows);
 
-  int moved = RedisModule_Reply_Buffered(reply, &hreq->base.reply.rows);
+  int moved = RedisModule_Reply_Buffered(reply, &hreq->base.reply.rows, rows);
   RS_ASSERT(moved == REDISMODULE_OK);
 
   finishSendChunkReply_hybrid(hreq, reply, qctx, rc);
