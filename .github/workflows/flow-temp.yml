@@ -17,6 +17,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      actions: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
