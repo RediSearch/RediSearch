@@ -919,6 +919,18 @@ def test_hybrid_query_with_text_vamana():
 
     query_data = create_np_array_typed([1] * dim, data_type)
 
+    # MOD-18890 diagnostic: baseline plain (non-hybrid) KNN recall check right after the
+    # initial bulk load, BEFORE any of the "other"-tagging HSETs below (i.e. before any
+    # relabel has happened). Log-only, no assertion. By construction the true nearest
+    # neighbors of query_data=[1]*dim are ids "1".."12" in order.
+    baseline_k = 12
+    baseline_res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN {baseline_k} @v $vec_param]',
+                            'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                            'RETURN', 1, '__v_score', 'LIMIT', 0, baseline_k)
+    baseline_actual_ids = [baseline_res[i] for i in range(1, len(baseline_res), 2)]
+    baseline_expected_ids = [str(i + 1) for i in range(baseline_k)]
+    env.debugPrint(f"MOD-18890: PRE-HSET baseline plain graph KNN ids expected={baseline_expected_ids} actual={baseline_actual_ids}", force=True)
+
     # Empty filter test
     # Expect to find no result (internally, build the child iterator as empty iterator).
     env.expect('FT.SEARCH', 'idx', f'(nothing)=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
