@@ -161,7 +161,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         // Profile wrapping: open outer map containing "Results" and "Profile" sections.
         // sendChunk_ReplyOnly_HybridEmptyResults opens/closes its own map, so we use it
         // directly as the value of the "Results" key.
-        RedisModule_Reply_Map(reply); // outer {}
+        RedisModule_Reply_MapOrArray(reply); // outer: RESP2 is the flat [results, profile] pair
         if (reply->resp3) {
             RedisModule_Reply_SimpleString(reply, "Results"); // key
         }
@@ -171,7 +171,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
 
     if (isProfile) {
         Profile_PrintInFormat(reply, NULL, NULL, NULL, NULL);
-        RedisModule_Reply_MapEnd(reply); // close outer map
+        RedisModule_Reply_MapOrArrayEnd(reply); // close outer
     }
 
     RedisModule_EndReply(reply);

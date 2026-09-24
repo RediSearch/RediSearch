@@ -1074,9 +1074,11 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 // Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
 // the iterator yielding it and the safe loader loading it (the safe loader releases the
 // spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
-// that window) - so serializing it would produce a doc id followed by a nil field-array
-// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
-// with Redis locked throughout and never sees them.
+// that window). Both loaders drop such results right after loading (see rploaderNext and
+// rpSafeLoader_Load); the plain loader runs with Redis locked throughout and rarely sees
+// them. This is the invariant the serializers assert: no flagged row reaches them, so the
+// field map is always declared. Should one slip through in a release build, it serializes
+// as an empty field map, not as a stray null that would break the declared length.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }

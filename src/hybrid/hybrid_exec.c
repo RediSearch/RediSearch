@@ -180,16 +180,13 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   const RLookup *lk = cv->lastLookup;
   const RLookupRow *rowData = SearchResult_GetRowData(r);
   const bool withFields = !(options & QEXEC_F_SEND_NOFIELDS);
-  const bool expired = SearchResult_GetFlags(r) & Result_ExpiredDoc;
+  // Expired rows never get here: the loaders drop them (see loaderResultIsEmittable), which is what lets
+  // the field map be declared. One that slipped through would serialize as an empty map, not a stray null.
+  RS_ASSERT(!(SearchResult_GetFlags(r) & Result_ExpiredDoc));
 
-  // Fields are entries of the result map itself. An expired document leaves a lone null in their place,
-  // which is not a key/value pair, so only that (rare) shape keeps the postponed length.
-  if (withFields && expired) {
-    RedisModule_Reply_Map(reply); // >result
-  } else {
-    const size_t fields = withFields ? RedisModule_Reply_RLookupRowLen(lk, rowData, RLOOKUP_F_NOFLAGS, RLOOKUP_F_HIDDEN) : 0;
-    RedisModule_Reply_MapWithLen(reply, !!(options & QEXEC_F_SEND_SCORES) + fields); // >result
-  }
+  // Fields are entries of the result map itself.
+  const size_t fields = withFields ? RedisModule_Reply_RLookupRowLen(lk, rowData, RLOOKUP_F_NOFLAGS, RLOOKUP_F_HIDDEN) : 0;
+  RedisModule_Reply_MapWithLen(reply, !!(options & QEXEC_F_SEND_SCORES) + fields); // >result
 
   // Reply should have the same structure of an FT.AGGREGATE reply
 
@@ -202,26 +199,20 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
       SEReply(reply, SearchResult_GetScoreExplain(r));
-      RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
   if (withFields) {
-    if (expired) {
-      RedisModule_Reply_Null(reply);
-    } else {
-      // Excludes hidden fields. Hybrid does not use RETURN fields (it uses
-      // LOAD fields), so no flags are required. The schema rule's special
-      // fields (score/language/payload) are hidden from creation (see the
-      // spec cache's rule names), so this path never touches the spec — it
-      // may already be gone by reply time.
-      SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-      flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+    // Excludes hidden fields. Hybrid does not use RETURN fields (it uses
+    // LOAD fields), so no flags are required. The schema rule's special
+    // fields (score/language/payload) are hidden from creation (see the
+    // spec cache's rule names), so this path never touches the spec — it
+    // may already be gone by reply time.
+    SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+    flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-      RedisModule_Reply_RLookupRow(reply, lk, rowData, RLOOKUP_F_NOFLAGS, RLOOKUP_F_HIDDEN, flags, HREQ_SearchCtx(hreq)->apiVersion);
-    }
+    RedisModule_Reply_RLookupRow(reply, lk, rowData, RLOOKUP_F_NOFLAGS, RLOOKUP_F_HIDDEN, flags, HREQ_SearchCtx(hreq)->apiVersion);
   }
-  RedisModule_Reply_MapEnd(reply); // >result
 }
 
 #ifdef ENABLE_ASSERT
@@ -356,7 +347,8 @@ static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *
  */
 static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx) {
-  RedisModule_Reply_Map(reply);
+  // RESP2 appends the profile as a bare trailing element, so the root is a flat array there.
+  RedisModule_Reply_MapOrArray(reply);
 
   // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(qctx));
@@ -424,7 +416,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     hreq->profile(reply, hreq);
   }
 
-  RedisModule_Reply_MapEnd(reply);
+  RedisModule_Reply_MapOrArrayEnd(reply);
 }
 
 /**

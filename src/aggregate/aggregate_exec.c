@@ -158,11 +158,10 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   RedisModule_Reply_PrefixedStringBuffer(reply, '$', s, n);
 }
 
-static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
-                              const cachedVars *cv) {
+static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                            const cachedVars *cv) {
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-  size_t count0 = RedisModule_Reply_LocalCount(reply);
   bool has_map = RedisModule_IsRESP3(reply);
   // Sortkey is the first required field; when it was already sent, the remaining ones go in their own map.
   const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
@@ -174,7 +173,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     // log and skip the row -- before opening its map, so the reply stays well-formed.
     RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
     RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
-    return 0;
+    return;
   }
 
   if (has_map) {
@@ -204,7 +203,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
       SEReply(reply, SearchResult_GetScoreExplain(r));
-      RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
@@ -274,9 +272,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         reeval_key(reply, v);
       }
     }
-    if (need_map) {
-      RedisModule_Reply_MapEnd(reply); // >required_fields
-    }
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
@@ -285,70 +280,27 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
-      RedisModule_Reply_Null(reply);
-    } else {
-      // Excludes hidden fields and fields not included in RETURN. The schema
-      // rule's special fields (score/language/payload) are hidden from
-      // creation (see the spec cache's rule names), so this path never touches
-      // the spec — it may already be gone by reply time.
-      uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-      SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-      flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+    // Expired rows never get here: the loaders drop them (see loaderResultIsEmittable), which is what lets
+    // the field map be declared. One that slipped through would serialize as an empty map, not a stray null.
+    RS_ASSERT(!(SearchResult_GetFlags(r) & Result_ExpiredDoc));
+    // Excludes hidden fields and fields not included in RETURN. The schema
+    // rule's special fields (score/language/payload) are hidden from
+    // creation (see the spec cache's rule names), so this path never touches
+    // the spec — it may already be gone by reply time.
+    uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+    flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-      const RLookupRow *rowData = SearchResult_GetRowData(r);
-      RedisModule_Reply_MapWithLen(reply, RedisModule_Reply_RLookupRowLen(lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN));
-      RedisModule_Reply_RLookupRow(reply, lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
-      RedisModule_Reply_MapEnd(reply);
-    }
+    const RLookupRow *rowData = SearchResult_GetRowData(r);
+    RedisModule_Reply_MapWithLen(reply, RedisModule_Reply_RLookupRowLen(lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN));
+    RedisModule_Reply_RLookupRow(reply, lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
   }
 
   if (has_map) {
     // placeholder for fields_values. (possible optimization)
     RedisModule_Reply_SimpleString(reply, "values");
     RedisModule_Reply_EmptyArray(reply);
-
-    RedisModule_Reply_MapEnd(reply);
   }
-
-  return RedisModule_Reply_LocalCount(reply) - count0;
-}
-
-static size_t getResultsFactor(AREQ *req) {
-  size_t count = 0;
-  QEFlags reqFlags = AREQ_RequestFlags(req);
-
-  if (reqFlags & QEXEC_F_IS_SEARCH) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SEND_SCORES) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SENDRAWIDS) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SEND_PAYLOADS) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_SEND_SORTKEYS) {
-    count++;
-  }
-
-  if (reqFlags & QEXEC_F_REQUIRED_FIELDS) {
-    count += array_len(req->requiredFields);
-    if (reqFlags & QEXEC_F_SEND_SORTKEYS) {
-      count--;
-    }
-  }
-
-  if (!(reqFlags & QEXEC_F_SEND_NOFIELDS)) {
-    count++;
-  }
-  return count;
 }
 
 #ifdef ENABLE_ASSERT
@@ -483,22 +435,6 @@ static int populateReplyWithResults(RedisModule_Reply *reply,
     return len;
 }
 
-long calc_results_len(AREQ *req, size_t limit) {
-  long resultsLen;
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-  size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
-  size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
-  size_t resultFactor = getResultsFactor(req);
-
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  // Report matches minus the rows the loader dropped (deleted/re-indexed mid-load).
-  size_t reported = QITR_ReportedTotal(qctx);
-  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? reported : MIN(req->maxSearchResults, reported);
-  size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
-
-  return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
-}
-
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
@@ -548,8 +484,6 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
 typedef struct {
   SearchResult **results;   // Aggregated results (for ON_TIMEOUT FAIL policy)
   SearchResult *r;          // Current result being processed
-  long nelem;               // Number of elements sent (RESP2 only)
-  long resultsLen;          // Expected results length for assertion (RESP2 only)
   bool cursor_done;         // Whether the cursor is done
 } ChunkSerializeState;
 
@@ -602,20 +536,9 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
 }
 
 /**
- * Sets up resultsLen, updates optimizer, and prepares reply arrays.
- * Returns the calculated resultsLen value.
+ * Updates the optimizer and opens the reply wrappers and the results array.
  */
-static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx, int rc, size_t limit) {
-  long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
-
-  if (rc == RS_RESULT_ERROR) {
-    resultsLen = 2;
-  } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
-             req->optimizer->type != Q_OPT_NO_SORTER) {
-    resultsLen = calc_results_len(req, limit);
-  }
-
+static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, QueryProcessingCtx *qctx) {
   if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
@@ -631,8 +554,6 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_Reply_LongLong(reply,
       QITR_ReportedTotal(qctx));
-
-  return resultsLen;
 }
 
 /**
@@ -684,7 +605,10 @@ static void finishSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, bool
         RedisModule_Reply_Null(reply);
       }
     }
-    RedisModule_Reply_ArrayEnd(reply);
+    // The plain cursor wrapper is declared and closes with the cursor id; only the profile array is postponed.
+    if (IsProfile(req)) {
+      RedisModule_Reply_ArrayEnd(reply);
+    }
   } else if (IsProfile(req)) {
     req->profile(reply, req);
     RedisModule_Reply_ArrayEnd(reply);
@@ -727,8 +651,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       return rc;
     }
 
-    state->resultsLen = prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
-    state->nelem++;
+    prepareSendChunkReply_Resp2(req, reply, qctx);
 
     // Once we get here, we want to return the results we got from the pipeline (with no error).
     // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
@@ -742,20 +665,20 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (state->results != NULL) {
-      state->nelem += populateReplyWithResults(reply, state->results, req, cv);
+      populateReplyWithResults(reply, state->results, req, cv);
       state->results = NULL;
       goto done_2;
     }
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      state->nelem += serializeResult(req, reply, state->r, cv);
+      serializeResult(req, reply, state->r, cv);
       SearchResult_Clear(state->r);
     } else {
       goto done_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      state->nelem += serializeResult(req, reply, state->r, cv);
+      serializeResult(req, reply, state->r, cv);
       SearchResult_Clear(state->r);
     }
 
@@ -805,8 +728,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ChunkSerializeState state = {
       .results = NULL,
       .r = NULL,
-      .nelem = 0,
-      .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
       .cursor_done = false
     };
 
@@ -822,10 +743,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
 
     finishSendChunk(req, state.results, &r, state.cursor_done);
-
-    if (state.resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && state.resultsLen != state.nelem) {
-      RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", state.resultsLen, state.nelem);
-    }
 }
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
@@ -940,12 +857,12 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply);
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    // Closes the declared [results, cursor id] wrapper.
     if (cursor_done) {
       RedisModule_Reply_LongLong(reply, 0);
     } else {
       RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
     }
-    RedisModule_Reply_ArrayEnd(reply);
   }
 }
 
@@ -1013,8 +930,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ChunkSerializeState state = {
       .results = NULL,
       .r = NULL,
-      .nelem = 0,              // Unused in RESP3
-      .resultsLen = 0,         // Unused in RESP3
     };
 
     startPipeline(req, rp, &state.results, &r, &rc);
@@ -1150,8 +1065,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_MapEnd(reply);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
-      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id); // closes the declared [results, cursor id] wrapper
     }
   } else {
 
@@ -1165,12 +1079,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // RESP2 format - use array structure
     RedisModule_Reply_ArrayWithLen(reply, 1);
 
-    // First element is always the total count (0 for empty results)
+    // First element is always the total count (0 for empty results), and the only one.
     RedisModule_Reply_LongLong(reply, 0);
-
-    // No individual results to add for empty results
-
-    RedisModule_Reply_ArrayEnd(reply);
 
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -1193,12 +1103,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id); // closes the declared [results, cursor id] wrapper
       if (IsProfile(req)) {
         req->profile(reply, req);
+        RedisModule_Reply_ArrayEnd(reply); // the profile array is postponed
       }
-      // Cursor end array
-      RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
       req->profile(reply, req);
       RedisModule_Reply_ArrayEnd(reply);
@@ -1622,8 +1531,6 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   ChunkSerializeState state = {
     .results = stored->results,
     .r = NULL,
-    .nelem = 0,
-    .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
     .cursor_done = false
   };
   int rc = stored->rc;

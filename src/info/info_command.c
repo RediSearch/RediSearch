@@ -154,7 +154,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
 
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_Reply_Map(reply); // >>field
+    RedisModule_Reply_MapOrArray(reply); // >>field: RESP2 appends the flags as bare strings
 
     const FieldSpec *fs = &sp->fields[i];
     char *path = FieldSpec_FormatPath(fs, obfuscate);
@@ -285,7 +285,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
     }
-    RedisModule_Reply_MapEnd(reply); // >>field
+    RedisModule_Reply_MapOrArrayEnd(reply); // >>field
   }
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
