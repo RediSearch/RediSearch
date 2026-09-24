@@ -711,6 +711,7 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  SearchDisk_PauseMetrics();
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
   if (!g_hotRestartSave) {
     RedisModule_Log(ctx, "notice", "%s",
