@@ -17,7 +17,6 @@
 #include "field.h"
 #include "field_spec.h"
 #include "obfuscation/hidden.h"
-#include "pipeline/pipeline_construction.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "query_internal.h"
@@ -41,6 +40,16 @@ void QOptimizer_Free(QOptimizer *opt) {
     QueryNode_Free(opt->sortbyNode);
   }
   rm_free(opt);
+}
+
+static bool planHasSortKeys(const AGGPlan *pln) {
+  DLLIST_FOREACH(nn, &pln->steps) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    if (stp->type == PLN_T_ARRANGE && array_len(((const PLN_ArrangeStep *)stp)->sortKeys)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void QOptimizer_Parse(AREQ *req) {
@@ -67,10 +76,12 @@ void QOptimizer_Parse(AREQ *req) {
         opt->type = Q_OPT_NONE;
       }
     }
-  } else if (hasQuerySortby(AREQ_AGGPlan(req))) {
-    // AGPLN_GetArrangeStep only finds a *trailing* arrange step, missing a real
-    // SORTBY that precedes a GROUPBY. Left undecided, that would default to
-    // Q_OPT_NO_SORTER below and drop it.
+  }
+
+  // Q_OPT_NO_SORTER drops every sorter in the pipeline, but AGPLN_GetArrangeStep
+  // only sees the arrange step after the last GROUPBY. A SORTBY anywhere earlier
+  // must still be sorted, so rule NO_SORTER out.
+  if (!opt->field && planHasSortKeys(AREQ_AGGPlan(req))) {
     opt->type = Q_OPT_NONE;
   }
 
