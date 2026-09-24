@@ -56,20 +56,20 @@ pub enum GeoRangeError {
 /// The returned references are valid for `'index` because the filters are owned by
 /// `gf.numericFilters`, which lives as long as `gf`.
 ///
+/// The filters copy the stable `gf.fieldIndex` without requiring a [`ffi::FieldSpec`]
+/// pointer, which can be invalidated by schema changes and is unavailable to disk callers.
+///
 /// # Safety
 ///
-/// 1. `fs` must be a valid non-null pointer to a [`ffi::FieldSpec`] for the duration of this
-///    call — the field currently at `gf.fieldIndex`, re-derived by the caller from the spec
-///    actually held at evaluation time. `fs` itself is not retained: `NewNumericFilter` reads
-///    only `fs->index` into each `NumericFilter`, so the returned filters (cached in
-///    `gf.numericFilters`) safely outlive `fs`, including across cursor reads.
-/// 2. `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
+/// 1. `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
 ///    to `*gf` and must be released by `GeoFilter_Free` (which frees it through
 ///    [`free_geo_numeric_filters`]).
+/// 2. `gf` must remain at the same address while the returned filters are in use, since
+///    they retain a pointer to it for distance filtering.
 pub unsafe fn build_geo_numeric_filters<'index>(
     gf: &'index mut GeoFilter,
-    fs: *const ffi::FieldSpec,
 ) -> Result<Vec<&'index NumericFilter>, InvalidGeoInput> {
+    debug_assert!(gf.numericFilters.is_null());
     if gf.radius <= 0.0 {
         return Err(InvalidGeoInput::InvalidRadius(gf.radius));
     }
@@ -86,7 +86,6 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     let numeric_filters = Box::into_raw(Box::new(
         [std::ptr::null_mut::<NumericFilter>(); geo::GEO_RANGE_COUNT],
     ));
-    // SAFETY: 2. guarantees gf.numericFilters is NULL and writable.
     gf.numericFilters = numeric_filters.cast();
 
     let mut filters: Vec<&'index NumericFilter> = Vec::new();
@@ -94,7 +93,8 @@ pub unsafe fn build_geo_numeric_filters<'index>(
         if range.min == range.max {
             continue;
         }
-        // SAFETY: fs is valid per the caller's safety contract.
+        // SAFETY: NewNumericFilter accepts a null field spec; gf stays valid and in place
+        // while the filters are used, per safety point 2.
         let filt_ptr = unsafe {
             ffi::NewNumericFilter(
                 range.min as f64,
@@ -102,10 +102,12 @@ pub unsafe fn build_geo_numeric_filters<'index>(
                 true, // inclusiveMin
                 true, // inclusiveMax
                 true, // ascending
-                fs,
+                std::ptr::null(),
                 (gf as *const GeoFilter).cast(),
             )
         } as *mut NumericFilter;
+        // SAFETY: NewNumericFilter returned a freshly allocated, exclusively owned filter.
+        unsafe { (*filt_ptr).field_index = gf.fieldIndex };
         // SAFETY: numeric_filters is a valid array of [`geo::GEO_RANGE_COUNT`] elements;
         // `ii` is bounded by `ranges.iter()`, which has the same length.
         unsafe { (*numeric_filters)[ii] = filt_ptr };
@@ -200,13 +202,12 @@ pub unsafe fn new_geo_range_iterator<'index>(
     // within the bounds of the `numFields`-sized array `spec.fields` points to.
     let fs_ptr = unsafe { spec.fields.add(gf.fieldIndex as usize) };
 
-    // SAFETY: `fs_ptr` is valid per the derivation above; 2–3. are forwarded from this
-    // function's safety contract.
-    let filters = unsafe { build_geo_numeric_filters(gf, fs_ptr)? };
+    // SAFETY: gf.numericFilters is NULL per precondition 3; the exclusive borrow of gf
+    // keeps it valid and in place for the returned iterator's lifetime.
+    let filters = unsafe { build_geo_numeric_filters(gf)? };
 
     // Open the numeric/geo index once for all ranges.
-    // SAFETY: `fs_ptr` is valid and exclusively borrowed here, after `filters` above
-    // has finished using it only as a `*const` pointer.
+    // SAFETY: fs_ptr is valid per the derivation above and exclusively borrowed here.
     let fs = unsafe { &mut *fs_ptr };
     // SAFETY: 1–2.
     let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress) })
