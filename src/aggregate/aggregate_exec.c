@@ -555,12 +555,18 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
                                       : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
   }
 #endif
+  // The timeout callback already counted errors for discarded background replies.
+  const bool countError = !(req->encodeReplyInBackground && AREQ_TimedOut(req));
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
+    }
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    }
     ReplyWithTimeoutError(reply);
     return true;
   }

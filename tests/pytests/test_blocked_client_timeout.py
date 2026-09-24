@@ -1097,15 +1097,15 @@ class TestCoordinatorTimeout:
         return t_query, blocked_client_id
 
     def _assert_cursor_freed_and_metric_bumped(self, cursor_id, baseline_cursor_total,
-                                               before_info, base_err_coord, context, error_count=1):
+                                               before_info, base_err_coord, context):
         """Verify cursor cleanup and timeout accounting after worker completion."""
         env = self.env
         _wait_for_cursor_cleanup(env, baseline_cursor_total, context)
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + error_count),
-                        message=f"Coordinator timeout error should be +{error_count} after {context}")
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {context}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
     def _arm_cursor_read_sync_point(self, sync_point):
@@ -1148,7 +1148,7 @@ class TestCoordinatorTimeout:
         # Wait for cursor reclaim so the next FT.CURSOR READ deterministically
         # sees "Cursor not found" instead of racing with the worker's wind-down.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
-                                                    base_err_coord, 'FAIL cursor-read timeout', error_count=2)
+                                                    base_err_coord, 'FAIL cursor-read timeout')
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
@@ -1219,8 +1219,7 @@ class TestCoordinatorTimeout:
             prev_policy, cursor_id, baseline, before_info, base_err_coord = \
                 _setup_fail_cursor_state(env)
 
-            # Only the timed-out shard counts the timeout callback and the
-            # worker's discarded timeout error; other shards stay flat.
+            # Only the timed-out shard counts the timeout; other shards stay flat.
             base_err_shards = [
                 int(info_modules_to_dict(c)[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
                 for c in all_shards
@@ -1255,9 +1254,9 @@ class TestCoordinatorTimeout:
                 cursor_id, baseline, before_info, base_err_coord,
                 'FAIL internal _FT.CURSOR READ timeout')
 
-            # The target shard counts both timeout errors; other shards are unchanged.
+            # The target shard counts the timeout once; other shards are unchanged.
             for c, base in zip(all_shards, base_err_shards):
-                expected = base + (2 if pid_cmd(c) == target_pid else 0)
+                expected = base + (1 if pid_cmd(c) == target_pid else 0)
                 wait_for_info_metric(
                     c, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
                     str(expected),
@@ -1696,7 +1695,7 @@ class TestCoordinatorTimeout:
         # FAIL semantics held: cursor was freed by the timeout, error metric bumped.
         self._assert_cursor_freed_and_metric_bumped(
             cursor_id, baseline, before_info, base_err_coord,
-            'FAIL cursor-read timeout after global config flipped to RETURN', error_count=2)
+            'FAIL cursor-read timeout after global config flipped to RETURN')
 
         # Global must remain as most recently set (RETURN), untouched by the sticky snapshot
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',
@@ -1790,10 +1789,10 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
 
-        # Both the timeout callback and worker count their timeout error.
+        # The timeout callback counts the error once.
         self._assert_cursor_freed_and_metric_bumped(
             cursor_id, baseline, before_info, base_err_coord,
-            'sticky FAIL cursor-read timeout between reads under RETURN global', error_count=2)
+            'sticky FAIL cursor-read timeout between reads under RETURN global')
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
@@ -5954,11 +5953,11 @@ class TestShardTimeout:
             )
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
-            # Count both the timeout callback and the worker encoding its timeout error.
+            # The timeout callback counts the error once.
             info_dict = info_modules_to_dict(env)
             env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                            str(base_err_coord + 2 * (i + 1)),
-                            message=f"Coordinator timeout error should be +{2 * (i + 1)} after {query_type} in pipeline")
+                            str(base_err_coord + i + 1),
+                            message=f"Coordinator timeout error should be +{i + 1} after {query_type} in pipeline")
 
         # Verify no other metrics changed
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
@@ -6023,11 +6022,11 @@ class TestShardTimeout:
         # Wait for the worker to encode its discarded timeout error as well.
         env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
-        # Count both the timeout callback and the worker's timeout error.
+        # The timeout callback counts the error once.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coord timeout error should be +2 after QI sync-point timeout")
+                        str(base_err_coord + 1),
+                        message="Coord timeout error should be +1 after QI sync-point timeout")
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -6575,11 +6574,11 @@ class TestShardTimeout:
 
         _wait_for_cursor_cleanup(env, baseline, 'shard FAIL cursor-read timeout')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        # Count both the timeout callback and the worker's timeout error.
+        # The timeout callback counts the error once.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coordinator timeout error should be +2 after shard FAIL cursor-read timeout")
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after shard FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
@@ -7297,11 +7296,11 @@ class TestShardTimeout:
         _wait_for_cursor_cleanup(env, baseline,
                                  'sticky FAIL shard cursor-read timeout under RETURN global')
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        # Count both the timeout callback and the worker's timeout error.
+        # The timeout callback counts the error once.
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 2),
-                        message="Coordinator timeout error should be +2 after sticky FAIL cursor-read timeout")
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after sticky FAIL cursor-read timeout")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',
@@ -8324,6 +8323,8 @@ def _exercise_background_fail_timeout(stage):
                 env.assertNotEqual(cursor_id, 0)
                 command = ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 2]
 
+            before_info = info_modules_to_dict(env)
+            base_errors = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
             original = env.getConnection().connection_pool
             kwargs = dict(original.connection_kwargs, retry=Retry(NoBackoff(), 0),
                           socket_timeout=5)
@@ -8365,6 +8366,9 @@ def _exercise_background_fail_timeout(stage):
                     f'{kind}: abandoned reply leaked a cursor', timeout=5)
                 if cursor_id is not None:
                     env.expect('FT.CURSOR', 'READ', 'idx', cursor_id).error().contains('Cursor not found')
+                after_info = info_modules_to_dict(env)
+                env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+                                base_errors + 1)
                 env.assertTrue(client.ping())
                 env.assertEqual(client.client_id(), client_id)
                 # A subsequent worker query also detects stale per-dispatch
@@ -8571,6 +8575,8 @@ def _exercise_cancellation(protocol, cancellation):
                 _, cursor_id = env.cmd(*command, 'WITHCURSOR', 'COUNT', 2)
                 env.assertNotEqual(cursor_id, 0)
                 command = ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 2]
+            before_info = info_modules_to_dict(env)
+            base_errors = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
             freed = _get_coord_req_ctx_free_count(env)
             original = env.getConnection().connection_pool
             pool = ConnectionPool(connection_class=original.connection_class,
@@ -8616,6 +8622,9 @@ def _exercise_cancellation(protocol, cancellation):
                     lambda: (_get_coord_req_ctx_free_count(env) == freed + 1, {}),
                     f'{kind}: blocked request was not freed', timeout=5)
                 env.assertEqual(_background_fail_cursor_total(env), baseline)
+                after_info = info_modules_to_dict(env)
+                env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+                                base_errors + (0 if cancellation == 'disconnect' else 1))
                 if cursor_id is not None:
                     env.expect('FT.CURSOR', 'READ', 'idx', cursor_id).error().contains('Cursor not found')
                 if cancellation != 'disconnect':
