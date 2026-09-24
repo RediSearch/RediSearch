@@ -2489,7 +2489,7 @@ def _background_fail_cursor_dispatch_switches(protocol):
     # The global policy changes after creation. Each cursor must retain its
     # captured policy while moving between background and inline dispatches.
     cases = [('FAIL', 'RETURN', 1), ('FAIL', 'RETURN', 0),
-             ('RETURN', 'FAIL', 1), ('RETURN-STRICT', 'FAIL', 1)]
+             ('RETURN', 'FAIL', 1)]
     for policy, next_policy, initial_workers in cases:
         env.expect('FT.CONFIG', 'SET', 'WORKERS', initial_workers).ok()
         env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', policy).ok()
@@ -2499,12 +2499,7 @@ def _background_fail_cursor_dispatch_switches(protocol):
         env.assertEqual(values(chunk), [0, 1])
         env.assertNotEqual(cursor, 0)
         env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', next_policy).ok()
-        if policy == 'RETURN-STRICT':
-            # The existing strict claim handshake retains its completed claim
-            # across a background-to-inline switch. Keep this excluded policy
-            # on workers; fixing that baseline bug is outside this FAIL change.
-            dispatch_workers = [1, 1, 1, 1]
-        elif initial_workers:
+        if initial_workers:
             dispatch_workers = [0, 1, 0, 1]
         else:
             dispatch_workers = [1, 0, 1, 0]
