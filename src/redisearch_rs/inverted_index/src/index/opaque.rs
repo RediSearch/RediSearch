@@ -15,7 +15,8 @@ use rqe_core::DocId;
 
 use crate::ii_dispatch;
 use crate::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as InvertedIndexInner,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, IndexUniqueId,
+    InvertedIndex as InvertedIndexInner,
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -156,6 +157,15 @@ impl InvertedIndex {
     /// This is a dispatch wrapper around the typed [`InvertedIndex::apply_gc`].
     pub fn apply_gc(&mut self, delta: crate::GcScanDelta) -> crate::GcApplyInfo {
         ii_dispatch!(self, apply_gc, delta)
+    }
+
+    /// Return the unique ID assigned when this inverted index was created.
+    ///
+    /// This is a dispatch wrapper around the typed
+    /// [`crate::InvertedIndex::unique_id`] and distinguishes a replacement
+    /// index from one that reused its address.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        ii_dispatch!(self, unique_id)
     }
 
     /// Return the number of unique documents in the index.
