@@ -26,6 +26,10 @@ typedef struct RSScoreExplain {
 /*
  * RedisModule_reply.
  */
+// A score explanation node is replied as [description, children]; a scored row with EXPLAINSCORE as [score, explanation].
+#define SE_REPLY_NODE_ARITY 2
+#define SCORE_WITH_EXPLAIN_REPLY_LEN 2
+
 void SEReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp);
 
 /*

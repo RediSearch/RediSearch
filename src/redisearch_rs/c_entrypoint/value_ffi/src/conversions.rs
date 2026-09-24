@@ -49,8 +49,8 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RSValue, d: *mut c_doubl
     true
 }
 
-/// Formats the numeric value of a [`Value::Number`] as a string into the
-/// caller-provided buffer and returns the number of bytes written.
+/// Formats the numeric value of a [`Value::Number`] as a NUL-terminated string into the
+/// caller-provided buffer and returns the number of bytes written, excluding the terminator.
 ///
 /// # Safety
 ///

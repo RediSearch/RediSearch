@@ -73,6 +73,9 @@
 #include "util/arr/arr.h"
 #include "util/references.h"
 
+// A cursor reply is [results, cursor id].
+#define RESULTS_WITH_CURSOR_REPLY_LEN 2
+
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
 typedef struct {
@@ -168,20 +171,28 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
   const uint32_t options = cv->options;
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   bool has_map = RedisModule_IsRESP3(reply);
+  // Sortkey is the first required field; when it was already sent, the remaining ones go in their own map.
+  const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
+  const size_t requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
+  const bool need_map = has_map && requiredFieldsFrom < requiredFieldsCount;
+
+  if ((options & QEXEC_F_IS_SEARCH) && !dmd) {
+    // Empty results should not be serialized! We already crashed in development env. In production,
+    // log and skip the row -- before opening its map, so the reply stays well-formed.
+    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
+    RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
+    return;
+  }
 
   if (has_map) {
-    RedisModule_Reply_Map(reply);
+    // One entry per section below, plus the trailing "values" placeholder.
+    const uint32_t oneEntryEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
+    const size_t entries = __builtin_popcount(options & oneEntryEach) + (size_t)need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
+    RedisModule_Reply_MapWithLen(reply, entries);
   }
 
   if (options & QEXEC_F_IS_SEARCH) {
     size_t n;
-    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
-    if (!dmd) {
-      // Empty results should not be serialized!
-      // We already crashed in development env. In production, log and continue
-      RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
-      return;
-    }
     const char *s = DMD_KeyPtrLen(dmd, &n);
     if (has_map) {
       RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);
@@ -197,10 +208,9 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
       RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
       SEReply(reply, SearchResult_GetScoreExplain(r));
-      RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
@@ -239,13 +249,9 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-
-    // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
-    size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
-    size_t requiredFieldsCount = array_len(req->requiredFields);
-    bool need_map = has_map && currentField < requiredFieldsCount;
+    size_t currentField = requiredFieldsFrom;
     if (need_map) {
-      RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
+      RedisModule_ReplyKV_MapWithLen(reply, "required_fields", requiredFieldsCount - currentField); // >required_fields
     }
     for(; currentField < requiredFieldsCount; currentField++) {
       RequiredField *field = &req->requiredFields[currentField];
@@ -274,9 +280,6 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
         reeval_key(reply, v);
       }
     }
-    if (need_map) {
-      RedisModule_Reply_MapEnd(reply); // >required_fields
-    }
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
@@ -285,31 +288,27 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
-      RedisModule_Reply_Null(reply);
-    } else {
-      // Excludes hidden fields and fields not included in RETURN. The schema
-      // rule's special fields (score/language/payload) are hidden from
-      // creation (see the spec cache's rule names), so this path never touches
-      // the spec — it may already be gone by reply time.
-      RedisModule_Reply_Map(reply);
+    // Expired rows never get here: the loaders drop them (see loaderResultIsEmittable), which is what lets
+    // the field map be declared. One that slipped through would serialize as an empty map, not a stray null.
+    RS_ASSERT(!(SearchResult_GetFlags(r) & Result_ExpiredDoc));
+    // Excludes hidden fields and fields not included in RETURN. The schema
+    // rule's special fields (score/language/payload) are hidden from
+    // creation (see the spec cache's rule names), so this path never touches
+    // the spec — it may already be gone by reply time.
+    const RLookupRow *rowData = SearchResult_GetRowData(r);
+    RedisModule_Reply_MapWithLen(reply, RedisModule_Reply_RLookupRowLen(lk, rowData, cv->requiredFlags, RLOOKUP_F_HIDDEN));
 #ifdef ENABLE_ASSERT
-      if (req->base.blockedClientCycleActive) {
-        SyncPoint_WaitUntil(SYNC_POINT_DURING_ROW_SERIALIZATION, serializationTimedOut, req);
-      }
-#endif
-      RedisModule_Reply_RLookupRow(reply, lk, SearchResult_GetRowData(r), cv->requiredFlags,
-                                   RLOOKUP_F_HIDDEN, cv->replyFlags, cv->apiVersion);
-      RedisModule_Reply_MapEnd(reply);
+    if (req->base.blockedClientCycleActive) {
+      SyncPoint_WaitUntil(SYNC_POINT_DURING_ROW_SERIALIZATION, serializationTimedOut, req);
     }
+#endif
+    RedisModule_Reply_RLookupRow(reply, lk, rowData, cv->requiredFlags, RLOOKUP_F_HIDDEN, cv->replyFlags, cv->apiVersion);
   }
 
   if (has_map) {
     // placeholder for fields_values. (possible optimization)
     RedisModule_Reply_SimpleString(reply, "values");
     RedisModule_Reply_EmptyArray(reply);
-
-    RedisModule_Reply_MapEnd(reply);
   }
 }
 
@@ -437,13 +436,9 @@ static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv) {
   req->base.reply.rc = rc;
   req->base.reply.cv = cv;
   req->base.reply.hasStoredResults = true;
-
-  // TODO(MOD-17486): drop once every pipeline reports straight into reply.err. Until then
-  // qctx->err points at the executing frame's stack QueryError, so the reply phase (possibly a
-  // later main-thread callback) needs its own copy.
-  QueryError_ClearError(&req->base.reply.err);
-  QueryError_CloneFrom(qctx->err, &req->base.reply.err);
-  QueryError_ClearError(qctx->err);
+  // The pipeline reports straight into reply.err (qctx->err points there), so the error is already
+  // where the reply phase reads it.
+  RS_ASSERT(qctx->err == &req->base.reply.err);
 }
 
 static void finishSendChunk(AREQ *req, bool cursor_done) {
@@ -468,7 +463,13 @@ static void finishSendChunk(AREQ *req, bool cursor_done) {
   if (!HasWithCount(req)) {
     qctx->totalResults = 0;
   }
+  // The slot lives for the request, so warnings must go too or the next cursor read re-emits them
+  // (and re-counts them in the warning metrics). TODO(MOD-18840): some warnings are query-scoped
+  // (max prefix expansions is raised once, when the iterator tree is built) and could deliberately
+  // be kept across cursor reads, the way QEXEC_S_MAX_TIMEOUT_CAPPED is; others (timeouts, shard
+  // OOM) are per chunk and must not be.
   QueryError_ClearError(qctx->err);
+  QueryError_ClearWarnings(qctx->err);
 }
 
 static bool shouldReplyWithRows(const AREQ *req, int rc) {
@@ -545,7 +546,7 @@ static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, Que
   if (IsProfile(req)) {
     Profile_PrepareMapForReply(reply);
   } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
+    RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
   // The buffer already counted its elements, so the results array needs no postponed length.
@@ -602,7 +603,10 @@ static void finishSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, bool
         RedisModule_Reply_Null(reply);
       }
     }
-    RedisModule_Reply_ArrayEnd(reply);
+    // The plain cursor wrapper is declared and closes with the cursor id; only the profile array is postponed.
+    if (IsProfile(req)) {
+      RedisModule_Reply_ArrayEnd(reply);
+    }
   } else if (IsProfile(req)) {
     req->profile(reply, req);
     RedisModule_Reply_ArrayEnd(reply);
@@ -706,7 +710,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
  */
 static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, size_t rows) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply_ArrayWithLen(reply, 2); // [results, cursor id]
+    RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
   RedisModule_Reply_Map(reply);
@@ -739,8 +743,6 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, siz
  */
 static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc, bool cursor_done) {
-  RedisModule_Reply_ArrayEnd(reply); // >results
-
   // <total_results>
   RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
@@ -763,12 +765,12 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply);
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    // Closes the declared [results, cursor id] wrapper.
     if (cursor_done) {
       RedisModule_Reply_LongLong(reply, 0);
     } else {
       RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
     }
-    RedisModule_Reply_ArrayEnd(reply);
   }
 }
 
@@ -795,7 +797,6 @@ static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (reply->resp3) {
     finishSendChunkReply_Resp3(req, reply, qctx, rc, cursorDone);
   } else {
-    RedisModule_Reply_ArrayEnd(reply);
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, cursorDone);
   }
@@ -868,7 +869,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (reply->resp3) {
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
     }
     // RESP3 format - use map structure
     RedisModule_Reply_Map(reply);
@@ -935,8 +936,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_MapEnd(reply);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
-      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id); // closes the declared [results, cursor id] wrapper
     }
   } else {
 
@@ -944,18 +944,14 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
     } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
     }
 
     // RESP2 format - use array structure
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, 1);
 
-    // First element is always the total count (0 for empty results)
+    // First element is always the total count (0 for empty results), and the only one.
     RedisModule_Reply_LongLong(reply, 0);
-
-    // No individual results to add for empty results
-
-    RedisModule_Reply_ArrayEnd(reply);
 
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -978,12 +974,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id); // closes the declared [results, cursor id] wrapper
       if (IsProfile(req)) {
         req->profile(reply, req);
+        RedisModule_Reply_ArrayEnd(reply); // the profile array is postponed
       }
-      // Cursor end array
-      RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
       req->profile(reply, req);
       RedisModule_Reply_ArrayEnd(reply);
@@ -1023,18 +1018,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   rm_free(BCRctx);
 }
 
-// Helper for error handling in AREQ_Execute_Callback.
-// For FAIL policy (useReplyCallback=true): stores error for QueryReplyCallback to handle.
-// For RETURN policy: replies with error directly.
-void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
+// The cycle failed before producing results; its error is in req->base.reply.err. With a reply
+// callback the main thread replies it from there, otherwise reply it right here.
+void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
+  QueryError *err = &req->base.reply.err;
+  RS_ASSERT(QueryError_HasError(err));
   if (QueryRequest_UsesReplyCallback(&req->base)) {
-    // Clear destination before cloning to avoid leaking any existing error strings.
-    // Deep copy since QueryError contains heap-allocated strings.
-    // QueryReplyCallback will clear the stored error after replying.
-    QueryError_ClearError(&req->base.reply.err);
-    QueryError_CloneFrom(status, &req->base.reply.err);
-    // Clear the original to avoid leaking heap-allocated strings.
-    QueryError_ClearError(status);
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
     // No current coord caller reaches here while a timer is waiting; kept as a
     // forward-compat invariant for future error paths. No-op for FAIL callers.
@@ -1042,8 +1031,8 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
       AREQ_SignalAggregateResultsComplete(req);
     }
   } else {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
-    QueryError_ReplyAndClear(ctx, status);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, !IsInternal(req));
+    QueryError_ReplyAndClear(ctx, err);
   }
 }
 
@@ -1067,13 +1056,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   }
 
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  QueryError status = QueryError_Default();
+  QueryError *status = &req->base.reply.err;
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    AREQ_ReplyOrStoreError(req, outctx, &status);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    AREQ_ReplyErrorOrDefer(req, outctx);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -1096,7 +1085,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
   }
@@ -1121,7 +1110,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
-    int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
+    int rc = AREQ_StartCursor(req, reply, execution_ref, status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       // Cursor reservation failed before runCursor could release the lock.
@@ -1135,7 +1124,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  AREQ_ReplyOrStoreError(req, outctx, &status);
+  AREQ_ReplyErrorOrDefer(req, outctx);
   // Return the ctx loan before `cleanup` frees outctx; the request may outlive
   // this cycle through the reply callback's reference.
   sctx->redisCtx = NULL;
@@ -1772,26 +1761,31 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
+  // From here on the request owns the error slot: warnings raised while building the plan (e.g.
+  // max prefix expansions) must reach the reply through the pipeline's qctx->err.
+  if (rejectUserCursorOnDisk(argv, r, type, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
+  if (buildPipelineAndExecute(r, ctx, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
   return REDISMODULE_OK;
 
-error:
+error: {
+  // Before the request exists (or once prepareRequest freed it) the error is in `status`;
+  // afterwards it lives in the request's slot, which must be replied before the request is freed.
+  QueryError *failure = r ? &r->base.reply.err : &status;
   // Update global query errors statistics
   // If num shards == 1 we are in SA, and we count it as a coord error
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
-
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(failure), 1, GetNumShards_UnSafe() == 1);
+  int rc = QueryError_ReplyAndClear(ctx, failure);
   if (r) {
     AREQ_Free(r);
   }
-
-  return QueryError_ReplyAndClear(ctx, &status);
+  return rc;
+}
 }
 
 int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions) {
@@ -1894,7 +1888,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
+static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags) {
   AREQ *req = Cursor_AREQ(cursor);
   RS_ASSERT(req != NULL);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
@@ -1902,20 +1896,17 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   *reqFlags = AREQ_RequestFlags(req);
   *hasLoader = HasLoader(req);
   *initClock = IsProfile(req) || !IsInternal(req);
-  qctx->err = status;
   return qctx;
 }
 
 static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
-
-  QueryError status = QueryError_Default();
-
   QEFlags reqFlags = 0;
   bool hasLoader = false;
   bool initClock = false;
   AREQ *req = Cursor_AREQ(cursor);
   RS_LOG_ASSERT(req, "cursorRead reached with no cursor-carried AREQ");
-  QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
+  QueryError *status = &req->base.reply.err;
+  QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
@@ -1923,12 +1914,12 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     IndexSpec *execution_spec = StrongRef_Get(execution_ref);
     if (!execution_spec) {
-      QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
       // Reply before disposing: the cursor may hold the only request ref, so
       // freeing first would UAF the QueryRequest reply-mode read inside
-      // AREQ_ReplyOrStoreError.
-      AREQ_ReplyOrStoreError(req, ctx, &status);
+      // AREQ_ReplyErrorOrDefer.
+      AREQ_ReplyErrorOrDefer(req, ctx);
       AREQ_CursorEndOfCycle(req, cursor, true);
       return;
     }
@@ -2371,8 +2362,6 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     // Notify the client that the query was aborted.
     RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
   } else {
-    QueryError status = QueryError_Default();
-    AREQ_QueryProcessingCtx(req)->err = &status;
     // Refresh the background-scan-OOM capture under the held execution
     // reference; the reply path reads only the capture.
     AREQ_QueryProcessingCtx(req)->bgScanOOM |=
@@ -2476,21 +2465,26 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
-  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
+  // From here on the request owns the error slot: warnings raised while building the plan (e.g.
+  // max prefix expansions) must reach the reply through the pipeline's qctx->err.
+  if (rejectUserCursorOnDisk(argv, r, type, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
+  if (buildPipelineAndExecute(r, ctx, &r->base.reply.err) != REDISMODULE_OK) {
     goto error;
   }
 
   return REDISMODULE_OK;
 
-error:
+error: {
+  QueryError *failure = r ? &r->base.reply.err : &status;
+  int rc = QueryError_ReplyAndClear(ctx, failure);
   if (r) {
     AREQ_Free(r);
   }
-  return QueryError_ReplyAndClear(ctx, &status);
+  return rc;
+}
 }
 
 /**DEBUG COMMANDS - not for production! */

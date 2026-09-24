@@ -257,7 +257,7 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
       RedisModule_StringPtrLen(req->base.args.argv[req->base.args.queryOffset], len);
   // TRANSITIONAL: report the C-string length, truncating at the first NUL, so a
   // query with embedded NULs behaves as it always has.
-  // TODO: remove — the true length is what StringPtrLen already reported.
+  // Switch to StringPtrLen's full length together with searchRequestCtx_Query() in module.h.
   if (len) *len = strlen(query);
   return query;
 }
@@ -587,7 +587,7 @@ static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqC
   return false;
 }
 
-void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
+void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc

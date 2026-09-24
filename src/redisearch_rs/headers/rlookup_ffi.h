@@ -51,6 +51,12 @@ typedef struct LoadIndividualKeysOptions {
    * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
    */
   struct LoadFieldProfile *profile_fields;
+  /**
+   * Optional [`HashFieldNames`] shared by every document this loader
+   * processes (see [`HashFieldNames_New`]). Null makes each load build its
+   * field names afresh.
+   */
+  const struct HashFieldNames *field_names;
 } LoadIndividualKeysOptions;
 
 /**
@@ -107,6 +113,22 @@ typedef struct RSSortingVectorSlice {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Free a cache created by [`HashFieldNames_New`]. Null is a no-op.
+ *
+ * # Safety
+ *
+ * 1. `names` must be null or a pointer returned by [`HashFieldNames_New`]. Each non-null
+ *    pointer may be passed here exactly once, by exactly one thread, with no load in
+ *    progress on it and no `LoadIndividualKeysOptions` referencing it used afterwards.
+ */
+void HashFieldNames_Free(struct HashFieldNames *names);
+
+/**
+ * Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
+ */
+struct HashFieldNames *HashFieldNames_New(void);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -224,15 +246,14 @@ void RLookupRow_Wipe(struct RLookupRow *row);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
+ * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+ * 3. `name` must be non-null even when `name_len` is `0`.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * No null terminator is required; `name_len` alone bounds the read. An interior
+ * NUL byte is not a safety precondition; it panics on the insert path, where the
+ * name is copied into an owned [`CString`](std::ffi::CString).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -250,15 +271,14 @@ void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t nam
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
+ * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+ * 3. `name` must be non-null even when `name_len` is `0`.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * No null terminator is required; `name_len` alone bounds the read. An interior
+ * NUL byte is not a safety precondition; it panics on the insert path, where the
+ * name is copied into an owned [`CString`](std::ffi::CString).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -585,6 +605,8 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  * 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
  *    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
  *    pointer to a properly initialized key that outlives this call.
+ * 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
+ *    has not been freed, and no other thread may access it for the duration of this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

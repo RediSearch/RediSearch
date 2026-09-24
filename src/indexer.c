@@ -322,14 +322,20 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
 
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
+  RSDocumentFlags flags = aCtx->docFlags;
+  if (spec->rule && spec->rule->payload_field) {
+    // Reserve capacity now: adding a payload later must not require moving the DMD.
+    flags |= Document_HasPayloadSlot;
+  }
   RSDocumentMetadata *dmd =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
+      DocTable_Put(table, s, n, doc->score, flags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
     // Publish the key -> docId mapping. Crash on failure (matches the disk
     // post-commit policy) rather than leave a DMD with no mapping.
     int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
-    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed while indexing in memory mode");
+    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK,
+                         "DocIdMeta_Set failed while indexing in memory mode");
   }
 
   return dmd;
@@ -460,15 +466,10 @@ static void reopenCb(void *arg) {}
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
-// Adds the document to the missing-docs inverted index of every INDEXMISSING
-// field it lacks (or has only with a field-level expiration).
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
-                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
-  Document *doc = aCtx->doc;
-  IndexSpec *spec = sctx->spec;
-  if (!IndexSpec_HasIndexMissing(spec)) {
-    return;
-  }
+// Compute absent fields from the cached INDEXMISSING field indexes.
+// Expiration handling stays in the RAM caller.
+dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc) {
+  if (!IndexSpec_HasIndexMissing(spec)) return NULL;
 
   // Set of INDEXMISSING fields, seeded from the spec and narrowed below to the
   // ones this document lacks. Keyed by field name so document fields can be
@@ -483,6 +484,16 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   for (uint32_t j = 0; j < doc->numFields; j++) {
     dictDelete(df_fields_dict, (void*)doc->fields[j].docFieldName);
   }
+
+  return df_fields_dict;
+}
+
+// Adds missing and present-but-expiring fields to the RAM missing-docs indexes.
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
+  IndexSpec *spec = sctx->spec;
+  dict *df_fields_dict = Indexer_GetDocumentMissingFields(spec, aCtx->doc);
+  if (!df_fields_dict) return;
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
   for (size_t sortedIndex = 0; sortedIndex < sortedFieldWithExpiration.len; sortedIndex++) {

@@ -18,5 +18,8 @@ redis-module.workspace = true
 workspace_hack.workspace = true
 libc.workspace = true
 
+[build-dependencies]
+cc.workspace = true
+
 [lints]
 workspace = true

@@ -154,7 +154,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
 
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_Reply_Map(reply); // >>field
+    RedisModule_Reply_MapOrArray(reply); // >>field: RESP2 appends the flags as bare strings
 
     const FieldSpec *fs = &sp->fields[i];
     char *path = FieldSpec_FormatPath(fs, obfuscate);
@@ -221,6 +221,12 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
           REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
+          if (hnsw_params.quantType != VecSimQuant_NONE) {
+            REPLY_KVSTR("compression", VecSimHnswCompression_ToString(hnsw_params.quantType));
+            REPLY_KVINT(
+                "training_threshold",
+                algo_params.tieredParams.specificParams.tieredHnswParams.QuantNormalizationSetSize);
+          }
           if (fs->vectorOpts.diskCtx.indexName) {
             REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
           }
@@ -279,7 +285,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
     }
-    RedisModule_Reply_MapEnd(reply); // >>field
+    RedisModule_Reply_MapOrArrayEnd(reply); // >>field
   }
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes

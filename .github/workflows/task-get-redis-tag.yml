@@ -12,7 +12,7 @@ on:
         type: string
         # MOD-18503: redis/redis#15775 provides the required module reply-buffer APIs.
         # Replace with a supported Redis release after the API lands upstream.
-        default: 7ade4235dd405c3bdbd609739bf761910db6848d
+        default: 021fdb3a63d884c7952c3fdc59017710caa4d66d
     outputs:
       tag:
         description: "Redis tag or pinned ref"

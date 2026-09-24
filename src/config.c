@@ -2122,7 +2122,7 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
 
 void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
                         RedisModule_Reply *reply, bool isHelp) {
-  RedisModule_Reply_Map(reply);
+  RedisModule_Reply_MapOrArray(reply); // RESP2: one [name, value...] array per option
     if (!strcmp("*", name)) {
       for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
         for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
@@ -2135,7 +2135,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
         dumpConfigOption(config, v, reply, isHelp);
       }
     }
-  RedisModule_Reply_MapEnd(reply);
+  RedisModule_Reply_MapOrArrayEnd(reply);
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
