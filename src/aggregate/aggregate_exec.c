@@ -1279,6 +1279,9 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     if (AREQ_RequiresThreadsSyncResults(req)) {
       AREQ_SignalAggregateResultsComplete(req);
     }
+  } else if (req->encodeReplyInBackground && AREQ_TimedOut(req)) {
+    // The timeout callback already replied and counted the error.
+    QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);

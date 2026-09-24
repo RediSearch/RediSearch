@@ -153,6 +153,9 @@ void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx
     QueryError_CloneFrom(status, &req->preRequestError);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
+  } else if (CoordRequestCtx_TimedOut(req)) {
+    // The timeout callback already replied and counted the error.
+    QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, status);

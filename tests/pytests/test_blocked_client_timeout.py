@@ -1184,6 +1184,39 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
+    def test_fail_timeout_before_cursor_argument_error(self):
+        """A queued cursor argument error must not be counted after its timeout reply."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy, cursor_id, _, before_info, base_err_coord = _setup_fail_cursor_state(env)
+        freed = _get_coord_req_ctx_free_count(env)
+        thread = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 'invalid']),
+            daemon=True)
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+                'Coordinator did not pause', timeout=5)
+            thread.start()
+            client = wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
+            env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+            thread.join(timeout=5)
+            env.assertFalse(thread.is_alive())
+        finally:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            thread.join(timeout=5)
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+        wait_for_condition(
+            lambda: (_get_coord_req_ctx_free_count(env) == freed + 1, {}),
+            'Timed-out cursor worker did not finish', timeout=5)
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1))
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id).ok()
+
     def test_fail_timeout_internal_cursor_read(self):
         """FAIL timeout fired on a non-coord shard's _FT.CURSOR READ BC timer.
 
@@ -6029,6 +6062,39 @@ class TestShardTimeout:
                         message="Coord timeout error should be +1 after QI sync-point timeout")
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_before_execution_plan_error(self):
+        """A plan error after the timeout callback must not add another error metric."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@name', 'AS']
+        # LOAD aliases are validated when the worker builds the pipeline.
+        env.expect(*command).error().contains('must be accompanied with NAME')
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        point = 'BeforeSpecLock'
+        thread = threading.Thread(target=run_cmd_expect_timeout, args=(env, command), daemon=True)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        try:
+            thread.start()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                'Worker did not reach execution-plan preparation', timeout=5)
+            client = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+            env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+            thread.join(timeout=5)
+            env.assertFalse(thread.is_alive())
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            thread.join(timeout=5)
+            env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1))
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
     def _test_fail_timeout_reply_boundary_impl(self, query_args, before, cmd_name=None):
         """Pause FAIL around encoding, or around stored results for HYBRID."""
