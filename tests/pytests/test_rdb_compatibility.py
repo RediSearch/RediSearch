@@ -104,7 +104,7 @@ def testRDBCompatibility_vecsim():
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb',
             'redisearch_8.0_with_vecsim.rdb',
-            'redisearch_8.10_with_vecsim_v2.rdb']
+            'redisearch_8.10_with_vecsim.rdb']
 
     algorithms = ['FLAT', 'HNSW']
     if not getRDBFiles(env, rdbs):
