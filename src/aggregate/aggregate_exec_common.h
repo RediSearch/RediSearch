@@ -32,9 +32,10 @@ void destroyResults(SearchResult **results);
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
+  RSTimeoutPolicy timeoutPolicy;
   struct timespec *timeout;
+  RSOomPolicy oomPolicy;
   bool skipTimeoutChecks;
-  bool collectResults;
 
   // AREQ for the request being executed; consulted by AggregateResults (and
   // its debug pause loop) to bail when the main-thread timeout callback flips

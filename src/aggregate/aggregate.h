@@ -55,8 +55,8 @@ typedef struct {
 
 /**
  * State needed for reply serialization in reply_callback path.
- * Requests that serialize on MT store results here before calling UnblockClient.
- * BG FAIL only parks its cursor here until the reply is accepted.
+ * Callback-based paths store results here for main-thread serialization.
+ * Background FAIL uses only the cursor handle, finalized by free-data cleanup.
  *
  * ## Cursor ↔ AREQ Ownership
  *
@@ -66,9 +66,8 @@ typedef struct {
  *
  * **AREQ does NOT own Cursor**:
  * - The `cursor` field below is a NON-OWNING handle.
- * - It exists solely so QueryReplyCallback knows which cursor to pause/free after
- *   finishSendChunk completes.
- * - In normal flow, QueryReplyCallback calls Cursor_Free/Cursor_Pause and clears this field.
+ * - It identifies the pending cursor for QueryReplyCallback or FAIL free-data cleanup.
+ * - Completion clears this handle before calling Cursor_Free/Cursor_Pause.
  */
 typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
@@ -78,9 +77,10 @@ typedef struct {
   cachedVars cv;           // Cached lookup variables for result serialization
   /**
    * NON-OWNING cursor handle for reply_callback path.
-   * See ownership model above. This is set in runCursor() when completion belongs to a callback,
-   * and cleared by QueryReplyCallback after it handles cursor pause/free.
-   * If timeout fires first, ChunkReplyState_Destroy cleans this up.
+   * Also holds background FAIL cursors until blocked-client free-data cleanup.
+   * Set in runCursor() for callback-based replies or background FAIL. Completion
+   * clears this handle before pausing or freeing the cursor. If timeout fires,
+   * blocked-client free-data cleanup frees the pending cursor.
    */
   struct Cursor *cursor;
   size_t limit;            // Original limit passed to sendChunk (for RESP2 resultsLen calculation)
@@ -331,10 +331,14 @@ typedef struct AREQ {
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
 
-  // Store results for serialization by the main-thread reply callback.
-  bool serializeOnMT;
+  bool useReplyCallback;
 
-  // Stored results for MT serialization, or completion metadata for BG serialization.
+  // Selected per dispatch for shard/standalone FAIL workers. The blocked-client
+  // timer owns the deadline, and free-data cleanup finalizes the pending cursor.
+  bool encodeReplyInBackground;
+
+  // Stored results for callback-based serialization, or only the pending cursor
+  // for background FAIL until blocked-client free-data cleanup.
   ChunkReplyState storedReplyState;
 } AREQ;
 

@@ -270,10 +270,10 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
+    .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
+    .oomPolicy = hreq->reqConfig.oomPolicy,
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
-    .collectResults = hreq->reqConfig.oomPolicy == OomPolicy_Fail ||
-                      hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Return,
     // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
     // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
     // AggregateResults can bail between rows while draining buffered tail rows.

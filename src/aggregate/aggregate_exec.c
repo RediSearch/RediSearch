@@ -55,24 +55,22 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// BG FAIL serializes results and errors on the worker; its MT reply callback
-// only publishes the cursor if the reply wins against timeout.
-static bool hasReplyCallback(AREQ *req) {
-  return req->serializeOnMT || (!IsCoordinator(req) && !IsHybrid(req) &&
-                                req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
-                                (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND));
-}
-
-// freePrivData for the query/cursor-read block clients. Drains any cursor parked
-// in storedReplyState before releasing our AREQ ref, then decrefs the AREQ.
-// AREQ_CleanUpStoredCursor is a guarded no-op on the happy path (the reply
-// callback already cleared the stash) and for queries that never reserved a
-// cursor, so this is safe to use unconditionally for both paths. Disposing the
-// stash here is what prevents the RETURN_STRICT preempt path from leaking the
-// cursor reserved by an initial WITHCURSOR query (see MOD-8477 / PR #10085).
+// Finalize pending FAIL cursors after the worker finishes, then release the
+// blocked client's AREQ reference. Callback-based paths already handle success.
 static void BlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
-  AREQ_CleanUpStoredCursor(req);
+  // FAIL has no reply callback. Its timeout callback sets the flag on the main
+  // thread before this cleanup runs; timed-out cursors must not become idle.
+  if (req->encodeReplyInBackground && !AREQ_TimedOut(req) &&
+      !(req->stateflags & QEXEC_S_ITERDONE)) {
+    Cursor *cursor = req->storedReplyState.cursor;
+    req->storedReplyState.cursor = NULL;
+    if (cursor) {
+      Cursor_Pause(cursor);
+    }
+  } else {
+    AREQ_CleanUpStoredCursor(req);
+  }
   AREQ_DecrRef(req);
 }
 
@@ -319,6 +317,13 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     RedisModule_Reply_MapEnd(reply);
   }
 
+#ifdef ENABLE_ASSERT
+  if (req->encodeReplyInBackground) {
+    // Pause after a row is encoded; signaling disarms the hook for later rows.
+    SyncPoint_Wait(SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
+
   return RedisModule_Reply_LocalCount(reply) - count0;
 }
 
@@ -380,7 +385,6 @@ static bool areq_timeout_or_pending_spec_writers(void *arg) {
 // non-internal (user-facing) AREQs, NON_INTERNAL_ONLY skips internal (coordinator-
 // dispatched) AREQs, and the default (BOTH) applies to all.
 static inline void debugPauseStoreResults(AREQ *req, bool before) {
-  if (!hasReplyCallback(req)) return;
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
                         : StoreResultsDebugCtx_IsPauseAfterEnabled();
   if (!enabled) return;
@@ -407,13 +411,11 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 #endif
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
+    .timeoutPolicy = req->reqConfig.timeoutPolicy,
     .timeout = &req->sctx->time.timeout,
+    .oomPolicy = req->reqConfig.oomPolicy,
     .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
     .areq = req,
-    .collectResults = req->reqConfig.oomPolicy == OomPolicy_Fail ||
-                      req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict ||
-                      (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
-                       (req->serializeOnMT || !hasReplyCallback(req))),
   };
 
 #ifdef ENABLE_ASSERT
@@ -444,10 +446,9 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
-
 /**
  * Store pipeline results for reply_callback path.
- * Called after startPipeline when serializeOnMT is set.
+ * Called after startPipeline when serialization is deferred to reply_callback.
  * Stores results in req->storedReplyState so serializeAndReplyResults can be called
  * from the reply_callback on the main thread.
  *
@@ -544,7 +545,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
  * State for chunk serialization, shared by RESP2 and RESP3 implementations.
  */
 typedef struct {
-  SearchResult **results;   // Buffered results when collection is required
+  SearchResult **results;   // Aggregated results (for ON_TIMEOUT FAIL policy)
   SearchResult *r;          // Current result being processed
   long nelem;               // Number of elements sent (RESP2 only)
   long resultsLen;          // Expected results length for assertion (RESP2 only)
@@ -558,6 +559,11 @@ typedef struct {
  */
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
+#ifdef ENABLE_ASSERT
+  if (req->encodeReplyInBackground) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
@@ -728,7 +734,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       goto done_2;
     }
 
-    // Collected results are already available without advancing the pipeline
+    // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (state->results != NULL) {
       state->nelem += populateReplyWithResults(reply, state->results, req, cv);
       state->results = NULL;
@@ -778,7 +784,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    if (req->serializeOnMT) {
+    if (req->useReplyCallback) {
       if (req->syncCtx.aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
         return;
@@ -799,13 +805,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       return;
     }
 
-    debugPauseStoreResults(req, true);
     state.r = &r;
 
     rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
 
     finishSendChunk(req, state.results, &r, state.cursor_done);
-    debugPauseStoreResults(req, false);
 
     if (state.resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && state.resultsLen != state.nelem) {
       RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", state.resultsLen, state.nelem);
@@ -1002,7 +1006,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    if (req->serializeOnMT) {
+    if (req->useReplyCallback) {
       if (req->syncCtx.aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
         return;
@@ -1023,13 +1027,11 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       return;
     }
 
-    debugPauseStoreResults(req, true);
     state.r = &r;
 
     rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
 
     finishSendChunk(req, state.results, &r, state.cursor_done);
-    debugPauseStoreResults(req, false);
 }
 
 /**
@@ -1061,6 +1063,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     sendChunk_Resp2(req, reply, limit, cv);
   }
 
+#ifdef ENABLE_ASSERT
+  if (req->encodeReplyInBackground) {
+    SyncPoint_Wait(SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
   }
@@ -1234,10 +1241,8 @@ static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *re
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
-
+  RedisModuleBlockedClient *bc = BCRctx->blockedClient;
+  void *privdata = RedisModule_BlockClientGetPrivateData(bc);
   // Release the owned AREQ reference if it has not already been released.
   // On the normal success path, AREQ_Execute() releases the reference and
   // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
@@ -1250,12 +1255,19 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
+
+  // Unblocking publishes completion to the main thread, which may immediately
+  // release the blocked client's last request reference. Dispose all worker
+  // ownership before publication, and never touch the request or job afterward.
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, privdata);
 }
 
 // Helper for error handling in AREQ_Execute_Callback.
-// Store only when serialization belongs to MT; FAIL and RETURN serialize here.
+// Callback-based paths store the error for QueryReplyCallback.
+// RETURN and selected FAIL workers reply with the error directly.
 void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
-  if (req->serializeOnMT) {
+  if (req->useReplyCallback) {
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
     // QueryReplyCallback will clear the stored error after replying.
@@ -1272,7 +1284,6 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);
-    debugPauseStoreResults(req, false);
   }
 }
 
@@ -1608,7 +1619,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 // Timeout callback for AREQ execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (for FAIL policy only).
 // Simply sets the timeout flag and replies with error - no synchronization needed
-// because worker completion retains ownership of the blocked-client reply buffer.
+// because AREQ uses reply_callback pattern (background thread does not reply directly).
 static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1623,7 +1634,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   }
 
   AREQ *req = (AREQ *)node->privdata;
-  // Signal timeout to the pipeline; Redis discards the worker reply.
+  // Signal timeout to background thread (will notice and skip storing results)
   AREQ_SetTimedOut(req);
 
   // Reply with timeout error
@@ -1711,19 +1722,6 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   return REDISMODULE_OK;
 }
 
-// Publish cursor state only when Redis accepts the reply.
-static void finishStoredCursor(AREQ *req) {
-  ChunkReplyState *stored = &req->storedReplyState;
-  if (stored->cursor) {
-    if (req->stateflags & QEXEC_S_ITERDONE) {
-      Cursor_Free(stored->cursor);
-    } else {
-      Cursor_Pause(stored->cursor);
-    }
-    stored->cursor = NULL;
-  }
-}
-
 // Reply with stored results from Coord/Shard reply callback (called on main thread).
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
@@ -1765,14 +1763,25 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
   finishSendChunk(req, state.results, NULL, state.cursor_done);
 
-  finishStoredCursor(req);
+  // Handle cursor lifecycle now that QEXEC_S_ITERDONE has been set by finishSendChunk.
+  // runCursor stored the cursor handle here instead of pausing/freeing it immediately,
+  // because finishSendChunk (which sets QEXEC_S_ITERDONE) runs in the reply_callback.
+  if (stored->cursor) {
+    if (req->stateflags & QEXEC_S_ITERDONE) {
+      Cursor_Free(stored->cursor);
+    } else {
+      Cursor_Pause(stored->cursor);
+    }
+    stored->cursor = NULL;
+  }
 }
 
-// Reply callback for BG AREQ execution under FAIL or RETURN_STRICT.
+// Reply callback for AREQ paths that defer serialization to the main thread.
 // Called on the main thread when the background thread calls UnblockClient.
-// BG replies need only cursor publication; stored replies still need serialization.
+// The background thread stored results in req->storedReplyState, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
-// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this callback.
+// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this
+// callback.
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1786,10 +1795,6 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   AREQ *req = (AREQ *)node->privdata;
-  if (!req->serializeOnMT) {
-    finishStoredCursor(req);
-    return REDISMODULE_OK;
-  }
 
   // Check if results were stored (background thread completed successfully)
   if (!req->storedReplyState.hasStoredResults) {
@@ -1827,7 +1832,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   }
 
   AREQ *req = (AREQ *)node->privdata;
-  // Signal timeout to the pipeline; Redis discards the worker reply.
+  // Signal timeout to background thread so it skips storing results.
   AREQ_SetTimedOut(req);
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -1881,11 +1886,11 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   return REDISMODULE_OK;
 }
 
-// Shard FT.CURSOR READ FAIL-path reply callback.
+// Shard FT.CURSOR READ callback for paths that defer serialization.
 // Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
 // Not invoked if the timeout fired first.
-// The BlockedCursorNode reference is released by FreeCursorNode → BlockClient_FreeAREQ after this callback.
-// Can be consolidated with QueryReplyCallback - See MOD-15038.
+// The BlockedCursorNode reference is released by FreeCursorNode → BlockClient_FreeAREQ after this
+// callback. Can be consolidated with QueryReplyCallback - See MOD-15038.
 static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1899,10 +1904,6 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   }
 
   AREQ *req = (AREQ *)node->privdata;
-  if (!req->serializeOnMT) {
-    finishStoredCursor(req);
-    return REDISMODULE_OK;
-  }
 
   if (!req->storedReplyState.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
@@ -1960,7 +1961,12 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
+  // Select the callback-free FAIL worker path for this dispatch.
+  r->encodeReplyInBackground = false;
   if (RunInThread(ctx)) {
+    r->encodeReplyInBackground = r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+                                 !IsCoordinator(r) && !IsHybrid(r) &&
+                                 (IsSearch(r) || IsAggregate(r));
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     BlockClientCtx blockClientCtx = {0};
@@ -1979,9 +1985,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
         r->syncCtx.requiresAggregateResultsSync = true;
         blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
-      blockClientCtx.replyCallback = QueryReplyCallback;
+      r->useReplyCallback = !r->encodeReplyInBackground;
+      blockClientCtx.replyCallback = r->useReplyCallback ? QueryReplyCallback : NULL;
       blockClientCtx.timeoutMS = r->reqConfig.queryTimeoutMS;
-      r->serializeOnMT = policy == TimeoutPolicy_ReturnStrict;
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
@@ -2163,7 +2169,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  const bool deferCompletion = hasReplyCallback(req);
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // Re-apply the foreground cap on every READ: the limit / WORKERS knobs may
   // change between cursor creation and this read, and the AREQ's reqConfig is
@@ -2173,10 +2178,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
     req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
-  // When completion is deferred, the deadline is owned by
+  // Skip for callback-driven replies and background FAIL: the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
-  if (!deferCompletion) {
+  if (!req->useReplyCallback && !req->encodeReplyInBackground) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 
@@ -2197,7 +2202,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
                       areq_timed_out, req);
 #endif
 
-  if (deferCompletion) {
+  if (req->useReplyCallback || req->encodeReplyInBackground) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
     // timeout_callback, which reads storedReplyState.cursor to pause/free it.
     req->storedReplyState.cursor = cursor;
@@ -2209,7 +2214,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // handed off, so the lock must be released here, on this worker thread.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
-  if (deferCompletion) {
+  if (req->encodeReplyInBackground) {
+    // Free-data cleanup publishes the cursor only if the request did not time out.
+    return;
+  }
+  if (req->useReplyCallback) {
     if (req->syncCtx.aggregateResultsClaimLost) {
       // The strict timeout callback won the sync claim and already replied with
       // cursor 0. Keep cursor ownership consistent with the depleted id already
@@ -2223,7 +2232,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       }
       return;
     }
-    // The MT callback publishes the cursor; freePrivData disposes it if timeout wins.
+    // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
     return;
   }
 
@@ -2271,12 +2280,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   AREQ *req = cursor->execState;
   RS_LOG_ASSERT(req, "cursorRead reached with execState==NULL");
   QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
-  // Refresh execution mode before early errors, even for pipelines without loaders.
-  if (bg) {
-    AREQ_AddRequestFlags(req, QEXEC_F_RUN_IN_BACKGROUND);
-  } else {
-    AREQ_RemoveRequestFlags(req, QEXEC_F_RUN_IN_BACKGROUND);
-  }
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
@@ -2286,7 +2289,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
       // Reply before Free: on non-reqCtx paths the cursor holds the
-      // only AREQ ref, so freeing first would UAF the req->serializeOnMT
+      // only AREQ ref, so freeing first would UAF the req->useReplyCallback
       // read inside AREQ_ReplyOrStoreError.
       AREQ_ReplyOrStoreError(req, ctx, &status);
       Cursor_Free(cursor);
@@ -2298,9 +2301,13 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       if (bg && !isSetForBackground) {
         // Reset loaders to run in background
         SetLoadersForBG(AREQ_QueryProcessingCtx(req));
+        // Mark the request as set to run in background
+        AREQ_AddRequestFlags(req, QEXEC_F_RUN_IN_BACKGROUND);
       } else if (!bg && isSetForBackground) {
         // Reset loaders to run in main thread
         SetLoadersForMainThread(AREQ_QueryProcessingCtx(req));
+        // Mark the request as set to run in main thread
+        AREQ_RemoveRequestFlags(req, QEXEC_F_RUN_IN_BACKGROUND);
       }
     }
   }
@@ -2310,7 +2317,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    // serializeOnMT is authoritative from the caller: RSCursorReadCommand either
+    // useReplyCallback is authoritative from the caller: RSCursorReadCommand either
     // attaches a CoordRequestCtx (coord + FAIL path) which propagates the flag,
     // or clears it before invoking cursorRead.
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -2347,10 +2354,14 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
     Cursor_Free(cr_ctx->cursor);
   }
   RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
-  void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
-  RedisModule_UnblockClient(cr_ctx->bc, privdata);
+  RedisModuleBlockedClient *bc = cr_ctx->bc;
+  void *privdata = RedisModule_BlockClientGetPrivateData(bc);
   rm_free(cr_ctx);
+  // cursorRead either parked, freed, or retained the cursor for free-data cleanup.
+  // The blocked client's extra reference protects requests until publication.
+  // No worker-owned job or request access may follow UnblockClient.
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, privdata);
 }
 
 // Coord+RETURN_STRICT cursor read: take + reset + publish AREQ under a
@@ -2476,10 +2487,20 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
+  // A cursor can alternate between workers and inline execution across READs.
+  // Do not retain the previous dispatch's encoding choice or infer its origin
+  // from IsAggregate: that flag is cleared when a cursor is resumed.
+  if (cursor->execState) {
+    cursor->execState->encodeReplyInBackground = false;
+  }
+
   if (RunInThread(ctx) && !upstreamBC) {
     // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
     // the blocked-client timer with reply/timeout callbacks.
     RS_ASSERT(cursor->execState != NULL);
+    cursor->execState->encodeReplyInBackground =
+        cursor->execState->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !cursor->is_coord &&
+        !cursor->hybrid_ref.rm && !IsCoordinator(cursor->execState) && !IsHybrid(cursor->execState);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
       AREQ *req = cursor->execState;
@@ -2496,17 +2517,16 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       AREQ_IncrRef(req);
       blockClientCtx.privdata        = req;
       blockClientCtx.freePrivData    = BlockClient_FreeAREQ;
-      blockClientCtx.replyCallback   = CursorReadReplyCallback;
+      req->useReplyCallback = !req->encodeReplyInBackground;
+      blockClientCtx.replyCallback = req->useReplyCallback ? CursorReadReplyCallback : NULL;
       blockClientCtx.timeoutCallback =
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
                                                            : CursorReadTimeoutReturnStrictCallback;
-      blockClientCtx.timeoutMS       = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
-      req->serializeOnMT =
-          cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict || IsHybrid(req);
+      blockClientCtx.timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
     } else {
-      // RETURN: reply written inline; clear any stale serializeOnMT
+      // RETURN: reply written inline; clear any stale useReplyCallback
       // from a prior callback-based cursor read so runCursor doesn't park the cursor.
-      cursor->execState->serializeOnMT = false;
+      cursor->execState->useReplyCallback = false;
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &blockClientCtx);
@@ -2544,12 +2564,12 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
-      // Attach AREQ to the ctx (IncrRefs, propagates serializeOnMT/timedOut).
+      // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut).
       CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
       CoordRequestCtx_UnlockSetRequest(reqCtx);
     } else if (cursor->execState) {
-      // Sub-cases (2) and (3): reply inline via ctx; clear stale serializeOnMT.
-      cursor->execState->serializeOnMT = false;
+      // Sub-cases (2) and (3): reply inline via ctx; clear stale useReplyCallback.
+      cursor->execState->useReplyCallback = false;
     }
     cursorRead(ctx, cursor, count, false);
   }
