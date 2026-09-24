@@ -440,6 +440,13 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 0
+          # redis/redis#15722 added cluster-bus-port-protected-mode, defaulting to
+          # enabled on the unstable line: an oss-cluster shard then refuses to start
+          # at all, since RLTest builds it with tls-cluster disabled (MOD-18751).
+          # Only the unstable line is known to need this: the option doesn't exist
+          # before it was backported, where passing it stops the server from
+          # starting instead (see RLTest PR #255).
+          RLTEST_ARGS: ${{ inputs.redis-ref == 'unstable' && '--cluster_bus_port_protected_mode no' || '' }}
           # RLTest writes failed test ids here (relative -> runtests.sh resolves
           # under $ROOT); consumed by the flaky-record + focused-log steps below.
           FAILEDFILE: .failed_coordinator.txt
