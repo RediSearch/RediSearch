@@ -110,6 +110,8 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  // Captured before dispatch so CONFIG SET cannot change serialization placement.
+  bool serializeInReplyCallback;
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
