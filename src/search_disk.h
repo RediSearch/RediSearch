@@ -728,6 +728,11 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * @param index Pointer to the index spec
  * @return The total memory used by this index's disk components
  */
+bool SearchDisk_InfoCacheEnabled(void);
+void SearchDisk_PauseMetrics(void);
+uint64_t SearchDisk_CollectCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
+uint64_t SearchDisk_GetCachedDiskUsage(RedisSearchDiskIndexSpec *index);
+uint64_t SearchDisk_GetCachedBlockCount(RedisSearchDiskIndexSpec *index);
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
 
 /**

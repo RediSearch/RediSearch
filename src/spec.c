@@ -417,13 +417,15 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
-  size_t vector_overhead) {
+static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                                     size_t vector_overhead, bool info) {
   size_t res = 0;
 
   // For disk indexes, add storage + in-memory components.
   if (sp->diskSpec) {
-    res += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+    res += info && SearchDisk_InfoCacheEnabled()
+               ? SearchDisk_CollectCachedIndexMetrics(sp->diskSpec)
+               : SearchDisk_CollectIndexMetrics(sp->diskSpec);
   }
 
   res += sp->docs.memsize;
@@ -436,6 +438,15 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
   res += sp->stats.termsSize;
   res += vector_overhead;
   return res;
+}
+
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                               size_t vector_overhead) {
+  return indexSpecTotalMemUsage(sp, tags_overhead, text_overhead, vector_overhead, false);
+}
+
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead) {
+  return indexSpecTotalMemUsage(sp, 0, 0, vector_overhead, true);
 }
 
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {

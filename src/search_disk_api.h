@@ -1019,6 +1019,12 @@ typedef struct PerFieldCfDiskMetrics {
 } PerFieldCfDiskMetrics;
 
 typedef struct MetricsDiskAPI {
+  /* Main-thread lifecycle operations. Pause drains native reads before returning. */
+  void (*control)(RedisSearchDisk *disk, unsigned int action);
+  void (*registerTarget)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index, bool retire);
+  uint64_t (*collectCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  uint64_t (*getCachedDiskUsage)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  uint64_t (*getCachedBlockCount)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *
