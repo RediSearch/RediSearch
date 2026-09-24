@@ -957,6 +957,30 @@ def test_hybrid_query_with_text_vamana():
     expected_res[0] = k
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
 
+    # --- MOD-18890 diagnostics: capture extra state right before the flaky BATCHES
+    # assertion below, to help pin down the root cause of the intermittent wrong-result
+    # failure (log-only, no assertions, so the real assertion below still runs either way).
+    debug_info_before = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
+    env.debugPrint(f"MOD-18890: VECSIM_INFO before BATCHES query: {debug_info_before}", force=True)
+
+    # Plain (non-hybrid) KNN over the whole graph: checks the raw VAMANA graph's own top-k
+    # recall, independent of the hybrid text-filter/batch logic. By construction (query_data
+    # = [1]*dim, distance = dim*(i-1)**2), the true nearest neighbors are ids "1".."k" in order.
+    plain_res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN {k} @v $vec_param]',
+                         'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                         'RETURN', 1, '__v_score', 'LIMIT', 0, k)
+    plain_actual_ids = [plain_res[i] for i in range(1, len(plain_res), 2)]
+    plain_expected_ids = [str(i + 1) for i in range(k)]
+    env.debugPrint(f"MOD-18890: plain graph KNN ids expected={plain_expected_ids} actual={plain_actual_ids}", force=True)
+
+    # Same query as the assertion below, but with a much larger BATCH_SIZE, to see whether a
+    # bigger first batch (closer to a single ADHOC-like pass over the graph) changes the outcome.
+    large_batch_res = env.cmd('FT.SEARCH', 'idx', f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE {index_size}]',
+                               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                               'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
+    env.debugPrint(f"MOD-18890: BATCHES query result with BATCH_SIZE={index_size}: {large_batch_res}", force=True)
+    env.debugPrint(f"MOD-18890: expected for both BATCHES variants: {expected_res[:k*2+1]}", force=True)
+
     # Test explicit BATCHES policy with batch size
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]', query_data, 't', hybrid_mode='HYBRID_BATCHES', limit = k).equal(expected_res[:k*2+1])
 

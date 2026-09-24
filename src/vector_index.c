@@ -100,6 +100,9 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
   // (doc-ids are monotonic), but a doc-table that reuses the id on replace would.
   if (rc == VecSimRelabel_OK || rc == VecSimRelabel_SameLabel) {
     FieldsGlobalStats_UpdateFieldDocsRelabeled(INDEXFLD_T_VECTOR, 1);
+    // MOD-18890: distinguish true relabel from the delete+re-add fallback below in CI logs.
+    RedisModule_Log(RSDummyContext, "verbose", "MOD-18890: Vector relabel %llu -> %llu succeeded: %s",
+                    (unsigned long long)oldDocId, (unsigned long long)newDocId, relabelCodeName(rc));
     return true;
   }
 
@@ -108,7 +111,7 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
   // caller a delete and a re-add, and until this covered all of them a relabel that never
   // engaged was indistinguishable from one that was never attempted.
   RedisModule_Log(RSDummyContext, rc == VecSimRelabel_NewLabelTaken ? "warning" : "verbose",
-                  "Vector relabel %llu -> %llu refused: %s",
+                  "MOD-18890: Vector relabel %llu -> %llu refused: %s",
                   (unsigned long long)oldDocId, (unsigned long long)newDocId,
                   relabelCodeName(rc));
   return false;
