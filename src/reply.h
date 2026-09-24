@@ -61,6 +61,10 @@ int RedisModule_Reply_LocalCount(RedisModule_Reply *reply);
 void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply);
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
+// Like RedisModule_NewReply, but with the RESP version supplied by the caller. Required off the
+// main thread: RedisModule_NewReply derives it from RedisModule_GetContextFlags, which reads the
+// blocked client's flags while the main thread may be writing them.
+RedisModule_Reply RedisModule_NewReplyWithProtocol(RedisModuleCtx *ctx, bool resp3);
 int RedisModule_EndReply(RedisModule_Reply *reply);
 
 int RedisModule_Reply_LongLong(RedisModule_Reply *reply, long long val);

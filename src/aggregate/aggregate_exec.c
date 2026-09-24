@@ -1208,7 +1208,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  // May run on a worker thread: use the protocol captured on the main thread instead of
+  // reading the blocked client's flags, which the main thread mutates concurrently.
+  RedisModule_Reply _reply = RedisModule_NewReplyWithProtocol(ctx, req->protocol == 3), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
@@ -1329,7 +1331,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 #endif
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
+    RedisModule_Reply _reply = RedisModule_NewReplyWithProtocol(outctx, req->protocol == 3), *reply = &_reply;
     int rc = AREQ_StartCursor(req, reply, execution_ref, status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
@@ -2135,7 +2137,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   return qctx;
 }
 
-static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
+static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg, bool resp3) {
   QEFlags reqFlags = 0;
   bool hasLoader = false;
   bool initClock = false;
@@ -2193,7 +2195,9 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     // useReplyCallback is authoritative from the caller: blocking dispatches
     // set it according to whether a reply callback will serialize stored
     // results on main; inline paths clear it before invoking cursorRead.
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    // `resp3` is the READ connection's protocol, captured by the dispatcher on the main
+    // thread; it may differ from the protocol of the connection that created the cursor.
+    RedisModule_Reply _reply = RedisModule_NewReplyWithProtocol(ctx, resp3), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
   } else {
@@ -2208,6 +2212,7 @@ typedef struct {
   RedisModuleBlockedClient *bc;
   Cursor *cursor;
   size_t count;
+  bool resp3;
 } CursorReadCtx;
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
@@ -2226,7 +2231,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
   if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
       AREQ_RequiresThreadsSyncResults(req)) {
-    cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+    cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true, cr_ctx->resp3);
   } else {
     AREQ_CursorEndOfCycle(req, cr_ctx->cursor, true);
   }
@@ -2265,7 +2270,7 @@ static void coordCursorRead_ctx(void *p) {
     // replied; RETURN_STRICT (latch won) always runs the read so it can store
     // a cursor-shaped reply, signal a waiting timeout callback, and park/free
     // the cursor.
-    cursorRead(ctx, cursor, cr_ctx->count, false);
+    cursorRead(ctx, cursor, cr_ctx->count, false, cr_ctx->resp3);
   } else {
     AREQ_CursorEndOfCycle(req, cursor, true);
   }
@@ -2310,6 +2315,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   cr_ctx->bc = bc;
   cr_ctx->cursor = cursor;
   cr_ctx->count = count;
+  cr_ctx->resp3 = is_resp3(ctx);
   ConcurrentSearch_ThreadPoolRun(coordCursorRead_ctx, cr_ctx, poolType);
   return REDISMODULE_OK;
 }
@@ -2527,6 +2533,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                                               timeoutCallback, timeoutMS);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
+    cr_ctx->resp3 = is_resp3(ctx);
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
   } else {
     // Inline path: workers disabled, or a context that cannot block
@@ -2555,7 +2562,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       QueryRequestTimeout_BeginCycle(&inline_req->base.timeout,
                                      QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
-    cursorRead(ctx, cursor, count, false);
+    cursorRead(ctx, cursor, count, false, is_resp3(ctx));
   }
 
   return REDISMODULE_OK;

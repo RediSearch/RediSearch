@@ -117,12 +117,16 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 //---------------------------------------------------------------------------------------------
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
+  return RedisModule_NewReplyWithProtocol(ctx, is_resp3(ctx));
+}
+
+RedisModule_Reply RedisModule_NewReplyWithProtocol(RedisModuleCtx *ctx, bool resp3) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0, NULL };
+  RedisModule_Reply reply = {ctx, resp3, 0, NULL, NULL, 0, NULL};
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0 };
+  RedisModule_Reply reply = {ctx, resp3, 0, NULL, NULL, 0};
 #endif
   return reply;
 }

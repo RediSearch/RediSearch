@@ -8,6 +8,7 @@
 from common import *
 
 from time import sleep
+import redis
 from redis import ResponseError
 
 from cmath import inf
@@ -65,6 +66,58 @@ def testCursors(env):
 def testCursorsBG():
     env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
+
+def _connection_with_protocol(env, protocol):
+    """A dedicated connection to the first shard speaking RESP `protocol`, whatever the env default is.
+    Decoding is forced on so RESP3 map keys compare as `str`."""
+    kwargs = dict(env.getConnection(1).connection_pool.connection_kwargs)
+    kwargs['protocol'] = protocol
+    kwargs['decode_responses'] = True
+    return redis.Redis(**kwargs)
+
+def _cursor_reply_uses_reader_protocol(env):
+    """A cursor's reply is built in the protocol of the connection issuing each FT.CURSOR READ, which
+    may differ from the connection that created the cursor. The query and cursor paths resolve the
+    protocol on the main thread before dispatching to a worker, so this must hold on both the
+    inline and the background (WORKERS) paths."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(6):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    resp2 = _connection_with_protocol(env, 2)
+    resp3 = _connection_with_protocol(env, 3)
+    reply_type = {resp2: list, resp3: dict}
+    def rows(client, res):
+        # RESP2 aggregate replies lead with a count; RESP3 replies carry the rows under 'results'.
+        return res[1:] if client is resp2 else res['results']
+
+    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'WITHCURSOR', 'COUNT', 2]
+    for creator, reader in ((resp2, resp3), (resp3, resp2)):
+        # Non-cursor reply on each connection: same path as a query executed on a worker.
+        res = creator.execute_command(*query[:-3])
+        env.assertEqual(type(res), reply_type[creator], message=res)
+        env.assertEqual(len(rows(creator, res)), 6, message=res)
+
+        res, cursor = creator.execute_command(*query)
+        env.assertNotEqual(cursor, 0, message=res)
+        env.assertEqual(type(res), reply_type[creator], message=res)
+        env.assertEqual(len(rows(creator, res)), 2, message=res)
+
+        res, cursor = reader.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
+        env.assertNotEqual(cursor, 0, message=res)
+        env.assertEqual(type(res), reply_type[reader], message=res)
+        env.assertEqual(len(rows(reader, res)), 2, message=res)
+        reader.execute_command('FT.CURSOR', 'DEL', 'idx', cursor)
+
+def testCursorReplyUsesReaderProtocol(env):
+    _cursor_reply_uses_reader_protocol(env)
+
+def testCursorReplyUsesReaderProtocolBG():
+    # WORKERS moves query execution and cursor reads to worker threads, where the protocol
+    # cannot be read from the connection any more and must come from the main-thread capture.
+    env = Env(moduleArgs='WORKERS 2')
+    _cursor_reply_uses_reader_protocol(env)
 
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
