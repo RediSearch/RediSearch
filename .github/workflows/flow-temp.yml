@@ -24,3 +24,7 @@ jobs:
     with:
       platform: alpine:3.23
       redis-ref: unstable
+      # Skip C/C++ and Rust unit tests (heavy, unrelated to this investigation) and just
+      # run the pytest standalone+coordinator flows that actually exercise
+      # test_hybrid_query_with_text_vamana.
+      options: standalone,coordinator,fail-fast
