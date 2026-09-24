@@ -34,11 +34,16 @@ from unittest import SkipTest
 import inspect
 import math
 import tempfile
+import hashlib
 import faker
 import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
-REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
+# Other checkouts must not replace a fixture before Redis opens it.
+REDISEARCH_CACHE_DIR = os.path.join(
+    tempfile.gettempdir(), 'redisearch-rdbs',
+    hashlib.sha256(os.fsencode(os.path.realpath(TEST_RDBS_DIR))).hexdigest(),
+)
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 

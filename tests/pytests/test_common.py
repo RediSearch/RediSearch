@@ -7,9 +7,38 @@
 
 from common import *
 import common
+import importlib.util
 from pathlib import Path
 from unittest.mock import Mock, patch
 import zipfile
+
+
+@skip(cluster=True)
+def test_getRDBFile_isolates_checkouts(env):
+    """A later open must read this checkout's fixture after another checkout refreshes."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        name = 'fixture.rdb'
+        readers = []
+        for checkout, contents in [('checkout_a', b'REDIS0013'), ('checkout_b', b'REDIS0015')]:
+            source = root / checkout
+            fixtures = source / 'test_rdbs'
+            fixtures.mkdir(parents=True)
+            module_path = source / 'common.py'
+            module_path.write_bytes(Path(common.__file__).read_bytes())
+            spec = importlib.util.spec_from_file_location(checkout, module_path)
+            fixture_common = importlib.util.module_from_spec(spec)
+            with patch('tempfile.gettempdir', return_value=str(root / 'cache')):
+                spec.loader.exec_module(fixture_common)
+            with zipfile.ZipFile(fixtures / (name + '.zip'), 'w') as z:
+                z.writestr(name, contents)
+            env.assertTrue(fixture_common.getRDBFile(env, name))
+            link = source / 'dump.rdb'
+            link.symlink_to(Path(fixture_common.REDISEARCH_CACHE_DIR, name))
+            readers.append((link, contents))
+
+        for link, contents in readers:
+            env.assertEqual(link.read_bytes(), contents)
 
 
 @skip(cluster=True)
