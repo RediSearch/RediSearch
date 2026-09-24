@@ -10,6 +10,7 @@
 #include "search_disk.h"
 
 #include <stdatomic.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "config.h"
@@ -29,12 +30,55 @@ struct timespec;
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
+static size_t diskMemoryLimitBytes = 0;
+static size_t diskLogicalIndexCount = 0;
+
+static bool SearchDisk_ApplyResourceState(size_t logicalIndexCount) {
+  RS_ASSERT(disk && disk_db && disk->basic.updateResourceState);
+  return disk->basic.updateResourceState(disk_db, diskMemoryLimitBytes, logicalIndexCount);
+}
+
+static bool SearchDisk_NextLogicalIndexCount(size_t *nextCount) {
+  if (diskLogicalIndexCount == SIZE_MAX) {
+    return false;
+  }
+  *nextCount = diskLogicalIndexCount + 1;
+  return true;
+}
+
+bool SearchDisk_CanCreateIndex(void) {
+  size_t nextCount;
+  if (!SearchDisk_NextLogicalIndexCount(&nextCount)) {
+    return false;
+  }
+
+  const size_t percentage = RSGlobalConfig.diskMaxMemoryPercentage;
+  if (diskMemoryLimitBytes == 0 || percentage == 0 || percentage > 100) {
+    return false;
+  }
+  const size_t maximumMemory =
+      (diskMemoryLimitBytes / 100) * percentage +
+      ((diskMemoryLimitBytes % 100) * percentage) / 100;
+
+  const size_t bytesPerMiB = 1024 * 1024;
+  const size_t budgetMiB = RSGlobalConfig.diskWbmBudgetPerIndexMB;
+  if (budgetMiB == 0 || budgetMiB > SIZE_MAX / bytesPerMiB) {
+    return false;
+  }
+  const size_t budgetPerIndex = budgetMiB * bytesPerMiB;
+  if (nextCount > SIZE_MAX / budgetPerIndex) {
+    return false;
+  }
+  return nextCount * budgetPerIndex <= maximumMemory;
+}
+
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
 
 // Throttle callbacks for vector disk tiered indexes
 static int VecSim_EnableThrottle(void);
 static int VecSim_DisableThrottle(void);
+
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -84,6 +128,10 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
+  diskMemoryLimitBytes = (size_t)configured_memory_limit;
+  diskLogicalIndexCount = 0;
+
   disk = SearchDisk_GetAPI();
   if (!disk) {
     RedisModule_Log(ctx, "warning", "RediSearch disk API disabled");
@@ -96,13 +144,23 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
-                             RSGlobalConfig.diskMaxOpenFiles);
-  bool disk_initialized = disk_db != NULL;
-
-  if (!disk_initialized) {
-    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+  SearchDiskResourceConfig resource_config = {
+    .memoryLimitBytes = diskMemoryLimitBytes,
+    .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
+    .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
+    .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
+    .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
+  };
+  disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+  if (!disk_db) {
+    RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
+    return false;
+  }
+  if (!SearchDisk_ApplyResourceState(0)) {
+    RedisModule_Log(ctx, "warning", "Search Disk could not apply its initial resource state");
+    disk->basic.close(ctx, disk_db);
+    disk_db = NULL;
     return false;
   }
 
@@ -111,7 +169,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
     return false;
   }
-  return disk_db != NULL;
+  return true;
 }
 
 bool SearchDisk_IsInitialized() {
@@ -162,6 +220,8 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
+    diskMemoryLimitBytes = 0;
+    diskLogicalIndexCount = 0;
   }
 }
 
@@ -213,15 +273,37 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 }
 
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
-    RS_ASSERT(disk_db && c_index_spec);
-    SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-    RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
+static bool SearchDisk_PrepareLogicalOpen(size_t *nextCount) {
+    return SearchDisk_NextLogicalIndexCount(nextCount) &&
+           SearchDisk_ApplyResourceState(*nextCount);
+}
+
+static void SearchDisk_CompleteLogicalOpen(size_t nextCount,
+                                           RedisSearchDiskIndexSpec *result,
+                                           IndexSpec *spec) {
     if (result) {
+        diskLogicalIndexCount = nextCount;
         // Open atomically registers with BigModule, so the spec needs a
         // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
-        c_index_spec->diskRegistered = true;
+        spec->diskRegistered = true;
+        return;
     }
+    RS_LOG_ASSERT(SearchDisk_ApplyResourceState(diskLogicalIndexCount),
+                  "Failed to restore disk resource state after an index open failure");
+}
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
+    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
+    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
+    RS_ASSERT(disk_db && c_index_spec);
+    size_t nextCount;
+    if (!SearchDisk_PrepareLogicalOpen(&nextCount)) {
+        return NULL;
+    }
+    SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+    RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
+        ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
+        &callbacks, c_index_spec);
+    SearchDisk_CompleteLogicalOpen(nextCount, result, c_index_spec);
     return result;
 }
 
@@ -253,7 +335,12 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     if (!spec->diskRegistered) {
         return;
     }
+    RS_ASSERT(diskLogicalIndexCount > 0);
     disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
+    const size_t nextCount = diskLogicalIndexCount - 1;
+    RS_LOG_ASSERT(SearchDisk_ApplyResourceState(nextCount),
+                  "Failed to update disk resource state after an index close");
+    diskLogicalIndexCount = nextCount;
     spec->diskRegistered = false;
 }
 
@@ -279,13 +366,16 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             RedisSearchDiskRdbState *rdbState,
                                                             IndexSpec *c_index_spec) {
   RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
-  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
-  if (result) {
-    // Open atomically registers with BigModule, so the spec needs a
-    // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
-    c_index_spec->diskRegistered = true;
+  size_t nextCount;
+  if (!SearchDisk_PrepareLogicalOpen(&nextCount)) {
+    disk->basic.freeRdbState(rdbState);
+    return NULL;
   }
+  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState,
+      &callbacks, c_index_spec);
+  SearchDisk_CompleteLogicalOpen(nextCount, result, c_index_spec);
   return result;
 }
 
@@ -660,46 +750,9 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
   disk->index.closeConsistencyWindow(sp->diskSpec, reopenNumericGate);
 }
 
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   RS_ASSERT(disk && disk_db);
-
-  // Update the WriteBufferManager with the new budget and get the new budget value
-  size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
-  // Update write buffer size for all existing indexes
-  if (!specDict_g) {
-    return;
-  }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
-    }
-  }
-  dictReleaseIterator(iter);
-}
-
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
-  RS_ASSERT(disk && disk_db);
-
-  // Store the configured value on the shared context so new DBs pick it up.
-  disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles);
-  // Reapply to every existing index's database.
-  if (!specDict_g) {
-    return;
-  }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      disk->index.updateMaxOpenFiles(sp->diskSpec, maxOpenFiles);
-    }
-  }
-  dictReleaseIterator(iter);
+  diskMemoryLimitBytes = memoryLimitBytes;
+  RS_LOG_ASSERT(SearchDisk_ApplyResourceState(diskLogicalIndexCount),
+                "Failed to apply updated disk memory limit");
 }

@@ -136,18 +136,29 @@ typedef struct DiskGCRunStats {
   size_t cycle_time_ms;
 } DiskGCRunStats;
 
+typedef struct SearchDiskResourceConfig {
+  size_t memoryLimitBytes;
+  size_t maxMemoryPercentage;
+  size_t minMemoryBudgetPercentage;
+  size_t wbmBudgetPerIndexMB;
+  int maxOpenFiles;
+} SearchDiskResourceConfig;
+
 typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
    * @param ctx Redis module context
-   * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @param resourceConfig Resource limits. The shared cache capacity uses the maximum-memory
+   *        percentage. The shared WBM target is the per-index budget multiplied by the current
+   *        live logical-index count, bounded by the minimum WBM budget and maximum-memory cap.
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
-   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx,
+                           const SearchDiskResourceConfig *resourceConfig,
+                           bool logObfuscation, bool dropReadCache, bool useDirectReads);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**
@@ -175,7 +186,10 @@ typedef struct BasicDiskAPI {
    * @note This both opens the database and registers it with Redis BigModule APIs.
    *       Registration is atomic with creation; there is no separate register step.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(
+      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+      bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -263,15 +277,11 @@ typedef struct BasicDiskAPI {
    *                     IndexSpec for its lifetime.
    * @return Pointer to the created IndexSpec, or NULL on error
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
-                                                          RedisSearchDisk *disk,
-                                                          const HiddenString *indexName,
-                                                          const char *obfuscatedName,
-                                                          size_t obfuscatedNameLen,
-                                                          DocumentType type,
-                                                          RedisSearchDiskRdbState *rdbState,
-                                                          const SearchDiskCompactionCallbacks *callbacks,
-                                                          void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
+      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+      RedisSearchDiskRdbState *rdbState, const SearchDiskCompactionCallbacks *callbacks,
+      void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
@@ -283,32 +293,16 @@ typedef struct BasicDiskAPI {
    */
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
-
   /**
-   * @brief Update the buffer budget and WBM in response to RAM configuration changes.
+   * @brief Apply the complete resource state owned by Core.
    *
-   * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
-   * and updates the WriteBufferManager with the new size.
-   *
-   * @param ctx Redis module context
    * @param disk Pointer to the disk context
-   * @param percentage Percentage of available memory to request (0-100)
-   * @return The new buffer budget in bytes, or 0 on error. Use this value to update
-   *         existing indexes via updateWriteBufferSize.
+   * @param memoryLimitBytes Current bigredis-max-ram value in bytes
+   * @param logicalIndexCount Current logical disk-index count
+   * @return true if all derived capacities were applied
    */
-  size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
-
-  /**
-   * @brief Store a new max_open_files cap on the disk context.
-   *
-   * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
-   * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
-   *
-   * @param ctx Redis module context
-   * @param disk Pointer to the disk context
-   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
-   */
-  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
+  bool (*updateResourceState)(RedisSearchDisk *disk, size_t memoryLimitBytes,
+                              size_t logicalIndexCount);
 
   /**
    * Create a result processor that loads document fields from disk asynchronously.
@@ -613,29 +607,6 @@ typedef struct IndexDiskAPI {
    * @return true if background work is paused
    */
   bool (*isBackgroundWorkPaused)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Update the write buffer size for this index's database
-   *
-   * Dynamically changes the write_buffer_size option for all column families
-   * in this index's database. Should be called after updateBufferBudget to
-   * propagate the new per-index buffer size (budget / divisor).
-   *
-   * @param index Pointer to the disk index
-   * @param new_budget New total buffer budget in bytes (will be divided internally)
-   */
-  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
-
-  /**
-   * @brief Apply a new max_open_files cap to this index's database at runtime.
-   *
-   * Bounds the number of files this index's database keeps open, recycling the
-   * least-recently-used ones and reopening on demand.
-   *
-   * @param index Pointer to the disk index
-   * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
-   */
-  void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
    * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.

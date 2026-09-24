@@ -729,8 +729,9 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
 }
 
-#define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 #define BIGREDIS_MAX_RAM "bigredis-max-ram"
+
+#define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 #define REDIS_LOGLEVEL "loglevel"
 
 bool getHideUserDataFromLogs() {
@@ -758,6 +759,14 @@ static void onUpdatedLogLevel(RedisModuleCtx *ctx) {
   RedisModule_FreeString(ctx, level);
 }
 
+static void onUpdatedMemoryLimit(RedisModuleCtx *ctx) {
+  if (!SearchDisk_IsInitialized()) {
+    return;
+  }
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, BIGREDIS_MAX_RAM, 0);
+  SearchDisk_UpdateMemoryLimit((size_t)configured_memory_limit);
+}
+
 void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
   if (eid.id != REDISMODULE_EVENT_CONFIG ||
       event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
@@ -770,8 +779,7 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
       onUpdatedHideUserDataFromLogs(ctx);
     }
     if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
-      RS_ASSERT(SearchDisk_IsInitialized());
-      SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+      onUpdatedMemoryLimit(ctx);
     }
     if (strcmp(conf, REDIS_LOGLEVEL) == 0) {
       onUpdatedLogLevel(ctx);
