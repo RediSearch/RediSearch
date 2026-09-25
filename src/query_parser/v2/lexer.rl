@@ -84,9 +84,21 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       }
       RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
     } else {
-      char *ne = (char*)te;
+      char *ne = (char*)tok.s;
       tok.numval = fast_float_strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
+      /* Require full consumption of the RHS as a number: partial parses like
+       * "5stars" or "1st" must become TERM for TAG/TEXT lex ranges. */
+      const char *p = ne;
+      while (p < te && isspace((unsigned char)*p)) {
+        ++p;
+      }
+      if (ne > tok.s && p == te) {
+        RSQuery_Parse_v2(pParser, NUMBER, tok, q);
+      } else {
+        tok.numval = 0;
+        tok.len = te - tok.s;
+        RSQuery_Parse_v2(pParser, TERM, tok, q);
+      }
     }
     if (!QPCTX_ISOK(q)) {
         return 0;
@@ -125,12 +137,12 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
-mod_not_equal = '@'.term.(space*).'!='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
-mod_equal = '@'.term.(space*).'=='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
-mod_gt = '@'.term.(space*).'>'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
-mod_ge = '@'.term.(space*).'>='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
-mod_lt = '@'.term.(space*).'<'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
-mod_le = '@'.term.(space*).'<='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_not_equal = '@'.term.(space*).'!='.(space*).(number|inf|size|('+'|'-')?.attr|term) $ 1;
+mod_equal = '@'.term.(space*).'=='.(space*).(number|inf|size|('+'|'-')?.attr|term) $ 1;
+mod_gt = '@'.term.(space*).'>'.(space*).(number|inf|size|('+'|'-')?.attr|term) $ 1;
+mod_ge = '@'.term.(space*).'>='.(space*).(number|inf|size|('+'|'-')?.attr|term) $ 1;
+mod_lt = '@'.term.(space*).'<'.(space*).(number|inf|size|('+'|'-')?.attr|term) $ 1;
+mod_le = '@'.term.(space*).'<='.(space*).(number|inf|size|('+'|'-')?.attr|term) $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
