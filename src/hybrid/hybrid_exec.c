@@ -485,7 +485,6 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 static void HREQ_StoreResults(HybridRequest *hreq, int rc, cachedVars cv) {
   hreq->base.reply.rc = rc;
   hreq->base.reply.cv = cv;
-  hreq->base.reply.hasStoredResults = true;
 }
 
 // Helper for error handling in coordinator HREQ execution.
@@ -502,6 +501,8 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     QueryError_CloneFrom(status, &hreq->base.reply.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
+    // The bail is the cycle's stored outcome: the reply phase replies the error like any other cycle.
+    hreq->base.reply.rc = RS_RESULT_ERROR;
   } else if (!ShouldReplyWithError(QueryError_GetCode(status),
                                    hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     // Error is a timeout under a non-fail policy, which must not surface as an
@@ -597,13 +598,18 @@ void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply) 
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   ChunkReplyState *stored = &hreq->base.reply;
 
-  // A hard error (tail or subquery) replies as the error; soft tail errors stay in
-  // hreq->tailPipelineError (qctx->err) for the warning path to render.
+  // A bail before the pipeline stored its error here; otherwise a hard error (tail or subquery)
+  // replies as the error and soft tail errors stay in hreq->tailPipelineError (qctx->err) for the
+  // warning path to render.
   QueryError err = QueryError_Default();
-  HybridRequest_GetError(hreq, &err);
+  if (QueryError_HasError(&stored->err)) {
+    QueryError_CloneFrom(&stored->err, &err);
+    QueryError_ClearError(&stored->err);
+  } else {
+    HybridRequest_GetError(hreq, &err);
+  }
 
   replyBufferedChunk_hybrid(hreq, reply, qctx, stored->rc, &err);
-  stored->hasStoredResults = false;
 
   finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
   QueryError_ClearError(&err);
@@ -1049,8 +1055,6 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
-  RS_ASSERT(hreq->base.reply.hasStoredResults);
-
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   HREQ_ReplyWithStoredResults(hreq, reply);
   RedisModule_EndReply(reply);
@@ -1131,18 +1135,6 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   RS_ASSERT(request != NULL);
 
   HybridRequest *req = QueryRequest_GetHybrid(request);
-
-  // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
 
   // Call HREQ_ReplyWithStoredResults to build reply from stored results
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;

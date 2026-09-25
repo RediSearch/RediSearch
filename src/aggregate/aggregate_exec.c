@@ -447,7 +447,6 @@ static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv) {
 
   req->base.reply.rc = rc;
   req->base.reply.cv = cv;
-  req->base.reply.hasStoredResults = true;
   // The pipeline reports straight into reply.err (qctx->err points there), so the error is already
   // where the reply phase reads it.
   RS_ASSERT(qctx->err == &req->base.reply.err);
@@ -838,8 +837,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       .replyFlags = ((reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
                     ((reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
       .apiVersion = sctx->apiVersion,
-  cachedVars_SetRowShape(&cv, req, RedisModule_IsRESP3(reply));
   };
+  cachedVars_SetRowShape(&cv, req, RedisModule_IsRESP3(reply));
 
   // Set the chunk size limit for the query
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
@@ -1038,6 +1037,8 @@ void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
   QueryError *err = &req->base.reply.err;
   RS_ASSERT(QueryError_HasError(err));
   if (QueryRequest_UsesReplyCallback(&req->base)) {
+    // The bail is the cycle's stored outcome: the reply phase replies the error like any other cycle.
+    req->base.reply.rc = RS_RESULT_ERROR;
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
     // No current coord caller reaches here while a timer is waiting; kept as a
     // forward-compat invariant for future error paths. No-op for FAIL callers.
@@ -1339,7 +1340,9 @@ void AREQ_SetCanYieldPartialResults(AREQ *req) {
 // flip), so this just gates and delegates the actual loop to the shared helper.
 static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->canYieldPartialResults) {
+  // A cycle that ended in an error replies that error; its pipeline may be stopped or gone (a cursor
+  // whose index was dropped), so nothing is drained from it.
+  if (!qctx->canYieldPartialResults || QueryError_HasError(&req->base.reply.err)) {
     return;
   }
 
@@ -1388,14 +1391,13 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
 
-  // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     req->base.reply.rc = RS_RESULT_TIMEDOUT;
   }
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
-  // No-op for shapes that already accumulated their rows in the reply buffer.
+  // No-op for shapes that already accumulated their rows in the reply buffer, and for a cycle that
+  // bailed before building its pipeline.
   drainPartialResultsAfterTimeout(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
@@ -1410,11 +1412,8 @@ static void replyStoredResults(AREQ *req, RedisModule_Reply *reply) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ChunkReplyState *stored = &req->base.reply;
 
-  // The stored error is the cycle's error from here on; the executing frame's QueryError is gone
-  // (or already cleared by AREQ_StoreResults).
-  qctx->err = &stored->err;
+  RS_ASSERT(qctx->err == &stored->err);
   bool cursorDone = replyBufferedChunk(req, reply, stored->rc);
-  stored->hasStoredResults = false;
   finishSendChunk(req, cursorDone);
 }
 
@@ -1446,19 +1445,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    // Use the stored error if available, otherwise generic error.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
+  // A cycle that bailed before its pipeline stored the error as its outcome; the reply phase replies it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
@@ -1519,16 +1506,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // cursor-shaped reply and park/free the cursor before replying.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
-    drainPartialResultsAfterTimeout(req);
-    AREQ_ReplyWithStoredResults(ctx, req);
-  } else if (QueryError_HasError(&req->base.reply.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-    QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-  } else {
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-  }
+  req->base.reply.rc = RS_RESULT_TIMEDOUT;
+  drainPartialResultsAfterTimeout(req);
+  AREQ_ReplyWithStoredResults(ctx, req);
   return REDISMODULE_OK;
 }
 
@@ -1545,17 +1525,6 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   RS_ASSERT(request != NULL);
 
   AREQ *req = QueryRequest_GetAREQ(request);
-
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
 
   AREQ_ReplyWithStoredResults(ctx, req);
 

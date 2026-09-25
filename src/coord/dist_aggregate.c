@@ -1058,7 +1058,8 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 // delegates the actual loop to the shared helper.
 static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->canYieldPartialResults) {
+  // A cycle that ended in an error replies that error and has nothing to drain.
+  if (!qctx->canYieldPartialResults || QueryError_HasError(&req->base.reply.err)) {
     return;
   }
 
@@ -1102,8 +1103,6 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
 
-  // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     req->base.reply.rc = RS_RESULT_TIMEDOUT;
   }
@@ -1127,18 +1126,6 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
   // Under RETURN-STRICT, a shard's TIMEDOUT warning does not abort the coord
   // pipeline (see processWarningsAndCleanup in src/coord/rpnet.c): RPNet keeps
   // draining the remaining shards and the warning is surfaced via the
@@ -1157,8 +1144,8 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
 // RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
 // check at runPipelineCycle handles pipeline-side bails, and pre-pipeline
-// bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
-// on `hasStoredResults`.
+// bails are signaled via AREQ_ReplyErrorOrDefer, which stores the error as the
+// cycle's outcome, so the timer replies every cycle the same way.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
@@ -1186,22 +1173,12 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // cursor-shaped reply, signals completion, and parks/frees the cursor.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
-    // Drain anything queued before the deadline, then serialize and dispose
-    // the stashed cursor (Pause if more rows remain, Free on EOF) inside
-    // AREQ_ReplyWithStoredResults.
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
-    drainPartialResultsAfterTimeout(req);
-    AREQ_ReplyWithStoredResults(ctx, req);
-  } else {
-    // Pre-pipeline bail through AREQ_ReplyErrorOrDefer. Reachable on
-    // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
-    // cursorRead bails here when the index was dropped while the cursor idled.
-    QueryError *err = &req->base.reply.err;
-    RS_ASSERT(QueryError_HasError(err));
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, err);
-  }
+  // Drain anything queued before the deadline, then serialize and dispose
+  // the stashed cursor (Pause if more rows remain, Free on EOF) inside
+  // AREQ_ReplyWithStoredResults.
+  req->base.reply.rc = RS_RESULT_TIMEDOUT;
+  drainPartialResultsAfterTimeout(req);
+  AREQ_ReplyWithStoredResults(ctx, req);
   return REDISMODULE_OK;
 }
 

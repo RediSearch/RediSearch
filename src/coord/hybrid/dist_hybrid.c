@@ -1359,18 +1359,6 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RS_ASSERT(request != NULL);
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Check if results were stored (background thread completed successfully)
-  if (!hreq->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
   // Call HREQ_ReplyWithStoredResults to build reply from stored results
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   HREQ_ReplyWithStoredResults(hreq, reply);
