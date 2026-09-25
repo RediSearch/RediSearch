@@ -1030,12 +1030,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx);
     RedisModule_Reply *reply = &_reply;
 
-    AGGPlan *plan = &hreq->tailPipeline->ap;
-    cachedVars cv = {
-        .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-        .lastAstp = AGPLN_GetArrangeStep(plan)
-    };
-    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    sendChunk_hybrid(hreq, reply, UINT64_MAX);
     RedisModule_EndReply(reply);
     // Drop the alias before freeing replyCtx so the hreq teardown below can't
     // see a dangling pointer if SearchCtx ever starts reading sctx->redisCtx.

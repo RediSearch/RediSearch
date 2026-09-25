@@ -482,9 +482,8 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 #endif
 
 // The completion handshake publishes these diagnostics with the serialized rows.
-static void HREQ_StoreResults(HybridRequest *hreq, int rc, cachedVars cv) {
+static void HREQ_StoreResults(HybridRequest *hreq, int rc) {
   hreq->base.reply.rc = rc;
-  hreq->base.reply.cv = cv;
 }
 
 // Helper for error handling in coordinator HREQ execution.
@@ -531,11 +530,20 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  * @param limit Maximum number of results to return
  * @param cv Cached variables for result processing
  */
-void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
-  cv.options = HREQ_RequestFlags(hreq);
-  cv.replyFlags = ((cv.options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
-                  ((cv.options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0);
-  cv.apiVersion = HREQ_SearchCtx(hreq)->apiVersion;
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit) {
+  // The cycle's serialization constants live in the reply state, where the reply phase reads them.
+  AGGPlan *plan = &hreq->tailPipeline->ap;
+  const uint32_t options = HREQ_RequestFlags(hreq);
+  cachedVars *cv = &hreq->base.reply.cv;
+  *cv = (cachedVars){
+      .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+      .lastAstp = AGPLN_GetArrangeStep(plan),
+      .options = options,
+      .replyFlags = ((options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
+                    ((options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
+      .apiVersion = HREQ_SearchCtx(hreq)->apiVersion,
+      .rowElements = 1, // a hybrid row is one map in both protocols
+  };
 
   // Execute, store, reply. A blocked cycle opened its reply buffer when it began; a foreground
   // call opens one here for the duration of the call. With a reply callback the reply phase runs
@@ -558,7 +566,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     goto done;
   }
 
-  runPipelineCycle_hybrid(hreq, rp, &rc, &cv);
+  runPipelineCycle_hybrid(hreq, rp, &rc, cv);
 
   // Refresh the background-scan-OOM capture now that the tail pipeline has
   // drained, mirroring the aggregate runPipelineCycle: the reply path reads
@@ -573,7 +581,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
     debugPauseStoreResultsHybrid(hreq, true);  // pause before
-    HREQ_StoreResults(hreq, rc, cv);
+    HREQ_StoreResults(hreq, rc);
     debugPauseStoreResultsHybrid(hreq, false); // pause after
 
     // Signal completion for main-thread timeout
@@ -581,7 +589,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       HybridRequest_SignalAggregateResultsComplete(hreq);
     }
   } else {
-    HREQ_StoreResults(hreq, rc, cv);
+    HREQ_StoreResults(hreq, rc);
     HREQ_ReplyWithStoredResults(hreq, reply);
   }
 
@@ -664,14 +672,8 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
  * @param sctx Redis search context
  */
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
-    AGGPlan *plan = &hreq->tailPipeline->ap;
-    cachedVars cv = {
-        .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-        .lastAstp = AGPLN_GetArrangeStep(plan)
-    };
-
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    sendChunk_hybrid(hreq, reply, UINT64_MAX);
     RedisModule_EndReply(reply);
 }
 

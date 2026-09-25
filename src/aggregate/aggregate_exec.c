@@ -442,11 +442,10 @@ static void runPipelineCycle(AREQ *req, ResultProcessor *rp, int *rc, const cach
 
 // Publish metadata only after every row is serialized. The completion handshake
 // gives the timeout callback exclusive ownership of rows and the pipeline.
-static void AREQ_StoreResults(AREQ *req, int rc, cachedVars cv) {
+static void AREQ_StoreResults(AREQ *req, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
   req->base.reply.rc = rc;
-  req->base.reply.cv = cv;
   // The pipeline reports straight into reply.err (qctx->err points there), so the error is already
   // where the reply phase reads it.
   RS_ASSERT(qctx->err == &req->base.reply.err);
@@ -653,11 +652,11 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * strict timeout callback may serialize them on the main thread the moment it
  * wakes, and must not observe this cycle's dying ctx through sctx->redisCtx.
  * The pipeline is done with the ctx once it reaches here. */
-static void storeResultsForReplyCallback(AREQ *req, int rc, cachedVars cv) {
+static void storeResultsForReplyCallback(AREQ *req, int rc) {
   if (!req->base.async.aggregateResultsClaimLost) {
     AREQ_SearchCtx(req)->redisCtx = NULL;
     debugPauseStoreResults(req, true);  // pause before
-    AREQ_StoreResults(req, rc, cv);
+    AREQ_StoreResults(req, rc);
     debugPauseStoreResults(req, false); // pause after
 
     // Signal completion for main-thread timeout
@@ -828,8 +827,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     IndexSpec_IncrActiveQueries(sctx->spec);
   }
 
+  // The cycle's serialization constants live in the reply state, where the reply phase reads them.
   AGGPlan *plan = AREQ_AGGPlan(req);
-  cachedVars cv = {
+  cachedVars *cv = &req->base.reply.cv;
+  *cv = (cachedVars){
       .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
       .lastAstp = AGPLN_GetArrangeStep(plan),
       .options = reqFlags,
@@ -838,7 +839,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
                     ((reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
       .apiVersion = sctx->apiVersion,
   };
-  cachedVars_SetRowShape(&cv, req, RedisModule_IsRESP3(reply));
+  cachedVars_SetRowShape(cv, req, RedisModule_IsRESP3(reply));
 
   // Set the chunk size limit for the query
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
@@ -850,11 +851,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   const bool foreground = !req->base.blockedClientCycleActive;
   if (foreground) ChunkReplyState_OpenBuffer(&req->base.reply, reply->ctx);
   int rc = RS_RESULT_EOF;
-  runPipelineCycle(req, qctx->endProc, &rc, &cv);
+  runPipelineCycle(req, qctx->endProc, &rc, cv);
   if (QueryRequest_UsesReplyCallback(&req->base)) {
-    storeResultsForReplyCallback(req, rc, cv);
+    storeResultsForReplyCallback(req, rc);
   } else {
-    AREQ_StoreResults(req, rc, cv);
+    AREQ_StoreResults(req, rc);
     replyStoredResults(req, reply);
   }
   if (foreground) ChunkReplyState_CloseBuffer(&req->base.reply);
