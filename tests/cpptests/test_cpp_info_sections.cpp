@@ -93,16 +93,16 @@ class InfoSectionsTest : public ::testing::Test {
   static inline int collections = 0;
   static inline int cachedCollections = 0;
   static inline int diskOutputs = 0;
-  static inline bool acceptV3 = false;
+  static inline bool acceptV2 = false;
   static inline std::vector<uint64_t> registeredVersions;
   static inline std::vector<unsigned int> controls;
   static inline int targetRegistrations = 0;
   static inline RedisModuleEventCallback cronCallback = nullptr;
-  static inline RedisModuleBigCallbacksV3 callbacks{};
+  static inline RedisModuleBigCallbacksV2 callbacks{};
 
   static int registerBigModule(RedisModuleCtx *, RedisModuleBigCallbacks *candidate) {
     registeredVersions.push_back(candidate->version);
-    if (candidate->version == REDISMODULE_BIG_CALLBACKS_VERSION && acceptV3) {
+    if (candidate->version == REDISMODULE_BIG_CALLBACKS_VERSION && acceptV2) {
       callbacks = *candidate;
       return REDISMODULE_OK;
     }
@@ -176,7 +176,7 @@ class InfoSectionsTest : public ::testing::Test {
     isFlex = true;
     RSGlobalConfig.infoEmitOnZeroIndexes = true;
     collections = cachedCollections = diskOutputs = 0;
-    acceptV3 = false;
+    acceptV2 = false;
     registeredVersions.clear();
     controls.clear();
     targetRegistrations = 0;
@@ -259,8 +259,8 @@ TEST_F(InfoSectionsTest, ZeroIndexSuppressionPreservesConfigAndSelection) {
   EXPECT_EQ(diskOutputs, 0);
 }
 
-TEST_F(InfoSectionsTest, V3CallbacksUseCachedInfoMetrics) {
-  acceptV3 = true;
+TEST_F(InfoSectionsTest, V2CallbacksUseCachedInfoMetrics) {
+  acceptV2 = true;
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_EQ(registeredVersions, std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION});
   ASSERT_NE(callbacks.getCachedDiskUsage, nullptr);

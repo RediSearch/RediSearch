@@ -1,6 +1,6 @@
 # Disk metrics in Redis INFO
 
-With matching RediSearch Enterprise and Flex Redis BigModule V3 support, Redis INFO reads
+With matching RediSearch Enterprise and Flex Redis BigModule V2 support, Redis INFO reads
 background disk snapshots instead of collecting native properties on its caller.
 FT.INFO and operational quota checks retain their live paths. RAM accounting,
 index walks, existing locks and formatting are unchanged.
@@ -10,7 +10,7 @@ collection errors, retaining their timestamps. Consumers should inspect the
 search_disk_metrics_cache readiness, age and error fields before interpreting
 zero or old values. Samples are not atomic across column families or indexes.
 
-V3 rejection selects the legacy synchronous path. After successful V3
+V2 rejection selects the legacy synchronous path. After successful V2
 negotiation, worker failure leaves cached degraded mode; cron retries startup
 and never collects native metrics. Resume schedules target rebuilding on cron
 after the callback stack has unwound. Drop/shutdown retire targets before native
