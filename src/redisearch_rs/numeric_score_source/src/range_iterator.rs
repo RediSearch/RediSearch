@@ -346,6 +346,49 @@ mod tests {
     }
 
     #[test]
+    fn one_batch_merges_ranges_with_interleaved_doc_ids() {
+        // Odd ids take low values and even ids high ones, so the value split
+        // leaves every range's doc ids interleaved with another range's.
+        let docs = 40u64;
+        let value_of = |id: u64| {
+            if id % 2 == 1 {
+                id as f64
+            } else {
+                100.0 + id as f64
+            }
+        };
+        let mut tree = NumericRangeTree::new(false);
+        for id in 1..=docs {
+            tree.add(id, value_of(id), false, false, 0);
+        }
+        let filter = NumericFilter::default();
+        let ranges = tree.find(&filter).len();
+        assert!(ranges >= 2, "expected a split");
+
+        let single_batch = || {
+            let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
+            let batch = it.next_n(ranges, &mut NoTimeoutChecker).unwrap().unwrap();
+            assert!(it.is_exhausted(), "every range must land in the one batch");
+            batch
+        };
+
+        let mut batch = single_batch();
+        let mut pairs = Vec::new();
+        while let Some(pair) = batch.next() {
+            pairs.push(pair);
+        }
+        let expected: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, value_of(id))).collect();
+        assert_eq!(pairs, expected);
+
+        // `skip_to` binary-searches the merged order, across run boundaries.
+        let mut batch = single_batch();
+        let target = docs / 2;
+        assert_eq!(batch.skip_to(target), Some((target, value_of(target))));
+        assert_eq!(batch.next(), Some((target + 1, value_of(target + 1))));
+        assert_eq!(batch.skip_to(docs + 1), None);
+    }
+
+    #[test]
     fn range_excluded_at_its_only_value_reserves_at_most_a_split_size() {
         let mut tree = NumericRangeTree::new(false);
         let docs = 2 * NumericRangeTree::MAXIMUM_RANGE_SIZE as u64;
