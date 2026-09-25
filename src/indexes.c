@@ -654,13 +654,15 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
         return IndexUpdate_Full;
       }
     }
+    // LANGUAGE_FIELD can name a path that is *also* a vector schema field: language affects
+    // TEXT tokenization independently of whether this path is a vector, so it must still force
+    // a full reindex even when every schema mapping above was vector-only.
+    if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
+      return IndexUpdate_Full;
+    }
     if (matchedSchemaField) {
       action |= IndexUpdate_VectorOnly;
       continue;
-    }
-    // Schema matches take priority: a metadata field may also have indexed/sortable content.
-    if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
-      return IndexUpdate_Full;
     }
     if (ruleFieldEquals(spec->rule->score_field, field, length)) {
       action |= IndexUpdate_Score;
@@ -689,6 +691,39 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
   return alreadyIndexed ? action : IndexUpdate_Full;
 }
 
+// Checks whether an opened Hash key is eligible for the metadata/vector-only fast paths.
+// Returns false (nothing to do but goto cleanup) if not; fills *docId on success.
+static bool checkKeyUpdateHash(const IndexSpec *spec, RedisModuleKey *key, uint64_t *docId) {
+  // HDEL removes the key before notifying us when it deletes the last field.
+  if (!key) {
+    return false;
+  }
+  RS_ASSERT(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH);
+
+  // Expiration can change indexed content independently of the fields named by this write.
+  if (RedisModule_GetAbsExpire(key) != REDISMODULE_NO_EXPIRE ||
+      RedisModule_HashFieldMinExpire(key) != REDISMODULE_NO_EXPIRE ||
+      DocIdMeta_GetWithOpenKey(key, spec->specId, docId) != REDISMODULE_OK) {
+    return false;
+  }
+
+  return true;
+}
+
+// Checks whether a borrowed DMD is eligible for the metadata/vector-only fast paths.
+static bool checkDmdUpdateHash(const IndexSpec *spec, uint64_t docId, RSDocumentMetadata *dmd) {
+  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
+    return false;
+  }
+  RS_ASSERT(dmd->type == DocumentType_Hash);
+  if ((dmd->flags & Document_FailedToOpen) ||
+      __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
+      DocTable_GetFieldExpirations(&spec->docs, docId).len) {
+    return false;
+  }
+  return true;
+}
+
 // Attempts a score/payload update for a Hash change classified as metadata-only.
 // Returns true if handled without reindexing; false requires the caller's full update path.
 static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *keyName,
@@ -708,16 +743,7 @@ static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModule
   size_t payloadSize = 0;
   const char *payloadData = NULL;
 
-  // HDEL removes the key before notifying us when it deletes the last field.
-  if (!key) {
-    goto cleanup;
-  }
-  RS_ASSERT(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH);
-
-  // Expiration can change indexed content independently of the fields named by this write.
-  if (RedisModule_GetAbsExpire(key) != REDISMODULE_NO_EXPIRE ||
-      RedisModule_HashFieldMinExpire(key) != REDISMODULE_NO_EXPIRE ||
-      DocIdMeta_GetWithOpenKey(key, spec->specId, &docId) != REDISMODULE_OK) {
+  if (!checkKeyUpdateHash(spec, key, &docId)) {
     goto cleanup;
   }
 
@@ -733,13 +759,7 @@ static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModule
   RedisSearchCtx_LockSpecWrite(&sctx);
   dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
   // Readers may retain metadata after releasing the spec lock.
-  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
-    goto cleanup;
-  }
-  RS_ASSERT(dmd->type == DocumentType_Hash);
-  if ((dmd->flags & Document_FailedToOpen) ||
-      __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
-      DocTable_GetFieldExpirations(&spec->docs, docId).len ||
+  if (!checkDmdUpdateHash(spec, docId, dmd) ||
       ((action & IndexUpdate_Payload) && !(dmd->flags & Document_HasPayloadSlot))) {
     goto cleanup;
   }
@@ -771,10 +791,9 @@ cleanup:
   return success;
 }
 
-// Attempts an in-place vector update for a Hash change classified as vector-only (every schema
+// Attempts a vector update for a Hash change classified as vector-only (every schema
 // field the change set named is INDEXFLD_T_VECTOR, per getHashUpdateAction). Updates each named
-// vector field via VecSimIndex_UpdateVectors under the document's existing doc-id, instead of
-// the full delete-then-reindex-under-a-new-id path a schema-field match otherwise takes.
+// vector field via VecSimIndex_UpdateVectors under the document's existing doc-id.
 // Returns true if every named vector field was updated without reindexing; false requires the
 // caller's full update path. A field this already updated before a later one fails is not
 // undone: the fallback's full replace deletes the old doc-id's entries (including whatever this
@@ -793,29 +812,14 @@ static bool updateHashVectorFields(IndexSpec *spec, RedisModuleCtx *ctx, RedisMo
   uint64_t docId = 0;
   int fieldsUpdated = 0;
 
-  // HDEL removes the key before notifying us when it deletes the last field.
-  if (!key) {
-    goto cleanup;
-  }
-  RS_ASSERT(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH);
-
-  // Expiration can change indexed content independently of the fields named by this write.
-  if (RedisModule_GetAbsExpire(key) != REDISMODULE_NO_EXPIRE ||
-      RedisModule_HashFieldMinExpire(key) != REDISMODULE_NO_EXPIRE ||
-      DocIdMeta_GetWithOpenKey(key, spec->specId, &docId) != REDISMODULE_OK) {
+  if (!checkKeyUpdateHash(spec, key, &docId)) {
     goto cleanup;
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
   // Readers may retain metadata after releasing the spec lock.
-  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
-    goto cleanup;
-  }
-  RS_ASSERT(dmd->type == DocumentType_Hash);
-  if ((dmd->flags & Document_FailedToOpen) ||
-      __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
-      DocTable_GetFieldExpirations(&spec->docs, docId).len) {
+  if (!checkDmdUpdateHash(spec, docId, dmd)) {
     goto cleanup;
   }
 

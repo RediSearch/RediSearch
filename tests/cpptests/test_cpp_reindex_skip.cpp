@@ -700,3 +700,29 @@ TEST_F(ReindexSkipTest, sharedPathWithNonVectorMappingStillReindexes) {
       << "a path also mapped to a non-vector field must not take the vector-only fast path";
   EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
 }
+
+// LANGUAGE_FIELD can name a path that is also a vector schema field: language affects TEXT
+// tokenization independently of whether the same path happens to be a vector, so a write to it
+// must still force a full reindex, not take the vector-only fast path.
+TEST_F(ReindexSkipTest, vectorPathAlsoLanguageFieldStillReindexes) {
+  QueryError err = QueryError_Default();
+  std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH",
+                                   "LANGUAGE_FIELD", "v", "SCHEMA",
+                                   "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                                   "DIM", "4", "DISTANCE_METRIC", "L2"};
+  RMCK::ArgvList argv(ctx, args);
+  spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(spec != nullptr);
+
+  RMCK::hset(ctx, "doc:1", "v", kVecA);
+  notifyUpdate("doc:1", {"v"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "v", kVecB);
+  notifyUpdate("doc:1", {"v"});
+  EXPECT_GT(docIdOf("doc:1"), first)
+      << "a path also used as LANGUAGE_FIELD must not take the vector-only fast path";
+  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+}
