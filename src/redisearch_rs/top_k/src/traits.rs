@@ -40,13 +40,20 @@ pub trait ScoreBatch {
 /// records the filter child cannot match.
 ///
 /// Handed to [`ScoreSource::next_batch_with_child`] as the source's view of the
-/// [`TopKIterator`]'s child. It exposes only forward seeking and rewinding, the
-/// two operations a source needs to leapfrog its own reader against the child;
-/// the records themselves stay with the iterator, which does the authoritative
-/// intersection afterwards.
+/// [`TopKIterator`]'s child. It exposes only forward stepping, seeking and
+/// rewinding, the operations a source needs to leapfrog its own reader against
+/// the child; the records themselves stay with the iterator, which does the
+/// authoritative intersection afterwards.
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 pub trait ChildCursor {
+    /// Step the cursor to the child's next doc id, and return it. `None` means
+    /// the child has no more.
+    ///
+    /// Cheaper than [`advance_to`](Self::advance_to) for a target just past
+    /// the current doc id, since the child need not search for it.
+    fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError>;
+
     /// Position the cursor at the smallest doc id `>= target` the child can
     /// produce, and return it. `None` means the child has none.
     fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError>;

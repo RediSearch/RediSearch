@@ -279,9 +279,7 @@ fn leapfrog_range<'index>(
     timeout: &mut impl TimeoutContext,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
-    // Doc ids start at 1, and `advance_to` needs a target past the child's
-    // just-reset position.
-    let Some(mut child_doc) = child.advance_to(1)? else {
+    let Some(mut child_doc) = child.next()? else {
         return Ok(());
     };
     if !reader.seek_record(child_doc, record)? {
@@ -298,8 +296,9 @@ fn leapfrog_range<'index>(
                     .expect("numeric range yields numeric records");
                 items.push((reader_doc, score));
                 // Advance the child first: seeking the reader to where it
-                // already sits would step over the record just consumed.
-                let Some(next) = child.advance_to(child_doc + 1)? else {
+                // already sits would step over the record just consumed. A
+                // plain step, since any doc id past this one will do.
+                let Some(next) = child.next()? else {
                     break;
                 };
                 child_doc = next;

@@ -714,6 +714,10 @@ struct SeekingChildCursor<'a, 'index, C: RQEIterator<'index> + 'index> {
 }
 
 impl<'index, C: RQEIterator<'index> + 'index> ChildCursor for SeekingChildCursor<'_, 'index, C> {
+    fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
+        Ok(self.child.read()?.map(|r| r.doc_id))
+    }
+
     fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError> {
         Ok(self.child.skip_to(target)?.map(|outcome| match outcome {
             SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r) => r.doc_id,
