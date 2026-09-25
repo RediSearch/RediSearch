@@ -16,13 +16,14 @@
 //! Each chunk is materialized into a doc-id-ordered [`NumericScoreBatch`], so a
 //! batch is *value-bucketed across* the stream yet *doc-id-sorted within*.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, ops::Range};
 
 use index_result::RSIndexResult;
-use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
+use inverted_index::{FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericRange, NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
 use rqe_iterators::{RQEIteratorError, utils::TimeoutContext};
+use top_k::ChildCursor;
 
 use crate::score_batch::NumericScoreBatch;
 
@@ -112,18 +113,62 @@ impl<'index> NumericRangeIterator<'index> {
         n: usize,
         timeout: &mut impl TimeoutContext,
     ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
-        if self.pos >= self.ranges.len() {
+        let Some(span) = self.take_next(n) else {
             return Ok(None);
-        }
-        let end = (self.pos + n.max(1)).min(self.ranges.len());
+        };
         let batch = merge_ranges(
-            &self.ranges[self.pos..end],
+            &self.ranges[span],
             self.filter,
             self.emitted.as_mut(),
             timeout,
         )?;
-        self.pos = end;
         Ok(Some(batch))
+    }
+
+    /// Whether a doc id can occur in more than one range, once per value of a
+    /// multivalue field.
+    pub const fn is_multivalued(&self) -> bool {
+        self.emitted.is_some()
+    }
+
+    /// Pass the documents the next `n` value-ordered ranges share with `child`
+    /// to [`ChildCursor::accept`], or return `Ok(false)` once the window is
+    /// exhausted.
+    ///
+    /// One leapfrog walks `child` against the ranges' merged doc-id order, so
+    /// the blocks holding no candidate are never decoded and `child` is walked
+    /// once per call. `keep` vets each match before it is accepted.
+    ///
+    /// Only for a tree that is not [`is_multivalued`](Self::is_multivalued):
+    /// a doc id several ranges hold would be accepted once per value rather
+    /// than once, on its best one.
+    pub fn next_n_matched(
+        &mut self,
+        n: usize,
+        child: &mut dyn ChildCursor,
+        keep: impl FnMut(DocId, f64) -> bool,
+        timeout: &mut impl TimeoutContext,
+    ) -> Result<bool, RQEIteratorError> {
+        debug_assert!(
+            !self.is_multivalued(),
+            "a multivalue field needs the full read"
+        );
+        let Some(span) = self.take_next(n) else {
+            return Ok(false);
+        };
+        leapfrog_ranges(&self.ranges[span], self.filter, child, keep, timeout)?;
+        Ok(true)
+    }
+
+    /// Hand out the positions of the next `n` (at least `1`) ranges, or `None`
+    /// once the window is exhausted.
+    fn take_next(&mut self, n: usize) -> Option<Range<usize>> {
+        if self.pos >= self.ranges.len() {
+            return None;
+        }
+        let start = self.pos;
+        self.pos = (start + n.max(1)).min(self.ranges.len());
+        Some(start..self.pos)
     }
 }
 
@@ -188,6 +233,97 @@ fn merge_ranges(
     Ok(NumericScoreBatch::new(items))
 }
 
+/// Pass each document `ranges` (read through `filter`) share with `child` and
+/// `keep` admits to [`ChildCursor::accept`].
+///
+/// The child drives: every range behind it seeks up to its doc id, and it then
+/// either sits on a doc id a range holds — a match — or advances to the
+/// smallest doc id any range holds. Each seek skips whole index blocks, so a
+/// selective child leaves most of the ranges undecoded, and the ranges' merged
+/// order means `child` is rewound and walked once however many ranges there
+/// are.
+///
+/// A doc id is held by at most one range, the ranges being value-disjoint and
+/// each doc carrying a single value.
+fn leapfrog_ranges(
+    ranges: &[&NumericRange],
+    filter: NumericFilter,
+    child: &mut dyn ChildCursor,
+    mut keep: impl FnMut(DocId, f64) -> bool,
+    timeout: &mut impl TimeoutContext,
+) -> Result<(), RQEIteratorError> {
+    let mut cursors: Vec<_> = ranges
+        .iter()
+        .map(|range| RangeCursor {
+            reader: FilterNumericReader::new(filter, range.reader()),
+            record: RSIndexResult::build_numeric(0.0).build(),
+            doc_id: UNPOSITIONED,
+        })
+        .collect();
+
+    child.rewind();
+    let Some(mut child_doc) = child.next()? else {
+        return Ok(());
+    };
+    loop {
+        timeout.check_timeout()?;
+        let mut smallest: Option<DocId> = None;
+        let mut hit: Option<f64> = None;
+        let mut i = 0;
+        while i < cursors.len() {
+            let cursor = &mut cursors[i];
+            if cursor.doc_id < child_doc {
+                if !cursor.reader.seek_record(child_doc, &mut cursor.record)? {
+                    // Exhausted: nothing left in this range for any later doc id.
+                    cursors.swap_remove(i);
+                    continue;
+                }
+                cursor.doc_id = cursor.record.doc_id;
+            }
+            if cursor.doc_id == child_doc {
+                hit = Some(
+                    cursor
+                        .record
+                        .as_numeric()
+                        .expect("numeric range yields numeric records"),
+                );
+            }
+            smallest = Some(smallest.map_or(cursor.doc_id, |s| s.min(cursor.doc_id)));
+            i += 1;
+        }
+        let Some(smallest) = smallest else {
+            break;
+        };
+        let next = match hit {
+            Some(score) => {
+                if keep(child_doc, score) {
+                    child.accept(child_doc, score);
+                }
+                child.next()?
+            }
+            None => child.advance_to(smallest)?,
+        };
+        let Some(next) = next else {
+            break;
+        };
+        child_doc = next;
+    }
+    Ok(())
+}
+
+/// One range's reader and the record it is positioned on, during
+/// [`leapfrog_ranges`].
+struct RangeCursor<'index, R> {
+    reader: R,
+    record: RSIndexResult<'index>,
+    /// Doc id of `record`, or [`UNPOSITIONED`] before the first seek.
+    doc_id: DocId,
+}
+
+/// A [`RangeCursor`] doc id below every real one, so the first comparison
+/// seeks the reader.
+const UNPOSITIONED: DocId = 0;
+
 /// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,
 /// keeping the best score for the sort direction: the smallest when `ascending`,
 /// the largest otherwise.
@@ -214,10 +350,76 @@ mod tests {
     use inverted_index::NumericFilter;
     use numeric_range_tree::{NumericRangeTree, RangeWindow};
     use rqe_core::DocId;
-    use rqe_iterators::utils::NoTimeoutChecker;
-    use top_k::ScoreBatch;
+    use rqe_iterators::{RQEIteratorError, utils::NoTimeoutChecker};
+    use top_k::{ChildCursor, ScoreBatch};
 
     use super::NumericRangeIterator;
+
+    /// A child over sorted `ids` that records what it is asked to accept.
+    struct MockChild {
+        ids: Vec<DocId>,
+        /// Index of the next id [`next`](ChildCursor::next) returns.
+        pos: usize,
+        rewinds: usize,
+        accepted: Vec<(DocId, f64)>,
+    }
+
+    impl MockChild {
+        fn new(ids: Vec<DocId>) -> Self {
+            Self {
+                ids,
+                pos: 0,
+                rewinds: 0,
+                accepted: Vec::new(),
+            }
+        }
+
+        /// The doc id the cursor is on, if any.
+        fn current(&self) -> Option<DocId> {
+            self.pos.checked_sub(1).map(|i| self.ids[i])
+        }
+    }
+
+    impl ChildCursor for MockChild {
+        fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
+            let id = self.ids.get(self.pos).copied();
+            self.pos += usize::from(id.is_some());
+            Ok(id)
+        }
+
+        fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError> {
+            self.pos += self.ids[self.pos..].partition_point(|&id| id < target);
+            self.next()
+        }
+
+        fn rewind(&mut self) {
+            self.pos = 0;
+            self.rewinds += 1;
+        }
+
+        fn accept(&mut self, doc_id: DocId, score: f64) {
+            assert_eq!(self.current(), Some(doc_id), "accepted off the cursor");
+            self.accepted.push((doc_id, score));
+        }
+    }
+
+    /// Odd ids take low values and even ids high ones, so the value split
+    /// leaves every range's doc ids interleaved with another range's.
+    fn interleaved_value(id: DocId) -> f64 {
+        if id % 2 == 1 {
+            id as f64
+        } else {
+            100.0 + id as f64
+        }
+    }
+
+    fn interleaved_tree(docs: DocId) -> NumericRangeTree {
+        let mut tree = NumericRangeTree::new(false);
+        for id in 1..=docs {
+            tree.add(id, interleaved_value(id), false, false, 0);
+        }
+        tree
+    }
 
     /// Drain every window into the list of scores it yields.
     fn drain_scores(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<f64> {
@@ -307,6 +509,69 @@ mod tests {
 
         assert!(scores.iter().all(|&s| s > 10.0 && s < 20.0));
         assert!(!scores.contains(&10.0) && !scores.contains(&20.0));
+    }
+
+    #[test]
+    fn next_n_matched_accepts_the_child_docs_the_ranges_hold_in_one_pass() {
+        let docs = 40;
+        let tree = interleaved_tree(docs);
+        // Cuts through both value halves, so some ranges pass only in part.
+        let filter = NumericFilter {
+            min: 10.0,
+            max: 130.0,
+            ..NumericFilter::default()
+        };
+        let ranges = tree.find(&filter).len();
+        assert!(ranges >= 2, "expected a split");
+        // Every third id, plus ids past the index the ranges cannot hold.
+        let child_ids: Vec<DocId> = (1..=docs + 10).filter(|id| id % 3 == 0).collect();
+
+        let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
+        let mut child = MockChild::new(child_ids.clone());
+        let more = it
+            .next_n_matched(ranges, &mut child, |_, _| true, &mut NoTimeoutChecker)
+            .unwrap();
+
+        assert!(more);
+        assert!(it.is_exhausted(), "every range must land in the one call");
+        let expected: Vec<(DocId, f64)> = child_ids
+            .into_iter()
+            .filter(|&id| id <= docs && filter.value_in_range(interleaved_value(id)))
+            .map(|id| (id, interleaved_value(id)))
+            .collect();
+        assert_eq!(child.accepted, expected);
+        assert_eq!(
+            child.rewinds, 1,
+            "the child is walked once, not once per range"
+        );
+        assert!(
+            !it.next_n_matched(ranges, &mut child, |_, _| true, &mut NoTimeoutChecker)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn next_n_matched_skips_the_matches_keep_rejects() {
+        let docs = 40;
+        let tree = interleaved_tree(docs);
+        let filter = NumericFilter::default();
+        let ranges = tree.find(&filter).len();
+
+        let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
+        let mut child = MockChild::new((1..=docs).collect());
+        it.next_n_matched(
+            ranges,
+            &mut child,
+            |doc_id, _| doc_id % 2 == 0,
+            &mut NoTimeoutChecker,
+        )
+        .unwrap();
+
+        let expected: Vec<(DocId, f64)> = (1..=docs)
+            .filter(|id| id % 2 == 0)
+            .map(|id| (id, interleaved_value(id)))
+            .collect();
+        assert_eq!(child.accepted, expected);
     }
 
     #[test]
