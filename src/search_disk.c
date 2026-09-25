@@ -206,7 +206,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
     return false;
   }
 
-  RedisModuleBigCallbacksV3 callbacks = {
+  RedisModuleBigCallbacksV2 callbacks = {
       .version = REDISMODULE_BIG_CALLBACKS_VERSION,
       .getDiskUsage = getDiskUsageCallback,
       .getCachedDiskUsage = getCachedDiskUsageCallback,
@@ -223,7 +223,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
       return false;
     }
     RedisModule_Log(ctx, "notice",
-                    "Disk INFO cache disabled: Flex metrics lifecycle V3 unavailable");
+                    "Disk INFO cache disabled: Flex metrics lifecycle V2 unavailable");
   } else {
     infoCacheEnabled = true;
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_CronLoop, metricsCron);
