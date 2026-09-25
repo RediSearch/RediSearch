@@ -635,6 +635,10 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
     bool matchedSchemaField = false;
+    // A single Hash path can be mapped to more than one schema field (`v AS vv VECTOR ...,
+    // v AS txt TEXT` is an explicitly supported configuration -- see testSchemaWithAs_Duplicates
+    // in test.py), so every mapping of this path must be checked: one non-vector mapping forces
+    // a full reindex immediately, regardless of how many other mappings are vector fields.
     for (size_t j = 0; j < spec->numFields; ++j) {
       if (!FieldSpec_PathEquals(&spec->fields[j], field, length)) {
         continue;
@@ -649,10 +653,9 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
           !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR)) {
         return IndexUpdate_Full;
       }
-      action |= IndexUpdate_VectorOnly;
-      break;
     }
     if (matchedSchemaField) {
+      action |= IndexUpdate_VectorOnly;
       continue;
     }
     // Schema matches take priority: a metadata field may also have indexed/sortable content.

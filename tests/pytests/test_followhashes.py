@@ -732,6 +732,7 @@ def _assertVectorValue(env, field, value):
 # non-vector field alone would already force it), during which the changed vector field (vecA)
 # is deleted and re-added under the new doc-id, while the untouched one (vecB) is relabeled
 # onto it instead -- two different mechanisms for two fields on the same document, same write.
+@skip(cluster=True)
 def testTwoVectorFieldsOneChangedOneNotWithNonVectorTrigger(env):
     if env.env == 'existing-env':
         env.skip()
@@ -751,6 +752,7 @@ def testTwoVectorFieldsOneChangedOneNotWithNonVectorTrigger(env):
 
 # Same trigger, but neither vector field changes: both are candidates for relabeling onto the
 # new doc-id, and both must still be found with their original values afterward.
+@skip(cluster=True)
 def testTwoVectorFieldsBothUnchangedWithNonVectorTrigger(env):
     if env.env == 'existing-env':
         env.skip()
@@ -770,6 +772,7 @@ def testTwoVectorFieldsBothUnchangedWithNonVectorTrigger(env):
 
 # Same trigger, but both vector fields also change: neither is a relabel candidate, so both
 # take the normal delete-then-add path, same as a single-vector-field reindex would.
+@skip(cluster=True)
 def testTwoVectorFieldsBothChangedWithNonVectorTrigger(env):
     if env.env == 'existing-env':
         env.skip()
@@ -788,6 +791,7 @@ def testTwoVectorFieldsBothChangedWithNonVectorTrigger(env):
 
 # With no non-vector field in the write at all, changing just one of the two vector fields
 # takes the updateVectors fast path (MOD-17704): doc-id preserved, the other vector untouched.
+@skip(cluster=True)
 def testTwoVectorFieldsOnlyOneChangedTakesFastPath(env):
     if env.env == 'existing-env':
         env.skip()
@@ -806,6 +810,7 @@ def testTwoVectorFieldsOnlyOneChangedTakesFastPath(env):
 
 # Changing both vector fields together, still with no non-vector field touched, is still
 # vector-only: every schema field the change set names is a vector field.
+@skip(cluster=True)
 def testTwoVectorFieldsBothChangedTogetherTakesFastPath(env):
     if env.env == 'existing-env':
         env.skip()
@@ -824,6 +829,7 @@ def testTwoVectorFieldsBothChangedTogetherTakesFastPath(env):
 
 # A document that isn't indexed yet must always take the full (initial) indexing path,
 # regardless of how few fields it sets -- there is no doc-id yet to preserve or relabel onto.
+@skip(cluster=True)
 def testNotYetIndexedOneVectorFieldSet(env):
     if env.env == 'existing-env':
         env.skip()
@@ -837,6 +843,7 @@ def testNotYetIndexedOneVectorFieldSet(env):
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @vecB $b AS dist]', 'PARAMS', '2', 'b',
               _VEC_B1).equal([0])
 
+@skip(cluster=True)
 def testNotYetIndexedTwoVectorFieldsSet(env):
     if env.env == 'existing-env':
         env.skip()

@@ -673,3 +673,30 @@ TEST_F(ReindexSkipTest, vectorOnlyChangeOnUnseenDocumentStillIndexes) {
   EXPECT_NE(first, 0u) << "a document absent from the index must be indexed";
   EXPECT_TRUE(labelHolds(first, kVecA));
 }
+
+// A single Hash path can be mapped to more than one schema field (`v AS vv VECTOR ..., v AS txt
+// TEXT` -- see testSchemaWithAs_Duplicates in test.py). A write to that path must still force a
+// full reindex if *any* of its mappings is non-vector, even though another mapping of the same
+// path is the vector field this file's other tests take the fast path for.
+TEST_F(ReindexSkipTest, sharedPathWithNonVectorMappingStillReindexes) {
+  QueryError err = QueryError_Default();
+  std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH", "SCHEMA",
+                                   "v", "AS", "vv", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                                   "DIM", "4", "DISTANCE_METRIC", "L2",
+                                   "v", "AS", "txt", "TEXT"};
+  RMCK::ArgvList argv(ctx, args);
+  spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(spec != nullptr);
+
+  RMCK::hset(ctx, "doc:1", "v", kVecA);
+  notifyUpdate("doc:1", {"v"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "v", kVecB);
+  notifyUpdate("doc:1", {"v"});
+  EXPECT_GT(docIdOf("doc:1"), first)
+      << "a path also mapped to a non-vector field must not take the vector-only fast path";
+  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+}
