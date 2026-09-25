@@ -43,7 +43,12 @@ typedef struct {
   uint32_t requiredFlags;
   SendReplyFlags replyFlags;
   int apiVersion;
-  size_t rowElements; // top-level reply elements one row writes (1 for a row map; a flat run in RESP2 FT.SEARCH)
+  // Per-request row shape, computed once so the per-row serializer does no flag arithmetic.
+  size_t rowElements;          // top-level reply elements one row writes (1 for a row map; a flat run in RESP2)
+  size_t rowMapEntries;        // RESP3: entries of the row map
+  size_t requiredFieldsFrom;   // first required field to emit (the sort key, if sent, was already emitted)
+  size_t requiredFieldsCount;
+  bool needRequiredFieldsMap;  // RESP3 with required fields left to emit: they get their own map
 } cachedVars;
 
 /**

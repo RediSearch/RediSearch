@@ -166,29 +166,29 @@ static bool serializationTimedOut(void *arg) {
 }
 #endif
 
-// Top-level elements serializeResult writes per row. RESP3 rows are one map; RESP2 rows are a flat run of
-// one element per section below, which is why this mirrors serializeResult's section conditions exactly.
-static size_t replyRowElements(const AREQ *req, uint32_t options, bool resp3) {
-  if (resp3) return 1;
-  const uint32_t oneElementEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
-  size_t elements = __builtin_popcount(options & oneElementEach) + !(options & QEXEC_F_SEND_NOFIELDS);
-  if (options & QEXEC_F_REQUIRED_FIELDS) {
-    const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
-    const size_t requiredFieldsCount = array_len(req->requiredFields);
-    elements += requiredFieldsCount > requiredFieldsFrom ? requiredFieldsCount - requiredFieldsFrom : 0;
-  }
-  return elements;
+// The row shape serializeResult writes, fixed per request. It mirrors serializeResult's section
+// conditions: in RESP3 a row is one map with one entry per section plus the trailing "values"; in
+// RESP2 a row is a flat run of one element per section (required fields one each, since they get no
+// map of their own there).
+static void cachedVars_SetRowShape(cachedVars *cv, const AREQ *req, bool resp3) {
+  const uint32_t options = cv->options;
+  const uint32_t oneEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
+  const size_t sections = __builtin_popcount(options & oneEach) + !(options & QEXEC_F_SEND_NOFIELDS);
+  // Sortkey is the first required field; when it was already sent, only the remaining ones are emitted.
+  cv->requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
+  cv->requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
+  const size_t requiredFields = cv->requiredFieldsCount > cv->requiredFieldsFrom ? cv->requiredFieldsCount - cv->requiredFieldsFrom : 0;
+  cv->needRequiredFieldsMap = resp3 && requiredFields > 0;
+  cv->rowMapEntries = sections + (size_t)cv->needRequiredFieldsMap + 1;
+  cv->rowElements = resp3 ? 1 : sections + requiredFields;
 }
 
 static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *r, const cachedVars *cv) {
   AREQ *req = QueryRequest_GetAREQ(request);
   const uint32_t options = cv->options;
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-  bool has_map = RedisModule_IsRESP3(reply);
-  // Sortkey is the first required field; when it was already sent, the remaining ones go in their own map.
-  const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
-  const size_t requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
-  const bool need_map = has_map && requiredFieldsFrom < requiredFieldsCount;
+  const bool has_map = RedisModule_IsRESP3(reply);
+  const bool need_map = cv->needRequiredFieldsMap;
 
   if ((options & QEXEC_F_IS_SEARCH) && !dmd) {
     // Empty results should not be serialized! We already crashed in development env. In production,
@@ -200,10 +200,7 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
   request->reply.bufferedElements += cv->rowElements;
 
   if (has_map) {
-    // One entry per section below, plus the trailing "values" placeholder.
-    const uint32_t oneEntryEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
-    const size_t entries = __builtin_popcount(options & oneEntryEach) + (size_t)need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
-    RedisModule_Reply_MapWithLen(reply, entries);
+    RedisModule_Reply_MapWithLen(reply, cv->rowMapEntries);
   }
 
   if (options & QEXEC_F_IS_SEARCH) {
@@ -264,11 +261,11 @@ static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, con
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-    size_t currentField = requiredFieldsFrom;
+    size_t currentField = cv->requiredFieldsFrom;
     if (need_map) {
-      RedisModule_ReplyKV_MapWithLen(reply, "required_fields", requiredFieldsCount - currentField); // >required_fields
+      RedisModule_ReplyKV_MapWithLen(reply, "required_fields", cv->requiredFieldsCount - currentField); // >required_fields
     }
-    for(; currentField < requiredFieldsCount; currentField++) {
+    for(; currentField < cv->requiredFieldsCount; currentField++) {
       RequiredField *field = &req->requiredFields[currentField];
       if (!field->key) {
         // A name can be unresolvable for early rows and resolve later (loading
@@ -841,7 +838,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       .replyFlags = ((reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
                     ((reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
       .apiVersion = sctx->apiVersion,
-      .rowElements = replyRowElements(req, reqFlags, RedisModule_IsRESP3(reply)),
+  cachedVars_SetRowShape(&cv, req, RedisModule_IsRESP3(reply));
   };
 
   // Set the chunk size limit for the query
