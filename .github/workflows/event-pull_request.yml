@@ -63,6 +63,7 @@ jobs:
   # ------------------------------------------------------------------
 
   basic-test:
+    name: basic-test ubuntu:latest (x86_64)
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
     if: ${{ (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
@@ -81,6 +82,7 @@ jobs:
       rejson-branch: master
 
   coverage:
+    name: coverage ubuntu:latest (x86_64)
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
@@ -99,6 +101,7 @@ jobs:
       rejson-branch: master
 
   sanitize:
+    name: sanitize ubuntu:latest (x86_64)
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
     if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
@@ -122,7 +125,7 @@ jobs:
   # ------------------------------------------------------------------
 
   miri:
-    name: miri (${{ matrix.shard }}/3)
+    name: miri ubuntu:latest (x86_64) (${{ matrix.shard }}/3)
     needs: [check-what-changed, spellcheck]
     if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     # Split MIRI across 3 nextest partitions. Each shard is self-contained

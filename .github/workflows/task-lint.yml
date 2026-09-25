@@ -21,35 +21,37 @@ jobs:
       packages: write
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets:
+      GHCR_MIRROR_PASSWORD: ${{ secrets.GHCR_MIRROR_PASSWORD }}
     with:
       container: ubuntu:noble
       runner-env: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
 
-  lint:
-    name: Linting
+  lint-ghcr:
+    name: Lint ghcr
     needs: build-image
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image-is-mirror != 'true' }}
     runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
-    permissions:
+    permissions: &lint_permissions
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3
       packages: read  # pull container image from GHCR
       actions: write  # Swatinem/rust-cache read/write of GH cache
-    defaults:
+    defaults: &lint_defaults
       run:
         shell: bash -l -eo pipefail {0}
-    container: ${{
-      needs.build-image.outputs.succeeded == 'true'
-        && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
-      || null }}
+    container:
+      image: ${{ needs.build-image.outputs.image }}
+      options: --user root
 
-    env:
+    env: &lint_env
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
-    steps:
+    steps: &lint_steps
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           submodules: recursive
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' }}
@@ -187,3 +189,29 @@ jobs:
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
           echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
           exit 1
+
+  lint-mirror:
+    name: Lint mirror
+    needs: build-image
+    if: ${{ !cancelled() && needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image-is-mirror == 'true' }}
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *lint_permissions
+    defaults: *lint_defaults
+    container:
+      image: ${{ needs.build-image.outputs.image }}
+      options: --user root
+      credentials:
+        username: ${{ vars.GHCR_MIRROR_USERNAME }}
+        password: ${{ secrets.GHCR_MIRROR_PASSWORD }}
+    env: *lint_env
+    steps: *lint_steps
+
+  lint-host:
+    name: Lint host
+    needs: build-image
+    if: ${{ !cancelled() && needs.build-image.outputs.succeeded != 'true' }}
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *lint_permissions
+    defaults: *lint_defaults
+    env: *lint_env
+    steps: *lint_steps
