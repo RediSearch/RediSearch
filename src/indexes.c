@@ -58,6 +58,8 @@
 #include "field_spec.h"
 #include "indexes_scanner.h"
 #include "obfuscation/hidden.h"
+#include "vector_index.h"
+#include "redis_index.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "result_processor.h"
@@ -598,17 +600,20 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   return res;
 }
 
+static bool ruleFieldEquals(const char *ruleField, const char *field, size_t length) {
+  return ruleField && strlen(ruleField) == length && !memcmp(ruleField, field, length);
+}
+
 typedef enum {
   IndexUpdate_Skip = 0,
   IndexUpdate_Score = 1 << 0,
   IndexUpdate_Payload = 1 << 1,
   IndexUpdate_MetadataMask = IndexUpdate_Score | IndexUpdate_Payload,
-  IndexUpdate_Full = 1 << 2,
+  // Every schema field the change set named is a VECTOR field: the label can be updated via
+  // VecSimIndex_UpdateVectors, keeping the doc's id, instead of a full reindex.
+  IndexUpdate_VectorOnly = 1 << 2,
+  IndexUpdate_Full = 1 << 3,
 } IndexUpdateAction;
-
-static bool ruleFieldEquals(const char *ruleField, const char *field, size_t length) {
-  return ruleField && strlen(ruleField) == length && !memcmp(ruleField, field, length);
-}
 
 // FILTER expressions may depend on fields outside the schema. Unknown changes and disk
 // bookkeeping likewise cannot establish that the existing index entries can be retained.
@@ -629,10 +634,26 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
   for (size_t i = 0; i < numChangedFields; ++i) {
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+    bool matchedSchemaField = false;
     for (size_t j = 0; j < spec->numFields; ++j) {
-      if (FieldSpec_PathEquals(&spec->fields[j], field, length)) {
+      if (!FieldSpec_PathEquals(&spec->fields[j], field, length)) {
+        continue;
+      }
+      matchedSchemaField = true;
+      // A schema-field match is `ChangedFieldInd_VerifiedYes` for that field -- the same status
+      // `AddDocumentCtx_MarkForRelabel` computes for vector fields via `FieldSpec_IsInChangeSet`
+      // to decide the opposite thing: there, VerifiedYes means "don't relabel, this value was
+      // written"; here it means "this field needs `updateVectors`". A VerifiedYes match against
+      // any non-vector field still forces a full reindex, unchanged.
+      if (!RSGlobalConfig.optimizePartialUpdate ||
+          !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR)) {
         return IndexUpdate_Full;
       }
+      action |= IndexUpdate_VectorOnly;
+      break;
+    }
+    if (matchedSchemaField) {
+      continue;
     }
     // Schema matches take priority: a metadata field may also have indexed/sortable content.
     if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
@@ -647,7 +668,8 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
   }
 
   if (action & IndexUpdate_MetadataMask) {
-    // The metadata writer checks existence under its write lock.
+    // The metadata writer (and the vector-field writer, if IndexUpdate_VectorOnly also rode
+    // along) checks existence under its own write lock.
     return action;
   }
 
@@ -658,8 +680,10 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
   t_docId docId = IndexSpec_GetDocIdByKeyR(spec, ctx, key);
   const bool alreadyIndexed = DocTable_Exists(&spec->docs, docId);
   RedisSearchCtx_UnlockSpec(&sctx);
-  // Even a hash with no schema fields must be registered for counts, * and ismissing().
-  return alreadyIndexed ? IndexUpdate_Skip : IndexUpdate_Full;
+  // Even a hash with no schema fields must be registered for counts, * and ismissing(). A
+  // vector-only change on a key that isn't indexed yet must still take the full path to create
+  // that registration -- `action` (Skip or VectorOnly) is only correct once already indexed.
+  return alreadyIndexed ? action : IndexUpdate_Full;
 }
 
 // Attempts a score/payload update for a Hash change classified as metadata-only.
@@ -744,6 +768,95 @@ cleanup:
   return success;
 }
 
+// Attempts an in-place vector update for a Hash change classified as vector-only (every schema
+// field the change set named is INDEXFLD_T_VECTOR, per getHashUpdateAction). Updates each named
+// vector field via VecSimIndex_UpdateVectors under the document's existing doc-id, instead of
+// the full delete-then-reindex-under-a-new-id path a schema-field match otherwise takes.
+// Returns true if every named vector field was updated without reindexing; false requires the
+// caller's full update path. A field this already updated before a later one fails is not
+// undone: the fallback's full replace deletes the old doc-id's entries (including whatever this
+// touched) and rebuilds everything fresh, so a partial update followed by the fallback still
+// lands on the correct final state.
+static bool updateHashVectorFields(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *keyName,
+                                   RedisModuleString **changedFields, size_t numChangedFields) {
+  if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
+    return false;
+  }
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RSDocumentMetadata *dmd = NULL;
+  bool success = false;
+  uint64_t docId = 0;
+  int fieldsUpdated = 0;
+
+  // HDEL removes the key before notifying us when it deletes the last field.
+  if (!key) {
+    goto cleanup;
+  }
+  RS_ASSERT(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH);
+
+  // Expiration can change indexed content independently of the fields named by this write.
+  if (RedisModule_GetAbsExpire(key) != REDISMODULE_NO_EXPIRE ||
+      RedisModule_HashFieldMinExpire(key) != REDISMODULE_NO_EXPIRE ||
+      DocIdMeta_GetWithOpenKey(key, spec->specId, &docId) != REDISMODULE_OK) {
+    goto cleanup;
+  }
+
+  RedisSearchCtx_LockSpecWrite(&sctx);
+  dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
+  // Readers may retain metadata after releasing the spec lock.
+  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
+    goto cleanup;
+  }
+  RS_ASSERT(dmd->type == DocumentType_Hash);
+  if ((dmd->flags & Document_FailedToOpen) ||
+      __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
+      DocTable_GetFieldExpirations(&spec->docs, docId).len) {
+    goto cleanup;
+  }
+
+  IndexSpec_IncrActiveWrites(spec);
+  success = true;
+  for (int i = 0; i < spec->numFields && success; ++i) {
+    FieldSpec *fs = &spec->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR) ||
+        !FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)) {
+      continue;
+    }
+    RedisModuleString *v = NULL;
+    RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS,
+                        HiddenString_GetUnsafe(fs->fieldPath, NULL), &v, NULL);
+    size_t vecLen = 0;
+    const char *blob = v ? RedisModule_StringPtrLen(v, &vecLen) : NULL;
+    VecSimIndex *vecsim = NULL;
+    if (!blob || vecLen != fs->vectorOpts.expBlobSize ||
+        !(vecsim = openVectorIndex(ctx, fs, CREATE_INDEX)) ||
+        VecSimIndex_UpdateVectors(vecsim, docId, blob, 1) != VecSimUpdate_OK) {
+      success = false;
+    } else {
+      ++fieldsUpdated;
+    }
+    if (v) {
+      RedisModule_FreeString(ctx, v);
+    }
+  }
+  if (success && fieldsUpdated) {
+    // Counted the same way a normal delete-then-add would be: there is no separate
+    // "updated in place" bucket, only the existing add-side counter.
+    FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, fieldsUpdated);
+  }
+  IndexSpec_DecrActiveWrites(spec);
+
+cleanup:
+  DMD_Return(dmd);
+  RedisSearchCtx_UnlockSpec(&sctx);
+  if (key) {
+    RedisModule_CloseKey(key);
+  }
+  return success;
+}
+
 void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
   dictRelease(specs->specs);
   array_free(specs->specsOps);
@@ -767,12 +880,22 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     if (specOp->op == SpecOp_Add) {
       IndexUpdateAction action =
           getHashUpdateAction(specOp->spec, ctx, key, changedFields, numChangedFields);
-      if (action == IndexUpdate_Skip || ((action & IndexUpdate_MetadataMask) &&
-                                         updateHashMetadata(specOp->spec, ctx, key, action))) {
+      if (action == IndexUpdate_Skip) {
         continue;
       }
-      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL, changedFields,
-                          numChangedFields);
+      //no indexing needed - just change metadata
+      bool metadataDone = !(action & IndexUpdate_MetadataMask) ||
+                          updateHashMetadata(specOp->spec, ctx, key, action);
+      //no indexing needed - just change the vector/s under same doc id
+      bool onlyVectorDone = !(action & IndexUpdate_VectorOnly) ||
+                            updateHashVectorFields(specOp->spec, ctx, key, changedFields,
+                                                   numChangedFields);
+      if (metadataDone && onlyVectorDone &&
+          (action & (IndexUpdate_MetadataMask | IndexUpdate_VectorOnly))) {
+        continue;
+      }
+      //continue to indexing
+      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL, changedFields, numChangedFields);
     } else {
       // specOp->op is SpecOp_Del when the key matches the index prefix but
       // the filter expression fails (e.g. a field value changed so the filter

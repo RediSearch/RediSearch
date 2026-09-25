@@ -30,7 +30,15 @@
 #include "indexes.h"
 #include "doc_id_meta.h"
 #include "info/index_error.h"
+#include "VecSim/vec_sim.h"
 
+// openVectorIndex is declared outside vector_index.h's own extern "C" block.
+extern "C" {
+#include "vector_index.h"
+#include "redis_index.h"
+}
+
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -39,19 +47,57 @@ protected:
   RedisModuleCtx *ctx = nullptr;
   IndexSpec *spec = nullptr;
   std::string indexName;
+  bool previousOptimizePartialUpdate = false;
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK::flushdb(ctx);
     static int counter = 0;
     indexName = "skipidx" + std::to_string(++counter);
+    // The vector-only fast path is gated behind OPTIMIZE_PARTIAL_UPDATE (on by default).
+    // Forced here so a config change elsewhere can't disable it out from under these tests;
+    // restored in TearDown, which runs even when an assertion fails.
+    previousOptimizePartialUpdate = RSGlobalConfig.optimizePartialUpdate;
+    RSGlobalConfig.optimizePartialUpdate = true;
   }
 
   void TearDown() override {
+    RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
     }
+  }
+
+  // Same schema as `createIndex`, plus a FLAT vector field `vec` (FLOAT32, DIM 4, L2).
+  void createIndexWithVector(const std::vector<std::string> &extraArgs = {}) {
+    std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH"};
+    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
+    args.insert(args.end(), {"SCHEMA", "title", "TEXT", "vec", "VECTOR", "FLAT", "6", "TYPE",
+                             "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"});
+
+    QueryError err = QueryError_Default();
+    RMCK::ArgvList argv(ctx, args);
+    spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(spec != nullptr);
+  }
+
+  VecSimIndex *vecsim() {
+    for (size_t i = 0; i < spec->numFields; ++i) {
+      if (spec->fields[i].types & INDEXFLD_T_VECTOR) {
+        return openVectorIndex(ctx, &spec->fields[i], DONT_CREATE_INDEX);
+      }
+    }
+    return nullptr;
+  }
+
+  // A label holds `blob` iff the distance to itself is 0. An absent label yields NaN.
+  bool labelHolds(t_docId label, const char *blob) {
+    VecSimIndex *idx = vecsim();
+    if (!idx) return false;
+    double d = VecSimIndex_GetDistanceFrom_Unsafe(idx, label, blob);
+    return !std::isnan(d) && d == 0.0;
   }
 
   // `extraArgs` go between the index name and SCHEMA, for rule options such as FILTER or
@@ -537,4 +583,93 @@ TEST_F(ReindexSkipTest, metadataUpdateHonorsBackgroundScanOOMFailure) {
   ASSERT_NE(dmd, nullptr);
   EXPECT_FLOAT_EQ(dmd->score, 0.25);
   DMD_Return(dmd);
+}
+
+// FLOAT32 DIM 4 -- 16 bytes, matching expBlobSize.
+static const char *const kVecA = "aaaabbbbccccdddd";
+static const char *const kVecB = "eeeeffffgggghhhh";
+
+// The case this optimization exists for: only a VECTOR field changed, so the label is updated
+// via VecSimIndex_UpdateVectors under the doc's existing id instead of a full reindex.
+TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlace) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+  ASSERT_TRUE(labelHolds(first, kVecA));
+
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"vec"});
+  EXPECT_EQ(docIdOf("doc:1"), first) << "a vector-only change must not reindex";
+  EXPECT_TRUE(labelHolds(first, kVecB)) << "the vector must be updated in place";
+}
+
+// The vector-only fast path is gated behind OPTIMIZE_PARTIAL_UPDATE: with it off, the same
+// vector-only change set must fall back to a full reindex under a new doc-id, not update in
+// place.
+TEST_F(ReindexSkipTest, vectorOnlyChangeForcesFullReindexWhenOptimizationDisabled) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RSGlobalConfig.optimizePartialUpdate = false;
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"vec"});
+  EXPECT_GT(docIdOf("doc:1"), first) << "the fast path must not fire while disabled";
+  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+}
+
+// A non-vector schema field changed alongside the vector, so the fast path must not fire: the
+// document still needs a full reindex, and the vector is re-added (not updated) under the new id.
+TEST_F(ReindexSkipTest, vectorAndNonVectorChangeStillReindexes) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "title", "goodbye");
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId second = docIdOf("doc:1");
+  EXPECT_GT(second, first);
+  EXPECT_TRUE(labelHolds(second, kVecB));
+}
+
+// IndexUpdate_VectorOnly composes with the metadata fast path: a single write touching both the
+// vector and the score field must update both without a reindex.
+TEST_F(ReindexSkipTest, vectorChangeAlongsideMetadataUpdatesBothWithoutReindex) {
+  createIndexWithVector({"SCORE_FIELD", "__score"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"__score", "vec"});
+  EXPECT_EQ(docIdOf("doc:1"), first);
+  EXPECT_TRUE(labelHolds(first, kVecB));
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  DMD_Return(dmd);
+}
+
+// A document the index does not hold yet must still take the full path on a vector-only change:
+// there is no existing id to update in place, and the document itself has to be registered.
+TEST_F(ReindexSkipTest, vectorOnlyChangeOnUnseenDocumentStillIndexes) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"vec"});
+  const t_docId first = docIdOf("doc:1");
+  EXPECT_NE(first, 0u) << "a document absent from the index must be indexed";
+  EXPECT_TRUE(labelHolds(first, kVecA));
 }
