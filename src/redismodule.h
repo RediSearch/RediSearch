@@ -627,13 +627,22 @@ typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModule
  * ----------------------------
  * Callback registered by modules for disk usage queries.
  * This typedef is in the common section so it's visible to both core and modules. */
-#define REDISMODULE_BIG_CALLBACKS_VERSION 1
+#define REDISMODULE_BIG_CALLBACKS_VERSION 2
 typedef struct RedisModuleBigCallbacks {
     uint64_t version;              /* Version of this structure for ABI compat. */
     size_t (*getDiskUsage)(void);  /* Returns module's disk usage (SST files, etc.) */
 } RedisModuleBigCallbacksV1;
 
-#define RedisModuleBigCallbacks RedisModuleBigCallbacksV1
+typedef struct RedisModuleBigCallbacksV2 {
+  uint64_t version;
+  size_t (*getDiskUsage)(void);
+  size_t (*getCachedDiskUsage)(void);
+  void (*pauseMetrics)(void);
+  void (*resumeMetrics)(void);
+  void (*forkChildMetrics)(void);
+} RedisModuleBigCallbacksV2;
+
+#define RedisModuleBigCallbacks RedisModuleBigCallbacksV2
 
 /* IMPORTANT: When adding a new version of one of below structures that contain
  * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the

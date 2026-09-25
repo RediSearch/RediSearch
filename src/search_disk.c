@@ -138,20 +138,96 @@ static size_t getDiskUsageCallback(void) {
   return total;
 }
 
+// Callback for BigModuleRegister - returns total disk usage across all indexes
+static size_t getCachedDiskUsageCallback(void) {
+  size_t total = 0;
+  if (!specDict_g) {
+    return total;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      total += SearchDisk_GetCachedDiskUsage(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+  return total;
+}
+
+static bool infoCacheEnabled;
+static bool metricsResumePending;
+
+void SearchDisk_PauseMetrics(void) {
+  metricsResumePending = false;
+  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(disk_db, 1);
+}
+
+static void resumeMetrics(void) {
+  if (!disk || !disk_db || !infoCacheEnabled) return;
+  disk->metrics.control(disk_db, 2);
+  // SST abort can resume us while CF creation holds an index map's write lock.
+  // Rebuild targets only after that callback stack has unwound.
+  metricsResumePending = true;
+}
+
+static void rebuildMetricsTargets(void) {
+  if (!specDict_g) return;
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *spec = StrongRef_Get(dictGetRef(entry));
+    if (spec && spec->diskSpec && spec->diskRegistered)
+      disk->metrics.registerTarget(disk_db, spec->diskSpec, false);
+  }
+  dictReleaseIterator(iter);
+}
+
+static void forkChildMetrics(void) {
+  metricsResumePending = false;
+  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(disk_db, 3);
+}
+
+static void metricsCron(RedisModuleCtx *ctx, RedisModuleEvent event, uint64_t subevent,
+                        void *data) {
+  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(disk_db, 0);
+  if (metricsResumePending) {
+    metricsResumePending = false;
+    rebuildMetricsTargets();
+  }
+}
+
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   if (!RedisModule_BigModuleRegister) {
     RedisModule_Log(ctx, "notice", "BigModuleRegister not available");
     return false;
   }
 
-  RedisModuleBigCallbacksV1 callbacks = {
-    .version = REDISMODULE_BIG_CALLBACKS_VERSION,
-    .getDiskUsage = getDiskUsageCallback,
+  RedisModuleBigCallbacksV2 callbacks = {
+      .version = REDISMODULE_BIG_CALLBACKS_VERSION,
+      .getDiskUsage = getDiskUsageCallback,
+      .getCachedDiskUsage = getCachedDiskUsageCallback,
+      .pauseMetrics = SearchDisk_PauseMetrics,
+      .resumeMetrics = resumeMetrics,
+      .forkChildMetrics = forkChildMetrics,
   };
 
+  infoCacheEnabled = false;
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
-    return false;
+    RedisModuleBigCallbacksV1 legacy = {.version = 1, .getDiskUsage = getDiskUsageCallback};
+    if (RedisModule_BigModuleRegister(ctx, (RedisModuleBigCallbacks *)&legacy) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
+      return false;
+    }
+    RedisModule_Log(ctx, "notice",
+                    "Disk INFO cache disabled: Flex metrics lifecycle V2 unavailable");
+  } else {
+    infoCacheEnabled = true;
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_CronLoop, metricsCron);
+    resumeMetrics();
   }
 
   RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
@@ -159,9 +235,11 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
 }
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
+  SearchDisk_PauseMetrics();
   if (disk && disk_db) {
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
+    infoCacheEnabled = false;
   }
 }
 
@@ -253,6 +331,7 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     if (!spec->diskRegistered) {
         return;
     }
+    disk->metrics.registerTarget(disk_db, spec->diskSpec, true);
     disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     spec->diskRegistered = false;
 }
@@ -569,6 +648,25 @@ static int VecSim_DisableThrottle(void) {
 
 bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
+}
+
+bool SearchDisk_InfoCacheEnabled(void) {
+  return infoCacheEnabled;
+}
+
+uint64_t SearchDisk_CollectCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.collectCachedIndexMetrics(disk_db, index);
+}
+
+uint64_t SearchDisk_GetCachedDiskUsage(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getCachedDiskUsage(disk_db, index);
+}
+
+uint64_t SearchDisk_GetCachedBlockCount(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getCachedBlockCount(disk_db, index);
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
