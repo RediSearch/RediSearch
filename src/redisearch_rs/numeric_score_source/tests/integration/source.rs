@@ -159,7 +159,6 @@ fn run_filtered(
     ascending: bool,
 ) -> Vec<(DocId, f64)> {
     let tree = tree_from(pairs);
-    let child_estimate = child_ids.len();
     let source = NumericScoreSource::filtered(
         &tree,
         full_range(),
@@ -167,7 +166,6 @@ fn run_filtered(
         ascending,
         range_batch_size,
         pairs.len(),
-        child_estimate,
     );
     let mut it = new_numeric_top_k_filtered(
         source,
@@ -266,7 +264,7 @@ fn filtered_retry_expands_window_to_reach_low_scored_match() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20, 1);
+    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![1u64]),
@@ -308,7 +306,7 @@ fn filtered_retry_reaches_match_past_multivalue_inflated_ranges() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, num_docs, 1);
+    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, num_docs);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![match_id]),
@@ -356,7 +354,7 @@ fn filtered_retry_keeps_high_match_across_windows() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20, 2);
+    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![1u64, 20u64]),
@@ -381,7 +379,7 @@ fn filtered_rewind_after_expansion_repeats_results() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20, 2);
+    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(child),
@@ -427,16 +425,9 @@ fn filtered_excludes_deleted_docs() {
     let tree = tree_from(&[(1, 1.0), (2, 2.0), (3, 3.0), (4, 100.0), (5, 5.0)]);
     let deleted = DeletedDocs::from_iter([4]);
     let child_ids = vec![2u64, 4u64];
-    let source = NumericScoreSource::filtered(
-        &tree,
-        full_range(),
-        RangeWindow::UNBOUNDED,
-        false,
-        1,
-        5,
-        child_ids.len(),
-    )
-    .with_validity(deleted);
+    let source =
+        NumericScoreSource::filtered(&tree, full_range(), RangeWindow::UNBOUNDED, false, 1, 5)
+            .with_validity(deleted);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(child_ids),
