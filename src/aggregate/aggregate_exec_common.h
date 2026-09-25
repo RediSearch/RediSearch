@@ -24,13 +24,13 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
-typedef void (*SerializeResult)(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row, const cachedVars *cv);
+typedef void (*SerializeResult)(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row);
 
 // Serializes rows into request->reply.rows until the budget is spent or Next() stops yielding. On return, the
 // buffered rows and their count are all the reply phase needs; the caller then commits or discards them in one
 // step. `live` runs the pipeline under the request's timeout; false drains an already-stopped pipeline under the
 // caller's ownership (RETURN_STRICT, after its timeout callback took the reply).
-void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc);
+void Pipeline_SerializeResults(QueryRequest *request, SerializeResult serialize, bool live, int *rc);
 
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a

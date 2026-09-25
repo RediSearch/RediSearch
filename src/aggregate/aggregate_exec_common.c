@@ -84,11 +84,18 @@ static const RequestConfig *requestConfig(QueryRequest *request) {
                                                      : &QueryRequest_GetAREQ(request)->reqConfig;
 }
 
+// The last result processor of the request's pipeline: the one the serialization loop pulls rows from.
+static ResultProcessor *pipelineEnd(QueryRequest *request) {
+  return request->kind == QUERY_REQUEST_KIND_HYBRID ? QueryRequest_GetHybrid(request)->tailPipeline->qctx.endProc
+                                                     : AREQ_QueryProcessingCtx(QueryRequest_GetAREQ(request))->endProc;
+}
+
 static bool returnPolicy(const RequestConfig *config) {
   return config->timeoutPolicy == TimeoutPolicy_Return && config->oomPolicy != OomPolicy_Fail;
 }
 
-void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, SerializeResult serialize, const cachedVars *cv, bool live, int *rc) {
+void Pipeline_SerializeResults(QueryRequest *request, SerializeResult serialize, bool live, int *rc) {
+  ResultProcessor *rp = pipelineEnd(request);
   // Prepare stack data. Only a RETURN_STRICT timeout callback drains a stopped pipeline.
   RS_ASSERT(live || request->timeout.policy == TimeoutPolicy_ReturnStrict);
   const QueryRequestTimeout *timeout = &request->timeout;
@@ -108,7 +115,7 @@ void Pipeline_SerializeResults(QueryRequest *request, ResultProcessor *rp, Seria
     if (*rc != RS_RESULT_OK || !rp->parent->resultLimit) break;
     rp->parent->resultLimit--;
 
-    serialize(request, rows, &row, cv);
+    serialize(request, rows, &row);
     SearchResult_Clear(&row);
     debugCheckAndPauseAfterAggregateResult(request, live);
     if (RS_AtomicBoolLoadRelaxed(timedOut)) {
