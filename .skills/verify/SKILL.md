@@ -10,6 +10,61 @@ Run full verification before committing or creating a PR.
 ## Usage
 Use this skill to run comprehensive checks before finalizing changes.
 
+## Prefer the swamp workflows
+
+`verify` runs everything below except the two conditional branches, in one command,
+building once and reusing that build for every suite — plus miri, which CI gates on:
+
+swamp is optional here: check `command -v swamp` first, and follow the by-hand
+path below if it is not installed. Its files live under `swamp/`, and swamp only
+looks *upward* for them, so these commands need `--repo-dir swamp` from the
+repository root — or the export below, once per shell. See *Where swamp lives in
+this repository* in `AGENTS.md`.
+
+```bash
+export SWAMP_REPO_DIR="$PWD/swamp"
+swamp workflow run verify
+swamp report get @gdesmott/failure-digest --workflow verify --markdown   # what to fix
+```
+
+The cluster branch is its own workflow, because it is a second full run of the suite and
+swamp cannot skip a step on a condition:
+
+```bash
+swamp workflow run verify-cluster   # changes under src/coord/
+```
+
+The AddressSanitizer branch is also a workflow, but it is not part of the gate. CI covers
+asan on every pull request, so run it only to reproduce a failure that job reported —
+narrowed to the case it named, since the sanitizer needs its own full build:
+
+```bash
+swamp workflow run verify-asan --input '{"cTestFilter":"<binary or gtest>"}'
+```
+
+For the quick paths at the bottom of this file, use `swamp workflow run rust-quick`
+(tests then clippy, debug profile only).
+
+Each workflow asserts that its suites actually ran, so a filter that matched nothing or a
+module that failed to load reads as a failure rather than a pass. Follow the steps below
+by hand only when swamp is unavailable.
+
+One check cannot live inside the workflow, and has to be run beside it whenever the
+change touches `swamp/`:
+
+```bash
+make swamp-definitions-check    # validates swamp/models/ and swamp/workflows/
+```
+
+`verify` runs the extension tests, but not this. The definition check shells out to
+`swamp` to validate and evaluate every checked-in model instance and workflow, and a
+swamp workflow cannot invoke swamp — which is why `verify`'s step deliberately runs
+`make swamp-extension-tests` rather than `make swamp-tests`. So a change that breaks
+only a definition — a guard naming an input that does not exist, a step naming a model
+that does not — passes `verify` and fails the `swamp-tests` job in CI, which is the one
+outcome a pre-PR gate exists to rule out. `make swamp-tests` runs both halves, and is the
+single command to use when swamp/ changed.
+
 ## Instructions
 
 Determine which code was modified (C, Rust, or both) and run the appropriate checks.
