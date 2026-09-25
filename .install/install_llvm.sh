@@ -214,11 +214,23 @@ install_llvm() {
             if apt-cache show software-properties-common &>/dev/null; then
                 spc_pkg="software-properties-common"
             fi
+            # wget stays: llvm.sh uses it to fetch the repo signing key.
             apt_get_cmd "$MODE" install -y --no-install-recommends \
-                lsb-release wget $spc_pkg gnupg ca-certificates
-            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-            chmod +x /tmp/llvm.sh
-            if $MODE /tmp/llvm.sh "$LLVM_VER"; then
+                lsb-release wget curl $spc_pkg gnupg ca-certificates
+            # Fetch, chmod and exec stay inside the condition: `set -e` does
+            # not fire there, so any failure falls through to the tarball
+            # instead of aborting bootstrap. Retrying is the caller's job --
+            # CI wraps this script and the bootstrap that runs it.
+            #
+            # --proto/--proto-redir hold the transfer on HTTPS across
+            # redirects; the result is executed with $MODE, so an http://
+            # downgrade would be code execution. --connect-timeout/--max-time
+            # bound the attempt so a stalled host reaches the tarball.
+            if curl -fsSL --proto '=https' --proto-redir '=https' \
+                    --connect-timeout 20 --max-time 60 \
+                    -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
+                    && chmod +x /tmp/llvm.sh \
+                    && $MODE /tmp/llvm.sh "$LLVM_VER"; then
                 rm -f /tmp/llvm.sh
                 # llvm.sh installs the toolchain but does not always leave the
                 # libclang development package/symlink that clang-sys and the
