@@ -407,6 +407,38 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
 t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
 
 /**
+ * Reclaim entries for deleted documents from `idx`'s tail block, on the write path,
+ * without forking.
+ *
+ * Call after writing an entry. Does nothing unless the tail block has just filled, so it is
+ * safe and cheap to call after every write — see
+ * `InvertedIndex::maybe_repair_tail_block` for why that is the only moment a
+ * writer can usefully repair, and for the resulting cadence.
+ *
+ * `min_reclaim_pct` is the smallest share of the block's entries a repair must remove to be
+ * worth rewriting the block for; `0` accepts any reclaim. Pass the
+ * `INLINE_GC_BLOCK_REPAIR_THRESHOLD` config value, and skip the call entirely when it is 0
+ * — the feature is off in that case, not "repair everything".
+ *
+ * Writes the reclaim into `out_info` and returns `true` when a repair happened; returns
+ * `false` and leaves `out_info` untouched otherwise, including when the block was decoded
+ * but nothing was worth reclaiming. A decode failure is reported as `false`: the index is
+ * unmodified in that case, and failing a write because a repair could not run would be a
+ * worse outcome than leaving the garbage for the fork GC.
+ *
+ * The caller must apply `out_info` to `spec->stats`, and must hold the spec write lock —
+ * this mutates the index's blocks exactly as `InvertedIndex_ApplyGCDelta` does.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `spec` must be a valid, non NULL, pointer to an `IndexSpec`.
+ * - `out_info` must be a valid, non NULL, pointer to a writable `II_GCScanStats`.
+ */
+bool InvertedIndex_MaybeRepairTailBlock(struct InvertedIndex *idx, const IndexSpec *spec, uint8_t min_reclaim_pct, uint16_t probe_stride, struct II_GCScanStats *out_info);
+
+/**
  * Get the memory usage of the inverted index instance in bytes.
  *
  * # Safety
