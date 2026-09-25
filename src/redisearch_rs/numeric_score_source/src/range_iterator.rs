@@ -162,8 +162,7 @@ fn merge_ranges(
     emitted: Option<&mut HashSet<DocId>>,
     timeout: &mut impl TimeoutContext,
 ) -> Result<NumericScoreBatch, RQEIteratorError> {
-    let capacity = ranges.iter().map(|r| r.num_docs() as usize).sum();
-    let mut items: Vec<(DocId, f64)> = Vec::with_capacity(capacity);
+    let mut items: Vec<(DocId, f64)> = Vec::with_capacity(reserved_capacity(ranges, filter));
     let mut record = RSIndexResult::build_numeric(0.0).build();
     // Ranges that contributed at least one record, i.e. the number of ascending
     // runs `items` holds.
@@ -203,6 +202,28 @@ fn merge_ranges(
     Ok(NumericScoreBatch::new(items))
 }
 
+/// Records to reserve for reading `ranges` under `filter`: each range's
+/// [`NumericRange::num_docs`], capped at
+/// [`NumericRangeTree::MAXIMUM_RANGE_SIZE`] for a range that passes `filter`
+/// only in part.
+///
+/// Such a range may yield none of its documents, and a single-value range never
+/// splits however large it grows, so an uncapped count could reserve for
+/// millions of records that are all filtered out.
+fn reserved_capacity(ranges: &[&NumericRange], filter: NumericFilter) -> usize {
+    ranges
+        .iter()
+        .map(|r| {
+            let num_docs = r.num_docs() as usize;
+            if filter.value_in_range(r.min_val()) && filter.value_in_range(r.max_val()) {
+                num_docs
+            } else {
+                num_docs.min(NumericRangeTree::MAXIMUM_RANGE_SIZE)
+            }
+        })
+        .sum()
+}
+
 /// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,
 /// keeping the best score for the sort direction: the smallest when `ascending`,
 /// the largest otherwise.
@@ -232,7 +253,7 @@ mod tests {
     use rqe_iterators::utils::NoTimeoutChecker;
     use top_k::ScoreBatch;
 
-    use super::NumericRangeIterator;
+    use super::{NumericRangeIterator, reserved_capacity};
 
     /// Drain every window into the list of scores it yields.
     fn drain_scores(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<f64> {
@@ -322,6 +343,39 @@ mod tests {
 
         assert!(scores.iter().all(|&s| s > 10.0 && s < 20.0));
         assert!(!scores.contains(&10.0) && !scores.contains(&20.0));
+    }
+
+    #[test]
+    fn range_excluded_at_its_only_value_reserves_at_most_a_split_size() {
+        let mut tree = NumericRangeTree::new(false);
+        let docs = 2 * NumericRangeTree::MAXIMUM_RANGE_SIZE as u64;
+        for id in 1..=docs {
+            tree.add(id, 5.0, false, false, 0);
+        }
+        let excluding = NumericFilter {
+            min: 5.0,
+            max: 10.0,
+            min_inclusive: false,
+            ..NumericFilter::default()
+        };
+        let including = NumericFilter {
+            min_inclusive: true,
+            ..excluding
+        };
+
+        // The inclusive bounds check still selects the single, unsplit range.
+        let ranges = tree.find(&excluding);
+        assert_eq!(ranges.len(), 1);
+
+        assert_eq!(
+            reserved_capacity(&ranges, excluding),
+            NumericRangeTree::MAXIMUM_RANGE_SIZE
+        );
+        assert_eq!(
+            reserved_capacity(&ranges, including),
+            ranges[0].num_docs() as usize
+        );
+        assert!(drain_pairs(&tree, &excluding).is_empty());
     }
 
     #[test]
