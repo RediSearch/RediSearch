@@ -79,7 +79,6 @@
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
 typedef struct {
-  AREQ *req;  // Borrowed; the cycle owns the request (see QueryRequest).
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
 } blockedClientReqCtx;
@@ -1124,19 +1123,20 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 }
 
-static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
-                                                    RedisModuleBlockedClient *blockedClient, StrongRef spec) {
+static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
+  QueryRequest *request = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  return QueryRequest_GetAREQ(request);
+}
+
+static blockedClientReqCtx *blockedClientReqCtx_New(RedisModuleBlockedClient *blockedClient) {
   blockedClientReqCtx *ret = rm_new(blockedClientReqCtx);
-  ret->req = req;
   ret->blockedClient = blockedClient;
+  AREQ *req = blockedClientReqCtx_getRequest(ret);
+  // Capture the weak reference on the main thread, before a queued query's spec can be dropped.
+  StrongRef spec = IndexSpec_GetStrongRefUnsafe(AREQ_SearchCtx(req)->spec);
   ret->spec_ref = StrongRef_Demote(spec);
   return ret;
 }
-
-static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
-  return BCRctx->req;
-}
-
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
@@ -1769,8 +1769,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   QueryRequestTimeout_BeginCycle(&r->base.timeout, timeoutKind);
 
   if (runInThread) {
-    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -1790,7 +1788,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
         ctx, &r->base, replyCallback, timeoutCallback, timeoutMS);
-    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
+    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(blockedClient);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
     if (AREQ_QueryProcessingCtx(r)->isProfile ){
