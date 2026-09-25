@@ -246,7 +246,7 @@ mod tests {
     /// write into the cursor, rewind, then read the same values back out. This
     /// is the sole test-only `Cursor` impl (the read-only `&[u8]` impl was
     /// dropped) and no OSS caller otherwise exercises it — `trie_rdb` uses its
-    /// own `RdbMock`.
+    /// own `MockRdbIO`.
     #[test]
     fn cursor_round_trip_all_primitives() {
         let mut backing = Vec::new();
