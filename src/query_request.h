@@ -59,11 +59,10 @@ typedef struct {
   RedisModule_Reply rows;
   size_t bufferedElements; // top-level elements written into `rows`, counted by the row serializers
   int rc;                 // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
-  /* The cycle's error and warnings — the request's single error slot. Hybrid
-   * sub-pipelines report into it directly (a sub's results are published by
-   * the parent's reply). TRANSITIONAL(MOD-17486): parents still clone the
-   * pipeline's stack-local QueryError into it at publication; the
-   * RETURN_STRICT flip wires every pipeline directly. */
+  /* The cycle's error and warnings — the request's single error slot. The pipeline reports into
+   * it directly (qctx->err points here), and a bail before the pipeline stores its error here with
+   * rc = RS_RESULT_ERROR, so the reply phase treats every cycle alike. Hybrid sub-pipelines report
+   * into their own slot; the parent's reply phase collects them. */
   QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
 } ChunkReplyState;
