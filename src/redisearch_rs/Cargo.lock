@@ -3123,6 +3123,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cheadergen",
+ "ffi",
  "redis_mock",
  "redisearch_rs",
  "term_dictionary",
