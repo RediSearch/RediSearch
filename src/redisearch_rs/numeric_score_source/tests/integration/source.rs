@@ -470,6 +470,35 @@ fn unfiltered_excludes_field_expired_docs() {
 }
 
 #[test]
+fn filtered_excludes_field_expired_docs() {
+    // The child passes docs 2 and 4, and doc 4 has the higher value — but its sort
+    // field has expired, so only the live match reaches the heap.
+    let tree = tree_from(&[(1, 1.0), (2, 2.0), (3, 3.0), (4, 100.0), (5, 5.0)]);
+    let child_ids = vec![2u64, 4u64];
+    let source = NumericScoreSource::filtered(
+        &tree,
+        full_range(),
+        RangeWindow::UNBOUNDED,
+        false,
+        1,
+        5,
+        child_ids.len(),
+    )
+    .with_expiration(ExpiredDocs::from_iter([4]));
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(child_ids),
+        NonZeroUsize::new(2).unwrap(),
+    );
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(2, 2.0)]);
+}
+
+#[test]
 fn validity_and_expiration_compose() {
     // Deletion and field-TTL are independent oracles applied together: doc 1 is
     // deleted and doc 3 is field-expired, so both drop and the heap fills from
