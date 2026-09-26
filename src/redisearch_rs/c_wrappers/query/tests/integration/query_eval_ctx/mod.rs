@@ -10,7 +10,7 @@
 use query::{QueryEvalContext, mock::MockQueryEvalCtx};
 use query_flags::QEFlag;
 use query_types::scorers::{BuiltInScorer, RequestedScorer};
-use rqe_iterators::utils::AnyTimeoutContext;
+use rqe_iterators::utils::TimeoutContext;
 
 #[test]
 fn sctx_returns_inner_ref() {
@@ -372,10 +372,14 @@ fn build_timeout_context_uses_clock_source_from_sctx() {
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
     // SAFETY: `mock` outlives the returned context.
-    let timeout = unsafe { ctx.build_timeout_context() };
-    assert!(matches!(timeout, AnyTimeoutContext::Clock(_)));
+    let mut timeout = unsafe { ctx.build_timeout_context() };
+    for _ in 0..rqe_iterators::not_reducer::TIMEOUT_CHECK_GRANULARITY - 1 {
+        assert!(timeout.check_timeout().is_ok());
+    }
+    assert!(timeout.check_timeout().is_err());
 }
 
+#[cfg_attr(miri, ignore = "miri cannot call the C blocked-client timeout helper")]
 #[test]
 fn build_timeout_context_uses_blocked_client_source_from_sctx() {
     let mut mock = MockQueryEvalCtx::new();
@@ -383,8 +387,8 @@ fn build_timeout_context_uses_blocked_client_source_from_sctx() {
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
     // SAFETY: `mock` outlives the returned context.
-    let timeout = unsafe { ctx.build_timeout_context() };
-    assert!(matches!(timeout, AnyTimeoutContext::BlockedClient(_)));
+    let mut timeout = unsafe { ctx.build_timeout_context() };
+    assert!(timeout.check_timeout().is_ok());
 }
 
 /// Build a context whose query scorer name is `name`, keeping the backing

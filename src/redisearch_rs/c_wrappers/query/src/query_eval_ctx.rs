@@ -86,9 +86,11 @@ impl QueryEvalContext {
     ///    `sctx` must additionally stay valid, and at a stable address, for the
     ///    lifetime of every timeout context and iterator derived from this
     ///    context (e.g. via
-    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
-    ///    a clock-based timeout context reads the request-owned deadline back on every
-    ///    probe rather than capturing it.
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
+    ///    The request timeout reached through `sctx.timeout` must also stay valid
+    ///    at a stable address for that lifetime: every probe reads its active
+    ///    timeout source. Timeout source changes and deadline writes may occur
+    ///    only between probes; only the blocked-client flag may change concurrently.
     ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
     ///    — must be valid and non-null: every path that creates an
     ///    [`IndexSpec`](ffi::IndexSpec) installs a terms trie, unconditionally
@@ -535,24 +537,22 @@ impl QueryEvalContext {
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this
     /// evaluation.
     ///
-    /// The active request-timeout kind reached through `sctx.timeout` selects
-    /// the Blocked Client Timeout, Clock Based Timeout, or [`NoTimeoutChecker`].
-    ///
-    /// The returned [`AnyTimeoutContext`] is `'static`: timeout variants hold raw
-    /// pointers rather than borrows, so their validity is a runtime precondition.
+    /// The returned [`AnyTimeoutContext`] reads the active request-timeout kind
+    /// through `sctx.timeout` on each probe. It holds a raw pointer rather than
+    /// a borrow, so its validity is a runtime precondition.
     ///
     /// # Safety
     ///
     /// The returned context and any iterator built from it must not outlive
     /// `sctx` or its borrowed request timeout. No write to a request-owned
-    /// deadline may overlap a probe; see
+    /// deadline or change to the active timeout source may overlap a probe; see
     /// [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
-    /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
         // SAFETY: invariant (2) of `new` guarantees `sctx` and its borrowed timeout stay valid
-        // for every derived iterator. Writes to a deadline never overlap a probe.
+        // for every derived iterator. Deadline writes and timeout source changes occur only
+        // between execution cycles, when no probe can run.
         unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
     }
 }
