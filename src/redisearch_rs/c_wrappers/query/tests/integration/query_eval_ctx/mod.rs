@@ -379,6 +379,7 @@ fn build_timeout_context_uses_clock_source_from_sctx() {
     assert!(timeout.check_timeout().is_err());
 }
 
+#[cfg_attr(miri, ignore = "miri cannot call the C blocked-client timeout helper")]
 #[test]
 fn build_timeout_context_uses_blocked_client_source_from_sctx() {
     let mut mock = MockQueryEvalCtx::new();
