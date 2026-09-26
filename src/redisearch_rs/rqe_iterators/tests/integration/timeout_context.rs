@@ -133,6 +133,7 @@ fn retained_context_follows_timeout_source_changes_between_cursor_reads() {
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
     assert!(probe(&mut checker, 1).is_err());
 
+    // SAFETY: the mock owns an initialized search context and its request timeout.
     let timeout = unsafe { (*ctx.sctx().as_ptr()).timeout };
     // SAFETY: the previous probe finished and the mock owns the timeout.
     unsafe {
