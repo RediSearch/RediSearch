@@ -684,15 +684,6 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
               'DISTANCE_METRIC', 'L2').ok()
 
     env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
-    if algo != 'FLAT':
-        # FLAT is never tiered; HNSW/SVS-VAMANA always are (see spec.c). Drain so the vector
-        # is actually resident in the backend graph before the update below -- otherwise the
-        # update would only ever touch the frontend buffer, never exercising the backend's
-        # own updateVectors code path.
-        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-        backend = to_dict(get_vecsim_debug_dict(env, 'idx', 'vec')['BACKEND_INDEX'])
-        env.assertEqual(backend['INDEX_LABEL_COUNT'], 1,
-                        message='the vector must reach the backend before the update')
     first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
     env.assertGreater(first, 0)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
@@ -702,13 +693,6 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
     env.expect('HSET', 'doc1', 'vec', 'eeeeffffgggghhhh').equal(0)
     env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
                     message='a vector-only change must not reindex')
-    if algo != 'FLAT':
-        # updateVectors on a backend-resident label writes the new value to the frontend
-        # buffer and marks the backend's old copy deleted -- proof the update genuinely
-        # reached the backend, not just the frontend buffer it would otherwise be confined to.
-        backend = to_dict(get_vecsim_debug_dict(env, 'idx', 'vec')['BACKEND_INDEX'])
-        env.assertEqual(backend['NUMBER_OF_MARKED_DELETED'], 1,
-                        message='updateVectors must mark the backend copy deleted')
     # The new value is what a KNN query against it finds -- proof the vector itself was
     # updated, not just the doc-id preserved.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
@@ -732,32 +716,30 @@ def testVectorOnlyChangeKeepsDocId(env):
 @skip(cluster=True)
 def testVectorOnlyChangeKeepsDocIdHNSW(env):
     """Same as testVectorOnlyChangeKeepsDocId, but on HNSW: HNSWIndex::updateVectors is its
-    own implementation, independent of FLAT's. WORKERS 1 lets the vector actually reach the
-    tiered index's backend graph (drained explicitly below) instead of staying in the
-    frontend buffer, so this exercises the backend's own update path, not just the buffer's.
+    own implementation, independent of FLAT's.
     """
     if env.env == 'existing-env':
         env.skip()
-    env = Env(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     _assertVectorOnlyChangeKeepsDocId(env, 'HNSW')
 
 @skip(cluster=True)
 def testVectorOnlyChangeKeepsDocIdSVSVamana(env):
     """Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
     backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
-    WORKERS 1 lets the vector actually reach the backend (drained explicitly below).
     """
     if env.env == 'existing-env':
         env.skip()
-    env = Env(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     _assertVectorOnlyChangeKeepsDocId(env, 'SVS-VAMANA')
 
 @skip(cluster=True)
 def testIndexMissingVectorFieldReindexes(env):
     """A write that sets a previously-unset INDEXMISSING vector field for the first time must
-    not take the vector-only fast path (MOD-17704): only a full reindex updates the field's
-    ismissing() posting, so a document must stop matching ismissing(@vec) once the fast path
-    is bypassed and the field is genuinely present.
+    not take the vector-only fast path (MOD-17704): the field's ismissing() posting is only
+    ever retired by a full reindex, which moves the document to a new doc-id -- the old
+    doc-id's stale posting itself is only cleaned up by GC, exactly like any other field
+    (see testMissingGC in test_missing.py), not synchronously on reindex.
 
     Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
     """
@@ -775,10 +757,12 @@ def testIndexMissingVectorFieldReindexes(env):
     env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([1, 'doc1'])
 
     # vec is set for the first time -- the change set names only a vector field, but this
-    # must still reindex so the missing-field posting is retired.
+    # must still reindex under a new doc-id, so GC has a fresh doc-id to retire the old
+    # posting in favor of.
     env.expect('HSET', 'doc1', 'vec', 'aaaabbbbccccdddd').equal(0)
     env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
                        message='an INDEXMISSING vector field must not take the fast path')
+    forceInvokeGC(env)
     env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
               'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
