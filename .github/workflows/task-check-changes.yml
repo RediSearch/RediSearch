@@ -15,8 +15,9 @@ on:
         value: ${{ jobs.change-checks.outputs.TESTS_CHANGED }}
       ONLY_CPP_TESTS_CHANGED:
         description: >-
-          Indicates the change set is confined to tests/cpptests/** and tests/ctests/** --
-          no other code, workflow, or test file changed. Safe signal to skip flow tests.
+          Indicates the change set is confined to tests/cpptests/** -- no other code,
+          workflow, or test file changed (tests/ctests/** does NOT count: it holds
+          fixtures Python flow tests load too). Safe signal to skip flow tests.
         value: ${{ jobs.change-checks.outputs.ONLY_CPP_TESTS_CHANGED }}
       ONLY_PY_TESTS_CHANGED:
         description: >-
@@ -33,9 +34,10 @@ jobs:
       RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       # "Only this category changed" is deliberately conservative: it requires the rest of the
-      # tree (code, workflows, and every other test directory -- qa/, memcheck/, deps/, an
-      # unrecognized new tests/ subdir) to be untouched. Anything ambiguous falls through to
-      # false on both, which callers treat as "run everything", never as "run nothing".
+      # tree (code, workflows, and every other test directory -- ctests/ (shared fixtures),
+      # qa/, memcheck/, deps/, an unrecognized new tests/ subdir) to be untouched. Anything
+      # ambiguous falls through to false on both, which callers treat as "run everything",
+      # never as "run nothing".
       ONLY_CPP_TESTS_CHANGED: >-
         ${{
           steps.check-cpp-tests.outputs.any_modified == 'true' &&
@@ -135,10 +137,13 @@ jobs:
       - name: Check if C/C++ unit test files were changed
         id: check-cpp-tests
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
-        with:
+        with: # Deliberately NOT tests/ctests/**: it holds fixtures (genesis.txt,
+              # cn_sample.txt, ext-example/) that Python flow tests load too, e.g.
+              # test_summarize.py/test_cn.py/test_ext.py -- a change confined to
+              # tests/ctests/** must fall through to check-other-tests below instead,
+              # so it can't be misclassified as C/C++-only and skip the flow suites.
           files: |
                 tests/cpptests/**
-                tests/ctests/**
       - name: Check if Python flow test files were changed
         id: check-py-tests
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
@@ -148,12 +153,12 @@ jobs:
       - name: Check if any other test files were changed
         id: check-other-tests
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
-        with: # Anything under tests/** not already classified above -- forces a full run
+        with: # Anything under tests/** not already classified above -- forces a full run.
+              # Includes tests/ctests/**, on purpose (see check-cpp-tests above).
           files: |
                 tests/**
           files_ignore: |
                 tests/cpptests/**
-                tests/ctests/**
                 tests/pytests/**
                 tests/benchmarks/**
           fetch_additional_submodule_history: true
