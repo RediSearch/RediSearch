@@ -45,6 +45,22 @@ fn probe(checker: &mut AnyTimeoutContext, granularity: u32) -> Result<(), String
     Ok(())
 }
 
+#[test]
+fn requestless_context_has_no_timeout() {
+    let ctx = MockContext::new(100, 10);
+    let sctx = ctx.sctx().as_ptr();
+    // SAFETY: the mock owns this search context. No checker exists while its timeout is detached.
+    let timeout = unsafe { (*sctx).timeout };
+    unsafe { (*sctx).timeout = std::ptr::null_mut() };
+    // SAFETY: the search context stays valid; a null timeout means it has no owning request.
+    let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
+    // SAFETY: the mock still owns the timeout and restores its normal search context before drop.
+    unsafe { (*sctx).timeout = timeout };
+    assert!(checker.check_timeout().is_ok());
+    checker.reset_counter();
+    assert!(checker.check_timeout().is_ok());
+}
+
 #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
 #[test]
 fn tracks_a_deadline_that_moves_after_construction() {
@@ -116,11 +132,16 @@ fn unarmed_timeout_opts_out_entirely() {
 
     // SAFETY: as above.
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
+    assert!(probe(&mut checker, 1).is_ok());
+    // SAFETY: the source changes between probes, with the expired deadline already initialized.
+    unsafe {
+        (*(*ctx.sctx().as_ptr()).timeout).kind =
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+    }
     assert!(
-        matches!(checker, AnyTimeoutContext::Request(_)),
+        probe(&mut checker, 1).is_err(),
         "the request context must stay attached across cursor cycles",
     );
-    assert!(probe(&mut checker, 1).is_ok());
 }
 
 #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
