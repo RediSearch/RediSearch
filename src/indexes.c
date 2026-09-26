@@ -648,9 +648,14 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
       // `AddDocumentCtx_MarkForRelabel` computes for vector fields via `FieldSpec_IsInChangeSet`
       // to decide the opposite thing: there, VerifiedYes means "don't relabel, this value was
       // written"; here it means "this field needs `updateVectors`". A VerifiedYes match against
-      // any non-vector field still forces a full reindex, unchanged.
+      // any non-vector field still forces a full reindex, unchanged. So does an INDEXMISSING
+      // vector field: this write may be the one that makes a previously-missing field present
+      // (or vice versa), and only the full path's writeMissingFieldDocs keeps that field's
+      // `ismissing()` posting in sync -- the fast path has no way to tell that case apart from
+      // an ordinary update of an already-present value.
       if (!RSGlobalConfig.optimizePartialUpdate ||
-          !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR)) {
+          !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR) ||
+          FieldSpec_IndexesMissing(&spec->fields[j])) {
         return IndexUpdate_Full;
       }
     }

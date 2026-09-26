@@ -733,6 +733,37 @@ def testVectorOnlyChangeKeepsDocIdSVSVamana(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     _assertVectorOnlyChangeKeepsDocId(env, 'SVS-VAMANA')
 
+@skip(cluster=True)
+def testIndexMissingVectorFieldReindexes(env):
+    """A write that sets a previously-unset INDEXMISSING vector field for the first time must
+    not take the vector-only fast path (MOD-17704): only a full reindex updates the field's
+    ismissing() posting, so a document must stop matching ismissing(@vec) once the fast path
+    is bypassed and the field is genuinely present.
+
+    Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2', 'INDEXMISSING').ok()
+
+    # doc1 is indexed without ever setting vec: it is missing.
+    env.expect('HSET', 'doc1', 'title', 'hello').equal(1)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([1, 'doc1'])
+
+    # vec is set for the first time -- the change set names only a vector field, but this
+    # must still reindex so the missing-field posting is retired.
+    env.expect('HSET', 'doc1', 'vec', 'aaaabbbbccccdddd').equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='an INDEXMISSING vector field must not take the fast path')
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
 # Two-vector-field schema shared by the tests below: unlike testVectorOnlyChangeKeepsDocId's
 # single vector field, these exercise a document where TWO vector fields can independently be
 # changed or not, in the same write. Standalone only, same reason as testVectorOnlyChangeKeepsDocId

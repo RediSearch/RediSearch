@@ -778,3 +778,25 @@ TEST_F(ReindexSkipTest, vectorPathAlsoScoreFieldUpdatesBoth) {
       << "the score must be updated, not shadowed by the vector-only fast path";
   DMD_Return(dmd);
 }
+
+// A write naming only an INDEXMISSING vector field might be the one that makes a
+// previously-missing field present (or vice versa): only the full path's
+// writeMissingFieldDocs keeps that field's ismissing() posting in sync, so it must not take
+// the vector-only fast path even though the change set itself names only a vector field.
+TEST_F(ReindexSkipTest, indexMissingVectorFieldStillReindexes) {
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH", "SCHEMA",
+                             "title", "TEXT",
+                             "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "4", "DISTANCE_METRIC", "L2", "INDEXMISSING"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  // The vector field is set for the first time.
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"vec"});
+  EXPECT_GT(docIdOf("doc:1"), first)
+      << "an INDEXMISSING vector field must not take the vector-only fast path";
+  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecA));
+}
