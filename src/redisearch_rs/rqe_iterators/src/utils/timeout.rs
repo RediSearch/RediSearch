@@ -195,6 +195,15 @@ impl TimeoutChecker for TimeoutContextBlockedClient {
     }
 }
 
+/// Request-owned timeout state retained across cursor reads.
+///
+/// The fields are private because a timeout context's pointer may only be changed by its unsafe
+/// constructor, which requires the request to outlive every probe.
+pub struct TimeoutContextRequest {
+    timeout: NonNull<QueryRequestTimeout>,
+    clock: TimeoutContextDeadline,
+}
+
 /// Type-erased [`TimeoutContext`] wrapping the concrete variants.
 ///
 /// Request-backed contexts read the current source on every probe because cursor reads can
@@ -207,12 +216,7 @@ pub enum AnyTimeoutContext {
     /// Blocked Client Timeout: relaxed atomic load against the request flag.
     BlockedClient(TimeoutContextBlockedClient),
     /// Request-owned timeout whose source can change between cursor reads.
-    Request {
-        /// Request state retained across execution cycles.
-        timeout: NonNull<QueryRequestTimeout>,
-        /// Clock checks are amortized while the clock source is active.
-        clock: TimeoutContextDeadline,
-    },
+    Request(TimeoutContextRequest),
 }
 
 impl AnyTimeoutContext {
@@ -239,10 +243,10 @@ impl AnyTimeoutContext {
         // SAFETY: the caller keeps the request timeout at a stable address and changes its
         // source only between execution cycles, when no probe can run.
         let clock = unsafe { TimeoutContextDeadline::new(deadline, granularity) };
-        Self::Request {
+        Self::Request(TimeoutContextRequest {
             timeout: request_timeout,
             clock,
-        }
+        })
     }
 }
 
@@ -253,7 +257,9 @@ impl TimeoutContext for AnyTimeoutContext {
             Self::NoTimeout(c) => TimeoutContext::check_timeout(c),
             Self::Clock(c) => TimeoutContext::check_timeout(c),
             Self::BlockedClient(c) => TimeoutContext::check_timeout(c),
-            Self::Request { timeout, clock } => {
+            Self::Request(request) => {
+                let timeout = request.timeout;
+                let clock = &mut request.clock;
                 // SAFETY: the constructor contract keeps the request valid and its kind stable
                 // for this probe. Only the active union member is accessed below.
                 match unsafe { (*timeout.as_ptr()).kind } {
@@ -283,7 +289,7 @@ impl TimeoutContext for AnyTimeoutContext {
             Self::NoTimeout(c) => TimeoutContext::reset_counter(c),
             Self::Clock(c) => TimeoutContext::reset_counter(c),
             Self::BlockedClient(c) => TimeoutContext::reset_counter(c),
-            Self::Request { clock, .. } => TimeoutContext::reset_counter(clock),
+            Self::Request(request) => TimeoutContext::reset_counter(&mut request.clock),
         }
     }
 }

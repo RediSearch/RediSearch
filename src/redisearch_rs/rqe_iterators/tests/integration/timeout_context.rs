@@ -117,7 +117,7 @@ fn unarmed_timeout_opts_out_entirely() {
     // SAFETY: as above.
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
     assert!(
-        matches!(checker, AnyTimeoutContext::Request { .. }),
+        matches!(checker, AnyTimeoutContext::Request(_)),
         "the request context must stay attached across cursor cycles",
     );
     assert!(probe(&mut checker, 1).is_ok());
