@@ -535,11 +535,9 @@ impl QueryEvalContext {
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this
     /// evaluation.
     ///
-    /// The active request-timeout kind reached through `sctx.timeout` selects
-    /// the Blocked Client Timeout, Clock Based Timeout, or [`NoTimeoutChecker`].
-    ///
-    /// The returned [`AnyTimeoutContext`] is `'static`: timeout variants hold raw
-    /// pointers rather than borrows, so their validity is a runtime precondition.
+    /// The returned [`AnyTimeoutContext`] reads the active request-timeout kind
+    /// through `sctx.timeout` on each probe. It holds a raw pointer rather than
+    /// a borrow, so its validity is a runtime precondition.
     ///
     /// # Safety
     ///
@@ -548,7 +546,6 @@ impl QueryEvalContext {
     /// deadline may overlap a probe; see
     /// [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
-    /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
         // SAFETY: invariant (2) of `new` guarantees `sctx` and its borrowed timeout stay valid

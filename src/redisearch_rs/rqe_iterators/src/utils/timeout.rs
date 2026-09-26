@@ -12,10 +12,7 @@ use std::ptr::NonNull;
 use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestTimeout, RedisSearchCtx};
 pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
 
-use crate::{
-    RQEIteratorError,
-    utils::{duration_from_redis_timespec, timespec::deadline_passed},
-};
+use crate::{RQEIteratorError, utils::timespec::deadline_passed};
 
 /// Abstraction over the different ways a query iterator can detect that the
 /// surrounding query has run out of time.
@@ -97,17 +94,18 @@ impl TimeoutContextDeadline {
     ///
     /// # Safety
     ///
-    /// * `deadline` must point to the valid [`timespec`](ffi::timespec) reached through the
-    ///   `timeout` field of [`RedisSearchCtx`], and stay valid at a stable address for as long as this
-    ///   context (and any iterator holding it) is used. A request assigns its search context once,
-    ///   in `AREQ_ApplyContext`, and later cursor reads update the deadline in place, so the
-    ///   address holds for the whole request.
+    /// * `deadline` must point to stable storage for a [`timespec`](ffi::timespec) that stays
+    ///   [valid] for as long as this context (and any iterator holding it) is used. If the
+    ///   storage is part of a union, callers may probe this checker only while the deadline
+    ///   is the active member.
     /// * The deadline must not be written concurrently with a probe. C *does* write to it — that
     ///   is the point of reading it back — when a clock cycle begins, and directly from
     ///   `RPTimeoutAfterCount_SimulateTimeout`. Each of those either runs before the
     ///   pipeline for that read starts (`runCursor`, `buildPipelineAndExecute`, the hybrid and
     ///   coordinator entry points) or runs inside the pipeline on the thread that would be
     ///   probing, so no write overlaps a probe. A new write site has to preserve that.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     #[inline(always)]
     pub const unsafe fn new(deadline: NonNull<ffi::timespec>, limit: u32) -> Self {
         Self {
@@ -199,20 +197,8 @@ impl TimeoutChecker for TimeoutContextBlockedClient {
 
 /// Type-erased [`TimeoutContext`] wrapping the concrete variants.
 ///
-/// Used at the FFI boundary so the iterator type does not depend on which
-/// timeout source the C side selected for a given query. The variant is
-/// fixed at construction time: each call to [`check_timeout`] adds a single
-/// well-predicted branch on top of the inner variant's own work.
-///
-/// [`check_timeout`]: TimeoutContext::check_timeout
-///
-/// Two of the three variants hold a raw pointer with no lifetime:
-/// [`BlockedClient`](Self::BlockedClient) a [`QueryRequestTimeout`] (see
-/// [`TimeoutContextBlockedClient`]), and [`Clock`](Self::Clock) the deadline inside a
-/// [`RedisSearchCtx`] (see [`TimeoutContextDeadline`]). Only
-/// [`NoTimeout`](Self::NoTimeout) borrows nothing. The type is therefore `'static`, and keeping
-/// whatever a variant points at alive while the context is used is a runtime invariant its
-/// constructor documents — that obligation applies to `Clock` just as much as to `BlockedClient`.
+/// Request-backed contexts read the current source on every probe because cursor reads can
+/// change it without rebuilding the iterator tree.
 pub enum AnyTimeoutContext {
     /// No timeout source: every probe is a no-op.
     NoTimeout(NoTimeoutChecker),
@@ -220,60 +206,42 @@ pub enum AnyTimeoutContext {
     Clock(TimeoutContextDeadline),
     /// Blocked Client Timeout: relaxed atomic load against the request flag.
     BlockedClient(TimeoutContextBlockedClient),
+    /// Request-owned timeout whose source can change between cursor reads.
+    Request {
+        /// Request state retained across execution cycles.
+        timeout: NonNull<QueryRequestTimeout>,
+        /// Clock checks are amortized while the clock source is active.
+        clock: TimeoutContextDeadline,
+    },
 }
 
 impl AnyTimeoutContext {
-    /// Builds the timeout context from a search context's time settings.
-    ///
-    /// The request timeout's active kind selects no timeout, a blocked-client
-    /// flag, or a clock deadline.
+    /// Build a context that reads the request's active timeout source at each probe.
     ///
     /// # Safety
     ///
-    /// The selected timeout variant's constructor preconditions are forwarded to the caller:
+    /// `sctx` and its request timeout must stay [valid] at stable addresses for as long as the
+    /// returned context and any iterator built from it are used. Source changes and writes to the
+    /// clock deadline must happen only between probes, after the previous execution cycle has
+    /// stopped. Only the blocked-client flag may be updated concurrently.
     ///
-    /// * `sctx` must stay valid, and at a stable address, for as long as the returned context and
-    ///   any iterator built from it are used — not merely for this call. The deadline is read back
-    ///   through a pointer on every probe.
-    /// * No write to the request's clock deadline may overlap a probe.
-    /// * The borrowed request timeout must remain valid with its active source unchanged.
-    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
-        // Read construction-time inputs through short-lived raw reads rather than holding
-        // a reference: C writes the timeout source through this location between cycles.
-        // SAFETY: the caller guarantees `sctx` is valid.
+        // SAFETY: the caller guarantees `sctx` is valid throughout this call.
         let timeout = unsafe { (*sctx.as_ptr()).timeout };
         let Some(request_timeout) = NonNull::new(timeout) else {
             return Self::NoTimeout(NoTimeoutChecker);
         };
-        // SAFETY: the request timeout is valid for the lifetime guaranteed by the caller.
-        match unsafe { (*request_timeout.as_ptr()).kind } {
-            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => {
-                Self::NoTimeout(NoTimeoutChecker)
-            }
-            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {
-                // SAFETY: the caller keeps the request timeout valid and stable, and this match
-                // arm established CLOCK_DEADLINE as the active union member before projecting its
-                // deadline.
-                let deadline =
-                    unsafe { &raw mut (*request_timeout.as_ptr()).source.clock.deadline };
-                let deadline =
-                    NonNull::new(deadline).expect("projected from a non-null request timeout");
-                // A request without a configured deadline never gains one.
-                // SAFETY: the request timeout is valid and CLOCK_DEADLINE is the active union
-                // member.
-                if duration_from_redis_timespec(unsafe { deadline.read() }).is_none() {
-                    return Self::NoTimeout(NoTimeoutChecker);
-                }
-                // SAFETY: forwarded to the caller by this method's own safety contract, both
-                // clauses.
-                Self::Clock(unsafe { TimeoutContextDeadline::new(deadline, granularity) })
-            }
-            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
-                // SAFETY: the caller keeps the request timeout valid for the returned context.
-                Self::BlockedClient(unsafe { TimeoutContextBlockedClient::new(request_timeout) })
-            }
-            kind => panic!("invalid query timeout kind: {kind}"),
+        // SAFETY: projecting a union field does not read it. The clock checker only reads
+        // the field when a later probe sees CLOCK_DEADLINE as the active source.
+        let deadline = unsafe { &raw mut (*request_timeout.as_ptr()).source.clock.deadline };
+        let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
+        // SAFETY: the caller keeps the request timeout at a stable address and changes its
+        // source only between execution cycles, when no probe can run.
+        let clock = unsafe { TimeoutContextDeadline::new(deadline, granularity) };
+        Self::Request {
+            timeout: request_timeout,
+            clock,
         }
     }
 }
@@ -285,6 +253,27 @@ impl TimeoutContext for AnyTimeoutContext {
             Self::NoTimeout(c) => TimeoutContext::check_timeout(c),
             Self::Clock(c) => TimeoutContext::check_timeout(c),
             Self::BlockedClient(c) => TimeoutContext::check_timeout(c),
+            Self::Request { timeout, clock } => {
+                // SAFETY: the constructor contract keeps the request valid and its kind stable
+                // for this probe. Only the active union member is accessed below.
+                match unsafe { (*timeout.as_ptr()).kind } {
+                    ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => Ok(()),
+                    ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {
+                        TimeoutContext::check_timeout(clock)
+                    }
+                    ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
+                        // SAFETY: the C bridge atomically reads the currently active marker.
+                        let timed_out =
+                            unsafe { QueryIterator_IsBlockedClientTimedOut(timeout.as_ptr()) };
+                        if timed_out {
+                            Err(RQEIteratorError::TimedOut)
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    kind => panic!("invalid query timeout kind: {kind}"),
+                }
+            }
         }
     }
 
@@ -294,6 +283,7 @@ impl TimeoutContext for AnyTimeoutContext {
             Self::NoTimeout(c) => TimeoutContext::reset_counter(c),
             Self::Clock(c) => TimeoutContext::reset_counter(c),
             Self::BlockedClient(c) => TimeoutContext::reset_counter(c),
+            Self::Request { clock, .. } => TimeoutContext::reset_counter(clock),
         }
     }
 }

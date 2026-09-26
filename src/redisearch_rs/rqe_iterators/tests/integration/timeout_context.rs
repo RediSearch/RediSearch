@@ -117,14 +117,47 @@ fn unarmed_timeout_opts_out_entirely() {
     // SAFETY: as above.
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
     assert!(
-        matches!(checker, AnyTimeoutContext::NoTimeout(_)),
-        "an unarmed timeout must ignore stale deadline storage",
+        matches!(checker, AnyTimeoutContext::Request { .. }),
+        "the request context must stay attached across cursor cycles",
     );
     assert!(probe(&mut checker, 1).is_ok());
 }
 
+#[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
 #[test]
-fn the_no_timeout_sentinel_yields_no_checker() {
+fn retained_context_follows_timeout_source_changes_between_cursor_reads() {
+    let ctx = MockContext::new(100, 10);
+    set_deadline(&ctx, -1);
+    // SAFETY: the mock and its request timeout outlive the checker. Source changes happen only
+    // between probes, as they do between cursor execution cycles.
+    let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
+    assert!(probe(&mut checker, 1).is_err());
+
+    let timeout = unsafe { (*ctx.sctx().as_ptr()).timeout };
+    // SAFETY: the previous probe finished and the mock owns the timeout.
+    unsafe {
+        (*timeout).source.blockedClientTimedOut = false;
+        (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+    }
+    assert!(probe(&mut checker, 1).is_ok());
+
+    // SAFETY: this mimics the atomic marker published by the main-thread timeout callback;
+    // there is no concurrent access in this test.
+    unsafe { (*timeout).source.blockedClientTimedOut = true };
+    assert!(probe(&mut checker, 1).is_err());
+
+    // SAFETY: no probe runs while the source changes.
+    unsafe { (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED };
+    assert!(probe(&mut checker, 1).is_ok());
+
+    set_deadline(&ctx, 60);
+    // SAFETY: the new deadline was initialized before activating the clock source.
+    unsafe { (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE };
+    assert!(probe(&mut checker, 1).is_ok());
+}
+
+#[test]
+fn the_no_timeout_sentinel_never_expires() {
     let ctx = MockContext::new(100, 10);
     // SAFETY: the mock owns a valid `RedisSearchCtx`.
     #[cfg_attr(target_env = "musl", expect(deprecated))]
@@ -136,11 +169,8 @@ fn the_no_timeout_sentinel_yields_no_checker() {
     }
 
     // SAFETY: as above.
-    let checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
-    assert!(
-        matches!(checker, AnyTimeoutContext::NoTimeout(_)),
-        "a request configured without a deadline must not pay for clock probes",
-    );
+    let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
+    assert!(probe(&mut checker, 1).is_ok());
 }
 
 #[test]
