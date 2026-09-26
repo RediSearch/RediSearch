@@ -4562,17 +4562,11 @@ static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString 
       return REDISMODULE_ERR;
     }
   }
-  if (*timeout > (size_t)LLONG_MAX) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                        "TIMEOUT exceeds maximum supported value");
-    return REDISMODULE_ERR;
-  }
-  long long capped = (long long)*timeout;
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
-    *timeout = (size_t)capped;
-    if (wasCapped) {
-      *wasCapped = true;
-    }
+  long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
+  bool didCap = RSConfig_CapQueryTimeoutToForegroundLimit(&capped);
+  *timeout = (size_t)capped;
+  if (didCap && wasCapped) {
+    *wasCapped = true;
   }
   return REDISMODULE_OK;
 }
