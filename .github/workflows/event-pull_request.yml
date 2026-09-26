@@ -79,6 +79,11 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite the change set can't affect -- but never when this run only
+      # exists because of the enforce label, since that's an explicit ask to run
+      # everything for this job-type.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
 
   coverage:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
@@ -97,6 +102,11 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Deliberately no skip-unit-tests/skip-flow-tests here: coverage uploads flagged
+      # reports (flow/unit) to Codecov with no carryforward configured in
+      # .github/codecov.yml, so skipping a suite drops its flag's uploads entirely --
+      # every line only that suite exercises reads as "missed" instead of carried
+      # forward, tanking codecov/project on exactly the PRs this would target.
 
   sanitize:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
@@ -115,6 +125,11 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite the change set can't affect -- but never when this run only
+      # exists because of the enforce label, since that's an explicit ask to run
+      # everything for this job-type.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
 
   # ------------------------------------------------------------------
   # MIRI runs independently — no build artifact reuse possible, and we
@@ -124,7 +139,10 @@ jobs:
   miri:
     name: miri (${{ matrix.shard }}/3)
     needs: [check-what-changed, spellcheck]
-    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # MIRI only interprets the Rust workspace (src/redisearch_rs), so a change confined to
+    # C/C++ or Python test files can't affect it either -- skipped the same way basic-test
+    # and sanitize skip their unaffected suite, unless enforce:sanitize overrides it.
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && (contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') || (needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED != 'true' && needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED != 'true')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     # Split MIRI across 3 nextest partitions. Each shard is self-contained
     # (builds the C side + compiles miri) since miri can't reuse the nextest
     # archive; the slow part — miri interpretation — is split 3 ways.
