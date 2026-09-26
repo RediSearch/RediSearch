@@ -51,6 +51,7 @@ fn requestless_context_has_no_timeout() {
     let sctx = ctx.sctx().as_ptr();
     // SAFETY: the mock owns this search context. No checker exists while its timeout is detached.
     let timeout = unsafe { (*sctx).timeout };
+    // SAFETY: the mock owns this writable search context exclusively for the test.
     unsafe { (*sctx).timeout = std::ptr::null_mut() };
     // SAFETY: the search context stays valid; a null timeout means it has no owning request.
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
