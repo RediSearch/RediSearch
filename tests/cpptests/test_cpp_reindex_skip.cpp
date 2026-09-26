@@ -650,20 +650,21 @@ TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlace) {
   assertVectorOnlyChangeUpdatesInPlace();
 }
 
-// Same as above, but on HNSW: HNSWIndex::updateVectors has its own implementation (an
-// overwrite for the common single-vector case, falling back to delete-then-insert
-// otherwise), independent of FLAT's.
+// Same as above, but on HNSW: an HNSW schema field is created as a *tiered* index too (see
+// spec.c), so this actually exercises TieredHNSWIndex::updateVectors -- its own
+// implementation, independent of FLAT's. With workers disabled (the default here), nothing
+// is ever flushed to the backend graph, so this covers the tiered wrapper's frontend-buffer
+// update path, not HNSWIndex's own backend-graph update; see testVectorOnlyChangeKeepsDocIdHNSW
+// in test_followhashes.py for backend-reaching coverage (WORKERS + DEBUG WORKERS DRAIN).
 TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceHNSW) {
   createIndexWithVector({}, "HNSW");
   assertVectorOnlyChangeUpdatesInPlace();
 }
 
-// Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
-// backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
-// With workers disabled (the default here), nothing is ever flushed to the SVS backend,
-// so this exercises the frontend buffer's update path -- the same thing
-// holdsVectorOnSvsIndexAnswersFromTheFlatBuffer in test_cpp_vector_relabel.cpp relies on
-// for reads.
+// Same again, on SVS-VAMANA: also always a *tiered* index, whose TieredSVSIndex::updateVectors
+// is a third, independent implementation. Same frontend-buffer-only caveat as the HNSW case
+// above; see testVectorOnlyChangeKeepsDocIdSVSVamana in test_followhashes.py for
+// backend-reaching coverage.
 TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceSVSVamana) {
   createIndexWithVector({}, "SVS-VAMANA");
   assertVectorOnlyChangeUpdatesInPlace();
