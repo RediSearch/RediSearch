@@ -86,9 +86,11 @@ impl QueryEvalContext {
     ///    `sctx` must additionally stay valid, and at a stable address, for the
     ///    lifetime of every timeout context and iterator derived from this
     ///    context (e.g. via
-    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
-    ///    a clock-based timeout context reads the request-owned deadline back on every
-    ///    probe rather than capturing it.
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
+    ///    The request timeout reached through `sctx.timeout` must also stay valid
+    ///    at a stable address for that lifetime: every probe reads its active
+    ///    timeout source. Timeout source changes and deadline writes may occur
+    ///    only between probes; only the blocked-client flag may change concurrently.
     ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
     ///    — must be valid and non-null: every path that creates an
     ///    [`IndexSpec`](ffi::IndexSpec) installs a terms trie, unconditionally
