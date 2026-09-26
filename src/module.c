@@ -4562,11 +4562,12 @@ static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString 
       return REDISMODULE_ERR;
     }
   }
-  // Saturate the size_t to LLONG_MAX before casting so values >= 2^63 do not
-  // wrap to a negative long long. Without this clamp, an oversized timeout
-  // would be treated by the cap helper as "unlimited" (<= 0) and silently
-  // capped anyway, but the saturation here is defensive and self-documenting.
-  long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
+  if (*timeout > (size_t)LLONG_MAX) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "TIMEOUT exceeds maximum supported value");
+    return REDISMODULE_ERR;
+  }
+  long long capped = (long long)*timeout;
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
     *timeout = (size_t)capped;
     if (wasCapped) {
