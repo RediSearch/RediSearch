@@ -173,24 +173,24 @@ impl TimeoutContextRequest {
     }
 }
 
-impl TimeoutContext for TimeoutContextRequest {
+impl TimeoutChecker for TimeoutContextRequest {
     #[inline(always)]
-    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+    fn check_timeout(&mut self) -> TimeoutCheckResult {
         // SAFETY: the constructor contract keeps the request valid and its kind stable
         // for this probe. Only the active union member is accessed below.
         match unsafe { (*self.timeout.as_ptr()).kind } {
-            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => Ok(()),
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => TimeoutCheckResult::Ok,
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {
-                TimeoutContext::check_timeout(&mut self.clock)
+                TimeoutChecker::check_timeout(&mut self.clock)
             }
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
                 // SAFETY: the C bridge atomically reads the currently active marker.
                 let timed_out =
                     unsafe { QueryIterator_IsBlockedClientTimedOut(self.timeout.as_ptr()) };
                 if timed_out {
-                    Err(RQEIteratorError::TimedOut)
+                    TimeoutCheckResult::TimedOut
                 } else {
-                    Ok(())
+                    TimeoutCheckResult::Ok
                 }
             }
             kind => panic!("invalid query timeout kind: {kind}"),
@@ -199,7 +199,7 @@ impl TimeoutContext for TimeoutContextRequest {
 
     #[inline(always)]
     fn reset_counter(&mut self) {
-        TimeoutContext::reset_counter(&mut self.clock);
+        TimeoutChecker::reset_counter(&mut self.clock);
     }
 }
 
@@ -235,7 +235,7 @@ impl TimeoutContext for AnyTimeoutContext {
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         match &mut self.0 {
-            Some(request) => request.check_timeout(),
+            Some(request) => TimeoutContext::check_timeout(request),
             None => Ok(()),
         }
     }
@@ -243,7 +243,7 @@ impl TimeoutContext for AnyTimeoutContext {
     #[inline(always)]
     fn reset_counter(&mut self) {
         if let Some(request) = &mut self.0 {
-            request.reset_counter();
+            TimeoutContext::reset_counter(request);
         }
     }
 }
