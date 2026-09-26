@@ -721,3 +721,30 @@ TEST_F(ReindexSkipTest, vectorPathAlsoLanguageFieldStillReindexes) {
                              "DIM", "4", "DISTANCE_METRIC", "L2"});
   assertPathAlwaysForcesFullReindex("v");
 }
+
+// SCORE_FIELD (and, by the same logic, PAYLOAD_FIELD) can name a path that is also a vector
+// schema field: the two bits must compose, not one shadowing the other. "0.50"/"0.60" are
+// valid 4-byte FLOAT32 blobs (DIM 1) that also parse as scores, so the same write exercises
+// both. Unlike LANGUAGE_FIELD, a shared score/payload path is still safe to leave on the
+// vector-only fast path -- there is no separate index to go stale, just a DMD field to patch,
+// which updateHashMetadata already does.
+TEST_F(ReindexSkipTest, vectorPathAlsoScoreFieldUpdatesBoth) {
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH",
+                             "SCORE_FIELD", "v", "SCHEMA",
+                             "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "1", "DISTANCE_METRIC", "L2"});
+  RMCK::hset(ctx, "doc:1", "v", "0.50");
+  notifyUpdate("doc:1", {"v"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "v", "0.60");
+  notifyUpdate("doc:1", {"v"});
+  EXPECT_EQ(docIdOf("doc:1"), first) << "a shared vector/score path must not force a reindex";
+  EXPECT_TRUE(labelHolds(first, "0.60"));
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.6)
+      << "the score must be updated, not shadowed by the vector-only fast path";
+  DMD_Return(dmd);
+}

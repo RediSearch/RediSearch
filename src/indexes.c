@@ -660,15 +660,17 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
     if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
       return IndexUpdate_Full;
     }
-    if (matchedSchemaField) {
-      action |= IndexUpdate_VectorOnly;
-      continue;
-    }
+    // SCORE_FIELD/PAYLOAD_FIELD can likewise name a path that is also a vector schema field:
+    // both bits compose, so a shared path takes the metadata-update fast path AND the
+    // vector-only fast path for the same write, instead of one silently shadowing the other.
     if (ruleFieldEquals(spec->rule->score_field, field, length)) {
       action |= IndexUpdate_Score;
     }
     if (ruleFieldEquals(spec->rule->payload_field, field, length)) {
       action |= IndexUpdate_Payload;
+    }
+    if (matchedSchemaField) {
+      action |= IndexUpdate_VectorOnly;
     }
   }
 
