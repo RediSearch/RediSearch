@@ -42,6 +42,10 @@ extern "C" {
 #include <string>
 #include <vector>
 
+// FLOAT32 DIM 4 -- 16 bytes, matching expBlobSize.
+static const char *const kVecA = "aaaabbbbccccdddd";
+static const char *const kVecB = "eeeeffffgggghhhh";
+
 class ReindexSkipTest : public ::testing::Test {
 protected:
   RedisModuleCtx *ctx = nullptr;
@@ -119,6 +123,16 @@ protected:
     ASSERT_TRUE(spec != nullptr);
   }
 
+  // Builds a spec directly from a full FT.CREATE argument list, for schemas the other
+  // helpers above can't express (e.g. a path mapped to more than one field).
+  void createIndexFromSchemaArgs(const std::vector<std::string> &args) {
+    QueryError err = QueryError_Default();
+    RMCK::ArgvList argv(ctx, args);
+    spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(spec != nullptr);
+  }
+
   t_docId docIdOf(const char *key) {
     uint64_t docId = 0;
     if (DocIdMeta_Get(ctx, RMCK::RString(key), spec->specId, &docId) != REDISMODULE_OK) {
@@ -141,6 +155,21 @@ protected:
     for (RedisModuleString *f : fields) {
       RedisModule_FreeString(nullptr, f);
     }
+  }
+
+  // Writing kVecA then kVecB to `path` -- each write's change set naming only `path` -- must
+  // force a full reindex both times: the doc-id must grow, and the label must hold the latest
+  // value. Shared by every "this path isn't safe for the vector-only fast path" test below.
+  void assertPathAlwaysForcesFullReindex(const char *path) {
+    RMCK::hset(ctx, "doc:1", path, kVecA);
+    notifyUpdate("doc:1", {path});
+    const t_docId first = docIdOf("doc:1");
+    ASSERT_NE(first, 0u);
+
+    RMCK::hset(ctx, "doc:1", path, kVecB);
+    notifyUpdate("doc:1", {path});
+    EXPECT_GT(docIdOf("doc:1"), first);
+    EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
   }
 };
 
@@ -585,10 +614,6 @@ TEST_F(ReindexSkipTest, metadataUpdateHonorsBackgroundScanOOMFailure) {
   DMD_Return(dmd);
 }
 
-// FLOAT32 DIM 4 -- 16 bytes, matching expBlobSize.
-static const char *const kVecA = "aaaabbbbccccdddd";
-static const char *const kVecB = "eeeeffffgggghhhh";
-
 // The case this optimization exists for: only a VECTOR field changed, so the label is updated
 // via VecSimIndex_UpdateVectors under the doc's existing id instead of a full reindex.
 TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlace) {
@@ -679,50 +704,20 @@ TEST_F(ReindexSkipTest, vectorOnlyChangeOnUnseenDocumentStillIndexes) {
 // full reindex if *any* of its mappings is non-vector, even though another mapping of the same
 // path is the vector field this file's other tests take the fast path for.
 TEST_F(ReindexSkipTest, sharedPathWithNonVectorMappingStillReindexes) {
-  QueryError err = QueryError_Default();
-  std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH", "SCHEMA",
-                                   "v", "AS", "vv", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
-                                   "DIM", "4", "DISTANCE_METRIC", "L2",
-                                   "v", "AS", "txt", "TEXT"};
-  RMCK::ArgvList argv(ctx, args);
-  spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  ASSERT_TRUE(spec != nullptr);
-
-  RMCK::hset(ctx, "doc:1", "v", kVecA);
-  notifyUpdate("doc:1", {"v"});
-  const t_docId first = docIdOf("doc:1");
-  ASSERT_NE(first, 0u);
-
-  RMCK::hset(ctx, "doc:1", "v", kVecB);
-  notifyUpdate("doc:1", {"v"});
-  EXPECT_GT(docIdOf("doc:1"), first)
-      << "a path also mapped to a non-vector field must not take the vector-only fast path";
-  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH", "SCHEMA",
+                             "v", "AS", "vv", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "4", "DISTANCE_METRIC", "L2",
+                             "v", "AS", "txt", "TEXT"});
+  assertPathAlwaysForcesFullReindex("v");
 }
 
 // LANGUAGE_FIELD can name a path that is also a vector schema field: language affects TEXT
 // tokenization independently of whether the same path happens to be a vector, so a write to it
 // must still force a full reindex, not take the vector-only fast path.
 TEST_F(ReindexSkipTest, vectorPathAlsoLanguageFieldStillReindexes) {
-  QueryError err = QueryError_Default();
-  std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH",
-                                   "LANGUAGE_FIELD", "v", "SCHEMA",
-                                   "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
-                                   "DIM", "4", "DISTANCE_METRIC", "L2"};
-  RMCK::ArgvList argv(ctx, args);
-  spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  ASSERT_TRUE(spec != nullptr);
-
-  RMCK::hset(ctx, "doc:1", "v", kVecA);
-  notifyUpdate("doc:1", {"v"});
-  const t_docId first = docIdOf("doc:1");
-  ASSERT_NE(first, 0u);
-
-  RMCK::hset(ctx, "doc:1", "v", kVecB);
-  notifyUpdate("doc:1", {"v"});
-  EXPECT_GT(docIdOf("doc:1"), first)
-      << "a path also used as LANGUAGE_FIELD must not take the vector-only fast path";
-  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH",
+                             "LANGUAGE_FIELD", "v", "SCHEMA",
+                             "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "4", "DISTANCE_METRIC", "L2"});
+  assertPathAlwaysForcesFullReindex("v");
 }
