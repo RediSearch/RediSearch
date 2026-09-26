@@ -30,28 +30,81 @@
 #include "indexes.h"
 #include "doc_id_meta.h"
 #include "info/index_error.h"
+#include "VecSim/vec_sim.h"
 
+// openVectorIndex is declared outside vector_index.h's own extern "C" block.
+extern "C" {
+#include "vector_index.h"
+#include "redis_index.h"
+}
+
+#include <cmath>
 #include <string>
 #include <vector>
+
+// FLOAT32 DIM 4 -- 16 bytes, matching expBlobSize.
+static const char *const kVecA = "aaaabbbbccccdddd";
+static const char *const kVecB = "eeeeffffgggghhhh";
 
 class ReindexSkipTest : public ::testing::Test {
 protected:
   RedisModuleCtx *ctx = nullptr;
   IndexSpec *spec = nullptr;
   std::string indexName;
+  bool previousOptimizePartialUpdate = false;
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK::flushdb(ctx);
     static int counter = 0;
     indexName = "skipidx" + std::to_string(++counter);
+    // The vector-only fast path is gated behind OPTIMIZE_PARTIAL_UPDATE (on by default).
+    // Forced here so a config change elsewhere can't disable it out from under these tests;
+    // restored in TearDown, which runs even when an assertion fails.
+    previousOptimizePartialUpdate = RSGlobalConfig.optimizePartialUpdate;
+    RSGlobalConfig.optimizePartialUpdate = true;
   }
 
   void TearDown() override {
+    RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
     }
+  }
+
+  // Same schema as `createIndex`, plus a FLAT vector field `vec` (FLOAT32, DIM 4, L2).
+  // `algo` selects the vector backend (FLAT/HNSW/SVS-VAMANA); each has its own
+  // VecSimIndex_UpdateVectors implementation, so tests that care which one ran take it.
+  void createIndexWithVector(const std::vector<std::string> &extraArgs = {},
+                             const char *algo = "FLAT") {
+    std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH"};
+    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
+    args.insert(args.end(), {"SCHEMA", "title", "TEXT", "vec", "VECTOR", algo, "6", "TYPE",
+                             "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"});
+
+    QueryError err = QueryError_Default();
+    RMCK::ArgvList argv(ctx, args);
+    spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(spec != nullptr);
+  }
+
+  VecSimIndex *vecsim() {
+    for (size_t i = 0; i < spec->numFields; ++i) {
+      if (spec->fields[i].types & INDEXFLD_T_VECTOR) {
+        return openVectorIndex(ctx, &spec->fields[i], DONT_CREATE_INDEX);
+      }
+    }
+    return nullptr;
+  }
+
+  // A label holds `blob` iff the distance to itself is 0. An absent label yields NaN.
+  bool labelHolds(t_docId label, const char *blob) {
+    VecSimIndex *idx = vecsim();
+    if (!idx) return false;
+    double d = VecSimIndex_GetDistanceFrom_Unsafe(idx, label, blob);
+    return !std::isnan(d) && d == 0.0;
   }
 
   // `extraArgs` go between the index name and SCHEMA, for rule options such as FILTER or
@@ -66,6 +119,16 @@ protected:
     }
     args.push_back("TEXT");
 
+    QueryError err = QueryError_Default();
+    RMCK::ArgvList argv(ctx, args);
+    spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(spec != nullptr);
+  }
+
+  // Builds a spec directly from a full FT.CREATE argument list, for schemas the other
+  // helpers above can't express (e.g. a path mapped to more than one field).
+  void createIndexFromSchemaArgs(const std::vector<std::string> &args) {
     QueryError err = QueryError_Default();
     RMCK::ArgvList argv(ctx, args);
     spec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
@@ -95,6 +158,47 @@ protected:
     for (RedisModuleString *f : fields) {
       RedisModule_FreeString(nullptr, f);
     }
+  }
+
+  // Deletes a single Hash field the same way HDEL does (RedisModule_HashSet with
+  // REDISMODULE_HASH_DELETE); unlike RMCK::hset, there is no convenience wrapper for this.
+  void hdel(const char *key, const char *field) {
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, RMCK::RString(key), REDISMODULE_WRITE);
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field, REDISMODULE_HASH_DELETE, nullptr);
+    RedisModule_CloseKey(k);
+  }
+
+  // Writing kVecA then kVecB to `path` -- each write's change set naming only `path` -- must
+  // force a full reindex both times: the doc-id must grow, and the label must hold the latest
+  // value. Shared by every "this path isn't safe for the vector-only fast path" test below.
+  void assertPathAlwaysForcesFullReindex(const char *path) {
+    RMCK::hset(ctx, "doc:1", path, kVecA);
+    notifyUpdate("doc:1", {path});
+    const t_docId first = docIdOf("doc:1");
+    ASSERT_NE(first, 0u);
+
+    RMCK::hset(ctx, "doc:1", path, kVecB);
+    notifyUpdate("doc:1", {path});
+    EXPECT_GT(docIdOf("doc:1"), first);
+    EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+  }
+
+  // The case the optimization exists for, backend-independent: writing only "vec" after the
+  // document is already indexed must update the label in place under VecSimIndex_UpdateVectors
+  // -- same doc-id, latest value visible -- regardless of which algorithm's own implementation
+  // of that call ran. Shared by one test per backend below.
+  void assertVectorOnlyChangeUpdatesInPlace() {
+    RMCK::hset(ctx, "doc:1", "title", "hello");
+    RMCK::hset(ctx, "doc:1", "vec", kVecA);
+    notifyUpdate("doc:1", {"title", "vec"});
+    const t_docId first = docIdOf("doc:1");
+    ASSERT_NE(first, 0u);
+    ASSERT_TRUE(labelHolds(first, kVecA));
+
+    RMCK::hset(ctx, "doc:1", "vec", kVecB);
+    notifyUpdate("doc:1", {"vec"});
+    EXPECT_EQ(docIdOf("doc:1"), first) << "a vector-only change must not reindex";
+    EXPECT_TRUE(labelHolds(first, kVecB)) << "the vector must be updated in place";
   }
 };
 
@@ -537,4 +641,191 @@ TEST_F(ReindexSkipTest, metadataUpdateHonorsBackgroundScanOOMFailure) {
   ASSERT_NE(dmd, nullptr);
   EXPECT_FLOAT_EQ(dmd->score, 0.25);
   DMD_Return(dmd);
+}
+
+// The case this optimization exists for: only a VECTOR field changed, so the label is updated
+// via VecSimIndex_UpdateVectors under the doc's existing id instead of a full reindex.
+TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlace) {
+  createIndexWithVector();
+  assertVectorOnlyChangeUpdatesInPlace();
+}
+
+// Same as above, but on HNSW: an HNSW schema field is created as a *tiered* index too (see
+// spec.c), so this actually exercises TieredHNSWIndex::updateVectors -- its own
+// implementation, independent of FLAT's. With workers disabled (the default here), nothing
+// is ever flushed to the backend graph, so this covers the tiered wrapper's frontend-buffer
+// update path, not HNSWIndex's own backend-graph update.
+TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceHNSW) {
+  createIndexWithVector({}, "HNSW");
+  assertVectorOnlyChangeUpdatesInPlace();
+}
+
+// Same again, on SVS-VAMANA: also always a *tiered* index, whose TieredSVSIndex::updateVectors
+// is a third, independent implementation. Same frontend-buffer-only caveat as the HNSW case
+// above.
+TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceSVSVamana) {
+  createIndexWithVector({}, "SVS-VAMANA");
+  assertVectorOnlyChangeUpdatesInPlace();
+}
+
+// The vector-only fast path is gated behind OPTIMIZE_PARTIAL_UPDATE: with it off, the same
+// vector-only change set must fall back to a full reindex under a new doc-id, not update in
+// place.
+TEST_F(ReindexSkipTest, vectorOnlyChangeForcesFullReindexWhenOptimizationDisabled) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RSGlobalConfig.optimizePartialUpdate = false;
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"vec"});
+  EXPECT_GT(docIdOf("doc:1"), first) << "the fast path must not fire while disabled";
+  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+}
+
+// A non-vector schema field changed alongside the vector, so the fast path must not fire: the
+// document still needs a full reindex, and the vector is re-added (not updated) under the new id.
+TEST_F(ReindexSkipTest, vectorAndNonVectorChangeStillReindexes) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "title", "goodbye");
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId second = docIdOf("doc:1");
+  EXPECT_GT(second, first);
+  EXPECT_TRUE(labelHolds(second, kVecB));
+}
+
+// IndexUpdate_VectorOnly composes with the metadata fast path: a single write touching both the
+// vector and the score field must update both without a reindex.
+TEST_F(ReindexSkipTest, vectorChangeAlongsideMetadataUpdatesBothWithoutReindex) {
+  createIndexWithVector({"SCORE_FIELD", "__score"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "__score", "0.5");
+  RMCK::hset(ctx, "doc:1", "vec", kVecB);
+  notifyUpdate("doc:1", {"__score", "vec"});
+  EXPECT_EQ(docIdOf("doc:1"), first);
+  EXPECT_TRUE(labelHolds(first, kVecB));
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  DMD_Return(dmd);
+}
+
+// A document the index does not hold yet must still take the full path on a vector-only change:
+// there is no existing id to update in place, and the document itself has to be registered.
+TEST_F(ReindexSkipTest, vectorOnlyChangeOnUnseenDocumentStillIndexes) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"vec"});
+  const t_docId first = docIdOf("doc:1");
+  EXPECT_NE(first, 0u) << "a document absent from the index must be indexed";
+  EXPECT_TRUE(labelHolds(first, kVecA));
+}
+
+// A single Hash path can be mapped to more than one schema field (`v AS vv VECTOR ..., v AS txt
+// TEXT` -- see testSchemaWithAs_Duplicates in test.py). A write to that path must still force a
+// full reindex if *any* of its mappings is non-vector, even though another mapping of the same
+// path is the vector field this file's other tests take the fast path for.
+TEST_F(ReindexSkipTest, sharedPathWithNonVectorMappingStillReindexes) {
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH", "SCHEMA",
+                             "v", "AS", "vv", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "4", "DISTANCE_METRIC", "L2",
+                             "v", "AS", "txt", "TEXT"});
+  assertPathAlwaysForcesFullReindex("v");
+}
+
+// LANGUAGE_FIELD can name a path that is also a vector schema field: language affects TEXT
+// tokenization independently of whether the same path happens to be a vector, so a write to it
+// must still force a full reindex, not take the vector-only fast path.
+TEST_F(ReindexSkipTest, vectorPathAlsoLanguageFieldStillReindexes) {
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH",
+                             "LANGUAGE_FIELD", "v", "SCHEMA",
+                             "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "4", "DISTANCE_METRIC", "L2"});
+  assertPathAlwaysForcesFullReindex("v");
+}
+
+// SCORE_FIELD (and, by the same logic, PAYLOAD_FIELD) can name a path that is also a vector
+// schema field: the two bits must compose, not one shadowing the other. "0.50"/"0.60" are
+// valid 4-byte FLOAT32 blobs (DIM 1) that also parse as scores, so the same write exercises
+// both. Unlike LANGUAGE_FIELD, a shared score/payload path is still safe to leave on the
+// vector-only fast path -- there is no separate index to go stale, just a DMD field to patch,
+// which updateHashMetadata already does.
+TEST_F(ReindexSkipTest, vectorPathAlsoScoreFieldUpdatesBoth) {
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH",
+                             "SCORE_FIELD", "v", "SCHEMA",
+                             "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "1", "DISTANCE_METRIC", "L2"});
+  RMCK::hset(ctx, "doc:1", "v", "0.50");
+  notifyUpdate("doc:1", {"v"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  RMCK::hset(ctx, "doc:1", "v", "0.60");
+  notifyUpdate("doc:1", {"v"});
+  EXPECT_EQ(docIdOf("doc:1"), first) << "a shared vector/score path must not force a reindex";
+  EXPECT_TRUE(labelHolds(first, "0.60"));
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&spec->docs, first);
+  ASSERT_NE(dmd, nullptr);
+  EXPECT_FLOAT_EQ(dmd->score, 0.6)
+      << "the score must be updated, not shadowed by the vector-only fast path";
+  DMD_Return(dmd);
+}
+
+// A write naming only an INDEXMISSING vector field might be the one that makes a
+// previously-missing field present (or vice versa): only the full path's
+// writeMissingFieldDocs keeps that field's ismissing() posting in sync, so it must not take
+// the vector-only fast path even though the change set itself names only a vector field.
+TEST_F(ReindexSkipTest, indexMissingVectorFieldStillReindexes) {
+  createIndexFromSchemaArgs({"FT.CREATE", indexName, "ON", "HASH", "SCHEMA",
+                             "title", "TEXT",
+                             "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32",
+                             "DIM", "4", "DISTANCE_METRIC", "L2", "INDEXMISSING"});
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  notifyUpdate("doc:1", {"title"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+
+  // The vector field is set for the first time.
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"vec"});
+  EXPECT_GT(docIdOf("doc:1"), first)
+      << "an INDEXMISSING vector field must not take the vector-only fast path";
+  EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecA));
+}
+
+// HDEL removing an indexed vector field, while another field keeps the key alive, must not
+// take the vector-only fast path: RedisModule_HashGet returns a NULL value for the deleted
+// field, so updateHashVectorFields fails closed (blob == NULL) and the caller's full path
+// removes the old label instead of leaving it stale.
+TEST_F(ReindexSkipTest, deletingVectorFieldStillReindexes) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+  ASSERT_TRUE(labelHolds(first, kVecA));
+
+  hdel("doc:1", "vec");
+  notifyUpdate("doc:1", {"vec"});
+  const t_docId second = docIdOf("doc:1");
+  EXPECT_GT(second, first)
+      << "deleting an indexed vector field must not take the vector-only fast path";
+  EXPECT_FALSE(labelHolds(first, kVecA)) << "the old label must be removed, not left stale";
+  EXPECT_FALSE(labelHolds(second, kVecA)) << "the deleted field must hold no vector at all";
 }
