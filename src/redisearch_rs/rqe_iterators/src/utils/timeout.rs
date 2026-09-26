@@ -17,7 +17,7 @@ use crate::{RQEIteratorError, utils::timespec::deadline_passed};
 /// Abstraction over the different ways a query iterator can detect that the
 /// surrounding query has run out of time.
 ///
-/// Three implementations exist:
+/// Concrete checkers include:
 /// * [`NoTimeoutChecker`] — zero-sized no-op used when the query has no deadline.
 /// * [`TimeoutContextDeadline`] — Clock Based Timeout: amortized clock check against the
 ///   deadline owned by the query's search context, used when no Blocked Client Timeout is in
