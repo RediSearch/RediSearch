@@ -13,6 +13,16 @@ on:
       TESTS_CHANGED:
         description: "Indicates if tests were modified"
         value: ${{ jobs.change-checks.outputs.TESTS_CHANGED }}
+      ONLY_CPP_TESTS_CHANGED:
+        description: >-
+          Indicates the change set is confined to tests/cpptests/** and tests/ctests/** --
+          no other code, workflow, or test file changed. Safe signal to skip flow tests.
+        value: ${{ jobs.change-checks.outputs.ONLY_CPP_TESTS_CHANGED }}
+      ONLY_PY_TESTS_CHANGED:
+        description: >-
+          Indicates the change set is confined to tests/pytests/** -- no other code,
+          workflow, or test file changed. Safe signal to skip unit tests.
+        value: ${{ jobs.change-checks.outputs.ONLY_PY_TESTS_CHANGED }}
 
 jobs:
   change-checks:
@@ -22,6 +32,28 @@ jobs:
       BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      # "Only this category changed" is deliberately conservative: it requires the rest of the
+      # tree (code, workflows, and every other test directory -- qa/, memcheck/, deps/, an
+      # unrecognized new tests/ subdir) to be untouched. Anything ambiguous falls through to
+      # false on both, which callers treat as "run everything", never as "run nothing".
+      ONLY_CPP_TESTS_CHANGED: >-
+        ${{
+          steps.check-cpp-tests.outputs.any_modified == 'true' &&
+          steps.check-py-tests.outputs.any_modified != 'true' &&
+          steps.check-other-tests.outputs.any_modified != 'true' &&
+          steps.check-code.outputs.any_modified != 'true' &&
+          steps.check-cmake.outputs.any_modified != 'true' &&
+          steps.check-workflows.outputs.any_modified != 'true'
+        }}
+      ONLY_PY_TESTS_CHANGED: >-
+        ${{
+          steps.check-py-tests.outputs.any_modified == 'true' &&
+          steps.check-cpp-tests.outputs.any_modified != 'true' &&
+          steps.check-other-tests.outputs.any_modified != 'true' &&
+          steps.check-code.outputs.any_modified != 'true' &&
+          steps.check-cmake.outputs.any_modified != 'true' &&
+          steps.check-workflows.outputs.any_modified != 'true'
+        }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -99,6 +131,31 @@ jobs:
           files: |
                 tests/**
                 .github/workflows/*test*.yml
+          fetch_additional_submodule_history: true
+      - name: Check if C/C++ unit test files were changed
+        id: check-cpp-tests
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          files: |
+                tests/cpptests/**
+                tests/ctests/**
+      - name: Check if Python flow test files were changed
+        id: check-py-tests
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          files: |
+                tests/pytests/**
+      - name: Check if any other test files were changed
+        id: check-other-tests
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with: # Anything under tests/** not already classified above -- forces a full run
+          files: |
+                tests/**
+          files_ignore: |
+                tests/cpptests/**
+                tests/ctests/**
+                tests/pytests/**
+                tests/benchmarks/**
           fetch_additional_submodule_history: true
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks

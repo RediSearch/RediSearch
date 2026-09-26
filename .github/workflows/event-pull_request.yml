@@ -79,6 +79,11 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite the change set can't affect -- but never when this run only
+      # exists because of the enforce label, since that's an explicit ask to run
+      # everything for this job-type.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
 
   coverage:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
@@ -97,6 +102,11 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite the change set can't affect -- but never when this run only
+      # exists because of the enforce label, since that's an explicit ask to run
+      # everything for this job-type.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:coverage') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:coverage') }}
 
   sanitize:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
@@ -115,6 +125,11 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite the change set can't affect -- but never when this run only
+      # exists because of the enforce label, since that's an explicit ask to run
+      # everything for this job-type.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
 
   # ------------------------------------------------------------------
   # MIRI runs independently — no build artifact reuse possible, and we
