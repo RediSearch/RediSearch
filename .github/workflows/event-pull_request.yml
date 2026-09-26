@@ -139,7 +139,10 @@ jobs:
   miri:
     name: miri (${{ matrix.shard }}/3)
     needs: [check-what-changed, spellcheck]
-    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # MIRI only interprets the Rust workspace (src/redisearch_rs), so a change confined to
+    # C/C++ or Python test files can't affect it either -- skipped the same way basic-test
+    # and sanitize skip their unaffected suite, unless enforce:sanitize overrides it.
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && (contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') || (needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED != 'true' && needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED != 'true')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     # Split MIRI across 3 nextest partitions. Each shard is self-contained
     # (builds the C side + compiles miri) since miri can't reuse the nextest
     # archive; the slow part — miri interpretation — is split 3 ways.
