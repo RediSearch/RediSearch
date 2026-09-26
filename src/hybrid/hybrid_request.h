@@ -234,6 +234,11 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 void HybridRequest_Free(HybridRequest *req);
 
+/* The error that fails the request, by priority: a hard tail pipeline error, then the first
+ * sub-request error. NULL when there is none. Soft tail codes are warnings, not errors. */
+const QueryError *HybridRequest_PeekError(const HybridRequest *req);
+
+// Clones the result of HybridRequest_PeekError into `status`; REDISMODULE_ERR if there was one.
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);

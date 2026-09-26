@@ -290,8 +290,8 @@ static void runPipelineCycle_hybrid(HybridRequest *hreq, int *rc) {
   }
 }
 
-static void finishSendChunk_hybrid(HybridRequest *hreq, rs_wall_clock_ns_t duration, QueryError *err) {
-  if (QueryError_IsOk(err) || hasTimeoutError(err)) {
+static void finishSendChunk_hybrid(HybridRequest *hreq, rs_wall_clock_ns_t duration, QueryErrorCode code) {
+  if (code == QUERY_ERROR_CODE_OK || code == QUERY_ERROR_CODE_TIMED_OUT) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -299,7 +299,6 @@ static void finishSendChunk_hybrid(HybridRequest *hreq, rs_wall_clock_ns_t durat
   // Reset the total results length
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
-  QueryError_ClearError(err);
 }
 
 /**
@@ -314,10 +313,10 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
   QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
 }
 
-static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, QueryError *err) {
+static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const QueryError *err) {
   const int rc = hreq->base.reply.rc;
   // A runtime error replies as an error under every policy; the buffered rows are simply not moved.
-  if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+  if (err && ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
@@ -411,7 +410,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Commits the buffered rows as the hybrid reply, or replies with the error instead.
  * Returns true if the rows were replied, false if an error/timeout reply was sent.
  */
-static bool replyBufferedChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, QueryError *err) {
+static bool replyBufferedChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const QueryError *err) {
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err)) {
     return false;
@@ -561,8 +560,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
   // Check if timed out before executing pipeline
   if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
     // Timeout callback already replied: account for the cycle without replying.
-    QueryError none = QueryError_Default();
-    finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &none);
+    finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), QUERY_ERROR_CODE_OK);
     goto done;
   }
 
@@ -603,24 +601,16 @@ done:
  * callback once the background thread stored its results.
  */
 void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply) {
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   ChunkReplyState *stored = &hreq->base.reply;
 
   // A bail before the pipeline stored its error here; otherwise a hard error (tail or subquery)
   // replies as the error and soft tail errors stay in hreq->tailPipelineError (qctx->err) for the
-  // warning path to render.
-  QueryError err = QueryError_Default();
-  if (QueryError_HasError(&stored->err)) {
-    QueryError_CloneFrom(&stored->err, &err);
-    QueryError_ClearError(&stored->err);
-  } else {
-    HybridRequest_GetError(hreq, &err);
-  }
+  // warning path to render. The error stays in its slot until the request is freed.
+  const QueryError *err = QueryError_HasError(&stored->err) ? &stored->err : HybridRequest_PeekError(hreq);
 
-  replyBufferedChunk_hybrid(hreq, reply, &err);
+  replyBufferedChunk_hybrid(hreq, reply, err);
 
-  finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
-  QueryError_ClearError(&err);
+  finishSendChunk_hybrid(hreq, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), err ? QueryError_GetCode(err) : QUERY_ERROR_CODE_OK);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
