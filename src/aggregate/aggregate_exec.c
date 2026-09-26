@@ -671,50 +671,56 @@ static void storeResultsForReplyCallback(AREQ *req, int rc) {
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ProfilePrinterCtx *profileCtx = &req->profileCtx;
-  RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+  // Decide every warning first so the array can be declared, then write them in this order.
   // bgScanOOM: set from shard replies on the coordinator (RPNet), captured from
   // the spec's scan_failed_OOM on shards while a strong reference is held. The
   // reply path must not read the spec — it may outlive the last strong ref.
-  if (qctx->bgScanOOM) {
+  const bool bgScanOOM = qctx->bgScanOOM;
+  const bool queryOOM = QueryError_HasQueryOOMWarning(qctx->err);
+  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
+  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
+  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
+  // user-visible TIMEOUT warning is surfaced in that case.
+  const bool timedOut = rc == RS_RESULT_TIMEDOUT || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
+  const bool softError = !timedOut && rc == RS_RESULT_ERROR;
+  const bool maxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err);
+  const bool asmInaccurate = req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  const bool timeoutCapped = req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED;
+  RedisModule_ReplyKV_ArrayWithLen(reply, "warning", bgScanOOM + queryOOM + timedOut + softError + maxPrefixExpansions + asmInaccurate + timeoutCapped);
+  if (bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
-  if (QueryError_HasQueryOOMWarning(qctx->err)) {
+  if (queryOOM) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
     // We use the cluster warning since shard level warning sent via empty reply bailout
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
-  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
-  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
-  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
-  // user-visible TIMEOUT warning is surfaced in that case.
-  if (rc == RS_RESULT_TIMEDOUT
-      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
+  if (timedOut) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
-  } else if (rc == RS_RESULT_ERROR) {
+  } else if (softError) {
     // Non-fatal error
     RS_LOG_ASSERT(!QueryError_IsOk(qctx->err),
                   "RS_RESULT_ERROR reached the warning path without a QueryError set");
     RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
   }
-  if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+  if (maxPrefixExpansions) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   }
-  if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+  if (asmInaccurate) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
-  if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+  if (timeoutCapped) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
-  RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
 
 /**
@@ -725,10 +731,13 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, siz
     RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
-  RedisModule_Reply_Map(reply);
-
   if (IsProfile(req)) {
+    // Profile nests the reply under "Results" and may or may not add "Profile" (cursor reads only
+    // print it on the last read), so the wrapper stays postponed.
+    RedisModule_Reply_Map(reply);
     Profile_PrepareMapForReply(reply);
+  } else {
+    RedisModule_Reply_MapWithLen(reply, RESP3_REPLY_ENTRIES);
   }
 
   if (IsOptimized(req)) {
@@ -736,8 +745,7 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, siz
   }
 
   // <attributes>
-  RedisModule_ReplyKV_Array(reply, "attributes");
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_ReplyKV_ArrayWithLen(reply, "attributes", 0);
 
   // <format>
   if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
@@ -772,9 +780,8 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, int 
     if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) || cursor_done) {
       req->profile(reply, req);
     }
+    RedisModule_Reply_MapEnd(reply); // the postponed profile wrapper; the plain reply map is declared
   }
-
-  RedisModule_Reply_MapEnd(reply);
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     // Closes the declared [results, cursor id] wrapper.

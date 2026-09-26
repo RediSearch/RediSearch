@@ -247,6 +247,10 @@ static inline int RedisModule_Reply_MapOrArray(RedisModule_Reply *reply) {
 static inline int RedisModule_Reply_MapOrArrayEnd(RedisModule_Reply *reply) {
   return reply->resp3 ? RedisModule_Reply_MapEnd(reply) : RedisModule_Reply_ArrayEnd(reply);
 }
+// The declared form: `entries` map entries under RESP3, `flatElements` array elements under RESP2. No End.
+static inline int RedisModule_Reply_MapOrArrayWithLen(RedisModule_Reply *reply, size_t entries, size_t flatElements) {
+  return reply->resp3 ? RedisModule_Reply_MapWithLen(reply, entries) : RedisModule_Reply_ArrayWithLen(reply, flatElements);
+}
 
 /*
  * This function is a workaround helper for replying with a string that may contain

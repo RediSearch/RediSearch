@@ -37,6 +37,7 @@
 #include "util/references.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
+#include "aggregate/aggregate_exec_common.h"
 #include "rmalloc.h"
 #include "cursor.h"
 #include "debug_commands.h"
@@ -3385,8 +3386,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   }
 
   //-------------------------------------------------------------------------------------------
-  // RESP2 is a flat array: total, then each result's fields in sequence.
-  RedisModule_Reply_MapOrArray(reply);
+  // RESP3: attributes, warning, total_results, format, results. RESP2 is a flat array: the total,
+  // then each result's fields in sequence, all already counted in the buffer.
+  RedisModule_Reply_MapOrArrayWithLen(reply, RESP3_REPLY_ENTRIES, 1 + req->base.reply.bufferedElements);
   if (reply->resp3) // RESP3
   {
     RedisModule_Reply_SimpleString(reply, "attributes");
@@ -3449,7 +3451,6 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RS_ASSERT(moved == REDISMODULE_OK);
     }
   }
-  RedisModule_Reply_MapOrArrayEnd(reply);
 
   if (req->queryOOM) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);

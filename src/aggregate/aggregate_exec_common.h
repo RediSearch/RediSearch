@@ -24,6 +24,9 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
+// A RESP3 FT.SEARCH/FT.AGGREGATE reply map, shard or coordinator: attributes, format, results, total_results, warning.
+#define RESP3_REPLY_ENTRIES 5
+
 typedef void (*SerializeResult)(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row);
 
 // Serializes rows into request->reply.rows until the budget is spent or Next() stops yielding. On return, the

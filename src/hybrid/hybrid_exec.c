@@ -335,8 +335,10 @@ static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *
  */
 static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t rows) {
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  // RESP2 appends the profile as a bare trailing element, so the root is a flat array there.
-  RedisModule_Reply_MapOrArray(reply);
+  // total_results, results, warnings, execution_time, plus the profile: a "Profile" entry under RESP3,
+  // a bare trailing element under RESP2, where the root is a flat array.
+  const size_t profile = IsProfile(hreq) ? 1 : 0; // IsProfile is a flag mask, not a bool
+  RedisModule_Reply_MapOrArrayWithLen(reply, 4 + profile, 2 * 4 + profile);
 
   // <total_results>
   RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
@@ -353,6 +355,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   const int rc = hreq->base.reply.rc;
   // warnings
   HybridWarningMask warnings = HYBRID_WARNING_NONE;
+  // Postponed: the per-subquery suffixed warnings decide and write in one pass (handleAndReplyWarning).
   RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
   // bgScanOOM is captured from the spec while a strong reference is held; the
   // reply path must not read the spec — it may outlive the last strong ref.
@@ -402,8 +405,6 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   if (IsProfile(hreq)) {
     hreq->profile(reply, hreq);
   }
-
-  RedisModule_Reply_MapOrArrayEnd(reply);
 }
 
 /**
