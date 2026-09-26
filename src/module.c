@@ -2618,6 +2618,15 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   return REDISMODULE_OK;
 }
 
+// The reply shape of one reduced row, computed once so the row serializer does no flag arithmetic.
+static void searchRequestCtx_SetRowShape(searchRequestCtx *req, bool resp3) {
+  cachedVars *cv = &req->base.reply.cv;
+  // The optional sections of a row: score, payload, sort key, and the fields.
+  const size_t sections = req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
+  cv->rowMapEntries = 2 + sections; // RESP3: id, the sections, and the trailing "values" placeholder
+  cv->rowElements = resp3 ? 1 : 1 + sections; // RESP2 is flat: id followed by the sections
+}
+
 static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc, int parseArgc,
                                               size_t queryTimeoutMS, QueryError *status) {
   searchRequestCtx *req = searchRequestCtx_New();
@@ -3284,15 +3293,14 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
   heap_free(rCtx->pq);
   rCtx->pq = NULL;
 
+  const cachedVars *cv = &req->base.reply.cv;
   if (reply->resp3) {
-    // id, the optional sections below, and the trailing "values" placeholder.
-    const size_t entries = 2 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
       if (ROW_SERIALIZATION_ABORTED()) {
         break;
       }
-      req->base.reply.bufferedElements++; // one row map
-      RedisModule_Reply_MapWithLen(reply, entries); // >> result
+      req->base.reply.bufferedElements += cv->rowElements; // one row map
+      RedisModule_Reply_MapWithLen(reply, cv->rowMapEntries); // >> result
         searchResult *res = results[i];
 
         RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
@@ -3334,13 +3342,12 @@ static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx
     }
   } else {
     // RESP2 is flat: each result's fields follow in sequence, one element per section below.
-    const size_t rowElements = 1 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
       if (ROW_SERIALIZATION_ABORTED()) {
         break;
       }
       searchResult *res = results[pos];
-      req->base.reply.bufferedElements += rowElements;
+      req->base.reply.bufferedElements += cv->rowElements;
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
         if (req->withExplainScores) {
@@ -4869,6 +4876,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetValidateConnections(mrctx, true);
 
   req->mrctx = mrctx;
+  searchRequestCtx_SetRowShape(req, is_resp3(ctx));
   // Block client with the base request available to every search callback.
   RedisModuleBlockedClient *bc = DistSearchBlockClientWithTimeout(ctx, &req->base, queryTimeoutMS);
 
