@@ -678,21 +678,9 @@ def testPartial(env):
                              'doc4', ['test', 11, 'testtest', '5'],
                              'doc5', ['test', 17.1, 'testtest', '5.5']])
 
-@skip(cluster=True)
-def testVectorOnlyChangeKeepsDocId(env):
-    """A write touching only a VECTOR field takes the updateVectors fast path (MOD-17704):
-    the document keeps its doc-id, and the new vector is queryable without reindexing
-    anything else.
-
-    Standalone only, for the same reason `testPartial` and `testHDel` are: `DOCIDTOID` takes
-    no key, so it answers from whichever shard receives it, while `HSET doc1` is routed by
-    hash slot.
-    """
-    if env.env == 'existing-env':
-        env.skip()
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+def _assertVectorOnlyChangeKeepsDocId(env, algo):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
-              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'vec', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32', 'DIM', '4',
               'DISTANCE_METRIC', 'L2').ok()
 
     env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
@@ -709,6 +697,41 @@ def testVectorOnlyChangeKeepsDocId(env):
     # updated, not just the doc-id preserved.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
               'eeeeffffgggghhhh', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocId(env):
+    """A write touching only a VECTOR field takes the updateVectors fast path (MOD-17704):
+    the document keeps its doc-id, and the new vector is queryable without reindexing
+    anything else.
+
+    Standalone only, for the same reason `testPartial` and `testHDel` are: `DOCIDTOID` takes
+    no key, so it answers from whichever shard receives it, while `HSET doc1` is routed by
+    hash slot.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'FLAT')
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocIdHNSW(env):
+    """Same as testVectorOnlyChangeKeepsDocId, but on HNSW: HNSWIndex::updateVectors is its
+    own implementation, independent of FLAT's.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'HNSW')
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocIdSVSVamana(env):
+    """Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
+    backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'SVS-VAMANA')
 
 # Two-vector-field schema shared by the tests below: unlike testVectorOnlyChangeKeepsDocId's
 # single vector field, these exercise a document where TWO vector fields can independently be

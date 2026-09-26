@@ -74,10 +74,13 @@ protected:
   }
 
   // Same schema as `createIndex`, plus a FLAT vector field `vec` (FLOAT32, DIM 4, L2).
-  void createIndexWithVector(const std::vector<std::string> &extraArgs = {}) {
+  // `algo` selects the vector backend (FLAT/HNSW/SVS-VAMANA); each has its own
+  // VecSimIndex_UpdateVectors implementation, so tests that care which one ran take it.
+  void createIndexWithVector(const std::vector<std::string> &extraArgs = {},
+                             const char *algo = "FLAT") {
     std::vector<std::string> args = {"FT.CREATE", indexName, "ON", "HASH"};
     args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    args.insert(args.end(), {"SCHEMA", "title", "TEXT", "vec", "VECTOR", "FLAT", "6", "TYPE",
+    args.insert(args.end(), {"SCHEMA", "title", "TEXT", "vec", "VECTOR", algo, "6", "TYPE",
                              "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"});
 
     QueryError err = QueryError_Default();
@@ -170,6 +173,24 @@ protected:
     notifyUpdate("doc:1", {path});
     EXPECT_GT(docIdOf("doc:1"), first);
     EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecB));
+  }
+
+  // The case the optimization exists for, backend-independent: writing only "vec" after the
+  // document is already indexed must update the label in place under VecSimIndex_UpdateVectors
+  // -- same doc-id, latest value visible -- regardless of which algorithm's own implementation
+  // of that call ran. Shared by one test per backend below.
+  void assertVectorOnlyChangeUpdatesInPlace() {
+    RMCK::hset(ctx, "doc:1", "title", "hello");
+    RMCK::hset(ctx, "doc:1", "vec", kVecA);
+    notifyUpdate("doc:1", {"title", "vec"});
+    const t_docId first = docIdOf("doc:1");
+    ASSERT_NE(first, 0u);
+    ASSERT_TRUE(labelHolds(first, kVecA));
+
+    RMCK::hset(ctx, "doc:1", "vec", kVecB);
+    notifyUpdate("doc:1", {"vec"});
+    EXPECT_EQ(docIdOf("doc:1"), first) << "a vector-only change must not reindex";
+    EXPECT_TRUE(labelHolds(first, kVecB)) << "the vector must be updated in place";
   }
 };
 
@@ -618,17 +639,26 @@ TEST_F(ReindexSkipTest, metadataUpdateHonorsBackgroundScanOOMFailure) {
 // via VecSimIndex_UpdateVectors under the doc's existing id instead of a full reindex.
 TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlace) {
   createIndexWithVector();
-  RMCK::hset(ctx, "doc:1", "title", "hello");
-  RMCK::hset(ctx, "doc:1", "vec", kVecA);
-  notifyUpdate("doc:1", {"title", "vec"});
-  const t_docId first = docIdOf("doc:1");
-  ASSERT_NE(first, 0u);
-  ASSERT_TRUE(labelHolds(first, kVecA));
+  assertVectorOnlyChangeUpdatesInPlace();
+}
 
-  RMCK::hset(ctx, "doc:1", "vec", kVecB);
-  notifyUpdate("doc:1", {"vec"});
-  EXPECT_EQ(docIdOf("doc:1"), first) << "a vector-only change must not reindex";
-  EXPECT_TRUE(labelHolds(first, kVecB)) << "the vector must be updated in place";
+// Same as above, but on HNSW: HNSWIndex::updateVectors has its own implementation (an
+// overwrite for the common single-vector case, falling back to delete-then-insert
+// otherwise), independent of FLAT's.
+TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceHNSW) {
+  createIndexWithVector({}, "HNSW");
+  assertVectorOnlyChangeUpdatesInPlace();
+}
+
+// Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
+// backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
+// With workers disabled (the default here), nothing is ever flushed to the SVS backend,
+// so this exercises the frontend buffer's update path -- the same thing
+// holdsVectorOnSvsIndexAnswersFromTheFlatBuffer in test_cpp_vector_relabel.cpp relies on
+// for reads.
+TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceSVSVamana) {
+  createIndexWithVector({}, "SVS-VAMANA");
+  assertVectorOnlyChangeUpdatesInPlace();
 }
 
 // The vector-only fast path is gated behind OPTIMIZE_PARTIAL_UPDATE: with it off, the same
