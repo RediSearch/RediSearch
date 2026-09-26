@@ -204,17 +204,13 @@ pub struct TimeoutContextRequest {
     clock: TimeoutContextDeadline,
 }
 
-/// Type-erased [`TimeoutContext`] wrapping the concrete variants.
+/// Timeout context selected for a query iterator.
 ///
-/// Request-backed contexts read the current source on every probe because cursor reads can
+/// A request-backed context reads the current source on every probe because cursor reads can
 /// change it without rebuilding the iterator tree.
 pub enum AnyTimeoutContext {
     /// No timeout source: every probe is a no-op.
     NoTimeout(NoTimeoutChecker),
-    /// Clock Based Timeout: amortized clock check against the search context's live deadline.
-    Clock(TimeoutContextDeadline),
-    /// Blocked Client Timeout: relaxed atomic load against the request flag.
-    BlockedClient(TimeoutContextBlockedClient),
     /// Request-owned timeout whose source can change between cursor reads.
     Request(TimeoutContextRequest),
 }
@@ -255,8 +251,6 @@ impl TimeoutContext for AnyTimeoutContext {
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         match self {
             Self::NoTimeout(c) => TimeoutContext::check_timeout(c),
-            Self::Clock(c) => TimeoutContext::check_timeout(c),
-            Self::BlockedClient(c) => TimeoutContext::check_timeout(c),
             Self::Request(request) => {
                 let timeout = request.timeout;
                 let clock = &mut request.clock;
@@ -287,8 +281,6 @@ impl TimeoutContext for AnyTimeoutContext {
     fn reset_counter(&mut self) {
         match self {
             Self::NoTimeout(c) => TimeoutContext::reset_counter(c),
-            Self::Clock(c) => TimeoutContext::reset_counter(c),
-            Self::BlockedClient(c) => TimeoutContext::reset_counter(c),
             Self::Request(request) => TimeoutContext::reset_counter(&mut request.clock),
         }
     }
@@ -358,18 +350,6 @@ mod tests {
             tv_sec: ts.tv_sec + secs,
             tv_nsec: ts.tv_nsec,
         }
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
-    fn any_timeout_context_dispatches_to_clock_variant() {
-        let mut deadline = deadline_in(60);
-        // SAFETY: `deadline` outlives `checker`, and nothing writes to it concurrently.
-        let inner = unsafe { TimeoutContextDeadline::new(NonNull::from(&mut deadline), 1) };
-        let mut checker = AnyTimeoutContext::Clock(inner);
-        assert!(TimeoutContext::check_timeout(&mut checker).is_ok());
-        TimeoutContext::reset_counter(&mut checker);
-        assert!(TimeoutContext::check_timeout(&mut checker).is_ok());
     }
 
     #[test]
