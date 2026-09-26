@@ -634,25 +634,15 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
   for (size_t i = 0; i < numChangedFields; ++i) {
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
-    bool matchedSchemaField = false;
+    bool isSchemaVectorField = false;
     // A single Hash path can be mapped to more than one schema field (`v AS vv VECTOR ...,
-    // v AS txt TEXT` is an explicitly supported configuration -- see testSchemaWithAs_Duplicates
-    // in test.py), so every mapping of this path must be checked: one non-vector mapping forces
+    // v AS txt TEXT` is an explicitly supported configuration). One non-vector mapping forces
     // a full reindex immediately, regardless of how many other mappings are vector fields.
     for (size_t j = 0; j < spec->numFields; ++j) {
       if (!FieldSpec_PathEquals(&spec->fields[j], field, length)) {
         continue;
       }
-      matchedSchemaField = true;
-      // A schema-field match is `ChangedFieldInd_VerifiedYes` for that field -- the same status
-      // `AddDocumentCtx_MarkForRelabel` computes for vector fields via `FieldSpec_IsInChangeSet`
-      // to decide the opposite thing: there, VerifiedYes means "don't relabel, this value was
-      // written"; here it means "this field needs `updateVectors`". A VerifiedYes match against
-      // any non-vector field still forces a full reindex, unchanged. So does an INDEXMISSING
-      // vector field: this write may be the one that makes a previously-missing field present
-      // (or vice versa), and only the full path's writeMissingFieldDocs keeps that field's
-      // `ismissing()` posting in sync -- the fast path has no way to tell that case apart from
-      // an ordinary update of an already-present value.
+      isSchemaVectorField = true;
       if (!RSGlobalConfig.optimizePartialUpdate ||
           !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR) ||
           FieldSpec_IndexesMissing(&spec->fields[j])) {
@@ -674,7 +664,7 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
     if (ruleFieldEquals(spec->rule->payload_field, field, length)) {
       action |= IndexUpdate_Payload;
     }
-    if (matchedSchemaField) {
+    if (isSchemaVectorField) {
       action |= IndexUpdate_VectorOnly;
     }
   }

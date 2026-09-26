@@ -160,6 +160,14 @@ protected:
     }
   }
 
+  // Deletes a single Hash field the same way HDEL does (RedisModule_HashSet with
+  // REDISMODULE_HASH_DELETE); unlike RMCK::hset, there is no convenience wrapper for this.
+  void hdel(const char *key, const char *field) {
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, RMCK::RString(key), REDISMODULE_WRITE);
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field, REDISMODULE_HASH_DELETE, nullptr);
+    RedisModule_CloseKey(k);
+  }
+
   // Writing kVecA then kVecB to `path` -- each write's change set naming only `path` -- must
   // force a full reindex both times: the doc-id must grow, and the label must hold the latest
   // value. Shared by every "this path isn't safe for the vector-only fast path" test below.
@@ -799,4 +807,26 @@ TEST_F(ReindexSkipTest, indexMissingVectorFieldStillReindexes) {
   EXPECT_GT(docIdOf("doc:1"), first)
       << "an INDEXMISSING vector field must not take the vector-only fast path";
   EXPECT_TRUE(labelHolds(docIdOf("doc:1"), kVecA));
+}
+
+// HDEL removing an indexed vector field, while another field keeps the key alive, must not
+// take the vector-only fast path: RedisModule_HashGet returns a NULL value for the deleted
+// field, so updateHashVectorFields fails closed (blob == NULL) and the caller's full path
+// removes the old label instead of leaving it stale.
+TEST_F(ReindexSkipTest, deletingVectorFieldStillReindexes) {
+  createIndexWithVector();
+  RMCK::hset(ctx, "doc:1", "title", "hello");
+  RMCK::hset(ctx, "doc:1", "vec", kVecA);
+  notifyUpdate("doc:1", {"title", "vec"});
+  const t_docId first = docIdOf("doc:1");
+  ASSERT_NE(first, 0u);
+  ASSERT_TRUE(labelHolds(first, kVecA));
+
+  hdel("doc:1", "vec");
+  notifyUpdate("doc:1", {"vec"});
+  const t_docId second = docIdOf("doc:1");
+  EXPECT_GT(second, first)
+      << "deleting an indexed vector field must not take the vector-only fast path";
+  EXPECT_FALSE(labelHolds(first, kVecA)) << "the old label must be removed, not left stale";
+  EXPECT_FALSE(labelHolds(second, kVecA)) << "the deleted field must hold no vector at all";
 }

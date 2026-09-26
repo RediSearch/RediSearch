@@ -764,6 +764,35 @@ def testIndexMissingVectorFieldReindexes(env):
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
               'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
 
+@skip(cluster=True)
+def testDeletingVectorFieldReindexes(env):
+    """HDEL removing an indexed vector field, while another field keeps the key alive, must
+    not take the vector-only fast path (MOD-17704): the field's raw value is gone, so
+    updateHashVectorFields fails closed and the caller's full path removes the old KNN label
+    instead of leaving it stale.
+
+    Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2').ok()
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+    # title keeps the key alive; only vec is deleted.
+    env.expect('HDEL', 'doc1', 'vec').equal(1)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='deleting an indexed vector field must not take the fast path')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([0])
+
 # Two-vector-field schema shared by the tests below: unlike testVectorOnlyChangeKeepsDocId's
 # single vector field, these exercise a document where TWO vector fields can independently be
 # changed or not, in the same write. Standalone only, same reason as testVectorOnlyChangeKeepsDocId
