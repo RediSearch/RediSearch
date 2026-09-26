@@ -543,13 +543,14 @@ impl QueryEvalContext {
     ///
     /// The returned context and any iterator built from it must not outlive
     /// `sctx` or its borrowed request timeout. No write to a request-owned
-    /// deadline may overlap a probe; see
+    /// deadline or change to the active timeout source may overlap a probe; see
     /// [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
         // SAFETY: invariant (2) of `new` guarantees `sctx` and its borrowed timeout stay valid
-        // for every derived iterator. Writes to a deadline never overlap a probe.
+        // for every derived iterator. Deadline writes and timeout source changes occur only
+        // between execution cycles, when no probe can run.
         unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
     }
 }
