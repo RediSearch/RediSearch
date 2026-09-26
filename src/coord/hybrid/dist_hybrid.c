@@ -994,7 +994,7 @@ static void scheduleDepleters(HybridRequest *hreq) {
 
 // Block until every depleter scheduled by scheduleDepleters has signaled
 // completion. Required before the tail tears down `hreq`: the merger's
-// cv-wait normally drains depleters during startPipelineHybrid, but
+// cv-wait normally drains depleters during runPipelineCycle_hybrid, but
 // early-bailout paths in sendChunk_hybrid (e.g. timeout-already-fired)
 // skip the merger. Without this, a depleter still running on a coord-pool
 // worker would race with HybridRequest_Free → rpnetFree, leading to
@@ -1030,12 +1030,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx);
     RedisModule_Reply *reply = &_reply;
 
-    AGGPlan *plan = &hreq->tailPipeline->ap;
-    cachedVars cv = {
-        .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-        .lastAstp = AGPLN_GetArrangeStep(plan)
-    };
-    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    sendChunk_hybrid(hreq, reply, UINT64_MAX);
     RedisModule_EndReply(reply);
     // Drop the alias before freeing replyCtx so the hreq teardown below can't
     // see a dangling pointer if SearchCtx ever starts reading sctx->redisCtx.
@@ -1320,7 +1315,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
     // We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase
-    // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
+    // (runPipelineCycle) yet. Reply with empty results. coord_hybrid_query_reply_empty
     // derives isProfile from the command so the profile envelope is preserved for
     // FT.PROFILE ... HYBRID even on this fast path.
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
@@ -1341,7 +1336,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // drain would re-enter live upstream processors. Reply only with whatever the
   // tail already accumulated into `base.reply.results` before the deadline.
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  serializeStoredResults_hybrid(hreq, reply);
+  HREQ_ReplyWithStoredResults(hreq, reply);
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
@@ -1359,21 +1354,9 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RS_ASSERT(request != NULL);
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Check if results were stored (background thread completed successfully)
-  if (!hreq->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
-  // Call serializeStoredResults_hybrid to build reply from stored results
+  // Call HREQ_ReplyWithStoredResults to build reply from stored results
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  serializeStoredResults_hybrid(hreq, reply);
+  HREQ_ReplyWithStoredResults(hreq, reply);
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;

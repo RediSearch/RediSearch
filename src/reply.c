@@ -104,6 +104,22 @@ static void trackClose(RedisModule_Reply *reply, int type, int count) {
   closeCompletedDeclared(reply);
 }
 
+// `buffer`'s top-level elements become elements of `reply`'s innermost collection, then the buffer's shadow is emptied.
+static void trackBuffered(RedisModule_Reply *reply, RedisModule_Reply *buffer, int elements) {
+  Frame *b = topFrame(buffer);
+  RS_LOG_ASSERT_FMT(array_len(buffer->frames) == 1, "reply: buffer moved with an open collection: %s", replyJson(buffer));
+  RS_LOG_ASSERT_FMT(b->count == elements, "reply: caller counted %d buffered elements, shadow saw %d: %s", elements, b->count, replyJson(buffer));
+  if (b->count) {
+    trackElement(reply); // separator for the first moved element
+    reply->json = sdscatsds(reply->json, buffer->json);
+    Frame *f = topFrame(reply);
+    f->count += b->count - 1;
+  }
+  closeCompletedDeclared(reply);
+  b->count = 0;
+  sdsclear(buffer->json);
+}
+
 static void trackEnd(RedisModule_Reply *reply) {
   if (reply->frames) {
     Frame *f = topFrame(reply);
@@ -116,11 +132,13 @@ static void trackEnd(RedisModule_Reply *reply) {
 }
 
 #define REPLY_TRACK_CLOSE(reply, type, count) trackClose(reply, type, count)
+#define REPLY_TRACK_BUFFERED(reply, buffer, elements) trackBuffered(reply, buffer, elements)
 #define REPLY_TRACK_END(reply) trackEnd(reply)
 
 #else
 
 #define REPLY_TRACK_CLOSE(reply, type, count) ((void)0)
+#define REPLY_TRACK_BUFFERED(reply, buffer, elements) ((void)0)
 #define REPLY_TRACK_END(reply) ((void)0)
 
 #endif
@@ -139,6 +157,7 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
     array_free(reply->counts);
     reply->counts = NULL;
   }
+  reply->cur = NULL; // a closed buffer is closed again by its owner's destroy path
   if (reply->scratch) {
     rm_free(reply->scratch);
     reply->scratch = NULL;
@@ -236,6 +255,15 @@ int RedisModule_Reply_SetEnd(RedisModule_Reply *reply) {
   REPLY_TRACK_CLOSE(reply, REDISMODULE_REPLY_SET, count);
   RedisModule_ReplySetSetLength(reply->ctx, count);
   return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer, size_t elements) {
+  RS_ASSERT(!buffer->cur); // no collection left open in the buffer
+  REPLY_TRACK_BUFFERED(reply, buffer, (int)elements);
+  if (reply->cur) {
+    *reply->cur += (int)elements;
+  }
+  return RedisModule_ReplyWithBufferedReply(reply->ctx, buffer->ctx);
 }
 
 //---------------------------------------------------------------------------------------------

@@ -48,6 +48,10 @@ struct MRChannel;
  * Clean up all resources held by a ChunkReplyState.
  * Handles the cursor ownership edge case (see struct documentation above).
  */
+// The reply buffer of one cycle: opened where the cycle starts (blocking, or inline for a
+// foreground call), closed once its rows were committed or discarded.
+void ChunkReplyState_OpenBuffer(ChunkReplyState *state, RedisModuleCtx *ctx);
+void ChunkReplyState_CloseBuffer(ChunkReplyState *state);
 void ChunkReplyState_Destroy(ChunkReplyState *state);
 
 typedef struct Grouper Grouper;

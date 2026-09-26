@@ -14,6 +14,13 @@ from common import *
 MAX_WORKER_THREADS = 8192 if RS_TEST_ENTERPRISE else 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
+
+# `Env(redisConfigFile=...)` (used throughout this file to test config-file parsing) replaces
+# RLTest's shared `--redis-config-file` (tests/pytests/redis-test.conf) outright rather than
+# layering on top of it, so a bespoke file written here must repeat redis-test.conf's
+# `cluster-bus-port-protected-mode no` waiver itself, or the cluster bus port refuses to start
+# whenever the test runs under cluster/coordinator mode.
+_CLUSTER_BUS_WAIVER = 'cluster-bus-port-protected-mode no\n'
 # The OSS Redis 8 build registers a built-in 'vectorset' module that shows in
 # MODULE LIST; the enterprise rl_8.6 RoR redis-server does not, so its baseline
 # MODULE LIST (no user modules loaded) is empty.
@@ -1048,6 +1055,7 @@ def testClusterConfigFileNumericParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
+        f.write(_CLUSTER_BUS_WAIVER)
         for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
             f.write(f'{configName} {minValue}\n')
 
@@ -1338,6 +1346,7 @@ def testConfigFileEnumParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
+        f.write(_CLUSTER_BUS_WAIVER)
         f.write(f'{configName} {testValue}\n')
 
     # Start the server using the conf file and check each value
@@ -1362,6 +1371,7 @@ def testConfigFileAndArgsEnumParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
+        f.write(_CLUSTER_BUS_WAIVER)
         f.write(f'{configName} {testValue}\n')
 
     # Start the server using the conf file and check each value,
@@ -1528,7 +1538,7 @@ def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
     with open(redisConfigFile, 'w') as f:
-        pass  # Do nothing, just create the file
+        f.write(_CLUSTER_BUS_WAIVER)
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
 
     # stop the server and remove the rdb file
@@ -1546,6 +1556,7 @@ def testConfigFileStringParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
+        f.write(_CLUSTER_BUS_WAIVER)
         for configName, argName, ftDefault, testValue in stringConfigs:
             testValue = os.path.abspath(os.path.join(basedir, testValue))
             f.write(f'{configName} {testValue}\n')
@@ -1898,6 +1909,7 @@ def testConfigFileBooleanParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
+        f.write(_CLUSTER_BUS_WAIVER)
         for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
             # use non-default value as config value
             configValue = 'yes' if defaultValue == 'no' else 'no'
@@ -1924,6 +1936,7 @@ def testConfigFileAndArgsBooleanParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
+        f.write(_CLUSTER_BUS_WAIVER)
         for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
             # use default value as config value
             f.write(f'{configName} {defaultValue}\n')

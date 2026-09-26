@@ -10,8 +10,9 @@ on:
       pinned-ref:
         description: "Redis ref to use instead of the latest release tag. Empty uses the latest release tag."
         type: string
-        # TODO: Replace with a released Redis version once one includes the hexpired notification fix.
-        default: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+        # MOD-18503: redis/redis#15775 provides the required module reply-buffer APIs.
+        # Replace with a supported Redis release after the API lands upstream.
+        default: 021fdb3a63d884c7952c3fdc59017710caa4d66d
     outputs:
       tag:
         description: "Redis tag or pinned ref"

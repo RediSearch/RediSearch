@@ -37,6 +37,7 @@
 #include "util/references.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
+#include "aggregate/aggregate_exec_common.h"
 #include "rmalloc.h"
 #include "cursor.h"
 #include "debug_commands.h"
@@ -2271,6 +2272,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     MRCtx_DecrRef(r->mrctx);
   }
   rm_free(r);
+#ifdef ENABLE_ASSERT
+  CoordSearchOnFreeDebug_Increment();
+#endif
 }
 
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
@@ -2612,6 +2616,15 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   }
 
   return REDISMODULE_OK;
+}
+
+// The reply shape of one reduced row, computed once so the row serializer does no flag arithmetic.
+static void searchRequestCtx_SetRowShape(searchRequestCtx *req, bool resp3) {
+  cachedVars *cv = &req->base.reply.cv;
+  // The optional sections of a row: score, payload, sort key, and the fields.
+  const size_t sections = req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
+  cv->rowMapEntries = 2 + sections; // RESP3: id, the sections, and the trailing "values" placeholder
+  cv->rowElements = resp3 ? 1 : 1 + sections; // RESP2 is flat: id followed by the sections
 }
 
 static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc, int parseArgc,
@@ -3253,8 +3266,17 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
   QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
 }
 
-static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
+#ifdef ENABLE_ASSERT
+static bool coordSerializationTimedOut(void *arg) {
+  searchRequestCtx *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+}
+#endif
+
+static void serializeSearchRows(RedisModule_Reply *reply, searchReducerCtx *rCtx, bool stopOnTimeout) {
   searchRequestCtx *req = rCtx->searchCtx;
+  QueryRequestTimeout *timeout = &req->base.timeout;
+#define ROW_SERIALIZATION_ABORTED() (stopOnTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout))
 
   // Number of results to actually return
   size_t num = req->offset + req->limit;
@@ -3271,9 +3293,109 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   heap_free(rCtx->pq);
   rCtx->pq = NULL;
 
+  const cachedVars *cv = &req->base.reply.cv;
+  if (reply->resp3) {
+    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
+      if (ROW_SERIALIZATION_ABORTED()) {
+        break;
+      }
+      req->base.reply.bufferedElements += cv->rowElements; // one row map
+      RedisModule_Reply_MapWithLen(reply, cv->rowMapEntries); // >> result
+        searchResult *res = results[i];
+
+        RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
+
+        if (req->withScores) {
+          RedisModule_Reply_SimpleString(reply, "score");
+
+          if (req->withExplainScores) {
+            RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
+#ifdef ENABLE_ASSERT
+            SyncPoint_WaitUntil(SYNC_POINT_DURING_COORD_ROW_SERIALIZATION, coordSerializationTimedOut, req);
+#endif
+            RedisModule_Reply_Double(reply, res->score);
+            MR_ReplyWithMRReply(reply, res->explainScores);
+          } else {
+            RedisModule_Reply_Double(reply, res->score);
+          }
+        }
+
+        if (req->withPayload) {
+          RedisModule_Reply_SimpleString(reply, "payload");
+          MR_ReplyWithMRReply(reply, res->payload);
+        }
+
+        if (req->withSortingKeys && req->withSortby) {
+          RedisModule_Reply_SimpleString(reply, "sortkey");
+          if (res->sortKey) {
+            RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+          } else {
+            RedisModule_Reply_Null(reply);
+          }
+        }
+        if (!req->noContent) {
+          RedisModule_ReplyKV_MRReply(reply, "extra_attributes", res->fields); // >> extra_attributes
+        }
+
+        RedisModule_Reply_SimpleString(reply, "values");
+        RedisModule_Reply_EmptyArray(reply);
+    }
+  } else {
+    // RESP2 is flat: each result's fields follow in sequence, one element per section below.
+    for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
+      if (ROW_SERIALIZATION_ABORTED()) {
+        break;
+      }
+      searchResult *res = results[pos];
+      req->base.reply.bufferedElements += cv->rowElements;
+      RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
+      if (req->withScores) {
+        if (req->withExplainScores) {
+          RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
+#ifdef ENABLE_ASSERT
+          SyncPoint_WaitUntil(SYNC_POINT_DURING_COORD_ROW_SERIALIZATION, coordSerializationTimedOut, req);
+#endif
+          RedisModule_Reply_Double(reply, res->score);
+          MR_ReplyWithMRReply(reply, res->explainScores);
+        } else {
+          RedisModule_Reply_Double(reply, res->score);
+        }
+      }
+      if (req->withPayload) {
+        MR_ReplyWithMRReply(reply, res->payload);
+      }
+      if (req->withSortingKeys && req->withSortby) {
+        if (res->sortKey) {
+          RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+        } else {
+          RedisModule_Reply_Null(reply);
+        }
+      }
+      if (!req->noContent) {
+        MR_ReplyWithMRReply(reply, res->fields);
+      }
+    }
+  }
+#undef ROW_SERIALIZATION_ABORTED
+  // Free the sorted results
+  for (pos = 0; pos < qlen; pos++) {
+    rm_free(results[pos]);
+  }
+  rm_free(results);
+}
+
+static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
+  searchRequestCtx *req = rCtx->searchCtx;
+  // The reducer serializes the rows into the request's reply buffer as it finishes; a reducer that stopped on a
+  // timeout leaves the rest in the heap, and the partial-results timeout callback replies them too.
+  if (rCtx->pq && req->base.reply.rows.ctx) {
+    serializeSearchRows(&req->base.reply.rows, rCtx, false);
+  }
+
   //-------------------------------------------------------------------------------------------
-  // RESP2 is a flat array: total, then each result's fields in sequence.
-  RedisModule_Reply_MapOrArray(reply);
+  // RESP3: attributes, warning, total_results, format, results. RESP2 is a flat array: the total,
+  // then each result's fields in sequence, all already counted in the buffer.
+  RedisModule_Reply_MapOrArrayWithLen(reply, RESP3_REPLY_ENTRIES, 1 + req->base.reply.bufferedElements);
   if (reply->resp3) // RESP3
   {
     RedisModule_Reply_SimpleString(reply, "attributes");
@@ -3319,107 +3441,44 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
     }
 
-    RedisModule_ReplyKV_Array(reply, "results"); // >results
-
-    // id, the optional sections below, and the trailing "values" placeholder.
-    const size_t entries = 2 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
-    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
-      RedisModule_Reply_MapWithLen(reply, entries); // >> result
-        searchResult *res = results[i];
-
-        RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
-
-        if (req->withScores) {
-          RedisModule_Reply_SimpleString(reply, "score");
-
-          if (req->withExplainScores) {
-            RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-            RedisModule_Reply_Double(reply, res->score);
-            MR_ReplyWithMRReply(reply, res->explainScores);
-          } else {
-            RedisModule_Reply_Double(reply, res->score);
-          }
-        }
-
-        if (req->withPayload) {
-          RedisModule_Reply_SimpleString(reply, "payload");
-          MR_ReplyWithMRReply(reply, res->payload);
-        }
-
-        if (req->withSortingKeys && req->withSortby) {
-          RedisModule_Reply_SimpleString(reply, "sortkey");
-          if (res->sortKey) {
-            RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
-          } else {
-            RedisModule_Reply_Null(reply);
-          }
-        }
-        if (!req->noContent) {
-          RedisModule_ReplyKV_MRReply(reply, "extra_attributes", res->fields); // >> extra_attributes
-        }
-
-        RedisModule_Reply_SimpleString(reply, "values");
-        RedisModule_Reply_EmptyArray(reply);
+    // The buffer counted its rows, so the results array is declared and filled by one move.
+    RedisModule_ReplyKV_ArrayWithLen(reply, "results", req->base.reply.bufferedElements); // >results
+    if (req->base.reply.rows.ctx) {
+      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows, req->base.reply.bufferedElements);
+      RS_ASSERT(moved == REDISMODULE_OK);
     }
-
-    RedisModule_Reply_ArrayEnd(reply); // >results
   }
   //-------------------------------------------------------------------------------------------
   else // RESP2
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
-    for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
-      searchResult *res = results[pos];
-      RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
-      if (req->withScores) {
-        if (req->withExplainScores) {
-          RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-          RedisModule_Reply_Double(reply, res->score);
-          MR_ReplyWithMRReply(reply, res->explainScores);
-        } else {
-          RedisModule_Reply_Double(reply, res->score);
-        }
-      }
-      if (req->withPayload) {
-        MR_ReplyWithMRReply(reply, res->payload);
-      }
-      if (req->withSortingKeys && req->withSortby) {
-        if (res->sortKey) {
-          RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
-        } else {
-          RedisModule_Reply_Null(reply);
-        }
-      }
-      if (!req->noContent) {
-        MR_ReplyWithMRReply(reply, res->fields);
-      }
+    if (req->base.reply.rows.ctx) {
+      int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows, req->base.reply.bufferedElements);
+      RS_ASSERT(moved == REDISMODULE_OK);
     }
   }
-  RedisModule_Reply_MapOrArrayEnd(reply);
 
   if (req->queryOOM) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
   }
   //-------------------------------------------------------------------------------------------
-
-  // Free the sorted results
-  for (pos = 0; pos < qlen; pos++) {
-    rm_free(results[pos]);
-  }
-  rm_free(results);
 }
 
 struct PrintCoordProfile_ctx {
   rs_wall_clock *totalTime;
   rs_wall_clock_ns_t postProcessTime;
+  rs_wall_clock_ns_t rowSerializationTime;
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
+  RedisModule_ReplyKV_Double(
+      reply, "Post Processing time",
+      rs_wall_clock_convert_ns_to_ms_d(pCtx->rowSerializationTime + rs_wall_clock_now_ns() -
+                                       pCtx->postProcessTime));
   RedisModule_ReplyKV_Double(reply, "Coordinator queue time", rs_wall_clock_convert_ns_to_ms_d(pCtx->coordQueueTime));
   RedisModule_Reply_MapEnd(reply);
 }
@@ -3443,6 +3502,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     struct PrintCoordProfile_ctx coordCtx = {
         .totalTime = totalTime,
         .postProcessTime = postProcessTime,
+        .rowSerializationTime = rCtx->searchCtx->rowSerializationTime,
         .coordQueueTime = rCtx->searchCtx->coordQueueTime,
     };
     Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
@@ -3668,6 +3728,18 @@ cleanup:
     rCtx->cachedResult = NULL;
   }
 
+  // Serialize the reduced rows into the request's reply buffer here, off the main thread when the
+  // reducer runs in the background; the reply callback then moves them in O(1).
+  if (rCtx && rCtx->pq && !QueryError_HasError(&req->base.reply.err)) {
+    rs_wall_clock_ns_t serializationStart = profile ? rs_wall_clock_now_ns() : 0;
+    // Under FAIL a timeout replies an error, so the rows are abandoned mid-way; RETURN_STRICT
+    // replies the rows, so the background serializer finishes and the timeout callback waits for it.
+    const bool stopOnTimeout = !fromTimeout && req->base.timeout.policy == TimeoutPolicy_Fail;
+    serializeSearchRows(&req->base.reply.rows, rCtx, stopOnTimeout);
+    if (profile) {
+      req->rowSerializationTime = rs_wall_clock_now_ns() - serializationStart;
+    }
+  }
   // Reduction/post-processing done, about to hand off the reply: advance the marker
   // so a timeout from here on is attributed to REPLY (frozen once already timed out).
   if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
@@ -4586,6 +4658,7 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   if (request) {
     searchRequestCtx *req = QueryRequest_GetSearch(request);
+    RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(req->mrctx));
     QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
     recordSearchTimeoutStage(req, /*isError=*/true);
   }
@@ -4610,6 +4683,9 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   searchRequestCtx *req = QueryRequest_GetSearch(request);
   struct MRCtx *mrctx = req->mrctx;
+  // The fan-out no longer ends timing for reduced requests (see unblockFanout); the main-thread
+  // callbacks do, since Redis reads the non-atomic duration once a timeout callback returns.
+  RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
 
   // Signal timeout to stop accepting new replies in searchFanoutCallback
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
@@ -4800,6 +4876,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetValidateConnections(mrctx, true);
 
   req->mrctx = mrctx;
+  searchRequestCtx_SetRowShape(req, is_resp3(ctx));
   // Block client with the base request available to every search callback.
   RedisModuleBlockedClient *bc = DistSearchBlockClientWithTimeout(ctx, &req->base, queryTimeoutMS);
 
@@ -5017,6 +5094,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+
+  if (!RedisModule_CreateReplyBufferContext || !RedisModule_ReplyWithBufferedReply) {
+    RedisModule_Log(ctx, "warning", "Search requires the Redis reply-buffer APIs");
     return REDISMODULE_ERR;
   }
 

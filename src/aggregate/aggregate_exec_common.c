@@ -14,12 +14,11 @@
 
  #include "search_result_ffi.h"
  #include "aggregate.h"
+#include "hybrid/hybrid_request.h"
  #include "util/timeout.h"
- #include "rmalloc.h"
 #include "query_error_ffi.h"
 #include "reply.h"
 #include "rmutil/rm_assert.h"
-#include "util/arr/arr.h"
 
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // usleep, used by debugCheckAndPauseAfterAggregateResult
@@ -47,24 +46,16 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
- void destroyResults(SearchResult **results) {
-   if (results) {
-     for (size_t i = 0; i < array_len(results); i++) {
-       SearchResult_Destroy(results[i]);
-       rm_free(results[i]);
-     }
-     array_free(results);
-   }
- }
-
 #ifdef ENABLE_ASSERT
 // Helper function to check and pause after extracting a result from the
-// AggregateResults loop (for testing pipeline state mid-aggregation).
+// Pipeline_SerializeResults loop (for testing pipeline state mid-aggregation).
 // Self-releases the pause when the request has been marked as timed out by
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
 // resume command while it is in flight.
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
+// The hook is for pausing a live run; a drain of an already-stopped pipeline is not one.
+static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request, bool live) {
+  if (!live) return;
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
     return;
@@ -76,7 +67,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -85,152 +76,125 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 }
 #else
 // Compiler eliminates the function completely in release builds - zero overhead
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
+static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request, bool live) {}
 #endif
 
- SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
-   SearchResult **results = array_new(SearchResult *, 8);
-   SearchResult r = SearchResult_New();
-   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-     // Decrement the result limit, now that we got a valid result.
-     rp->parent->resultLimit--;
+static const RequestConfig *requestConfig(QueryRequest *request) {
+  return request->kind == QUERY_REQUEST_KIND_HYBRID ? &QueryRequest_GetHybrid(request)->reqConfig
+                                                     : &QueryRequest_GetAREQ(request)->reqConfig;
+}
 
-     array_append(results, SearchResult_AllocateMove(&r));
+// The last result processor of the request's pipeline: the one the serialization loop pulls rows from.
+static ResultProcessor *pipelineEnd(QueryRequest *request) {
+  return request->kind == QUERY_REQUEST_KIND_HYBRID ? QueryRequest_GetHybrid(request)->tailPipeline->qctx.endProc
+                                                     : AREQ_QueryProcessingCtx(QueryRequest_GetAREQ(request))->endProc;
+}
 
-     debugCheckAndPauseAfterAggregateResult(areq);
+static bool returnPolicy(const RequestConfig *config) {
+  return config->timeoutPolicy == TimeoutPolicy_Return && config->oomPolicy != OomPolicy_Fail;
+}
 
-     // clean the search result
-     r = SearchResult_New();
+void Pipeline_SerializeResults(QueryRequest *request, SerializeResult serialize, bool live, int *rc) {
+  ResultProcessor *rp = pipelineEnd(request);
+  // Prepare stack data. Only a RETURN_STRICT timeout callback drains a stopped pipeline.
+  RS_ASSERT(live || request->timeout.policy == TimeoutPolicy_ReturnStrict);
+  const QueryRequestTimeout *timeout = &request->timeout;
+  const bool clockTimeoutApplies = live && !returnPolicy(requestConfig(request));
+  // Untracked runs read a flag that never flips, so the loop body has no per-row policy branches.
+  RS_Atomic(bool) neverTimedOut = false;
+  RS_Atomic(bool) *timedOut = live && timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                  ? QueryRequestTimeout_GetBlockedClientFlag(&request->timeout) : &neverTimedOut;
+  RedisModule_Reply *rows = &request->reply.rows;
+  SearchResult row = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
-       break;
-     }
-   }
+  // Serialize until the budget is spent or Next() stops yielding (EOF, error, timeout). The pipeline runs at
+  // least once even on a zero row budget (MAXAGGREGATERESULTS 0), since the total it reports is only computed
+  // by running it.
+  do {
+    *rc = rp->Next(rp, &row);
+    if (*rc != RS_RESULT_OK || !rp->parent->resultLimit) break;
+    rp->parent->resultLimit--;
 
-   if (*rc != RS_RESULT_OK) {
-     SearchResult_Destroy(&r);
-   }
+    serialize(request, rows, &row);
+    SearchResult_Clear(&row);
+    debugCheckAndPauseAfterAggregateResult(request, live);
+    if (RS_AtomicBoolLoadRelaxed(timedOut)) {
+      *rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
+  } while (rp->parent->resultLimit);
 
-   return results;
- }
+  // Cleanup. The buffered rows (and their count) are the reply phase's remaining input.
+  if (clockTimeoutApplies && QueryRequestTimeout_IsTimedOutExact(timeout)) {
+    *rc = RS_RESULT_TIMEDOUT;
+  }
+  SearchResult_Destroy(&row);
+}
 
- void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
-     // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation
-     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
-     }
-   } else {
-     // Send the results received from the pipeline as they come (no need to aggregate)
-     *rc = rp->Next(rp, r);
-   }
- }
+/**
+ * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
+ * valid (possibly empty) partial answer for the request's pipeline.
+ *
+ * The set of accepted shapes is selected by inspecting the pipeline's root
+ * processor type -- specifically whether the root itself buffers results
+ * that can be replayed after the upstream pipeline has aborted on TIMEDOUT.
+ *
+ * Coordinator (root is `RP_NETWORK`): RPNet maintains an internal queue of
+ * shard responses received before the timeout, so all three of the
+ * following shapes can be drained (top = end of pipeline):
+ *   1. RPNet                                         -- bare root.
+ *   2. RPPager_Limiter -> RPNet                      -- pager directly above the root.
+ *   3. [RPPager_Limiter ->] RPSorter -> ...          -- end is RPSorter (optionally
+ *                                                       under a pager); anything
+ *                                                       between the sorter and
+ *                                                       the root is allowed.
+ *
+ * Shard (root is `RP_INDEX`): RPIndex pulls fresh from the query iterator
+ * on every call and RPPager has no buffer of its own, so shapes (1) and
+ * (2) have nothing to harvest -- draining them would re-enter the QI for
+ * no useful work. Only shape (3) is accepted: rpsortNext_Yield (the state
+ * RPSorter enters on TIMEDOUT) pops from the sorter's heap without
+ * re-entering its upstream.
+ *
+ * Any other root type returns false.
+ *
+ * Note that even when this returns false, partial results that BG already
+ * serialized into `base.reply.rows` *before* the timeout fired (e.g. for a
+ * trivial RPIndex -> RPPager pipeline) are still emitted via the buffered
+ * results path in `replyBufferedChunk*`; that path is independent
+ * of this classifier.
+ *
+ * Profile (`FT.PROFILE`) interleaves an RP_PROFILE wrapper around every RP,
+ * so the classifier transparently skips RP_PROFILE wrappers while walking
+ * from `endProc`. The root proc type is read from `qctx->rootProc`, which
+ * always points at the real root (RP_INDEX / RP_NETWORK) regardless of
+ * profiling, and the drain itself walks `endProc->Next` which delegates
+ * through the profile wrappers.
+ */
+bool pipelineCanYieldPartialResults(AREQ *r) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+  ResultProcessor *end = qctx->endProc;
+  ResultProcessor *root = qctx->rootProc;
 
- /**
-  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
-  * valid (possibly empty) partial answer for the request's pipeline.
-  *
-  * The set of accepted shapes is selected by inspecting the pipeline's root
-  * processor type -- specifically whether the root itself buffers results
-  * that can be replayed after the upstream pipeline has aborted on TIMEDOUT.
-  *
-  * Coordinator (root is `RP_NETWORK`): RPNet maintains an internal queue of
-  * shard responses received before the timeout, so all three of the
-  * following shapes can be drained (top = end of pipeline):
-  *   1. RPNet                                         -- bare root.
-  *   2. RPPager_Limiter -> RPNet                      -- pager directly above the root.
-  *   3. [RPPager_Limiter ->] RPSorter -> ...          -- end is RPSorter (optionally
-  *                                                       under a pager); anything
-  *                                                       between the sorter and
-  *                                                       the root is allowed.
-  *
-  * Shard (root is `RP_INDEX`): RPIndex pulls fresh from the query iterator
-  * on every call and RPPager has no buffer of its own, so shapes (1) and
-  * (2) have nothing to harvest -- draining them would re-enter the QI for
-  * no useful work. Only shape (3) is accepted: rpsortNext_Yield (the state
-  * RPSorter enters on TIMEDOUT) pops from the sorter's heap without
-  * re-entering its upstream.
-  *
-  * Any other root type returns false.
-  *
-  * Note that even when this returns false, partial results that BG already
-  * accumulated in `state.results` *before* the timeout fired (e.g. for a
-  * trivial RPIndex -> RPPager pipeline) are still emitted via the buffered
-  * results path in `serializeAndReplyResults_*`; that path is independent
-  * of this classifier.
-  *
-  * Profile (`FT.PROFILE`) interleaves an RP_PROFILE wrapper around every RP,
-  * so the classifier transparently skips RP_PROFILE wrappers while walking
-  * from `endProc`. The root proc type is read from `qctx->rootProc`, which
-  * always points at the real root (RP_INDEX / RP_NETWORK) regardless of
-  * profiling, and the drain itself walks `endProc->Next` which delegates
-  * through the profile wrappers.
-  */
- bool pipelineCanYieldPartialResults(AREQ *r) {
-   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
-   ResultProcessor *end = qctx->endProc;
-   ResultProcessor *root = qctx->rootProc;
+  if (!end || !root) {
+    return false;
+  }
 
-   if (!end || !root) {
-     return false;
-   }
+  ResultProcessor *rp = end;
+  while (rp->type == RP_PROFILE || rp->type == RP_PAGER_LIMITER ||
+         rp->type == RP_VECTOR_NORMALIZER) {
+    rp = rp->upstream;
+    RS_ASSERT(rp);
+  }
 
-   ResultProcessor *rp = end;
-   while (rp->type == RP_PROFILE || rp->type == RP_PAGER_LIMITER ||
-          rp->type == RP_VECTOR_NORMALIZER) {
-     rp = rp->upstream;
-     RS_ASSERT(rp);
-   }
-
-   switch (root->type) {
-     case RP_INDEX:
-       // Shard: RPIndex / RPPager don't buffer; only RPSorter does. Reject
-       // shapes (1) and (2) so the drain never re-enters the QI.
-       return rp->type == RP_SORTER;
-     case RP_NETWORK:
-       return rp == root || rp->type == RP_SORTER;
-     default:
-       return false;
-   }
- }
-
- /**
-  * Drain results buffered post-timeout into `req->base.reply.results`.
-  * Only safe for pipelines classified as yielding partial results -- caller
-  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
-  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
-  * coordinator) before invoking this function.
-  *
-  * Caller must also have already flipped the request's timeout flag and
-  * waited for the BG worker to exit the pipeline (e.g. via
-  * AREQ_WaitForAggregateResultsComplete).
-  *
-  * The pager's internal `remaining` and `qctx->resultLimit` reflect the
-  * post-abort budget, so this loop naturally respects the user's LIMIT and
-  * terminates at EOF.
-  */
- void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored) {
-   ResultProcessor *endProc = qctx->endProc;
-   if (!stored->results) {
-     stored->results = array_new(SearchResult *, 8);
-   }
-
-   SearchResult r = SearchResult_New();
-   while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
-     qctx->resultLimit--;
-     array_append(stored->results, SearchResult_AllocateMove(&r));
-     r = SearchResult_New();
-   }
-   SearchResult_Destroy(&r);
- }
-
- void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->base.reply);
- }
+  switch (root->type) {
+    case RP_INDEX:
+      // Shard: RPIndex / RPPager don't buffer; only RPSorter does. Reject
+      // shapes (1) and (2) so the drain never re-enters the QI.
+      return rp->type == RP_SORTER;
+    case RP_NETWORK:
+      return rp == root || rp->type == RP_SORTER;
+    default:
+      return false;
+  }
+}

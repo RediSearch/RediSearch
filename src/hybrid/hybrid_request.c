@@ -444,29 +444,34 @@ static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
  * @param status QueryError pointer to store error information on failure
  * @return REDISMODULE_OK if no errors found, REDISMODULE_ERR if error found
  */
-int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
-    if (!hreq || !status) {
-        return REDISMODULE_ERR;
-    }
-
+const QueryError *HybridRequest_PeekError(const HybridRequest *hreq) {
     // Skip soft codes so the reply path can render them as warnings.
     if (QueryError_HasError(&hreq->tailPipelineError) &&
         !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
-        QueryError_CloneFrom(&hreq->tailPipelineError, status);
-        return REDISMODULE_ERR;
+        return &hreq->tailPipelineError;
     }
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        QueryError *subErr = &hreq->requests[i]->base.reply.err;
+        const QueryError *subErr = &hreq->requests[i]->base.reply.err;
         if (QueryError_HasError(subErr)) {
-            QueryError_CloneFrom(subErr, status);
-            return REDISMODULE_ERR;
+            return subErr;
         }
     }
 
-    // No errors found
-    return REDISMODULE_OK;
+    return NULL;
+}
+
+int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
+    if (!hreq || !status) {
+        return REDISMODULE_ERR;
+    }
+    const QueryError *err = HybridRequest_PeekError(hreq);
+    if (!err) {
+        return REDISMODULE_OK;
+    }
+    QueryError_CloneFrom(err, status);
+    return REDISMODULE_ERR;
 }
 
 void HybridRequest_ClearErrors(HybridRequest *req) {
