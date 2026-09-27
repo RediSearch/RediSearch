@@ -81,7 +81,7 @@ void QOptimizer_Parse(AREQ *req) {
   // Q_OPT_NO_SORTER drops every sorter in the pipeline, but AGPLN_GetArrangeStep
   // only sees the arrange step after the last GROUPBY. A SORTBY anywhere earlier
   // must still be sorted, so rule NO_SORTER out.
-  if (!opt->field && planHasSortKeys(AREQ_AGGPlan(req))) {
+  if (!opt->field && opt->type != Q_OPT_NONE && planHasSortKeys(AREQ_AGGPlan(req))) {
     opt->type = Q_OPT_NONE;
   }
 
