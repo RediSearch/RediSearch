@@ -3173,11 +3173,6 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
-  if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
-    RedisModule_Log(ctx, "warning", "Failed to initialize missing-field storage during SST load");
-    return false;
-  }
-
   // Populate diskCtx for every HNSW-disk-backed vector field so we have the
   // storage context needed for both eager creation (cold fields) and the
   // bind-storage step on pending indexes (loaded inline from RDB).
