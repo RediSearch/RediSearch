@@ -42,13 +42,15 @@ struct QueryRequest;
  * ownership of the request (it becomes the blocked client's privdata — see
  * the ownership contract on QueryRequest), links it into the BlockedQueries
  * query registry (crash reports), and records the cycle's reply mode
- * (`reply_cb` must be the value that was passed to RedisModule_BlockClient). */
+ * (`reply_cb` and `timeout_ms` must match RedisModule_BlockClient).
+ * Inline mode requires a zero blocked-client timer; pipeline clock deadlines
+ * are independent of this restriction. */
 void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb);
+                             RedisModuleCmdFunc reply_cb, rs_wall_clock_ms_t timeout_ms);
 
 /* Same as QueryRequest_BeginCycle, linking into the cursor registry instead. */
 void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
-                                   RedisModuleCmdFunc reply_cb);
+                                   RedisModuleCmdFunc reply_cb, rs_wall_clock_ms_t timeout_ms);
 
 /* End the cycle: unlink the request from the registry, drain unconsumed
  * per-cycle reply state, then dispose of the request — execute the recorded

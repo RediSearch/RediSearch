@@ -530,12 +530,15 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 }
 
 // Helper for error handling in coordinator HREQ execution.
-// FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
+// FAIL / RETURN_STRICT (deferred reply): store the error for the
 //   reply_callback to handle.
-// RETURN (useReplyCallback=false): reply directly - an empty result set with a
+// RETURN (inline reply): reply directly - an empty result set with a
 //   timeout warning when the error is a non-fail-policy timeout (no result set
 //   was produced here), otherwise the error itself.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
+  if (!QueryRequest_UsesReplyCallback(&hreq->base)) {
+    QueryRequest_RecordInlineReply(&hreq->base);
+  }
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
@@ -614,6 +617,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
       return;
     }
+
+    QueryRequest_RecordInlineReply(&hreq->base);
 
     // Get errors before replying (do not clear here; cleanup/teardown will handle it)
     HybridRequest_GetError(hreq, &err);
@@ -890,6 +895,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 
     if (!QueryRequest_UsesReplyCallback(&req->base)) {
       // If we are not using reply callback, we should reply with the cursors here
+      QueryRequest_RecordInlineReply(&req->base);
       replyWithCursors(replyCtx, req, depletionTimedOut);
     } // else the reply callback replies
 
@@ -1241,7 +1247,6 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
           : HybridQueryReplyCallback;
 
       timeoutMS = hreq->reqConfig.queryTimeoutMS;
-      QueryRequest_SetUseReplyCallback(&hreq->base, true);
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {
         timeoutCallback = HybridQueryTimeoutFailCallback;

@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "query_error.h"
+#include "redismodule.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
 
@@ -341,9 +342,11 @@ typedef struct QueryRequest {
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
-  /* false: BG replies inline through a thread-safe context; true: BG stores
-   * results and the Redis reply callback serializes them on the main thread. */
-  bool useReplyCallback;
+  /* Fixed by BeginCycle before dispatch and cleared by EndCycle before parking.
+   * NULL selects inline replies; otherwise the callback consumes reply. */
+  RedisModuleCmdFunc reply_cb;
+  // Updated only in assertion builds; keep the C/Rust layout independent of build flags.
+  unsigned inlineReplyCount;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
   /**
@@ -375,12 +378,12 @@ static inline ResultProcessor *QueryRequest_GetEndProc(const QueryRequest *reque
 }
 
 static inline bool QueryRequest_UsesReplyCallback(const QueryRequest *request) {
-  return request->useReplyCallback;
+  return request->reply_cb != NULL;
 }
 
-static inline void QueryRequest_SetUseReplyCallback(QueryRequest *request, bool useReplyCallback) {
-  request->useReplyCallback = useReplyCallback;
-}
+/* Record one complete inline response for a blocked cycle, including errors.
+ * Foreground execution has no OnFree and is not counted. */
+void QueryRequest_RecordInlineReply(QueryRequest *request);
 
 static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
   return QueryRequestAsyncState_GetExecutionPhase(&request->async);
