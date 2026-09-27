@@ -6176,30 +6176,24 @@ class TestShardTimeout:
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
     def _test_fail_timeout_reply_boundary_impl(self, query_args, before, cmd_name=None):
-        """Pause FAIL around encoding, or around stored results for HYBRID."""
+        """Pause FAIL before or after worker reply encoding."""
         env = self.env
         skipIfNoEnableAssert(env)
         cmd_name = cmd_name or query_args[0]
-        hybrid = query_args[0] == 'FT.HYBRID'
         point = 'BeforeBackgroundReplyEncode' if before else 'AfterBackgroundReplyEncode'
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
-        if hybrid:
-            pause = setPauseBeforeStoreResults if before else setPauseAfterStoreResults
-            pause(env, True, internal=False)
-        else:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         t_query = threading.Thread(target=run_cmd_expect_timeout, args=(env, query_args), daemon=True)
         try:
             t_query.start()
             blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
             wait_for_condition(
-                lambda: (getIsStoreResultsPaused(env) == 1 if hybrid else
-                         env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
                 f'Timeout waiting for {cmd_name} reply boundary')
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
@@ -6212,10 +6206,7 @@ class TestShardTimeout:
                             message=f'Expected one timeout error for {cmd_name}')
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
         finally:
-            if hybrid:
-                resetStoreResultsDebug(env)
-            else:
-                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
             t_query.join(timeout=10)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
@@ -6241,8 +6232,8 @@ class TestShardTimeout:
         """Test timeout occurring after encoding results for FT.AGGREGATE in standalone."""
         self._test_fail_timeout_after_store_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_before_store_hybrid(self):
-        """Test timeout occurring before storing results for FT.HYBRID in standalone."""
+    def test_fail_timeout_before_encode_hybrid(self):
+        """Test timeout occurring before encoding results for FT.HYBRID in standalone."""
         self._test_fail_timeout_before_store_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -6250,8 +6241,8 @@ class TestShardTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def test_fail_timeout_after_store_hybrid(self):
-        """Test timeout occurring after storing results for FT.HYBRID in standalone."""
+    def test_fail_timeout_after_encode_hybrid(self):
+        """Test timeout occurring after encoding results for FT.HYBRID in standalone."""
         self._test_fail_timeout_after_store_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -8323,6 +8314,28 @@ def _compare_background_fail_replies(protocol):
             env.assertTrue(bool(actual[1]))
         env.assertTrue(env.cmd('PING'))
 
+    vector = _setup_hybrid_index(env)
+    waitForIndex(env, 'hybrid_idx')
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
+    for profile in (False, True):
+        command = (['FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY'] if profile
+                   else ['FT.HYBRID', 'hybrid_idx'])
+        command += ['SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
+                    'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', 0,
+                    'SORTBY', 2, '@__key', 'ASC']
+        replies = []
+        for workers in (0, 1):
+            env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
+            reply = env.cmd(*command)
+            if profile:
+                profile_reply = reply.pop('Profile') if protocol == 3 else reply.pop()
+                env.assertTrue(bool(profile_reply))
+            reply = to_dict(reply)
+            reply.pop('execution_time')
+            replies.append(reply)
+        env.assertEqual(replies[0], replies[1])
+        env.assertTrue(env.cmd('PING'))
+
 
 @skip(cluster=True)
 def test_background_fail_reply_parity_resp2():
@@ -8381,9 +8394,13 @@ def _assert_background_fail_late_error(env, command):
 def _test_background_fail_late_expression_errors(protocol):
     env = Env(protocol=protocol,
               moduleArgs='WORKERS 1 ON_TIMEOUT FAIL DEFAULT_DIALECT 2')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'position', 'NUMERIC', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'position', 'NUMERIC', 'SORTABLE',
+               'embedding', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+               'DISTANCE_METRIC', 'L2').ok()
+    vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
     for position, value in enumerate(('1', '2', 'not-a-number')):
-        env.cmd('HSET', f'doc:{position}', 'position', position, 'value', value)
+        env.cmd('HSET', f'doc:{position}', 'position', position, 'value', value,
+                'embedding', vector)
     waitForIndex(env, 'idx')
 
     # Sorting before APPLY/FILTER makes the successful rows precede the invalid
@@ -8391,6 +8408,10 @@ def _test_background_fail_late_expression_errors(protocol):
     # so indexing accepts the document and expression evaluation detects it.
     query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0,
              'LOAD', 1, '@value', 'SORTBY', 2, '@position', 'ASC']
+    hybrid = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
+              'KNN', 2, 'K', 3, 'COMBINE', 'RRF', 2, 'WINDOW', 3,
+              'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', 0,
+              'LOAD', 2, '@position', '@value', 'SORTBY', 2, '@position', 'ASC']
     expressions = [
         ['APPLY', '@value + 1', 'AS', 'incremented'],
         ['FILTER', '(@value + 1) > 0'],
@@ -8401,6 +8422,9 @@ def _test_background_fail_late_expression_errors(protocol):
     for oom_policy in ('FAIL', 'RETURN', 'IGNORE'):
         env.expect(config_cmd(), 'SET', 'ON_OOM', oom_policy).ok()
         for expression in expressions:
+            _assert_background_fail_late_error(env, hybrid + expression)
+            _assert_background_fail_late_error(
+                env, ['FT.PROFILE', 'idx', 'HYBRID', 'QUERY'] + hybrid[2:] + expression)
             command = query + expression
             _assert_background_fail_late_error(env, command)
             _assert_background_fail_late_error(env, command + ['WITHCURSOR', 'COUNT', 3])
@@ -8446,11 +8470,15 @@ def _exercise_background_fail_timeout(stage):
     for protocol in (2, 3):
         env = Env(protocol=protocol, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
         skipIfNoEnableAssert(env)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE').ok()
+        env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:',
+                   'SCHEMA', 'name', 'TEXT', 'SORTABLE').ok()
         for i in range(8):
             env.cmd('HSET', f'doc:{i}', 'name', f'hello{i}')
+        vector = _setup_hybrid_index(env)
+        waitForIndex(env, 'hybrid_idx')
 
-        for kind in ('search', 'aggregate', 'cursor_initial', 'cursor_read'):
+        for kind in ('search', 'aggregate', 'cursor_initial', 'cursor_read',
+                     'hybrid', 'hybrid_profile'):
             # The real blocked-client deadline expires while the hook remains armed.
             timeout = 1000
             aggregate = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', timeout,
@@ -8463,6 +8491,11 @@ def _exercise_background_fail_timeout(stage):
                 command = aggregate
             elif kind == 'cursor_initial':
                 command = [*aggregate, 'WITHCURSOR', 'COUNT', 2]
+            elif kind in ('hybrid', 'hybrid_profile'):
+                command = (['FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY']
+                           if kind == 'hybrid_profile' else ['FT.HYBRID', 'hybrid_idx'])
+                command += ['SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
+                            'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', timeout]
             else:
                 _, cursor_id = env.cmd(*aggregate, 'WITHCURSOR', 'COUNT', 2)
                 env.assertNotEqual(cursor_id, 0)
