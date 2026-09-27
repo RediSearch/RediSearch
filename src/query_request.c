@@ -249,8 +249,10 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
-  request->reply_cb = NULL;
+  request->replyDeferred = false;
+#ifdef ENABLE_ASSERT
   request->inlineReplyCount = 0;
+#endif
   QueryRequestTimeout_Init(&request->timeout, requestConfig->timeoutPolicy,
                            requestConfig->queryTimeoutMS);
   QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
@@ -261,16 +263,6 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
   } else {
     RS_ASSERT(argc == 0);
   }
-}
-
-void QueryRequest_RecordInlineReply(QueryRequest *request) {
-#ifdef ENABLE_ASSERT
-  if (request->blockedClientCycleActive) {
-    RS_ASSERT(!QueryRequest_UsesReplyCallback(request));
-    RS_ASSERT(request->inlineReplyCount == 0);
-    ++request->inlineReplyCount;
-  }
-#endif
 }
 
 void QueryRequest_ResetReply(QueryRequest *request) {

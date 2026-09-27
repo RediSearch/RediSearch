@@ -269,17 +269,13 @@ TEST_F(CursorsTest, UnwindCyclesUnlinksWithoutFreeing) {
   }
 }
 
-static int ReplyModeTestCallback(RedisModuleCtx *, RedisModuleString **, int) {
-  return REDISMODULE_OK;
-}
-
 TEST_F(CursorsTest, DeferredCycleClearsModeBeforeInlineCursorRead) {
   AREQ *req = AREQ_New(nullptr, 0);
   Cursor *cursor = Cursors_Reserve(&g_CursorsList, StrongRef{0}, 1000, nullptr);
   ASSERT_NE(cursor, nullptr);
   cursor->query = &req->base;
   req->base.blockedClientCycleActive = true;
-  req->base.reply_cb = ReplyModeTestCallback;
+  req->base.replyDeferred = true;
   req->base.cursorInfo.cursor = cursor;
   req->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
   const auto id = cursor->id;
@@ -313,7 +309,7 @@ TEST_F(CursorsTest, ReplyContractRejectsMissingDuplicateAndMixedReplies) {
   EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
   req->base.reply.hasStoredResults = false;
 
-  req->base.reply_cb = ReplyModeTestCallback;
+  req->base.replyDeferred = true;
   EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
   req->base.inlineReplyCount = 0;
   EXPECT_THROW(QueryRequest_RecordInlineReply(&req->base), std::runtime_error);

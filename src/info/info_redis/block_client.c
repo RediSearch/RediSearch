@@ -55,7 +55,7 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
   RS_ASSERT(reply_cb != NULL || timeout_ms == 0);
-  request->reply_cb = reply_cb;
+  request->replyDeferred = reply_cb != NULL;
 #ifdef ENABLE_ASSERT
   request->inlineReplyCount = 0;
 #endif
@@ -94,7 +94,7 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   struct Cursor *cursor = request->cursorInfo.cursor;
   CursorDisposition disposition = request->cursorInfo.disposition;
   request->blockedClientCycleActive = false;
-  request->reply_cb = NULL;
+  request->replyDeferred = false;
 #ifdef ENABLE_ASSERT
   request->inlineReplyCount = 0;
 #endif
