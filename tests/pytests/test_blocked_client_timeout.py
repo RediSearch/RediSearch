@@ -8889,3 +8889,98 @@ def test_coord_background_fail_reply_parity_resp2():
 def test_coord_background_fail_reply_parity_resp3():
     """Worker RESP3 replies match callback replies, including late errors."""
     _reply_parity(3)
+
+
+def test_hybrid_cursor_read_timeout_during_background_encoding():
+    """Exercise each HYBRID subcursor as the last owner of its parent request."""
+    env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
+    skipIfNoEnableAssert(env)
+    vector = _setup_hybrid_index(env)
+    waitForIndex(env, 'hybrid_idx')
+    shard_id, slots = get_shard_slot_ranges(env)[-1]
+    shard = (env.getConnection(shard_id) if env.isCluster()
+             else env.getConnection())
+    shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    def cursor_total():
+        info = to_dict(shard.execute_command('_FT.INFO', 'hybrid_idx'))
+        return int(to_dict(info['cursor_stats'])['global_total'])
+
+    def create_cursors():
+        reply = shard.execute_command(
+            '_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB', 'KNN', 2, 'K', 100,
+            'COMBINE', 'RRF', 2, 'WINDOW', 100,
+            'WITHCURSOR', 'COUNT', 2, '_SLOTS_INFO', slots,
+            'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', 1000)
+        cursors = _internal_hybrid_cursor_map(reply)
+        env.assertEqual(set(cursors), {'SEARCH', 'VSIM'})
+        return cursors
+
+    def create_client(protocol):
+        original = shard.connection_pool
+        kwargs = dict(original.connection_kwargs, protocol=protocol,
+                      retry=Retry(NoBackoff(), 0), socket_timeout=5)
+        pool = ConnectionPool(connection_class=original.connection_class, **kwargs)
+        client = Redis(connection_pool=pool, single_connection_client=True)
+        client.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        return client, pool
+
+    def wait_cleanup(total):
+        def finished():
+            stats = to_dict(shard.execute_command(debug_cmd(), 'WORKERS', 'STATS'))
+            return (stats['numJobsInProgress'] == 0 and stats['totalPendingJobs'] == 0
+                    and cursor_total() == total, stats)
+        wait_for_condition(finished, 'HYBRID cursor READ did not release its cursor', timeout=5)
+
+    point = 'DuringBackgroundReplyEncode'
+    for protocol in (2, 3):
+        for subquery in ('SEARCH', 'VSIM'):
+            baseline = cursor_total()
+            cursors = create_cursors()
+            cursor = cursors.pop(subquery)
+            # Make this cursor the last owner of the parent HYBRID request.
+            shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx',
+                                  next(iter(cursors.values())))
+            client, pool = create_client(protocol)
+            client_id = client.client_id()
+            results = []
+
+            def read():
+                try:
+                    results.append(client.execute_command('_FT.CURSOR', 'READ',
+                                                          'hybrid_idx', cursor, 'COUNT', 2))
+                except Exception as error:
+                    results.append(error)
+
+            thread = threading.Thread(target=read, daemon=True)
+            shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+            try:
+                thread.start()
+                wait_for_condition(
+                    lambda: (shard.execute_command(
+                        debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
+                        {'results': results}),
+                    f'{subquery} RESP{protocol} did not reach {point}', timeout=5)
+                # The timeout must reply while the encoding worker is still paused.
+                thread.join(timeout=5)
+                env.assertFalse(thread.is_alive(), message='Timeout waited for cursor worker')
+                env.assertEqual(len(results), 1)
+                env.assertTrue(isinstance(results[0], ResponseError), message=results)
+                env.assertContains(TIMEOUT_ERROR, str(results[0]))
+                env.assertTrue(client.ping())
+                env.assertEqual(client.client_id(), client_id)
+                env.assertEqual(cursor_total(), baseline + 1)
+                env.assertEqual(shard.execute_command(
+                    debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), 1)
+            finally:
+                shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+                thread.join(timeout=5)
+                try:
+                    wait_cleanup(baseline)
+                    env.assertTrue(client.ping())
+                    env.assertEqual(client.client_id(), client_id)
+                finally:
+                    client.close()
+                    pool.disconnect()
+                    shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')

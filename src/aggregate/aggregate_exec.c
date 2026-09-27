@@ -2495,9 +2495,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
     // the blocked-client timer with reply/timeout callbacks.
     RS_ASSERT(cursor->execState != NULL);
+    // FAIL reads serialize on the worker while the blocked-client deadline remains active.
     cursor->execState->encodeReplyInBackground =
         cursor->execState->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !cursor->is_coord &&
-        !cursor->hybrid_ref.rm && !IsCoordinator(cursor->execState) && !IsHybrid(cursor->execState);
+        !IsCoordinator(cursor->execState);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
       AREQ *req = cursor->execState;
