@@ -84,9 +84,9 @@ TEST_F(SpecLockTest, FailedTryLockDoesNotInstallOwnership) {
   IndexSpec_Unlock(&spec);
 }
 
-TEST_F(SpecLockTest, BorrowedScopeKeepsOuterLockUntilReturned) {
+TEST_F(SpecLockTest, SuppressedUnlockKeepsOuterLockUntilExplicitRelease) {
   IndexSpec_LockRead(&spec);
-  IndexSpec_BorrowReadLock(&spec);
+  IndexSpec_SuppressUnlock(&spec);
   IndexSpec_Unlock(&spec);
   IndexSpec_Unlock(&spec);
   EXPECT_TRUE(IndexSpec_IsReadLocked(&spec));
@@ -96,7 +96,7 @@ TEST_F(SpecLockTest, BorrowedScopeKeepsOuterLockUntilReturned) {
     EXPECT_NE(pthread_rwlock_trywrlock(&spec.rwlock), 0);
   });
   writer.join();
-  IndexSpec_ReturnReadLock(&spec);
+  IndexSpec_AllowUnlock(&spec);
   EXPECT_TRUE(IndexSpec_IsReadLocked(&spec));
   IndexSpec_Unlock(&spec);
   IndexSpec_Unlock(&spec);

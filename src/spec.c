@@ -4113,7 +4113,7 @@ typedef enum {
 static _Thread_local struct {
   IndexSpec *spec;
   SpecLockState state;
-  bool borrowed;
+  bool unlock_suppressed;
 } lock_state;
 
 bool IndexSpec_IsLocked(const IndexSpec *sp) {
@@ -4165,14 +4165,14 @@ void IndexSpec_LockWrite(IndexSpec *sp) {
   lock_state.state = SPEC_LOCK_WRITE;
 }
 
-void IndexSpec_BorrowReadLock(IndexSpec *sp) {
-  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && !lock_state.borrowed);
-  lock_state.borrowed = true;
+void IndexSpec_SuppressUnlock(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && !lock_state.unlock_suppressed);
+  lock_state.unlock_suppressed = true;
 }
 
-void IndexSpec_ReturnReadLock(IndexSpec *sp) {
-  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && lock_state.borrowed);
-  lock_state.borrowed = false;
+void IndexSpec_AllowUnlock(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && lock_state.unlock_suppressed);
+  lock_state.unlock_suppressed = false;
 }
 
 void IndexSpec_Unlock(IndexSpec *sp) {
@@ -4180,7 +4180,7 @@ void IndexSpec_Unlock(IndexSpec *sp) {
     return;
   }
   RS_ASSERT_ALWAYS(lock_state.spec == sp);
-  if (lock_state.borrowed) {
+  if (lock_state.unlock_suppressed) {
     return;
   }
   if (lock_state.state == SPEC_LOCK_READ) {

@@ -291,8 +291,8 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   QueryIterator *it = self->iterator;
 
-  // Already locked by us, or borrowed from an outer scope that has held the lock
-  // since the iterators were built - nothing to lock or revalidate either way.
+  // This thread has held the lock since the iterators were built or last
+  // revalidated, so neither acquisition nor revalidation is needed.
   if (IndexSpec_IsLocked(sctx->spec)) {
     return REVALIDATE_CONTINUE;
   }

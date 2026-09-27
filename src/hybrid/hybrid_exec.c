@@ -922,13 +922,12 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Who holds the one read lock across depletion. Background hands it off to its workers
-  // (RPSafeDepleter); foreground in-memory lends it to the sub-requests, which share this
-  // writer-preferring, non-recursive rwlock and would deadlock against a queued writer
-  // (fork-GC) if they re-acquired it on this thread; a disk spec drops it instead, since
-  // its iterators read from the snapshot taken during the build.
-  const bool lendLockToRequests = !depleteInBackground && !sctx->spec->diskSpec;
-  bool borrowedLock = false;
+  // Background depleters acquire their own read locks before this thread releases its lock.
+  // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
+  // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
+  // Disk depletion uses the snapshot taken during the build and needs no spec lock.
+  const bool suppressSubqueryUnlocks = !depleteInBackground && !sctx->spec->diskSpec;
+  bool unlockSuppressed = false;
 
   // QAST_Iterate reads the trie/stats, which GC can mutate concurrently, so the
   // build runs under the read lock.
@@ -957,9 +956,9 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   }
 
   // Carry that one read lock into depletion.
-  if (lendLockToRequests) {
-    IndexSpec_BorrowReadLock(sctx->spec);
-    borrowedLock = true;
+  if (suppressSubqueryUnlocks) {
+    IndexSpec_SuppressUnlock(sctx->spec);
+    unlockSuppressed = true;
   } else if (!depleteInBackground) {
     IndexSpec_Unlock(sctx->spec);
   }
@@ -1012,8 +1011,8 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   rc = REDISMODULE_OK;
 
 done:
-  if (borrowedLock) {
-    IndexSpec_ReturnReadLock(sctx->spec);
+  if (unlockSuppressed) {
+    IndexSpec_AllowUnlock(sctx->spec);
   }
   // Idempotent: a no-op if the lock was already released above or by the
   // background handoff.
