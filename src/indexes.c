@@ -71,6 +71,7 @@
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
 #include "util/arr/arr.h"
+#include "rs_wall_clock.h"
 
 // The global index registry, keyed by name and by spec id. Other translation
 // units read these as externs (declared in indexes.h).
@@ -802,6 +803,9 @@ static bool updateHashVectorFields(IndexSpec *spec, RedisModuleCtx *ctx, RedisMo
     return false;
   }
 
+  rs_wall_clock startTime;
+  rs_wall_clock_init(&startTime);
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RSDocumentMetadata *dmd = NULL;
@@ -849,6 +853,7 @@ static bool updateHashVectorFields(IndexSpec *spec, RedisModuleCtx *ctx, RedisMo
     // Counted the same way a normal delete-then-add would be: there is no separate
     // "updated in place" bucket, only the existing add-side counter.
     FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, fieldsUpdated);
+    spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startTime);
   }
   IndexSpec_DecrActiveWrites(spec);
 
