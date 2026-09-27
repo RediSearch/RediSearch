@@ -304,7 +304,7 @@ TEST_F(ParseHybridTest, testCursorSettingsOwnedByEachSubquery) {
   EXPECT_EQ(hybridRequest->base.cursorConfig.chunkSize, 42);
   EXPECT_EQ(hybridRequest->base.cursorConfig.maxIdle, 1000);
   hybridRequest->base.cursorConfig = {2000, 84};
-  for (AREQ *subquery : {result.search, result.vector}) {
+  for (const AREQ *subquery : {result.search, result.vector}) {
     EXPECT_TRUE(subquery->reqflags & QEXEC_F_IS_CURSOR);
     EXPECT_EQ(subquery->base.cursorConfig.chunkSize, 42);
     EXPECT_EQ(subquery->base.cursorConfig.maxIdle, 1000);

@@ -617,6 +617,24 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
   return ARG_HANDLED;
 }
 
+static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
+  return (ParseAggPlanContext){
+    .plan = AREQ_AGGPlan(req),
+    .reqflags = &req->reqflags,
+    .reqConfig = &req->base.reqConfig,
+    .timeoutConfig = &req->base.timeout.config,
+    .searchopts = &req->searchopts,
+    .prefixesOffset = &req->prefixesOffset,
+    .cursorConfig = &req->base.cursorConfig,
+    .requiredFields = &req->requiredFields,
+    .maxSearchResults = &req->maxSearchResults,
+    .maxAggregateResults = &req->maxAggregateResults,
+    .querySlots = &req->querySlots,
+    .keySpaceVersion = &req->keySpaceVersion,
+    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
+  };
+}
+
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           QueryAST *ast, AggregatePlan *plan, bool isDiskIndex, QueryError *status) {
   // Parse query-specific arguments..
@@ -719,21 +737,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       optimization_specified = true;
     } else {
-      ParseAggPlanContext papCtx = {
-        .plan = AREQ_AGGPlan(req),
-        .reqflags = &req->reqflags,
-        .reqConfig = &req->base.reqConfig,
-        .timeoutConfig = &req->base.timeout.config,
-        .searchopts = &req->searchopts,
-        .prefixesOffset = &req->prefixesOffset,
-        .cursorConfig = &req->base.cursorConfig,
-        .requiredFields = &req->requiredFields,
-        .maxSearchResults = &req->maxSearchResults,
-        .maxAggregateResults = &req->maxAggregateResults,
-        .querySlots = &req->querySlots,
-        .keySpaceVersion = &req->keySpaceVersion,
-        .coordDispatchTime = &req->profileClocks.coordDispatchTime,
-      };
+      ParseAggPlanContext papCtx = makeParseAggPlanContext(req);
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
         // nothing
@@ -1325,21 +1329,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  papCtx = (ParseAggPlanContext){
-    .plan = AREQ_AGGPlan(req),
-    .reqflags = &req->reqflags,
-    .reqConfig = &req->base.reqConfig,
-    .timeoutConfig = &req->base.timeout.config,
-    .searchopts = &req->searchopts,
-    .prefixesOffset = &req->prefixesOffset,
-    .cursorConfig = &req->base.cursorConfig,
-    .requiredFields = &req->requiredFields,
-    .maxSearchResults = &req->maxSearchResults,
-    .maxAggregateResults = &req->maxAggregateResults,
-    .querySlots = &req->querySlots,
-    .keySpaceVersion = &req->keySpaceVersion,
-    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
-  };
+  papCtx = makeParseAggPlanContext(req);
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
