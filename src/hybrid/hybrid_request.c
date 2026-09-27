@@ -445,38 +445,30 @@ static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
 }
 
-/**
- * Get error information from a HybridRequest.
- * This function checks for errors in priority order:
- * 1. Tail pipeline errors (soft codes skipped — emitted as warnings instead)
- * 2. Individual AREQ errors (sub-query failures)
- *
- * @param hreq The HybridRequest to check for errors
- * @param status QueryError pointer to store error information on failure
- * @return REDISMODULE_OK if no errors found, REDISMODULE_ERR if error found
- */
+/* Borrow the first fatal error. Soft tail errors stay in the request for warning serialization. */
+QueryError *HybridRequest_GetFatalError(HybridRequest *hreq) {
+  if (!hreq) return NULL;
+
+  QueryError *tailErr = &hreq->tailPipelineError;
+  if (QueryError_HasError(tailErr) && !isSoftTailPipelineErrorCode(QueryError_GetCode(tailErr))) {
+    return tailErr;
+  }
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    QueryError *subErr = &hreq->errors[i];
+    if (QueryError_HasError(subErr)) return subErr;
+  }
+
+  return NULL;
+}
+
+/* Copy the selected error for callers that outlive or clear the request. */
 int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
-    if (!hreq || !status) {
-        return REDISMODULE_ERR;
-    }
-
-    // Skip soft codes so the reply path can render them as warnings.
-    if (QueryError_HasError(&hreq->tailPipelineError) &&
-        !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
-        QueryError_CloneFrom(&hreq->tailPipelineError, status);
-        return REDISMODULE_ERR;
-    }
-
-    // Priority 2: Individual AREQ errors (sub-query failures)
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (QueryError_HasError(&hreq->errors[i])) {
-            QueryError_CloneFrom(&hreq->errors[i], status);
-            return REDISMODULE_ERR;
-        }
-    }
-
-    // No errors found
-    return REDISMODULE_OK;
+  if (!hreq || !status) return REDISMODULE_ERR;
+  QueryError *err = HybridRequest_GetFatalError(hreq);
+  if (!err) return REDISMODULE_OK;
+  QueryError_CloneFrom(err, status);
+  return REDISMODULE_ERR;
 }
 
 void HybridRequest_ClearErrors(HybridRequest *req) {

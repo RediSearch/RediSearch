@@ -271,6 +271,8 @@ HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
  */
 void HybridRequest_DecrRef(HybridRequest *req);
 
+QueryError *HybridRequest_GetFatalError(HybridRequest *req);
+
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
