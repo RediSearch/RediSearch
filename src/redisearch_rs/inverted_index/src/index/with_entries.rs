@@ -8,7 +8,8 @@
 */
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, IndexUniqueId,
+    InvertedIndex,
     debug::{BlockSummary, Summary},
     numeric::{NumericEncoder, PreparedValue},
     reader::IndexReaderCore,
@@ -69,6 +70,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Returns the number of unique documents in the index.
     pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
+    }
+
+    /// Return the unique ID assigned when the underlying inverted index was created.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        self.index.unique_id()
     }
 
     /// Returns the flags of this index.

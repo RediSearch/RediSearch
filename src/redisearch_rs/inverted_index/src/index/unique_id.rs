@@ -9,6 +9,7 @@
 
 //! Unique identifier for [`InvertedIndex`](crate::InvertedIndex) instances.
 
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Global counter for unique inverted index IDs.
@@ -23,7 +24,7 @@ static UNIQUE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 ///
 /// Two distinct indexes are guaranteed to have different IDs (until the
 /// counter wraps).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[repr(transparent)]
 pub struct IndexUniqueId(u32);
 
@@ -31,5 +32,11 @@ impl IndexUniqueId {
     /// Allocate the next unique ID from the global counter.
     pub(crate) fn next() -> Self {
         Self(UNIQUE_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl From<IndexUniqueId> for u32 {
+    fn from(id: IndexUniqueId) -> Self {
+        id.0
     }
 }
