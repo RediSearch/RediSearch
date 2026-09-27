@@ -58,13 +58,7 @@ static size_t SearchDisk_RegisteredIndexCount(void) {
 
 bool SearchDisk_CanCreateIndex(QueryError *status) {
   RS_ASSERT(status);
-  const size_t registeredIndexCount = SearchDisk_RegisteredIndexCount();
-  if (registeredIndexCount == SIZE_MAX) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                        "Cannot create disk index: disk index count overflow");
-    return false;
-  }
-  const size_t nextCount = registeredIndexCount + 1;
+  const size_t nextCount = SearchDisk_RegisteredIndexCount() + 1;
 
   const size_t percentage = RSGlobalConfig.diskMaxMemoryPercentage;
   if (diskMemoryLimitBytes == 0 || percentage == 0 || percentage > 100) {
@@ -75,20 +69,8 @@ bool SearchDisk_CanCreateIndex(QueryError *status) {
   const size_t maximumMemory =
       (diskMemoryLimitBytes / 100) * percentage + ((diskMemoryLimitBytes % 100) * percentage) / 100;
 
-  const size_t bytesPerMiB = 1024 * 1024;
-  const size_t budgetMiB = RSGlobalConfig.diskWbmBudgetPerIndexMB;
-  if (budgetMiB == 0 || budgetMiB > SIZE_MAX / bytesPerMiB) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                        "Cannot create disk index: invalid per-index write-buffer budget");
-    return false;
-  }
-  const size_t budgetPerIndex = budgetMiB * bytesPerMiB;
-  if (nextCount > SIZE_MAX / budgetPerIndex) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                        "Cannot create disk index: total write-buffer budget overflow");
-    return false;
-  }
-  if (nextCount * budgetPerIndex > maximumMemory) {
+  const size_t budgetPerIndex = RSGlobalConfig.diskWbmBudgetPerIndexMB * 1024 * 1024;
+  if (nextCount > maximumMemory / budgetPerIndex) {
     QueryError_SetError(
         status, QUERY_ERROR_CODE_DISK_CREATION,
         "Cannot create disk index: write-buffer budget exceeds Search disk maximum memory");
@@ -179,12 +161,6 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
                              RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
   if (!disk_db) {
     RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
-    return false;
-  }
-  if (!SearchDisk_ApplyResourceState(0)) {
-    RedisModule_Log(ctx, "warning", "Search Disk could not apply its initial resource state");
-    disk->basic.close(ctx, disk_db);
-    disk_db = NULL;
     return false;
   }
 
@@ -297,8 +273,7 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 
 // Basic API wrappers
 static bool SearchDisk_PrepareLogicalOpen(void) {
-  const size_t registeredIndexCount = SearchDisk_RegisteredIndexCount();
-  return registeredIndexCount < SIZE_MAX && SearchDisk_ApplyResourceState(registeredIndexCount + 1);
+  return SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount() + 1);
 }
 
 static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, IndexSpec *spec) {
