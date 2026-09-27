@@ -109,6 +109,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_FIRST_READ           "BeforeFirstRead"
 #define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE  "BeforeDistHybridPromote"
 #define SYNC_POINT_BEFORE_SPEC_LOCK            "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE "BeforeBackgroundReplyEncode"
+#define SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE "DuringBackgroundReplyEncode"
+#define SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE "AfterBackgroundReplyEncode"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
