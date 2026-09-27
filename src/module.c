@@ -160,8 +160,6 @@ arrayof(int*) asm_sanitizer_allocs;
 // `_workers_thpool` queue — e.g. submitting a job after `WORKERS` was set to 0.
 redisearch_thpool_t *depleterPool = NULL;
 
-int DIST_THREADPOOL = -1;
-
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 
@@ -3481,7 +3479,7 @@ static void searchResultReducer_wrapper(void *mc_v) {
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
   MRCtx_IncrRef(mc);
-  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc);
   return REDISMODULE_OK;
 }
 
@@ -4013,11 +4011,13 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);
-  dispatch->request = &r->base;
-  dispatch->spec_ref = StrongRef_Demote(spec_ref);
-  dispatch->numShards = NumShards;
-  dispatch->bc = BlockQueryClientWithTimeout(ctx, &r->base, reply_cb, timeout_cb, timeout_ms);
-  ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch, DIST_THREADPOOL);
+  *dispatch = (DistQueryDispatchCtx){
+      .request = &r->base,
+      .spec_ref = StrongRef_Demote(spec_ref),
+      .numShards = NumShards,
+      .bc = BlockQueryClientWithTimeout(ctx, &r->base, reply_cb, timeout_cb, timeout_ms),
+  };
+  ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch);
   return REDISMODULE_OK;
 }
 
@@ -4134,7 +4134,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   rs_wall_clock_ms_t timeout_ms = 0;
 
   hreq->profileClocks.coordStartTime = coordInitialTime;
-  hreq->poolId = DIST_THREADPOOL;
 
   if (policy != TimeoutPolicy_Return) {
     reply_cb = DistHybridReplyCallback;
@@ -4145,11 +4144,13 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);
-  dispatch->request = &hreq->base;
-  dispatch->spec_ref = StrongRef_Demote(spec_ref);
-  dispatch->numShards = NumShards;
-  dispatch->bc = BlockQueryClientWithTimeout(ctx, &hreq->base, reply_cb, timeout_cb, timeout_ms);
-  ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch, DIST_THREADPOOL);
+  *dispatch = (DistQueryDispatchCtx){
+      .request = &hreq->base,
+      .spec_ref = StrongRef_Demote(spec_ref),
+      .numShards = NumShards,
+      .bc = BlockQueryClientWithTimeout(ctx, &hreq->base, reply_cb, timeout_cb, timeout_ms),
+  };
+  ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch);
   return REDISMODULE_OK;
 }
 
@@ -4805,7 +4806,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetBlockedClient(mrctx, bc);
 
   MRCtx_IncrRef(mrctx);
-  ConcurrentSearch_ThreadPoolRun(dist_callback, req, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(dist_callback, req);
 
   return REDISMODULE_OK;
 }
@@ -5074,7 +5075,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
+  ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

@@ -4990,7 +4990,7 @@ class TestCoordinatorTimeout:
             # thread; emptying the coord cursor list now only marks it for
             # deletion. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather than
             # `FT.CURSOR DEL idx <cid>`: DEL routes through the same paused
-            # DIST_THREADPOOL in `CursorCommand`, so the DEL would itself
+            # coordinator pool in `CursorCommand`, so the DEL would itself
             # block waiting for the pool. The debug command runs synchronously on the Redis
             # main thread, bypassing the pool; fanned out per-shard since the
             # coord-side cursor lives on whichever shard handled the AGGREGATE.
@@ -5061,7 +5061,7 @@ class TestCoordinatorTimeout:
             # Purge the cursor while it is still idle on the coord and the BG
             # worker is queued. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather
             # than `FT.CURSOR DEL idx <cid>` because DEL also routes through
-            # the paused DIST_THREADPOOL in `CursorCommand` and would block
+            # the paused coordinator pool in `CursorCommand` and would block
             # forever; the debug command runs synchronously on the main thread.
             run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')
             # Fire the BC timeout *before* resuming coord threads so the

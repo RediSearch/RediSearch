@@ -182,7 +182,7 @@ static void executeAggregateDeferred(void *arg);  // forward declaration
 // iterCtx's deferred-execution fields. Runs only on the IO thread.
 static void dispatchDeferred(AggregateIteratorContext *iterCtx) {
   RS_ASSERT(iterCtx->bc);
-  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx);
 }
 
 // Branch on the inbound command type: initial FT.AGGREGATE commands carry
@@ -1293,11 +1293,9 @@ err:
   return;
 }
 
-static void runDistAggregate(void *arg, bool isDebug) {
-  DistQueryDispatchCtx *dispatch = arg;
+static void runDistAggregate(DistQueryDispatchCtx *dispatch, bool isDebug) {
   QueryRequest *request = dispatch->request;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(dispatch->bc);
-  RS_AutoMemory(ctx);
   if (isDebug) {
     DEBUG_execDistAggregate(ctx, request->args.argv, request->args.argc, dispatch);
   } else {

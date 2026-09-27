@@ -2184,12 +2184,12 @@ static void coordCursorRead_ctx(void *p) {
 }
 
 /* Block the client with the taken cursor's request as private data and dispatch a
- * slim coordCursorRead_ctx job to `poolType`. FAIL/RETURN_STRICT pass
+ * slim coordCursorRead_ctx job to the coordinator pool. FAIL/RETURN_STRICT pass
  * reply/timeout callbacks and a timer; RETURN passes none and the BG job
  * replies inline through a thread-safe ctx. */
 static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long long count,
                                    RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
-                                   rs_wall_clock_ms_t timeout_ms, int poolType) {
+                                   rs_wall_clock_ms_t timeout_ms) {
   AREQ *req = Cursor_AREQ(cursor);
   RS_ASSERT(req);
   RedisModuleBlockedClient *bc =
@@ -2198,7 +2198,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   cr_ctx->bc = bc;
   cr_ctx->cursor = cursor;
   cr_ctx->count = count;
-  ConcurrentSearch_ThreadPoolRun(coordCursorRead_ctx, cr_ctx, poolType);
+  ConcurrentSearch_ThreadPoolRun(coordCursorRead_ctx, cr_ctx);
   return REDISMODULE_OK;
 }
 
@@ -2369,8 +2369,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
     // depletes its cursor, so the freeze cannot swallow this store on a live cursor.
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
-    return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
-                                   DIST_THREADPOOL);
+    return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS);
   }
 
   if (RunInThread(ctx)) {

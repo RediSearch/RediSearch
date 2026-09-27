@@ -704,8 +704,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     int rc = ParseProfile(&profileAc, status, &profileOptions);
     if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    // Parse from the held argv — the parse borrows pointers into these
-    // strings, which must outlive this job's own argv copies.
+    // Parsing borrows the request-owned argument strings.
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argc);
 
@@ -1061,10 +1060,12 @@ static void HybridDispatchCtx_Tail(void *arg) {
 // HybridRequest_GetError stays non-fatal.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
                                DistQueryDispatchCtx *job, const QueryError *dispatcherStatus) {
-  HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
-  dispatch->hreq = hreq;
-  dispatch->indexSpecRef = indexSpecRef;
-  dispatch->bc = job->bc;
+  HybridDispatchCtx *dispatch = rm_new(HybridDispatchCtx);
+  *dispatch = (HybridDispatchCtx){
+      .hreq = hreq,
+      .indexSpecRef = indexSpecRef,
+      .bc = job->bc,
+  };
 
   // Forward warnings out of the dispatcher's stack QueryError before it dies.
   if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
@@ -1077,7 +1078,7 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
   // Tail needs the BC for replyCtx; defer unblock to HybridDispatchCtx_Free.
   job->bc = NULL;
 
-  ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
+  ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch);
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef *strong_ref,
@@ -1363,11 +1364,9 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   return REDISMODULE_OK;
 }
 
-static void runDistHybrid(void *arg, bool isDebug) {
-  DistQueryDispatchCtx *dispatch = arg;
+static void runDistHybrid(DistQueryDispatchCtx *dispatch, bool isDebug) {
   QueryRequest *request = dispatch->request;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(dispatch->bc);
-  RS_AutoMemory(ctx);
   if (isDebug) {
     DEBUG_execDistHybrid(ctx, request->args.argv, request->args.argc, dispatch);
   } else {

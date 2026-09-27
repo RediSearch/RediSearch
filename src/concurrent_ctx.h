@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #ifndef RS_CONCERRNT_CTX_
 #define RS_CONCERRNT_CTX_
 
@@ -17,17 +17,17 @@ extern "C" {
 
 /* Coordinator thread-pool management. */
 
-/* Destroys all thread pools created with `ConcurrentSearch_CreatePool` */
+/* Destroy the coordinator thread pool. */
 void ConcurrentSearch_ThreadPoolDestroy(void);
 
-/* Create a new thread pool, and return its identifying id */
-int ConcurrentSearch_CreatePool(int numThreads);
+/* Create the coordinator thread pool. */
+void ConcurrentSearch_CreatePool(int numThreads);
 
 /* Run a function on the concurrent thread pool */
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
+void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg);
 
 /* Return the underlying thread pool for direct submission. */
-redisearch_thpool_t *ConcurrentSearch_GetPool(int type);
+redisearch_thpool_t *ConcurrentSearch_GetPool(void);
 
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
@@ -48,4 +48,4 @@ thpool_stats ConcurrentSearch_getStats();
 #ifdef __cplusplus
 }
 #endif
-#endif // RS_CONCERRNT_CTX_
+#endif  // RS_CONCERRNT_CTX_
