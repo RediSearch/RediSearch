@@ -441,8 +441,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
 #define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
-#define RS_DEFAULT_CONFIG                                                                \
-  {                                                    \
+#define RS_DEFAULT_CONFIG {                                                    \
     .extLoad = NULL,                                                           \
     .frisoIni = NULL,                                                          \
     .defaultScorer = NULL,                                                     \
