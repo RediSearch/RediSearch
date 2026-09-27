@@ -208,7 +208,10 @@ impl TimeoutChecker for TimeoutContextRequest {
 /// A request-backed context reads the current source on every probe because cursor reads can
 /// change it without rebuilding the iterator tree. A context without an owning request has no
 /// timeout checks.
-pub struct AnyTimeoutContext(Option<TimeoutContextRequest>);
+pub enum AnyTimeoutContext {
+    NoTimeout,
+    Request(TimeoutContextRequest),
+}
 
 impl AnyTimeoutContext {
     /// Build a context from a query's search context.
@@ -223,26 +226,28 @@ impl AnyTimeoutContext {
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
         // SAFETY: the caller guarantees `sctx` is valid throughout this call.
         let timeout = unsafe { (*sctx.as_ptr()).timeout };
-        let request = NonNull::new(timeout).map(|timeout| {
-            // SAFETY: the caller guarantees the retained request satisfies `new`'s contract.
-            unsafe { TimeoutContextRequest::new(timeout, granularity) }
-        });
-        Self(request)
+        match NonNull::new(timeout) {
+            Some(timeout) => {
+                // SAFETY: the caller guarantees the retained request satisfies `new`'s contract.
+                Self::Request(unsafe { TimeoutContextRequest::new(timeout, granularity) })
+            }
+            None => Self::NoTimeout,
+        }
     }
 }
 
 impl TimeoutContext for AnyTimeoutContext {
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        match &mut self.0 {
-            Some(request) => TimeoutContext::check_timeout(request),
-            None => Ok(()),
+        match self {
+            Self::Request(request) => TimeoutContext::check_timeout(request),
+            Self::NoTimeout => Ok(()),
         }
     }
 
     #[inline(always)]
     fn reset_counter(&mut self) {
-        if let Some(request) = &mut self.0 {
+        if let Self::Request(request) = self {
             TimeoutContext::reset_counter(request);
         }
     }
