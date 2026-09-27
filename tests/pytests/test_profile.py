@@ -1830,3 +1830,59 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
+
+def _test_distributed_profile_return_strict(protocol):
+  """STRICT profiles finish without waiting on the main thread for shard profiles."""
+  # Workers ensure the shards exercise STRICT as well as the coordinator.
+  env = Env(protocol=protocol, moduleArgs='ON_TIMEOUT RETURN-STRICT TIMEOUT 0 WORKERS 2')
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+  for i in range(12):
+    conn.execute_command('HSET', f'doc:{{{i}}}', 'n', i)
+
+  # Bound the test's client reads independently of the query timeout.
+  clients = []
+  for shard in shardsConnections(env):
+    kwargs = dict(shard.connection_pool.connection_kwargs)
+    kwargs.update(socket_timeout=5, socket_connect_timeout=5)
+    clients.append(redis.Redis(**kwargs))
+  try:
+    before = [[c.execute_command(config_cmd(), 'GET', name)
+               for name in ('ON_TIMEOUT', 'TIMEOUT')] for c in clients]
+    for timeout in (0, 100000):
+      for mode in ([], ['LIMITED']):
+        # LIMIT can finish before the network processor consumes every profile.
+        for tail, expected in [
+            (['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 1], [['n', '0']]),
+            (['GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'count'], [['count', '12']])]:
+          res = clients[0].execute_command(
+            'FT.PROFILE', 'idx', 'AGGREGATE', *mode, 'QUERY', '*',
+            *tail, 'TIMEOUT', timeout)
+          if protocol == 2:
+            env.assertEqual(res[0], [1, *expected])
+          else:
+            env.assertEqual(res['Results']['results'], [
+              {'extra_attributes': dict(zip(row[::2], row[1::2])), 'values': []}
+              for row in expected])
+            env.assertEqual(res['Results']['warning'], [])
+          # Profile collection is best-effort under STRICT, including with TIMEOUT 0.
+          env.assertLessEqual(len(get_shards_profile(env, res)), env.shardsCount, message=res)
+          for c in clients:
+            env.assertTrue(c.ping())
+    after = [[c.execute_command(config_cmd(), 'GET', name)
+              for name in ('ON_TIMEOUT', 'TIMEOUT')] for c in clients]
+    env.assertEqual(after, before)
+  finally:
+    for c in clients:
+      c.close()
+
+
+@skip(cluster=False, min_shards=2)
+def test_distributed_profile_return_strict_resp2():
+  _test_distributed_profile_return_strict(2)
+
+
+@skip(cluster=False, min_shards=2)
+def test_distributed_profile_return_strict_resp3():
+  _test_distributed_profile_return_strict(3)

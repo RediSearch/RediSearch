@@ -1,39 +1,25 @@
-# Distributed aggregate profile timeout policy
+# Distributed aggregate profiles under RETURN-STRICT
 
-Proposed behavior delta; pending maintainer approval.
+When a distributed `FT.PROFILE ... AGGREGATE` request uses RETURN-STRICT, profile
+serialization MUST NOT wait for additional shard replies. It MAY consume the
+replies already queued when serialization starts, bounded by that queue-length
+snapshot. It MUST stop when that budget is exhausted or the drain reaches EOF.
 
-## Effective policy
+The reply includes profiles already collected by the pipeline and this bounded
+drain. Shard profile information may be incomplete even without a timeout, for
+example after an early LIMIT. Full and LIMITED profiling use the same rule.
 
-When `FT.PROFILE ... AGGREGATE` executes through the multi-shard coordinator and
-the configured `ON_TIMEOUT` is `RETURN-STRICT`, the coordinator MUST use `RETURN`
-for that request. This applies to both full and `LIMITED` profiles.
-
-The effective policy MUST be selected before registering blocked-client callbacks
-and MUST remain consistent through pipeline execution and any cursor continuation.
-Profile serialization MUST NOT use STRICT's main-thread result-ready callback.
-
-The request MUST retain its effective TIMEOUT value and existing caps. RETURN's
-cooperative timeout handling applies; the strict deadline guarantee does not.
-Existing RETURN behavior determines results, timeout warnings, and available
-profile information. This change adds no guarantee that every shard's profile
-will be collected and adds no profile-completion wait.
-
-## Isolation and compatibility
-
-The fallback MUST NOT change global `ON_TIMEOUT` or `TIMEOUT` configuration.
-Unrelated requests MUST retain their configured policy. Standalone profiling,
-single-shard local execution, `FT.PROFILE SEARCH`, ordinary `FT.AGGREGATE`, and
-requests configured with RETURN or FAIL retain their existing behavior.
-
-Command syntax and RESP2/RESP3 reply shapes remain unchanged.
+RETURN-STRICT and the effective request timeout MUST remain in force. Global
+ON_TIMEOUT and TIMEOUT MUST remain unchanged. Ordinary query result semantics,
+command syntax, and RESP2/RESP3 reply shapes are unchanged. Other timeout policies
+retain their existing behavior.
 
 ## Acceptance scenarios
 
-1. Under configured RETURN-STRICT, a distributed aggregate profile completes with
-   correct query results and its existing profile envelope on a healthy cluster;
-   subsequent PING commands on every shard succeed.
-2. The same holds for LIMITED profiles and both RESP2 and RESP3 clients.
-3. The same holds with disabled timeout and a generous finite timeout, without
-   introducing a test expectation that depends on query execution speed.
-4. Reading global ON_TIMEOUT and TIMEOUT before and after these requests yields
-   the same values; the fallback applies only to the affected request.
+- Distributed STRICT aggregate profiling completes on a healthy cluster and Redis
+  responds to PING on every shard afterward.
+- Both full and LIMITED profiles work with RESP2 and RESP3, with disabled or finite
+  query timeouts and with early LIMIT or full aggregation.
+- Query results are correct and the profile envelope remains valid even when
+  some shard profiles are absent.
+- Global ON_TIMEOUT and TIMEOUT are identical before and after these requests.
