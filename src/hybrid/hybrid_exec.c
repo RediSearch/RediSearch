@@ -283,14 +283,15 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   }
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r,
+                                 rs_wall_clock_ns_t duration, bool countQuery) {
   if (results) {
     destroyResults(results);
   } else {
     SearchResult_Destroy(r);
   }
 
-  if (QueryError_IsOk(err) || hasTimeoutError(err)) {
+  if (countQuery) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -299,7 +300,6 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
   qctx->skippedResults = 0;
-  QueryError_ClearError(err);
 }
 
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
@@ -328,8 +328,9 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 }
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  QueryError *err, int rc) {
-  if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+                                        const QueryError *err, int rc) {
+  if (err && ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy,
+                                  IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
@@ -425,8 +426,9 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Returns true if reply was sent, false if error/timeout occurred before replying.
  */
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  ResultProcessor *rp, QueryProcessingCtx *qctx, int rc, cachedVars *cv,
-  SearchResult *r, SearchResult ***results, QueryError *err) {
+                                            ResultProcessor *rp, QueryProcessingCtx *qctx, int rc,
+                                            cachedVars *cv, SearchResult *r,
+                                            SearchResult ***results, const QueryError *err) {
 
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
@@ -577,7 +579,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
-    QueryError err = QueryError_Default();
+    const QueryError *fatalError = NULL;
+    bool countQuery = true;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
@@ -615,13 +618,13 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       return;
     }
 
-    // Get errors before replying (do not clear here; cleanup/teardown will handle it)
-    HybridRequest_GetError(hreq, &err);
-
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, &err);
+    fatalError = HybridRequest_GetFatalError(hreq);
+    countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
+  finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
+                       countQuery);
 }
 
 /**
@@ -636,31 +639,21 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
 
-    // Get error directly from hreq (no need to copy in HREQ_StoreResults)
-    QueryError err = QueryError_Default();
-    HybridRequest_GetError(hreq, &err);
-
-    // Point qctx->err to the local error so finishSendChunkReply_hybrid/replyWarningsWithSuffixes
-    // can access it. The original qctx->err pointed to a stack variable in RSExecDistHybrid
-    // which is now gone (background thread returned). This local `err` remains valid until
-    // we clear it at the end of this function.
-    qctx->err = &err;
-
     // Get stored results and rc
     SearchResult **results = stored->results;
     int rc = stored->rc;
+    const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
+    bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, &err);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
+                                    fatalError);
 
     // Clear stored results pointer since ownership was transferred
     stored->results = NULL;
     stored->hasStoredResults = false;
 
-    // finishSendChunk_HREQ handles cleanup and stats
-    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
-
-    // Clear the local error to avoid leak (QueryError may have allocated strings)
-    QueryError_ClearError(&err);
+    finishSendChunk_HREQ(hreq, results, &r,
+                         rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), countQuery);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -806,7 +799,8 @@ int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
 
 int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
     if (req->nrequests == 0) {
-      QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
+      QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC,
+                          "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
     arrayof(ResultProcessor*) depleters =
