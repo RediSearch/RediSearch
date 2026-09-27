@@ -2192,27 +2192,8 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
                                    rs_wall_clock_ms_t timeout_ms, int poolType) {
   AREQ *req = Cursor_AREQ(cursor);
   RS_ASSERT(req);
-  // If a timeout is armed, both callbacks must be provided (mirrors the shard
-  // Block helpers). RETURN passes no callbacks and no timer.
-  RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
-  // Deferred (callback) reply iff a reply callback will serialize stored
-  // results on main; RETURN replies inline from the BG job.
-  QueryRequest_SetUseReplyCallback(&req->base, reply_cb != NULL);
   RedisModuleBlockedClient *bc =
-      RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
-  // Safe against the just-armed timer: the timeout callback runs on this same
-  // thread.
-  QueryRequest_BeginCursorCycle(&req->base, bc, reply_cb);
-  // Publish the cycle's cursor handle (see BlockCursorClientWithTimeout).
-  req->base.cursorInfo.cursor = cursor;
-  // Cursor cycles reuse the request across reads: reset the per-read
-  // RETURN_STRICT claim/latch state so the new cycle starts from a clean
-  // slate — safe because taking the cursor proves the previous read cycle's
-  // BG work is done with it.
-  if (req->base.async.requiresAggregateResultsSync) {
-    AREQ_ResetForCursorReadReturnStrict(req);
-  }
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+      BlockCursorClientWithTimeout(ctx, cursor, &req->base, reply_cb, timeout_cb, timeout_ms);
   CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
   cr_ctx->bc = bc;
   cr_ctx->cursor = cursor;

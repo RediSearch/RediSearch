@@ -66,7 +66,7 @@
 #include "util/timeout.h"
 #include "vector_index.h"
 
-struct ConcurrentCmdCtx;
+#include "coord/query_dispatch.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -1052,118 +1052,104 @@ static void HybridDispatchCtx_Tail(void *arg) {
 // ctx and submit the tail to the coord pool. Caller must not touch the moved
 // resources after this returns.
 //
-// The dispatcher's RedisModuleCtx is NOT carried forward: parsing copied argv
-// into hreq-owned sds (see HybridRequest_prepareForExecution), so the ctx can
-// be freed normally when the handler returns. The tail installs its own
-// replyCtx into hreq->sctx->redisCtx.
+// The request owns argv independently of the dispatcher's RedisModuleCtx.
+// The tail installs its own replyCtx into hreq->sctx->redisCtx.
 //
 // `dispatcherStatus` may carry non-fatal warning bits stamped during dispatch.
 // We forward them onto hreq->tailPipelineError so finishSendChunkReply_hybrid
 // emits them; bits are independent of the error code, so
 // HybridRequest_GetError stays non-fatal.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
-                             struct ConcurrentCmdCtx *cmdCtx,
-                             const QueryError *dispatcherStatus) {
-    HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
-    dispatch->hreq = hreq;
-    dispatch->indexSpecRef = indexSpecRef;
-    dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
+                               DistQueryDispatchCtx *job, const QueryError *dispatcherStatus) {
+  HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
+  dispatch->hreq = hreq;
+  dispatch->indexSpecRef = indexSpecRef;
+  dispatch->bc = job->bc;
 
-    // Forward warnings out of the dispatcher's stack QueryError before it dies.
-    if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
-        QueryError_SetQueryOOMWarning(&hreq->tailPipelineError);
-    }
+  // Forward warnings out of the dispatcher's stack QueryError before it dies.
+  if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
+    QueryError_SetQueryOOMWarning(&hreq->tailPipelineError);
+  }
 
-    // Drop the alias to the dispatcher's ctx before threadHandleCommand frees it.
-    hreq->sctx->redisCtx = NULL;
+  // Drop the alias to the dispatcher's ctx before the coordinator worker frees it.
+  hreq->sctx->redisCtx = NULL;
 
-    // Tail needs the BC for replyCtx; defer unblock to HybridDispatchCtx_Free.
-    ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
+  // Tail needs the BC for replyCtx; defer unblock to HybridDispatchCtx_Free.
+  job->bc = NULL;
 
-    ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
-
-    // Drop the cmdCtx's inherited weak ref (the tail's indexSpecRef keeps the
-    // RefManager alive). Take rather than Get clears cmdCtx->spec_ref so a
-    // later accessor can't see an already-decremented weak ref.
-    WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
+  ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
 }
 
-static void DistHybridCleanups(RedisModuleCtx *ctx,
-    struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, StrongRef *strong_ref,
-    HybridRequest *hreq, QueryError *status) {
+static void DistHybridCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef *strong_ref,
+                               HybridRequest *hreq, QueryError *status) {
 
-    RS_ASSERT(hreq != NULL);  // the dispatcher allocates the request shell on the main thread
+  RS_ASSERT(hreq != NULL);  // the dispatcher allocates the request shell on the main thread
 
-    // If timeout already occurred, the timeout callback already replied - don't reply again
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-      if (QueryError_HasError(status)) {
-        QueryError_ClearError(status);
-      }
-      goto cleanup;
+  // If timeout already occurred, the timeout callback already replied - don't reply again
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    if (QueryError_HasError(status)) {
+      QueryError_ClearError(status);
     }
+    goto cleanup;
+  }
 
-    HREQ_ReplyOrStoreError(hreq, ctx, status);
+  HREQ_ReplyOrStoreError(hreq, ctx, status);
 
-    cleanup:
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-    if (sp) {
-      IndexSpecRef_Release(*strong_ref);
-    }
+cleanup:
+
+  if (sp) {
+    IndexSpecRef_Release(*strong_ref);
+  }
 }
 
+static void execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                           DistQueryDispatchCtx *dispatch) {
 
-void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                        struct ConcurrentCmdCtx *cmdCtx) {
+  // The hybrid request shell was allocated on the main thread by the
+  // dispatcher and installed as the blocked client's private data.
+  QueryRequest *request = dispatch->request;
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
+  // The tail sctx's redisCtx was cleared at dispatch (it aliased the main
+  // thread's command ctx); re-point it at this thread's ctx before any use.
+  hreq->sctx->redisCtx = ctx;
 
-    // The hybrid request shell was allocated on the main thread by the
-    // dispatcher and installed as the blocked client's private data.
-    QueryRequest *request =
-        RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = QueryRequest_GetHybrid(request);
-    // The tail sctx's redisCtx was cleared at dispatch (it aliased the main
-    // thread's command ctx); re-point it at this thread's ctx before any use.
-    hreq->sctx->redisCtx = ctx;
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    // Query timed out while this job was queued; the timeout callback
+    // already replied.
 
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-      // Query timed out while this job was queued; the timeout callback
-      // already replied.
-      WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      return;
-    }
-    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
-    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
+    return;
+  }
+  // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+  HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
-    QueryError status = QueryError_Default();
+  QueryError status = QueryError_Default();
 
 #ifdef ENABLE_ASSERT
     SyncPoint_Wait(SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE);
 #endif
 
     // Check if the index still exists, and promote the ref accordingly
-    StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    StrongRef strong_ref = IndexSpecRef_Promote(dispatch->spec_ref);
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
+        DistHybridCleanups(ctx, sp, &strong_ref, hreq, &status);
         return;
     }
 
-    hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     // Refresh the background-scan-OOM capture under the held execution
     // reference; the reply path reads only the capture.
     hreq->tailPipeline->qctx.bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
-    // Store coordinator start time for dispatch time tracking
-    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+    size_t numShards = dispatch->numShards;
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
+      DistHybridCleanups(ctx, sp, &strong_ref, hreq, &status);
       return;
     }
 
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
-        return;
+      DistHybridCleanups(ctx, sp, &strong_ref, hreq, &status);
+      return;
     }
 
     if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
@@ -1177,7 +1163,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     SyncPoint_Wait(SYNC_POINT_AFTER_SCHEDULE_DEPLETERS);
 #endif
 
-    scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
+    scheduleHybridTail(hreq, strong_ref, dispatch, &status);
 
     // IndexSpecRef_Promote set the TLS on this (dispatcher) thread.
     // scheduleHybridTail transferred strong_ref ownership to the tail, so we
@@ -1185,81 +1171,79 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     CurrentThread_ClearIndexSpec();
 }
 
-void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            struct ConcurrentCmdCtx *cmdCtx) {
+static void DEBUG_execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                 DistQueryDispatchCtx *dispatch) {
 
-    // See RSExecDistHybrid: the shell comes from the main thread.
-    QueryRequest *request =
-        RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = QueryRequest_GetHybrid(request);
-    hreq->sctx->redisCtx = ctx;
+  // See RSExecDistHybrid: the shell comes from the main thread.
+  QueryRequest *request = dispatch->request;
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
+  hreq->sctx->redisCtx = ctx;
 
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-      // Timed out while queued; the timeout callback already replied.
-      WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      return;
-    }
-    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
-    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    // Timed out while queued; the timeout callback already replied.
 
-    QueryError status = QueryError_Default();
+    return;
+  }
+  // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+  HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
-    // Parse debug params from the end of argv
-    HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
-    if (QueryError_HasError(&status)) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, hreq, &status);
-      return;
-    }
-    if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, hreq, &status);
-      return;
-    }
+  QueryError status = QueryError_Default();
 
-    // Strip debug params from argc for parsing
-    int stripped_argc = argc - (int)debugParams.debug_params_count - 2;
+  // Parse debug params from the end of argv
+  HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
+  if (QueryError_HasError(&status)) {
+    DistHybridCleanups(ctx, NULL, NULL, hreq, &status);
+    return;
+  }
+  if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
+    DistHybridCleanups(ctx, NULL, NULL, hreq, &status);
+    return;
+  }
 
-    StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-    IndexSpec *sp = StrongRef_Get(strong_ref);
-    if (!sp) {
-        QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
-        return;
-    }
+  // Strip debug params from argc for parsing
+  int stripped_argc = argc - (int)debugParams.debug_params_count - 2;
 
-    hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
-    // Refresh the background-scan-OOM capture under the held execution
-    // reference; the reply path reads only the capture.
-    hreq->tailPipeline->qctx.bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
-    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+  StrongRef strong_ref = IndexSpecRef_Promote(dispatch->spec_ref);
+  IndexSpec *sp = StrongRef_Get(strong_ref);
+  if (!sp) {
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    DistHybridCleanups(ctx, sp, &strong_ref, hreq, &status);
+    return;
+  }
 
-    // Use stripped_argc so parsing doesn't see debug params;
-    // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
-                                          &status, &debugParams) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
-      return;
-    }
+  // Refresh the background-scan-OOM capture under the held execution
+  // reference; the reply path reads only the capture.
+  hreq->tailPipeline->qctx.bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
 
-    // The tail (merge) pipeline runs only on the coordinator, so the tail debug
-    // timeout takes effect here.
-    if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
-      PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
-                                   debugParams.tail_timeout_count);
-    }
+  size_t numShards = dispatch->numShards;
 
-    if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
-        return;
-    }
+  // Use stripped_argc so parsing doesn't see debug params;
+  // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
+  if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards, &status,
+                                        &debugParams) != REDISMODULE_OK) {
+    DistHybridCleanups(ctx, sp, &strong_ref, hreq, &status);
+    return;
+  }
 
-    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
-        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
-    }
+  // The tail (merge) pipeline runs only on the coordinator, so the tail debug
+  // timeout takes effect here.
+  if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
+    PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
+                                 debugParams.tail_timeout_count);
+  }
 
-    scheduleDepleters(hreq);
-    scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
-    CurrentThread_ClearIndexSpec();
+  if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
+    DistHybridCleanups(ctx, sp, &strong_ref, hreq, &status);
+    return;
+  }
+
+  if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+    HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+  }
+
+  scheduleDepleters(hreq);
+  scheduleHybridTail(hreq, strong_ref, dispatch, &status);
+  CurrentThread_ClearIndexSpec();
 }
 
 // Record a timed-out blocked hybrid request into the Redis-INFO per-stage
@@ -1377,4 +1361,28 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
+}
+
+static void runDistHybrid(void *arg, bool isDebug) {
+  DistQueryDispatchCtx *dispatch = arg;
+  QueryRequest *request = dispatch->request;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(dispatch->bc);
+  RS_AutoMemory(ctx);
+  if (isDebug) {
+    DEBUG_execDistHybrid(ctx, request->args.argv, request->args.argc, dispatch);
+  } else {
+    execDistHybrid(ctx, request->args.argv, request->args.argc, dispatch);
+  }
+  if (dispatch->bc) {
+    QueryRequest_GetHybrid(request)->sctx->redisCtx = NULL;
+  }
+  DistQueryDispatchCtx_Finish(dispatch, ctx);
+}
+
+void RSExecDistHybrid(void *arg) {
+  runDistHybrid(arg, false);
+}
+
+void DEBUG_RSExecDistHybrid(void *arg) {
+  runDistHybrid(arg, true);
 }

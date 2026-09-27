@@ -37,6 +37,7 @@
 #include "query_error_ffi.h"
 #include "result_processor.h"
 #include "rmalloc.h"
+#include "op_block_client.h"
 #include "rmr/command.h"
 #include "rmr/conn.h"
 #include "rmr/node.h"
@@ -485,7 +486,7 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
 
 struct ReplyClusterInfoCtx {
   IORuntimeCtx *ioRuntime;
-  RedisModuleBlockedClient *bc;
+  OpBlockClientCtx *op;
 };
 
 struct MultiThreadedRedisBlockedCtx {
@@ -560,22 +561,20 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
 static void uvReplyClusterInfo(void *p) {
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
-  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  OpBlockClientCtx *op = replyClusterInfoCtx->op;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(op->bc);
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   IORuntimeCtx_RequestCompleted(ioRuntime);
   RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
+  OpBlockClientCtx_Unblock(op);
   rm_free(replyClusterInfoCtx);
 }
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  OpBlockClientCtx *op = OpBlockClientCtx_New(ctx, NULL);
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
-  replyClusterInfoCtx->bc = bc;
+  replyClusterInfoCtx->op = op;
   replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
   IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, replyClusterInfoCtx);
 }
