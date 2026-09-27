@@ -377,6 +377,9 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 0
+          # These test clusters use a trusted local bus without TLS. Unstable
+          # requires an explicit opt-out; older pinned Redis refs lack the option.
+          RLTEST_ARGS: ${{ inputs.redis-ref == 'unstable' && '--cluster_bus_port_protected_mode no' || '' }}
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
