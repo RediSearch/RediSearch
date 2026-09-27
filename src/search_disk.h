@@ -75,8 +75,10 @@ void SearchDisk_UpdateLogObfuscation();
  *
  * Applies only to new index creation. Restore paths always proceed and let the
  * disk backend clamp the shared write-buffer capacity.
+ *
+ * @param status Receives the reason creation was rejected.
  */
-bool SearchDisk_CanCreateIndex(void);
+bool SearchDisk_CanCreateIndex(QueryError *status);
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index

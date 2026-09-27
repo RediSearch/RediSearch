@@ -759,7 +759,7 @@ static void onUpdatedLogLevel(RedisModuleCtx *ctx) {
   RedisModule_FreeString(ctx, level);
 }
 
-static void onUpdatedMemoryLimit(RedisModuleCtx *ctx) {
+static void refreshDiskResourceState(RedisModuleCtx *ctx) {
   if (!SearchDisk_IsInitialized()) {
     return;
   }
@@ -779,7 +779,7 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
       onUpdatedHideUserDataFromLogs(ctx);
     }
     if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
-      onUpdatedMemoryLimit(ctx);
+      refreshDiskResourceState(ctx);
     }
     if (strcmp(conf, REDIS_LOGLEVEL) == 0) {
       onUpdatedLogLevel(ctx);
@@ -1285,9 +1285,11 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
     Restore_Globals(ctx);
+    refreshDiskResourceState(ctx);
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
     Discard_Globals_Backup(ctx);
+    refreshDiskResourceState(ctx);
     break;
   }
 }

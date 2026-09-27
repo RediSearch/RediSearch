@@ -1850,10 +1850,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
-    if (!SearchDisk_CanCreateIndex()) {
-      QueryError_SetError(
-          status, QUERY_ERROR_CODE_DISK_CREATION,
-          "Cannot create disk index: write-buffer budget exceeds Search disk maximum memory");
+    if (!SearchDisk_CanCreateIndex(status)) {
       goto failure;
     }
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
