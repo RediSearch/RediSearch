@@ -440,6 +440,20 @@ def test_deferred_hybrid_postprocessing_warning():
     env.expect('PING').true()
 
 
+def test_return_strict_inline_hybrid():
+    """Inline HYBRID executes with RETURN-STRICT configured on standalone and cluster."""
+    env = Env(moduleArgs='WORKERS 0 ON_TIMEOUT RETURN-STRICT', protocol=3)
+    setup_basic_index(env)
+
+    response = env.cmd(
+        'FT.HYBRID', 'idx', 'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vector,
+    )
+    env.assertEqual(response['total_results'], len(test_data), message=response)
+    env.assertEqual(response['warnings'], [], message=response)
+
+
 def test_debug_timeout_return_strict_rejected():
     """Test that _FT.DEBUG FT.HYBRID rejects ON_TIMEOUT RETURN-STRICT policy."""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN-STRICT')
