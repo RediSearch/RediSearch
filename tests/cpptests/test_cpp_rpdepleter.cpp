@@ -61,7 +61,7 @@ protected:
     }
   };
 
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
 
   void SetUp() override {
     timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;

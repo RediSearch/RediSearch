@@ -119,6 +119,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
 
     // Step 4: Parse the hybrid command
     RequestConfig reqConfig = {0};
+    TimeoutConfig timeoutConfig = {0};
     CursorConfig cursorConfig = {0};
 
     ParseHybridCommandCtx cmd = {
@@ -127,6 +128,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
       .tailPlan = &testCtx->hybridReq->tailPipeline->ap,
       .hybridParams = &testCtx->hybridParams,
       .reqConfig = &reqConfig,
+      .timeoutConfig = &timeoutConfig,
       .cursorConfig = &cursorConfig
     };
 

@@ -180,7 +180,7 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
   addSuffixTrie(t, "abc", 3);
   int hits = 0;
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
@@ -224,7 +224,7 @@ TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
   // guards against gives a deterministic "no prefix" answer if it ever returns.
   rune patternBuf[2] = {(rune)'x', 0};
   rune *emptyPattern = patternBuf + 1;
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);

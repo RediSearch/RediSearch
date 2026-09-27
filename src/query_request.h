@@ -156,8 +156,7 @@ typedef enum {
  * pointer, and foreign-language handle borrowed from this object.
  */
 typedef struct QueryRequestTimeout {
-  // Borrowed from the owning QueryRequest; it must outlive this timeout state.
-  const RequestConfig *config;
+  TimeoutConfig config;
 
   // The active source is changed only between execution cycles, while no
   // consumer can observe the union.
@@ -172,8 +171,8 @@ typedef struct QueryRequestTimeout {
   } source;
 } QueryRequestTimeout;
 
-/** Initializes timeout as UNARMED, borrowing config for its entire lifetime. */
-void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const RequestConfig *config);
+/** Initializes timeout as UNARMED, copying config into owned storage. */
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config);
 /**
  * Ends the current cycle by selecting UNARMED; sticky configuration and stale
  * union storage are retained.
@@ -183,7 +182,7 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
  * Starts a cycle using kind as its timeout source.
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
- * deadline from config->queryTimeoutMS and resets the shared counter; a zero
+ * deadline from config.queryTimeoutMS and resets the shared counter; a zero
  * timeout leaves the state UNARMED. RETURN_STRICT must be downgraded by the
  * consumer before selecting CLOCK_DEADLINE because it requires the
  * blocked-client callback.
@@ -309,6 +308,12 @@ void QueryRequestAsyncState_RegisterAbortWakeChannel(QueryRequestAsyncState *sta
 void QueryRequestAsyncState_UnregisterAbortWakeChannel(QueryRequestAsyncState *state);
 void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
+// Configuration parameters for cursor behavior
+typedef struct {
+  uint32_t maxIdle;    // Maximum idle time for the cursor (from MAXIDLE parameter)
+  uint32_t chunkSize;  // Number of results per cursor read (from COUNT parameter)
+} CursorConfig;
+
 /* Lifetime management.
  *
  * A QueryRequest has exactly one owner at any time — no reference counting.
@@ -324,6 +329,7 @@ typedef struct QueryRequest {
   QueryRequestKind kind;
   // Snapshot of defaults plus parsed overrides, retained across cursor reads.
   RequestConfig reqConfig;
+  CursorConfig cursorConfig;
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
@@ -389,10 +395,9 @@ static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int pha
   }
 }
 
-/** Copies requestConfig into request-owned storage before retaining command arguments. */
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
-                       const RequestConfig *requestConfig, RedisModuleString **argv,
-                       uint32_t argc);
+/** Copies request and timeout defaults into request-owned storage before retaining command arguments. */
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const RequestConfig *requestConfig,
+                       const TimeoutConfig *timeoutConfig, RedisModuleString **argv, uint32_t argc);
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);
 

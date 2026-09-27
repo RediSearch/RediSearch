@@ -686,13 +686,13 @@ CONFIG_SETTER(setTimeout) {
       newTimeoutMS, config->maxForegroundTimeoutLimitMS,
       config->maxForegroundTimeoutLimitMS);
   }
-  config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
+  config->timeoutConfigParams.queryTimeoutMS = newTimeoutMS;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
+  return sdscatprintf(ss, "%lld", config->timeoutConfigParams.queryTimeoutMS);
 }
 
 // _MAX_FOREGROUND_TIMEOUT_LIMIT
@@ -1059,12 +1059,12 @@ CONFIG_SETTER(setOnTimeout) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
   }
-  config->requestConfigParams.timeoutPolicy = top;
+  config->timeoutConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getOnTimeout) {
-  return sdsnew(TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  return sdsnew(TimeoutPolicy_ToString(config->timeoutConfigParams.timeoutPolicy));
 }
 
 // on-timeout
@@ -2054,8 +2054,8 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "prefix min length: %u, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %u, ", config->iteratorsConfigParams.maxPrefixExpansions);
-  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
-  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->timeoutConfigParams.queryTimeoutMS);
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
@@ -2422,7 +2422,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
+      (void *)&(RSGlobalConfig.timeoutConfigParams.queryTimeoutMS)
     )
   )
 
@@ -2589,7 +2589,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
-      (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
+      (void*)&RSGlobalConfig.timeoutConfigParams.timeoutPolicy
     )
   )
 

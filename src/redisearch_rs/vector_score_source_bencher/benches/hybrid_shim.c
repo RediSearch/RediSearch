@@ -59,7 +59,7 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
   IndexSpec spec = {0};
   RedisSearchCtx sctx = {0};
   QueryRequestTimeout timeout = {0};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);

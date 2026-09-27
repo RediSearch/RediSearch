@@ -42,7 +42,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   }
 
   AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
-  debug_req->requestedTimeoutPolicy = debug_req->r.base.reqConfig.timeoutPolicy;
+  debug_req->requestedTimeoutPolicy = debug_req->r.base.timeout.config.timeoutPolicy;
 
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
@@ -200,18 +200,17 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 
     } else if (internal_only) {
       // Coordinator with INTERNAL_ONLY: timeout applies only in the shard query pipeline, not the coordinator
-      if (debug_req->r.base.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
-        // In RESP3, timeout warning from empty shard replies is now propagated (MOD-12640).
-        // In RESP2, we still need to force a timeout to avoid infinite loop.
-        if (debug_req->r.protocol != 3) {
-          RedisModule_Log(RSDummyContext, "debug",
-                          "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
-                          "to avoid infinite loop (RESP2 only)");
-          debug_req->r.base.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-          // This late TIMEOUT change must rearm the coordinator deadline.
-          QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout,
-                                         QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-        }
+      if (debug_req->r.base.timeout.config.queryTimeoutMS == 0 && results_count == 0) {
+          // In RESP3, timeout warning from empty shard replies is now propagated (MOD-12640).
+          // In RESP2, we still need to force a timeout to avoid infinite loop.
+          if (debug_req->r.protocol != 3) {
+            RedisModule_Log(RSDummyContext, "debug",
+                            "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
+                            "to avoid infinite loop (RESP2 only)");
+            debug_req->r.base.timeout.config.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+            // This late TIMEOUT change must rearm the coordinator deadline.
+            QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+          }
       }
     } else {
       // Coordinator without INTERNAL_ONLY: debug timeout only supported with RETURN policy

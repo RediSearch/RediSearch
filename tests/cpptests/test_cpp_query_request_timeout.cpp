@@ -41,13 +41,15 @@ class QueryRequestTimeoutTest : public ::testing::Test {};
 TEST_F(QueryRequestTimeoutTest, InitializationIsUnarmedAndRetainsConfiguration) {
   QueryRequestTimeout timeout = {};
 
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Fail;
   timeoutConfig.queryTimeoutMS = 1234;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
 
-  EXPECT_EQ(timeout.config->timeoutPolicy, TimeoutPolicy_Fail);
-  EXPECT_EQ(timeout.config->queryTimeoutMS, 1234);
+  timeoutConfig = {};
+
+  EXPECT_EQ(timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
+  EXPECT_EQ(timeout.config.queryTimeoutMS, 1234);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
   EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
   EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
@@ -55,35 +57,35 @@ TEST_F(QueryRequestTimeoutTest, InitializationIsUnarmedAndRetainsConfiguration) 
 
 TEST_F(QueryRequestTimeoutTest, ConfigUpdateIsStickyAndDoesNotChangeActiveCycle) {
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 100;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestTimeout_MarkTimedOut(&timeout);
 
-  timeoutConfig.timeoutPolicy = TimeoutPolicy_Fail;
-  timeoutConfig.queryTimeoutMS = 250;
+  timeout.config.timeoutPolicy = TimeoutPolicy_Fail;
+  timeout.config.queryTimeoutMS = 250;
 
-  EXPECT_EQ(timeout.config->timeoutPolicy, TimeoutPolicy_Fail);
-  EXPECT_EQ(timeout.config->queryTimeoutMS, 250);
+  EXPECT_EQ(timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
+  EXPECT_EQ(timeout.config.queryTimeoutMS, 250);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
 
   QueryRequestTimeout_Reset(&timeout);
-  EXPECT_EQ(timeout.config->timeoutPolicy, TimeoutPolicy_Fail);
-  EXPECT_EQ(timeout.config->queryTimeoutMS, 250);
+  EXPECT_EQ(timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
+  EXPECT_EQ(timeout.config.queryTimeoutMS, 250);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  EXPECT_EQ(timeout.config->timeoutPolicy, TimeoutPolicy_Fail);
-  EXPECT_EQ(timeout.config->queryTimeoutMS, 250);
+  EXPECT_EQ(timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
+  EXPECT_EQ(timeout.config.queryTimeoutMS, 250);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
 }
 
 TEST_F(QueryRequestTimeoutTest, ResetAndRearmClearCycleState) {
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 1000;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
@@ -106,7 +108,7 @@ TEST_F(QueryRequestTimeoutTest, ResetAndRearmClearCycleState) {
 
 TEST_F(QueryRequestTimeoutTest, MarkingPublishesOnlyTheBlockedClientSource) {
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
   timeoutConfig.queryTimeoutMS = 100;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
@@ -125,7 +127,7 @@ TEST_F(QueryRequestTimeoutTest, MarkingPublishesOnlyTheBlockedClientSource) {
 TEST_F(QueryRequestTimeoutTest, PrimaryOperationAmortizesClockChecks) {
   ScopedRealClockChecks enableClockChecks;
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 1000;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
@@ -144,7 +146,7 @@ TEST_F(QueryRequestTimeoutTest, PrimaryOperationAmortizesClockChecks) {
 
 TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
   timeoutConfig.queryTimeoutMS = 1000;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
@@ -174,42 +176,45 @@ TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
 }
 
 TEST_F(QueryRequestTimeoutTest, RequestOwnsConfigurationAcrossCycles) {
-  for (auto kind :
-       {QUERY_REQUEST_KIND_AREQ, QUERY_REQUEST_KIND_HYBRID, QUERY_REQUEST_KIND_COORD_SEARCH}) {
+  for (auto kind : {QUERY_REQUEST_KIND_AREQ, QUERY_REQUEST_KIND_HYBRID, QUERY_REQUEST_KIND_COORD_SEARCH}) {
     RequestConfig defaults = {};
     defaults.dialectVersion = 4;
-    defaults.queryTimeoutMS = 1234;
-    defaults.timeoutPolicy = TimeoutPolicy_Fail;
+    TimeoutConfig timeoutDefaults = {1234, TimeoutPolicy_Fail};
     defaults.printProfileClock = true;
     defaults.BM25STD_TanhFactor = 7;
     defaults.oomPolicy = OomPolicy_Fail;
     QueryRequest request = {};
-    QueryRequest_Init(&request, kind, &defaults, nullptr, 0);
+    QueryRequest_Init(&request, kind, &defaults, &timeoutDefaults, nullptr, 0);
 
     defaults = {};
-    EXPECT_EQ(request.timeout.config, &request.reqConfig);
+    timeoutDefaults = {};
+    EXPECT_EQ(request.cursorConfig.maxIdle, 0);
+    EXPECT_EQ(request.cursorConfig.chunkSize, 0);
+    request.cursorConfig = {1000, 42};
     EXPECT_EQ(request.reqConfig.dialectVersion, 4);
-    EXPECT_EQ(request.reqConfig.queryTimeoutMS, 1234);
-    EXPECT_EQ(request.reqConfig.timeoutPolicy, TimeoutPolicy_Fail);
+    EXPECT_EQ(request.timeout.config.queryTimeoutMS, 1234);
+    EXPECT_EQ(request.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
     EXPECT_TRUE(request.reqConfig.printProfileClock);
     EXPECT_EQ(request.reqConfig.BM25STD_TanhFactor, 7);
     EXPECT_EQ(request.reqConfig.oomPolicy, OomPolicy_Fail);
 
-    request.reqConfig.queryTimeoutMS = 0;
-    request.reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+    request.timeout.config.queryTimeoutMS = 0;
+    request.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
     QueryRequestTimeout_Reset(&request.timeout);
     QueryRequest_ResetReply(&request);
     QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     EXPECT_EQ(request.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
+    EXPECT_EQ(request.cursorConfig.maxIdle, 1000);
+    EXPECT_EQ(request.cursorConfig.chunkSize, 42);
     EXPECT_EQ(request.reqConfig.dialectVersion, 4);
     EXPECT_EQ(request.reqConfig.BM25STD_TanhFactor, 7);
     EXPECT_EQ(request.reqConfig.oomPolicy, OomPolicy_Fail);
 
-    request.reqConfig.queryTimeoutMS = 5000;
+    request.timeout.config.queryTimeoutMS = 5000;
     QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     EXPECT_EQ(request.timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     const auto deadline = *QueryRequestTimeout_GetClockDeadline(&request.timeout);
-    request.reqConfig.queryTimeoutMS = 0;
+    request.timeout.config.queryTimeoutMS = 0;
     EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&request.timeout)->tv_sec, deadline.tv_sec);
     EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&request.timeout)->tv_nsec, deadline.tv_nsec);
     QueryRequestTimeout_Reset(&request.timeout);
@@ -221,10 +226,9 @@ TEST_F(QueryRequestTimeoutTest, RequestOwnsConfigurationAcrossCycles) {
 
 TEST_F(QueryRequestTimeoutTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientCycles) {
   RequestConfig config = {};
-  config.timeoutPolicy = TimeoutPolicy_Return;
-  config.queryTimeoutMS = 1000;
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Return};
   QueryRequest request = {};
-  QueryRequest_Init(&request, QUERY_REQUEST_KIND_AREQ, &config, nullptr, 0);
+  QueryRequest_Init(&request, QUERY_REQUEST_KIND_AREQ, &config, &timeoutConfig, nullptr, 0);
 
   constexpr int queuePhase = 0;
   constexpr int pipelinePhase = 1;

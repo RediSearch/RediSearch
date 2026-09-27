@@ -840,7 +840,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // outlives it). The explicit UNARMED timeout mirrors request-owned state without imposing a
   // deadline on the test.
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);

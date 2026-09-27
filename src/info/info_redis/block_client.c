@@ -60,7 +60,7 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   RedisModule_BlockClientSetPrivateData(bc, request);
   // RETURN uses a worker-owned clock deadline rather than the blocked-client
   // atomic and intentionally retains its existing disconnect behavior.
-  if (request->reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
+  if (request->timeout.config.timeoutPolicy != TimeoutPolicy_Return) {
     RedisModule_SetDisconnectCallback(bc, QueryRequest_OnDisconnect);
   }
 }

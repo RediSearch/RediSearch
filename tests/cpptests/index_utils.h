@@ -43,7 +43,7 @@ class MockQueryEvalCtx {
 public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   QueryRequestTimeout *timeout;
   IndexSpec spec;
   SchemaRule rule;

@@ -68,7 +68,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
       MockQueryEvalCtx mockQctx(n, n);
       QueryRequestTimeout timeout = {};
-      RequestConfig timeoutConfig = {};
+      TimeoutConfig timeoutConfig = {};
       timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
       timeoutConfig.queryTimeoutMS = 0;
       QueryRequestTimeout_Init(&timeout, &timeoutConfig);

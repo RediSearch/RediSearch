@@ -691,10 +691,11 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     ParseHybridCommandCtx cmd = {0};
     cmd.search = hreq->requests[SEARCH_INDEX];
     cmd.vector = hreq->requests[VECTOR_INDEX];
-    cmd.cursorConfig = &hreq->cursorConfig;
+    cmd.cursorConfig = &hreq->base.cursorConfig;
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->base.reqConfig;
+    cmd.timeoutConfig = &hreq->base.timeout.config;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
     // Only detects the profile prefix; nothing borrows from the job's argv here.

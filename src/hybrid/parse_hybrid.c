@@ -612,7 +612,7 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
     // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
     subqueryRequest->reqflags |= QEXEC_F_IS_CURSOR;
     // Copy cursor configuration using the helper function
-    copyCursorConfig(&subqueryRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+    copyCursorConfig(&subqueryRequest->base.cursorConfig, parsedCmdCtx->cursorConfig);
   }
 
   // Copy score sending flags if enabled
@@ -629,6 +629,7 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
   }
 
   subqueryRequest->base.reqConfig = *parsedCmdCtx->reqConfig;
+  subqueryRequest->base.timeout.config = *parsedCmdCtx->timeoutConfig;
 
   // Copy max results limits
   subqueryRequest->maxSearchResults = maxHybridResults;
@@ -860,6 +861,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .searchopts = &mergeSearchopts,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
+      .timeoutConfig = parsedCmdCtx->timeoutConfig,
       .maxResults = &maxHybridResults,
       .querySlots = &requestSlotRanges,
       .keySpaceVersion = &keySpaceVersion,
@@ -873,14 +875,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // BEFORE the foreground-timeout cap below, so the coordinator can forward the
   // exact client timeout to shards without re-scanning argv.
   parsedCmdCtx->timeoutSpecified = (hybridParseCtx.specifiedArgs & SPECIFIED_ARG_TIMEOUT) != 0;
-  parsedCmdCtx->clientTimeoutMS = parsedCmdCtx->reqConfig->queryTimeoutMS;
+  parsedCmdCtx->clientTimeoutMS = parsedCmdCtx->timeoutConfig->queryTimeoutMS;
 
   // Cap the effective query timeout to search-_max-foreground-timeout-limit
-  // when the limit is active. The hybrid request shares a single reqConfig
+  // when the limit is active. The hybrid request has a timeout configuration
   // that is later copied into both subqueries through copyHybridConfigToSubquery.
   // finishSendChunkReply_hybrid reads the cap flag from the search subquery
   // only, so the flag is set on searchRequest alone.
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->timeoutConfig->queryTimeoutMS)) {
     searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 

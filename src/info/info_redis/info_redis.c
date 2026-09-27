@@ -426,10 +426,9 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.iteratorsConfigParams.minStemLength);
   RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions",
                                    RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms",
-                                   RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.timeoutConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy",
-																	(char *)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
+																	(char *)TimeoutPolicy_ToString(RSGlobalConfig.timeoutConfigParams.timeoutPolicy));
   RedisModule_InfoAddFieldCString(ctx, "oom_policy",
                                   (char *)OomPolicy_ToString(RSGlobalConfig.requestConfigParams.oomPolicy));
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);

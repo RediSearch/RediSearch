@@ -99,10 +99,6 @@ typedef struct {
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;
-  // The maximal amount of time a single query can take before timing out, in milliseconds.
-  // 0 means unlimited
-  long long queryTimeoutMS;
-  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
@@ -110,6 +106,13 @@ typedef struct {
   // OOM policy
   RSOomPolicy oomPolicy;
 } RequestConfig;
+
+typedef struct {
+  // The maximal amount of time a single query can take before timing out, in milliseconds.
+  // 0 means unlimited
+  long long queryTimeoutMS;
+  RSTimeoutPolicy timeoutPolicy;
+} TimeoutConfig;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
@@ -126,6 +129,7 @@ typedef struct {
   IteratorsConfig iteratorsConfigParams;
 
   RequestConfig requestConfigParams;
+  TimeoutConfig timeoutConfigParams;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -437,7 +441,8 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
 #define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
-#define RS_DEFAULT_CONFIG {                                                    \
+#define RS_DEFAULT_CONFIG                                                                \
+  {                                                    \
     .extLoad = NULL,                                                           \
     .frisoIni = NULL,                                                          \
     .defaultScorer = NULL,                                                     \
@@ -445,8 +450,8 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
-    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
+    .timeoutConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
+    .timeoutConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
     .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \

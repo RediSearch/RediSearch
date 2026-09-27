@@ -38,7 +38,7 @@ class NonMockTimeoutChecks {
 TEST(VecSimTimeoutSourceTest, RetainedContextFollowsSourceChangesBetweenCursorCycles) {
   NonMockTimeoutChecks enableTimeoutChecks;
   QueryRequestTimeout timeout = {};
-  RequestConfig timeoutConfig = {};
+  TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Fail;
   timeoutConfig.queryTimeoutMS = 60'000;
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);

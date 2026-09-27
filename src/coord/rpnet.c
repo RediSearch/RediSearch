@@ -159,7 +159,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (shard_timed_out && nc->areq->base.reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+  if (shard_timed_out && nc->areq->base.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -200,7 +200,7 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   switch (QueryWarningCode_GetCodeFromMessage(warning_str)) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
-      if (nc->areq->base.reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      if (nc->areq->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
         return RS_RESULT_TIMEDOUT;
       }
       break;
@@ -482,11 +482,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
-      if (errCode == QUERY_ERROR_CODE_GENERIC || errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
-          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) &&
-           nc->areq->base.reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
-          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) &&
-           nc->areq->base.reqConfig.oomPolicy == OomPolicy_Fail)) {
+      if (errCode == QUERY_ERROR_CODE_GENERIC ||
+          errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
+          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq ->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq ->base.reqConfig.oomPolicy == OomPolicy_Fail)) {
         // The shard reply already contains the prefixed error string — set it directly
         // without re-prefixing via QueryError_SetError.
         QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);

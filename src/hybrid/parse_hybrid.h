@@ -35,6 +35,7 @@ typedef struct ParseHybridCommandCtx {
     AGGPlan *tailPlan;
     HybridPipelineParams* hybridParams;
     RequestConfig* reqConfig;
+    TimeoutConfig *timeoutConfig;
     CursorConfig* cursorConfig;
     rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time for internal commands
 
