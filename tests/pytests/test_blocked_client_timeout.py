@@ -445,7 +445,7 @@ class TestCoordinatorTimeout:
         """Teardown: Print debug info about any remaining HYBRID clients."""
         debug_print_hybrid_clients(self.env, "TestCoordinatorTimeout teardown")
 
-    def _test_fail_timeout_impl(self, query_args):
+    def _test_fail_timeout_impl(self, query_args, allow_timeout_warning=False):
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
@@ -503,7 +503,18 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                         str(base_err_coord + 1),
                         message=f"Coordinator timeout error should be +1 after {query_args[0]}")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+        changed_metrics = [TIMEOUT_ERROR_COORD_METRIC]
+        if allow_timeout_warning:
+            # PROFILE can count a timeout warning while encoding a background
+            # reply that Redis discards after the main-thread timeout error.
+            # Whether that happens before this snapshot depends on scheduling.
+            warning_delta = (
+                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+                - int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC]))
+            env.assertIn(warning_delta, (0, 1),
+                         message="Discarded PROFILE reply may count one timeout warning")
+            changed_metrics.append(TIMEOUT_WARNING_COORD_METRIC)
+        _verify_metrics_not_changed(env, env, before_info, changed_metrics)
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -517,7 +528,8 @@ class TestCoordinatorTimeout:
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
 
     def test_fail_timeout_profile_aggregate(self):
-        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'])
+        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
+                                     allow_timeout_warning=True)
 
     def test_fail_timeout_profile_hybrid(self):
         self._test_fail_timeout_impl([
