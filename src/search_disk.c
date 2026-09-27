@@ -76,7 +76,20 @@ bool SearchDisk_CanCreateIndex(QueryError *status) {
         "Cannot create disk index: write-buffer budget exceeds Search disk maximum memory");
     return false;
   }
+
+  RS_ASSERT(disk && disk_db && disk->basic.reserveOpenFiles);
+  if (!disk->basic.reserveOpenFiles(disk_db)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Cannot create disk index: not enough file descriptors available; "
+                        "lower search-disk-max-open-files or reduce the number of indexes");
+    return false;
+  }
   return true;
+}
+
+void SearchDisk_ReleaseCreateFailure(void) {
+  RS_ASSERT(disk && disk_db && disk->basic.releaseOpenFiles);
+  disk->basic.releaseOpenFiles(disk_db);
 }
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)

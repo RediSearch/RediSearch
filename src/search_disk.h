@@ -71,14 +71,23 @@ void SearchDisk_UpdateLogObfuscation();
 // Basic API wrappers
 
 /**
- * @brief Return whether one more disk index fits the configured write-buffer budget.
+ * @brief Return whether one more disk index fits the configured write-buffer budget and the
+ * search-disk-max-open-files cap.
  *
- * Applies only to new index creation. Restore paths always proceed and let the
- * disk backend clamp the shared write-buffer capacity.
+ * Applies only to new index creation. On success, charges the FD cap immediately; call
+ * SearchDisk_ReleaseCreateFailure if the index does not end up opening. Restore paths always
+ * proceed and let the disk backend clamp shared write-buffer capacity and FD usage instead of
+ * rejecting the index.
  *
  * @param status Receives the reason creation was rejected.
  */
 bool SearchDisk_CanCreateIndex(QueryError *status);
+
+/**
+ * @brief Undo the FD charge SearchDisk_CanCreateIndex applied, after a create attempt that it
+ * admitted subsequently failed to open.
+ */
+void SearchDisk_ReleaseCreateFailure(void);
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
