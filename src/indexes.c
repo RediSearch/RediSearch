@@ -302,10 +302,6 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
         nIndexes, maxIndexes_g);
     return REDISMODULE_ERR;
   }
-  if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
-    RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
-    return REDISMODULE_ERR;
-  }
   for (size_t i = 0; i < nIndexes; ++i) {
     // Load one spec (parse + duplicate detection + disk open), then publish it
     // into the registry.

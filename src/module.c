@@ -655,13 +655,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   QueryError status = QueryError_Default();
 
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES, "Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
-    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
-    QueryError_ClearError(&status);
-    return REDISMODULE_OK;
-  }
-
   IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
@@ -1330,10 +1323,6 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   long long encodeVersion;
   if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
-  }
-
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
   }
 
   IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
