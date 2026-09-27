@@ -840,7 +840,10 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // outlives it). The explicit UNARMED timeout mirrors request-owned state without imposing a
   // deadline on the test.
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  RequestConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  timeoutConfig.queryTimeoutMS = 0;
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.radius, queryParams, range_query.order,
       /*yields_metric=*/true, &timeout);

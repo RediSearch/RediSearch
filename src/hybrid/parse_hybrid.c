@@ -591,16 +591,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-// Copy request configuration from source to destination
-static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
-  dest->queryTimeoutMS = src->queryTimeoutMS;
-  dest->dialectVersion = src->dialectVersion;
-  dest->timeoutPolicy = src->timeoutPolicy;
-  dest->printProfileClock = src->printProfileClock;
-  dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
-  dest->oomPolicy = src->oomPolicy;
-}
-
 static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
   dest->maxIdle = src->maxIdle;
   dest->chunkSize = src->chunkSize;
@@ -638,13 +628,7 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
     subqueryRequest->reqflags |= QEXEC_F_SEND_SCOREEXPLAIN;
   }
 
-  // Copy request configuration using the helper function
-  copyRequestConfig(&subqueryRequest->reqConfig, parsedCmdCtx->reqConfig);
-  // Hybrid subqueries bypass AREQ_Compile, so synchronize their timeout configuration where the
-  // parsed RequestConfig is copied.
-  QueryRequestTimeout_UpdateConfig(&subqueryRequest->base.timeout,
-                                   subqueryRequest->reqConfig.timeoutPolicy,
-                                   subqueryRequest->reqConfig.queryTimeoutMS);
+  subqueryRequest->base.reqConfig = *parsedCmdCtx->reqConfig;
 
   // Copy max results limits
   subqueryRequest->maxSearchResults = maxHybridResults;
@@ -823,8 +807,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
     parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
   }
-  parsedCmdCtx->search->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
-  parsedCmdCtx->vector->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->search->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->vector->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
 
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
@@ -899,12 +883,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
     searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
-  // TIMEOUT parsing and the foreground cap are complete. Keep the owning hybrid request's
-  // timeout configuration synchronized at the point its effective RequestConfig is finalized.
-  RS_ASSERT(sctx->timeout);
-  QueryRequestTimeout_UpdateConfig(sctx->timeout,
-                                   parsedCmdCtx->reqConfig->timeoutPolicy,
-                                   parsedCmdCtx->reqConfig->queryTimeoutMS);
 
   // Set slots info in both subqueries
   if (internal) {

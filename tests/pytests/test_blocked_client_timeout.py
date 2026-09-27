@@ -6430,6 +6430,31 @@ class TestReturnStrictWorkerTransitions:
         self._timeout_return_strict_cursor_while_workers_paused(
             cursor_id, 'RETURN_STRICT after WORKERS 1 -> 0 -> 1')
 
+    def test_cursor_keeps_request_config_after_global_changes(self):
+        """Cursor reads retain their policy across global changes and an inline read."""
+        skipTest(cluster=True)
+        self._set_workers(1)
+        previous = self.env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        previous_timeout = self.env.cmd('CONFIG', 'GET', 'search-timeout')['search-timeout']
+        previous_dialect = self.env.cmd('CONFIG', 'GET', 'search-default-dialect')['search-default-dialect']
+        cursor_id = self._create_cursor()
+        try:
+            self.env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+            self.env.expect('CONFIG', 'SET', 'search-timeout', '0').ok()
+            self.env.expect('CONFIG', 'SET', 'search-default-dialect', '1').ok()
+            self._set_workers(0)
+            result, next_cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2')
+            self.env.assertEqual(next_cursor, cursor_id, message=result)
+            self.env.assertEqual(result.get('warning', []), [], message=result)
+
+            self._set_workers(1)
+            self._timeout_return_strict_cursor_while_workers_paused(
+                cursor_id, 'request snapshot after global changes and inline read')
+        finally:
+            self.env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()
+            self.env.expect('CONFIG', 'SET', 'search-timeout', previous_timeout).ok()
+            self.env.expect('CONFIG', 'SET', 'search-default-dialect', previous_dialect).ok()
+
     def test_cursor_restores_timeout_after_workers_restart(self):
         """A foreground cap must not replace the timeout cached for later worker reads."""
         skipTest(cluster=True)

@@ -135,12 +135,12 @@ typedef enum {
  *
  * Init selects no active source. Each execution cycle selects exactly one
  * source with BeginCycle, and Reset returns the state to UNARMED between
- * cycles. Cursor reads reuse this object, so policy and timeoutMS remain sticky
+ * cycles. Cursor reads reuse the owning request configuration
  * while the source union is reinitialized for each read.
  *
  * Threading contract:
  *
- * - Init, UpdateConfig, Reset, BeginCycle, and GetClockDeadlineForUpdate require
+ * - Init, Reset, BeginCycle, configuration changes, and GetClockDeadlineForUpdate require
  *   exclusive access. They must run before the request is published or between
  *   execution cycles, after all consumers of the previous cycle have stopped.
  * - kind is immutable during a cycle. Only the union member selected by kind
@@ -156,9 +156,8 @@ typedef enum {
  * pointer, and foreign-language handle borrowed from this object.
  */
 typedef struct QueryRequestTimeout {
-  // Stable configuration retained across cursor execution cycles.
-  long long timeoutMS;
-  RSTimeoutPolicy policy;
+  // Borrowed from the owning QueryRequest; it must outlive this timeout state.
+  const RequestConfig *config;
 
   // The active source is changed only between execution cycles, while no
   // consumer can observe the union.
@@ -173,15 +172,8 @@ typedef struct QueryRequestTimeout {
   } source;
 } QueryRequestTimeout;
 
-/** Initializes timeout as UNARMED with the supplied sticky configuration. */
-void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                              long long timeoutMS);
-/**
- * Updates sticky configuration without changing or rearming the active cycle.
- * The new timeoutMS is used when a later clock cycle begins.
- */
-void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                                      long long timeoutMS);
+/** Initializes timeout as UNARMED, borrowing config for its entire lifetime. */
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const RequestConfig *config);
 /**
  * Ends the current cycle by selecting UNARMED; sticky configuration and stale
  * union storage are retained.
@@ -191,8 +183,8 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
  * Starts a cycle using kind as its timeout source.
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
- * deadline from the sticky timeoutMS and resets the shared counter; a zero
- * timeoutMS leaves the state UNARMED. RETURN_STRICT must be downgraded by the
+ * deadline from config->queryTimeoutMS and resets the shared counter; a zero
+ * timeout leaves the state UNARMED. RETURN_STRICT must be downgraded by the
  * consumer before selecting CLOCK_DEADLINE because it requires the
  * blocked-client callback.
  */
@@ -330,6 +322,8 @@ void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
  * last touch, and OnFree only runs after that. */
 typedef struct QueryRequest {
   QueryRequestKind kind;
+  // Snapshot of defaults plus parsed overrides, retained across cursor reads.
+  RequestConfig reqConfig;
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
@@ -395,6 +389,7 @@ static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int pha
   }
 }
 
+/** Copies requestConfig into request-owned storage before retaining command arguments. */
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
                        const RequestConfig *requestConfig, RedisModuleString **argv,
                        uint32_t argc);

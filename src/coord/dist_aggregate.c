@@ -793,7 +793,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   r->profile = printAggProfile;
 
-  unsigned int dialect = r->reqConfig.dialectVersion;
+  unsigned int dialect = r->base.reqConfig.dialectVersion;
   specialCaseCtx *knnCtx = NULL;
 
   if(dialect >= 2) {

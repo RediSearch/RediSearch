@@ -200,7 +200,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.cursorConfig = &hreq->cursorConfig;
   cmd.hybridParams = &hybridParams;
   cmd.tailPlan = &hreq->tailPipeline->ap;
-  cmd.reqConfig = &hreq->reqConfig;
+  cmd.reqConfig = &hreq->base.reqConfig;
   cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);

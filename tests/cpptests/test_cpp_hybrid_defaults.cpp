@@ -87,7 +87,7 @@ protected:
     cmd.vector = result->requests[1];
     cmd.tailPlan = &result->tailPipeline->ap;
     cmd.hybridParams = &hybridParams;
-    cmd.reqConfig = &result->reqConfig;
+    cmd.reqConfig = &result->base.reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
 
     ArgsCursor ac = {0};

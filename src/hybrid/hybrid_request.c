@@ -300,41 +300,40 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    RS_ASSERT(sctx);
-    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
-    // the request's lifetime.
-    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
-    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID,
-                      &hybridReq->reqConfig, argv, argc);
-    hybridReq->requests = requests;
-    hybridReq->nrequests = nrequests;
-    hybridReq->sctx = sctx;
-    hybridReq->sctx->timeout = &hybridReq->base.timeout;
-    hybridReq->kArgIndex = -1;
-    rs_wall_clock now = {0};
-    rs_wall_clock_init(&now);
+  RS_ASSERT(sctx);
+  QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID,
+                    &RSGlobalConfig.requestConfigParams, argv, argc);
+  hybridReq->requests = requests;
+  hybridReq->nrequests = nrequests;
+  hybridReq->sctx = sctx;
+  hybridReq->sctx->timeout = &hybridReq->base.timeout;
+  hybridReq->kArgIndex = -1;
+  rs_wall_clock now = {0};
+  rs_wall_clock_init(&now);
 
-    // Initialize return codes array for tracking subqueries final states
-    hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
+  // Initialize return codes array for tracking subqueries final states
+  hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
 
-    // Initialize the tail pipeline that will merge results from all requests
-    hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
-    AGPLN_Init(&hybridReq->tailPipeline->ap);
-    hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
-    QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
-    // Capture the background-scan-OOM warning flag while the spec is guaranteed
-    // alive (main-thread command handling). The reply path reads only this
-    // capture — it may run after the last strong spec reference was released.
-    if (sctx && sctx->spec) {
-      hybridReq->tailPipeline->qctx.bgScanOOM |=
-          RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
-    }
+  // Initialize the tail pipeline that will merge results from all requests
+  hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
+  AGPLN_Init(&hybridReq->tailPipeline->ap);
+  hybridReq->tailPipelineError = QueryError_Default();
+  Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.reqConfig.timeoutPolicy,
+                      &hybridReq->tailPipelineError);
+  QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
+  // Capture the background-scan-OOM warning flag while the spec is guaranteed
+  // alive (main-thread command handling). The reply path reads only this
+  // capture — it may run after the last strong spec reference was released.
+  if (sctx && sctx->spec) {
+    hybridReq->tailPipeline->qctx.bgScanOOM |=
+        RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
+  }
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.reqConfig.timeoutPolicy,
+                            &requests[i]->base.reply.err);
     }
     hybridReq->profileClocks.initClock = now;
 

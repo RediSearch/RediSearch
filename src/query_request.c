@@ -23,18 +23,11 @@
 #include "util/misc.h"
 #include "util/timeout.h"
 
-void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                              long long timeoutMS) {
-  // Capture the request defaults before parsing can apply command-specific overrides.
-  QueryRequestTimeout_UpdateConfig(timeout, policy, timeoutMS);
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const RequestConfig *config) {
+  RS_ASSERT(config);
+  RS_ASSERT(config->queryTimeoutMS >= 0);
+  timeout->config = config;
   QueryRequestTimeout_Reset(timeout);
-}
-
-void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                                      long long timeoutMS) {
-  RS_ASSERT(timeoutMS >= 0);
-  timeout->policy = policy;
-  timeout->timeoutMS = timeoutMS;
 }
 
 void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout) {
@@ -50,15 +43,15 @@ void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTi
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE: {
       // RETURN_STRICT depends on the blocked-client timeout callback. Clock-based
       // consumers must downgrade it to RETURN before starting their cycle.
-      RS_ASSERT(timeout->policy != TimeoutPolicy_ReturnStrict);
-      if (timeout->timeoutMS == 0) {
+      RS_ASSERT(timeout->config->timeoutPolicy != TimeoutPolicy_ReturnStrict);
+      if (timeout->config->queryTimeoutMS == 0) {
         timeout->kind = QUERY_REQUEST_TIMEOUT_UNARMED;
         return;
       }
 
       struct timespec duration = {
-          .tv_sec = timeout->timeoutMS / 1000,
-          .tv_nsec = (timeout->timeoutMS % 1000) * 1000000,
+          .tv_sec = timeout->config->queryTimeoutMS / 1000,
+          .tv_nsec = (timeout->config->queryTimeoutMS % 1000) * 1000000,
       };
       struct timespec now;
       clock_gettime(CLOCK_MONOTONIC_RAW, &now);
@@ -242,6 +235,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
                        uint32_t argc) {
   RS_ASSERT(requestConfig);
   request->kind = kind;
+  request->reqConfig = *requestConfig;
   request->args = (QueryRequestArgs) {
     .queryOffset = QUERY_OFFSET_NONE,
   };
@@ -250,8 +244,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
   QueryRequest_SetUseReplyCallback(request, false);
-  QueryRequestTimeout_Init(&request->timeout, requestConfig->timeoutPolicy,
-                           requestConfig->queryTimeoutMS);
+  QueryRequestTimeout_Init(&request->timeout, &request->reqConfig);
   QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);

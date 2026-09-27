@@ -187,19 +187,6 @@ typedef struct AREQ {
 
   int protocol; // RESP2/3
 
-  /*
-  // Dialect version used on this request
-  unsigned int dialectVersion;
-  // Query timeout in milliseconds
-  long long reqTimeout;
-  RSTimeoutPolicy timeoutPolicy;
-  // reply with time on profile
-  int printProfileClock;
-  uint64_t BM25STD_TanhFactor;
-  */
-
-  RequestConfig reqConfig;
-
   /** Cursor configuration */
   CursorConfig cursorConfig;
 

@@ -142,7 +142,7 @@ class ParseHybridTest : public ::testing::Test {
     result.vector = hybridRequest->requests[1];
     result.tailPlan = &hybridRequest->tailPipeline->ap;
     result.hybridParams = &hybridParams;
-    result.reqConfig = &hybridRequest->reqConfig;
+    result.reqConfig = &hybridRequest->base.reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
     result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
@@ -183,12 +183,12 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithParams) {
@@ -203,12 +203,12 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
@@ -221,12 +221,12 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 240);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result.search->base.reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result.vector->base.reqConfig.queryTimeoutMS, 240);
 
   // Verify dialect is set correctly
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
@@ -237,8 +237,8 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Fail);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
@@ -249,8 +249,8 @@ TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Return);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
@@ -261,8 +261,8 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
   recreateHybridRequest(args);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Ignore);
 }
 
 TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
@@ -282,12 +282,15 @@ TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
 
   parseCommand(args);
 
+  EXPECT_EQ(hybridRequest->base.timeout.config, &hybridRequest->base.reqConfig);
+  EXPECT_EQ(result.search->base.timeout.config, &result.search->base.reqConfig);
+  EXPECT_EQ(result.vector->base.timeout.config, &result.vector->base.reqConfig);
   ASSERT_EQ(result.reqConfig->queryTimeoutMS, 1234);
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 1234);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.search->base.reqConfig.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.vector->base.reqConfig.queryTimeoutMS, 1234);
   ASSERT_EQ(result.reqConfig->dialectVersion, 4);
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 4);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 4);
 
   RSGlobalConfig.requestConfigParams.queryTimeoutMS = savedTimeout;
   RSGlobalConfig.requestConfigParams.dialectVersion = savedDialect;

@@ -126,7 +126,10 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
   // This direct QAST test bypasses the QueryRequest that owns timeout state in production.
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  RequestConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  timeoutConfig.queryTimeoutMS = 0;
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   ctx.timeout = &timeout;
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
