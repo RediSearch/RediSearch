@@ -1058,7 +1058,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
 // replyCtx into hreq->sctx->redisCtx.
 //
 // `dispatcherStatus` may carry non-fatal warning bits stamped during dispatch.
-// We forward them onto hreq->tailPipelineError so finishSendChunkReply_hybrid
+// We forward them onto hreq->base.reply.err so finishSendChunkReply_hybrid
 // emits them; bits are independent of the error code, so
 // HybridRequest_GetError stays non-fatal.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
@@ -1071,7 +1071,7 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
 
     // Forward warnings out of the dispatcher's stack QueryError before it dies.
     if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
-        QueryError_SetQueryOOMWarning(&hreq->tailPipelineError);
+      QueryError_SetQueryOOMWarning(&hreq->base.reply.err);
     }
 
     // Drop the alias to the dispatcher's ctx before threadHandleCommand frees it.
