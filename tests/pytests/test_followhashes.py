@@ -697,8 +697,11 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
               'DISTANCE_METRIC', 'L2').ok()
 
     env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
-    if algo != 'FLAT':
-        # FLAT is never tiered; HNSW/SVS-VAMANA always are (see spec.c). Wait for the vector
+    if algo == 'HNSW':
+        # FLAT is never tiered; HNSW always is (see spec.c). SVS-VAMANA is tiered too, but
+        # unlike HNSW it needs a training-threshold-sized corpus before it promotes anything
+        # to the backend at all -- confirmed against real CI, a single vector never reaches
+        # it no matter how long this waits, so this check is HNSW-only. Wait for the vector
         # to actually become resident in the backend graph before the update below --
         # otherwise the update would only ever touch the frontend buffer, never exercising
         # the backend's own updateVectors code path.
@@ -713,7 +716,7 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
     env.expect('HSET', 'doc1', 'vec', 'eeeeffffgggghhhh').equal(0)
     env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
                     message='a vector-only change must not reindex')
-    if algo != 'FLAT':
+    if algo == 'HNSW':
         # updateVectors on a backend-resident label writes the new value to the frontend
         # buffer and marks the backend's old copy deleted -- proof the update genuinely
         # reached the backend, not just the frontend buffer it would otherwise be confined to.
@@ -755,7 +758,11 @@ def testVectorOnlyChangeKeepsDocIdHNSW(env):
 def testVectorOnlyChangeKeepsDocIdSVSVamana(env):
     """Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
     backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
-    WORKERS 1 lets the vector actually reach the backend (drained explicitly below).
+    Unlike HNSW, SVS needs a training-threshold-sized corpus before it promotes anything to
+    the backend at all, so (confirmed against real CI) a single vector never reaches it no
+    matter how long you wait -- this covers the frontend-buffer update path only, same as
+    the C++ suite. WORKERS 1 is still set to match HNSW's config, even though nothing here
+    depends on it draining anywhere.
     """
     if env.env == 'existing-env':
         env.skip()
