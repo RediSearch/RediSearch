@@ -710,8 +710,8 @@ typedef struct IndexDiskAPI {
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
   /** Initialize the shared missing CF after schema validation, before ingestion or queries.
-   * Idempotent. Returns false on failure. ctx must allow Redis BigModule CF registration;
-   * index must be a live disk index. */
+   * Returns false if storage needs to be created and creation fails; true otherwise.
+   * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
