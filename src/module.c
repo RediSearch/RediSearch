@@ -877,17 +877,17 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
 
   IndexSpec_InitializeSynonym(sp);
 
   SynonymMapResult ret = SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
   if (ret == SYNONYM_MAP_ERR_MAX_TERMS) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
     CurrentThread_ClearIndexSpec();
     return RedisModule_ReplyWithError(ctx, "Maximum synonym terms limit reached");
   } else if (ret == SYNONYM_MAP_ERR_MAX_GROUP_IDS) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
     CurrentThread_ClearIndexSpec();
     return RedisModule_ReplyWithError(ctx, "Maximum group IDs per term limit reached");
   }
@@ -896,7 +896,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -939,7 +939,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecRead(&sctx);
+  IndexSpec_LockRead(sctx.spec);
 
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
@@ -957,7 +957,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
 
   rm_free(terms_data);
@@ -1013,9 +1013,9 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     size_t fieldNameSize;
 
     AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-    RedisSearchCtx_LockSpecRead(&sctx);
+    IndexSpec_LockRead(sctx.spec);
     const FieldSpec *field_exists = IndexSpec_GetFieldWithLength(sp, fieldName, fieldNameSize);
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
 
     if (field_exists) {
       RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_ALTER_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
@@ -1023,13 +1023,13 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   }
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
   const t_fieldIndex addedFieldsStart = sp->numFields;
   int addFieldsOk = IndexSpec_AddFields(ref, sp, ctx, &ac, &status);
 
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
     CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -1038,7 +1038,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     IndexSpec_ScanAndReindexForAlter(ctx, ref, addedFieldsStart);
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
 
   // Log successful index alteration
