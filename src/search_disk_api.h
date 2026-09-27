@@ -294,15 +294,15 @@ typedef struct BasicDiskAPI {
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
   /**
-   * @brief Apply the complete resource state owned by Core.
+   * @brief Update the memory limit and derived resource capacities.
    *
    * @param disk Pointer to the disk context
    * @param memoryLimitBytes Current bigredis-max-ram value in bytes
    * @param logicalIndexCount Current logical disk-index count
    * @return true if all derived capacities were applied
    */
-  bool (*updateResourceState)(RedisSearchDisk *disk, size_t memoryLimitBytes,
-                              size_t logicalIndexCount);
+  bool (*updateMemoryLimit)(RedisSearchDisk *disk, size_t memoryLimitBytes,
+                            size_t logicalIndexCount);
 
   /**
    * Create a result processor that loads document fields from disk asynchronously.
