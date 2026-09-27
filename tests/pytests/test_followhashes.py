@@ -678,6 +678,19 @@ def testPartial(env):
                              'doc4', ['test', 11, 'testtest', '5'],
                              'doc5', ['test', 17.1, 'testtest', '5.5']])
 
+def _drainUntilBackendField(env, field, key, expected, message):
+    # DEBUG WORKERS DRAIN blocks for jobs already queued, but under CI's contention (many
+    # tests' worker threads competing for CPU) the async ingest job may not have been queued
+    # yet at all by the time this is first called -- confirmed by re-running this exact check
+    # against real CI: it reliably failed under the full suite's contention but never failed
+    # in isolation (a narrowed CI run, or 15/15 runs on a dedicated, uncontended box). Retrying
+    # for a few seconds is enough to absorb that scheduling delay either way.
+    def check():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        backend = to_dict(get_vecsim_debug_dict(env, 'idx', field)['BACKEND_INDEX'])
+        return backend[key] == expected, backend
+    wait_for_condition(check, message, timeout=10)
+
 def _assertVectorOnlyChangeKeepsDocId(env, algo):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
               'vec', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32', 'DIM', '4',
@@ -685,14 +698,12 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
 
     env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
     if algo != 'FLAT':
-        # FLAT is never tiered; HNSW/SVS-VAMANA always are (see spec.c). Drain so the vector
-        # is actually resident in the backend graph before the update below -- otherwise the
-        # update would only ever touch the frontend buffer, never exercising the backend's
-        # own updateVectors code path.
-        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-        backend = to_dict(get_vecsim_debug_dict(env, 'idx', 'vec')['BACKEND_INDEX'])
-        env.assertEqual(backend['INDEX_LABEL_COUNT'], 1,
-                        message='the vector must reach the backend before the update')
+        # FLAT is never tiered; HNSW/SVS-VAMANA always are (see spec.c). Wait for the vector
+        # to actually become resident in the backend graph before the update below --
+        # otherwise the update would only ever touch the frontend buffer, never exercising
+        # the backend's own updateVectors code path.
+        _drainUntilBackendField(env, 'vec', 'INDEX_LABEL_COUNT', 1,
+                                'the vector must reach the backend before the update')
     first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
     env.assertGreater(first, 0)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
@@ -706,9 +717,8 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
         # updateVectors on a backend-resident label writes the new value to the frontend
         # buffer and marks the backend's old copy deleted -- proof the update genuinely
         # reached the backend, not just the frontend buffer it would otherwise be confined to.
-        backend = to_dict(get_vecsim_debug_dict(env, 'idx', 'vec')['BACKEND_INDEX'])
-        env.assertEqual(backend['NUMBER_OF_MARKED_DELETED'], 1,
-                        message='updateVectors must mark the backend copy deleted')
+        _drainUntilBackendField(env, 'vec', 'NUMBER_OF_MARKED_DELETED', 1,
+                                'updateVectors must mark the backend copy deleted')
     # The new value is what a KNN query against it finds -- proof the vector itself was
     # updated, not just the doc-id preserved.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
@@ -775,10 +785,10 @@ def testIndexMissingVectorFieldReindexes(env):
     env.assertGreater(first, 0)
     env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([1, 'doc1'])
 
-    # vec is set for the first time -- the change set names only a vector field, but this
-    # must still reindex under a new doc-id, so GC has a fresh doc-id to retire the old
-    # posting in favor of.
-    env.expect('HSET', 'doc1', 'vec', 'aaaabbbbccccdddd').equal(0)
+    # vec is set for the first time on this hash, so HSET reports it as a newly-added field
+    # (1, not 0) even though the change set names only a vector field; the write must still
+    # reindex under a new doc-id, so GC has a fresh doc-id to retire the old posting in favor of.
+    env.expect('HSET', 'doc1', 'vec', 'aaaabbbbccccdddd').equal(1)
     env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
                        message='an INDEXMISSING vector field must not take the fast path')
     forceInvokeGC(env)

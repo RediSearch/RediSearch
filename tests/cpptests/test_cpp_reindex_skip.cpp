@@ -654,7 +654,10 @@ TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlace) {
 // spec.c), so this actually exercises TieredHNSWIndex::updateVectors -- its own
 // implementation, independent of FLAT's. With workers disabled (the default here), nothing
 // is ever flushed to the backend graph, so this covers the tiered wrapper's frontend-buffer
-// update path, not HNSWIndex's own backend-graph update.
+// update path, not HNSWIndex's own backend-graph update; see testVectorOnlyChangeKeepsDocIdHNSW
+// in test_followhashes.py for backend-reaching coverage (WORKERS 1 + a poll loop draining
+// until the vector actually lands in the backend -- a single DEBUG WORKERS DRAIN can race
+// the async ingest job under CI's contention, confirmed against real CI).
 TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceHNSW) {
   createIndexWithVector({}, "HNSW");
   assertVectorOnlyChangeUpdatesInPlace();
@@ -662,7 +665,8 @@ TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceHNSW) {
 
 // Same again, on SVS-VAMANA: also always a *tiered* index, whose TieredSVSIndex::updateVectors
 // is a third, independent implementation. Same frontend-buffer-only caveat as the HNSW case
-// above.
+// above; see testVectorOnlyChangeKeepsDocIdSVSVamana in test_followhashes.py for
+// backend-reaching coverage.
 TEST_F(ReindexSkipTest, vectorOnlyChangeUpdatesInPlaceSVSVamana) {
   createIndexWithVector({}, "SVS-VAMANA");
   assertVectorOnlyChangeUpdatesInPlace();

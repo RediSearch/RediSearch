@@ -77,9 +77,7 @@ jobs:
       platform: ubuntu:latest
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      # TEMPORARY MOD-17704 investigation: narrow to one test for a fast, real-CI-runner
-      # signal on the WORKERS 1 + DEBUG WORKERS DRAIN backend-flush race. REVERT before merge.
-      test-config: QUICK=1 TEST=test_followhashes.py:testVectorOnlyChangeKeepsDocIdHNSW
+      test-config: QUICK=1
       rejson-branch: master
 
   coverage:
