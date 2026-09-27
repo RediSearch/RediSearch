@@ -896,21 +896,6 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     return REDISMODULE_OK;
 }
 
-// Lend the read lock held by buildPipelineAndExecute to every sub-request context, and
-// take the markers back once its depletion is done. The rwlock itself is only ever
-// touched by the scope that took it.
-static void borrowSpecReadLocks(HybridRequest *hreq) {
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    RedisSearchCtx_BorrowSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
-  }
-}
-
-static void returnSpecReadLocks(HybridRequest *hreq) {
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    RedisSearchCtx_ClearBorrowedSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
-  }
-}
-
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -943,10 +928,11 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   // (fork-GC) if they re-acquired it on this thread; a disk spec drops it instead, since
   // its iterators read from the snapshot taken during the build.
   const bool lendLockToRequests = !depleteInBackground && !sctx->spec->diskSpec;
+  bool borrowedLock = false;
 
   // QAST_Iterate reads the trie/stats, which GC can mutate concurrently, so the
   // build runs under the read lock.
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
@@ -972,9 +958,10 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
 
   // Carry that one read lock into depletion.
   if (lendLockToRequests) {
-    borrowSpecReadLocks(hreq);
+    IndexSpec_BorrowReadLock(sctx->spec);
+    borrowedLock = true;
   } else if (!depleteInBackground) {
-    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpec_Unlock(sctx->spec);
   }
 
   if (!isCursor) {
@@ -1025,12 +1012,12 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   rc = REDISMODULE_OK;
 
 done:
-  if (lendLockToRequests) {
-    returnSpecReadLocks(hreq);
+  if (borrowedLock) {
+    IndexSpec_ReturnReadLock(sctx->spec);
   }
   // Idempotent: a no-op if the lock was already released above or by the
   // background handoff.
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
   if (rc == REDISMODULE_OK) {
     freeHybridParams(hybridParams);
   }
@@ -1531,7 +1518,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   // The lock state must be clean before the pipeline may take the spec lock.
-  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
+  IndexSpec_AssertLockNotHeld();
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -1589,6 +1576,6 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   // Unblocking the client below may free the request; last touch before destroy.
-  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
+  IndexSpec_AssertLockNotHeld();
   blockedClientHybridCtx_destroy(BCHCtx);
 }

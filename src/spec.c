@@ -3236,7 +3236,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   if (needLock) {
-    RedisSearchCtx_LockSpecRead(&sctx);
+    IndexSpec_LockRead(sctx.spec);
   }
 
   // Save the name plus the null terminator
@@ -3290,7 +3290,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   }
 
   if (needLock) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
   }
 }
 
@@ -3896,7 +3896,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
   IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
   IndexSpec_IncrActiveWrites(spec);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
@@ -3910,7 +3910,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   return REDISMODULE_OK;
 }
 
@@ -4025,10 +4025,10 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   IndexSpec_IncrActiveWrites(spec);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, openKey);
   IndexSpec_DecrActiveWrites(spec);
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
 
   return REDISMODULE_OK;
 }
@@ -4038,7 +4038,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 // the spec write lock; no-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
   IndexSpec_IncrActiveWrites(spec);
-  pthread_rwlock_wrlock(&spec->rwlock);
+  IndexSpec_LockWrite(spec);
 
   uint32_t docLen = 0;
 
@@ -4047,7 +4047,7 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
     if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Document not found on disk
       IndexSpec_DecrActiveWrites(spec);
-      pthread_rwlock_unlock(&spec->rwlock);
+      IndexSpec_Unlock(spec);
       return;
     }
   } else {
@@ -4055,7 +4055,7 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
     if (!md) {
       // Document not found in the in-memory table
       IndexSpec_DecrActiveWrites(spec);
-      pthread_rwlock_unlock(&spec->rwlock);
+      IndexSpec_Unlock(spec);
       return;
     }
     docLen = md->docLen;
@@ -4065,7 +4065,7 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
   indexSpec_OnDocDeleted(spec, docId, docLen);
 
   IndexSpec_DecrActiveWrites(spec);
-  pthread_rwlock_unlock(&spec->rwlock);
+  IndexSpec_Unlock(spec);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -4099,19 +4099,102 @@ void IndexSpecRef_Release(StrongRef ref) {
   StrongRef_Release(ref);
 }
 
+// =============================================================================
+// Per-thread spec lock ownership
+// =============================================================================
 
-// =============================================================================
-// Compaction FFI Functions (called by Rust during GC)
-// =============================================================================
+typedef enum {
+  SPEC_LOCK_UNSET,
+  SPEC_LOCK_READ,
+  SPEC_LOCK_WRITE,
+} SpecLockState;
+
+// pthread rwlock ownership never follows a request onto another worker.
+static _Thread_local struct {
+  IndexSpec *spec;
+  SpecLockState state;
+  bool borrowed;
+} lock_state;
+
+bool IndexSpec_IsLocked(const IndexSpec *sp) {
+  return lock_state.spec == sp && lock_state.state != SPEC_LOCK_UNSET;
+}
+
+bool IndexSpec_IsReadLocked(const IndexSpec *sp) {
+  return lock_state.spec == sp && lock_state.state == SPEC_LOCK_READ;
+}
+
+void IndexSpec_AssertLockNotHeld(void) {
+  RS_LOG_ASSERT(lock_state.state == SPEC_LOCK_UNSET, "spec lock must not be held");
+}
+
+void IndexSpec_LockRead(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
+  RS_ASSERT_ALWAYS(pthread_rwlock_rdlock(&sp->rwlock) == 0);
+  RS_ASSERT_ALWAYS(dictPauseRehashing(sp->keysDict));
+  lock_state.spec = sp;
+  lock_state.state = SPEC_LOCK_READ;
+}
+
+int IndexSpec_TryLockRead(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
+  if (pthread_rwlock_tryrdlock(&sp->rwlock) != 0) {
+    return REDISMODULE_ERR;
+  }
+  RS_ASSERT_ALWAYS(dictPauseRehashing(sp->keysDict));
+  lock_state.spec = sp;
+  lock_state.state = SPEC_LOCK_READ;
+  return REDISMODULE_OK;
+}
+
+void IndexSpec_LockWrite(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
+#ifdef ENABLE_ASSERT
+  // Publish before blocking so a worker's sync point can observe a queued writer.
+  PendingSpecWriters_Incr();
+#endif
+  RS_ASSERT_ALWAYS(pthread_rwlock_wrlock(&sp->rwlock) == 0);
+#ifdef ENABLE_ASSERT
+  PendingSpecWriters_Decr();
+#endif
+  lock_state.spec = sp;
+  lock_state.state = SPEC_LOCK_WRITE;
+}
+
+void IndexSpec_BorrowReadLock(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && !lock_state.borrowed);
+  lock_state.borrowed = true;
+}
+
+void IndexSpec_ReturnReadLock(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && lock_state.borrowed);
+  lock_state.borrowed = false;
+}
+
+void IndexSpec_Unlock(IndexSpec *sp) {
+  if (lock_state.state == SPEC_LOCK_UNSET) {
+    return;
+  }
+  RS_ASSERT_ALWAYS(lock_state.spec == sp);
+  if (lock_state.borrowed) {
+    return;
+  }
+  if (lock_state.state == SPEC_LOCK_READ) {
+    RS_ASSERT_ALWAYS(dictResumeRehashing(sp->keysDict));
+  }
+  RS_ASSERT_ALWAYS(pthread_rwlock_unlock(&sp->rwlock) == 0);
+  lock_state.spec = NULL;
+  lock_state.state = SPEC_LOCK_UNSET;
+}
 
 // Acquire IndexSpec write lock
 void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
-  pthread_rwlock_wrlock(&sp->rwlock);
+  IndexSpec_LockWrite(sp);
 }
 
 // Release IndexSpec write lock
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
-  pthread_rwlock_unlock(&sp->rwlock);
+  IndexSpec_Unlock(sp);
 }
 
 

@@ -328,10 +328,10 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
 
     // SAFETY:
     // 1. `spec_ref` is a valid pointer to an `IndexSpec`.
-    // 2. C has already acquired the read lock through `RedisSearchCtx_LockSpecRead`
+    // 2. C has already acquired the read lock through `IndexSpec_LockRead`
     //    (see handleSpecLockAndRevalidate in result_processor.c).
-    // 3. C releases it again through `RedisSearchCtx_UnlockSpec`.
-    // 4. `RedisSearchCtx_LockSpecRead` pauses rehashing on the keys dict.
+    // 3. C releases it again through `IndexSpec_Unlock`.
+    // 4. `IndexSpec_LockRead` pauses rehashing on the keys dict.
     // 5. `missing.indexes` is left fully rehashed on insert (see indexer.c).
     let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 

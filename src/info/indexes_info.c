@@ -41,12 +41,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (!sp) {
       continue;
     }
-    // Lock for read
-    int rc = pthread_rwlock_rdlock(&sp->rwlock);
-    if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), rc, strerror(rc));
-      continue;
-    }
+    IndexSpec_LockRead(sp);
 
     // Vector indexes stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
@@ -92,7 +87,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.min_mem > total_index_mem) info.min_mem = total_index_mem;
     if (info.max_mem < total_index_mem) info.max_mem = total_index_mem;
 
-    pthread_rwlock_unlock(&sp->rwlock);
+    IndexSpec_Unlock(sp);
   }
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found
