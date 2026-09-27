@@ -720,8 +720,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
     SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
-    // Set request flags from hybridParams
-    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
+    // The distributed pipeline and its reply run on coordinator workers.
+    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags |
+                     QEXEC_F_IS_COORDINATOR | QEXEC_F_RUN_IN_BACKGROUND;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
@@ -1359,7 +1360,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   return REDISMODULE_OK;
 }
 
-// Reply callback for Coordinator HybridRequest execution (FAIL policy).
+// Reply callback for Coordinator HybridRequest execution (RETURN_STRICT policy).
 // Called on the main thread when the background thread calls UnblockClient.
 // The background thread stored results in hreq->storedReplyState, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).

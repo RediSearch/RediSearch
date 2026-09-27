@@ -232,7 +232,8 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   RedisModule_Reply_MapEnd(reply); // >result
 #ifdef ENABLE_ASSERT
   if (!hreq->useReplyCallback && (hreq->reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
-    SyncPoint_Wait(SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(hreq) ? SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE
+                                       : SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
   }
 #endif
 }
@@ -345,7 +346,8 @@ static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *
                                         const QueryError *err, int rc) {
 #ifdef ENABLE_ASSERT
   if (!hreq->useReplyCallback && (hreq->reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
-    SyncPoint_Wait(SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(hreq) ? SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE
+                                       : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
   }
 #endif
   // The timeout callback already counted errors for discarded background replies.
@@ -628,7 +630,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
 #ifdef ENABLE_ASSERT
     if (hreq->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
-      SyncPoint_Wait(SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
+      SyncPoint_Wait(IsCoordinator(hreq) ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
+                                         : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
     }
 #endif
 
@@ -638,7 +641,7 @@ done_err:
 }
 
 /**
- * Serialize results from stored state (reply_callback path for FAIL policy).
+ * Serialize results from stored state (reply_callback path for RETURN_STRICT).
  * Called by DistHybridReplyCallback on the main thread after background thread stored results.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
