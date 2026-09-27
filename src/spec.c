@@ -3463,6 +3463,7 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
                           "Could not initialize missing-field storage during RDB load");
+      SearchDisk_CloseIndexOnMainThread(ctx, sp);
       return REDISMODULE_ERR;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
