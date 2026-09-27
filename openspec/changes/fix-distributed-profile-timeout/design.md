@@ -52,3 +52,8 @@ with disabled and generous finite timeouts, early LIMIT and full aggregation.
 Bound client reads independently of query timeout. Check query results, profile
 envelopes, PING on every shard, and unchanged ON_TIMEOUT/TIMEOUT configuration.
 No test should require complete profiles after early termination.
+
+Deterministic cases hold shard workers paused and park the coordinator just before
+result handoff. They check both an empty channel with pending shards and a queued
+profile with another shard still pending. Completion, the exact available profile
+count, and PING responsiveness are asserted before releasing the paused shards.

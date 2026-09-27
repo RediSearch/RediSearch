@@ -5,7 +5,7 @@
 - [x] Incorporate maintainer direction: keep STRICT and drain only buffered replies.
 - [x] Bound STRICT profile draining to the queued-reply snapshot.
 - [x] Document best-effort profile completeness without changing timeout policy.
-- [ ] Add focused RESP2/RESP3 cluster regression coverage for completion,
+- [x] Add focused RESP2/RESP3 cluster regression coverage for completion,
       responsiveness, both profile modes, and preserved global configuration.
 - [ ] Validate the final build and relevant suites using repository verify skills;
       retain logs and report any gaps accurately.
