@@ -284,14 +284,14 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
 }
 
 static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r,
-                                 rs_wall_clock_ns_t duration, const QueryError *err) {
+                                 rs_wall_clock_ns_t duration, bool countQuery) {
   if (results) {
     destroyResults(results);
   } else {
     SearchResult_Destroy(r);
   }
 
-  if (!err || QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+  if (countQuery) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -579,6 +579,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
+    const QueryError *fatalError = NULL;
+    bool countQuery = true;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
@@ -616,12 +618,13 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       return;
     }
 
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results,
-                                    HybridRequest_GetFatalError(hreq));
+    fatalError = HybridRequest_GetFatalError(hreq);
+    countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
 
 done_err:
   finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
-                       HybridRequest_GetFatalError(hreq));
+                       countQuery);
 }
 
 /**
@@ -639,17 +642,18 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Get stored results and rc
     SearchResult **results = stored->results;
     int rc = stored->rc;
+    const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
+    bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
-                                    HybridRequest_GetFatalError(hreq));
+                                    fatalError);
 
     // Clear stored results pointer since ownership was transferred
     stored->results = NULL;
     stored->hasStoredResults = false;
 
     finishSendChunk_HREQ(hreq, results, &r,
-                         rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
-                         HybridRequest_GetFatalError(hreq));
+                         rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), countQuery);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
