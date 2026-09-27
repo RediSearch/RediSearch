@@ -397,20 +397,20 @@ def _test_profile(protocol):
 
         # WITHCOUNT + LIMIT 0 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0],
-         [('Index', 3100), ('Counter', 1)],
+         [('Index', 3100), ('Counter', 0)],
          [[[('Index', 1027), ('Depleter', 1027)],
            [('Index', 1032), ('Depleter', 1032)],
            [('Index', 1041), ('Depleter', 1041)]],
-           [('Network', 3100), ('Counter', 1)]]),
+           [('Network', 3100), ('Counter', 0)]]),
 
         # WITHCOUNT + LIMIT
         # No sorter, limit results
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
-         [('Index', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
-           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 3100), ('Depleter', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Depleter', 50), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 50), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + SORTBY 0
         # Sorter without keys, default limit
@@ -423,19 +423,19 @@ def _test_profile(protocol):
 
         # WITHCOUNT + SORTBY 0 + MAX
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'MAX', 3],
-         [('Index', 3100), ('Depleter', 2), ('Pager/Limiter', 3)],
-         [[[('Index', 1027), ('Depleter', 2), ('Pager/Limiter', 3)],
-           [('Index', 1032), ('Depleter', 2), ('Pager/Limiter', 3)],
-           [('Index', 1041), ('Depleter', 2), ('Pager/Limiter', 3)]],
-           [('Network', 9), ('Depleter', 2), ('Pager/Limiter', 3)]]),
+         [('Index', 3100), ('Depleter', 3), ('Pager/Limiter', 3)],
+         [[[('Index', 1027), ('Depleter', 3), ('Pager/Limiter', 3)],
+           [('Index', 1032), ('Depleter', 3), ('Pager/Limiter', 3)],
+           [('Index', 1041), ('Depleter', 3), ('Pager/Limiter', 3)]],
+           [('Network', 9), ('Depleter', 3), ('Pager/Limiter', 3)]]),
 
         # WITHCOUNT + SORTBY 0 + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'LIMIT', 0, 50],
-         [('Index', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
-           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 3100), ('Depleter', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Depleter', 50), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 50), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
@@ -472,11 +472,11 @@ def _test_profile(protocol):
 
         # WITHCOUNT + LOAD + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50],
-         [('Index', 3100), ('Loader', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 1027), ('Loader', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1032), ('Loader', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1041), ('Loader', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
-           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 3100), ('Loader', 3100), ('Depleter', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Loader', 1027), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Loader', 1032), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Loader', 1041), ('Depleter', 50), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 50), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'],
@@ -504,11 +504,11 @@ def _test_profile(protocol):
 
         # WITHCOUNT + GROUPBY + LIMIT (stop calling before EOF)
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 25],
-         [('Index', 3100), ('Grouper', 24), ('Pager/Limiter', 25)],
+         [('Index', 3100), ('Grouper', 25), ('Pager/Limiter', 25)],
          [[[('Index', 1027), ('Grouper', 25)],
            [('Index', 1032), ('Grouper', 25)],
            [('Index', 1041), ('Grouper', 25)]],
-           [('Network', 75), ('Grouper', 24), ('Pager/Limiter', 25)]]),
+           [('Network', 75), ('Grouper', 25), ('Pager/Limiter', 25)]]),
 
         # WITHCOUNT + GROUPBY + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
@@ -536,11 +536,11 @@ def _test_profile(protocol):
 
         # WITHCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
-         [('Index', 3100), ('Scorer', 3100), ('Depleter', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 1027), ('Scorer', 1027), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1032), ('Scorer', 1032), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1041), ('Scorer', 1041), ('Depleter', 49), ('Pager/Limiter', 50)]],
-           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 3100), ('Scorer', 3100), ('Depleter', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Scorer', 1027), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Scorer', 1032), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Scorer', 1041), ('Depleter', 50), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 50), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + FILTER
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
@@ -552,11 +552,11 @@ def _test_profile(protocol):
 
         # WITHCOUNT + FILTER + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
-         [('Index', 3100), ('Loader', 3100), ('Filter - Predicate <', 200), ('Depleter', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 1027), ('Loader', 1027), ('Filter - Predicate <', 64), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1032), ('Loader', 1032), ('Filter - Predicate <', 68), ('Depleter', 49), ('Pager/Limiter', 50)],
-           [('Index', 1041), ('Loader', 1041), ('Filter - Predicate <', 68), ('Depleter', 49), ('Pager/Limiter', 50)]],
-           [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 3100), ('Loader', 3100), ('Filter - Predicate <', 200), ('Depleter', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 1027), ('Loader', 1027), ('Filter - Predicate <', 64), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1032), ('Loader', 1032), ('Filter - Predicate <', 68), ('Depleter', 50), ('Pager/Limiter', 50)],
+           [('Index', 1041), ('Loader', 1041), ('Filter - Predicate <', 68), ('Depleter', 50), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Depleter', 50), ('Pager/Limiter', 50)]]),
 
         # WITHCOUNT + SORTBY -> GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title',
@@ -648,19 +648,19 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 50],
-         [('Index', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Pager/Limiter', 50)]],
-           [('Network', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Pager/Limiter', 50)]],
+           [('Network', 50), ('Pager/Limiter', 50)]]),
 
          # WITHOUTCOUNT (implicit) + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 50],
-         [('Index', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Pager/Limiter', 50)]],
-           [('Network', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Pager/Limiter', 50)]],
+           [('Network', 50), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + SORTBY 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
@@ -672,16 +672,16 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + SORTBY 0 + MAX
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0', 'MAX', 3],
-         [('Index', 2), ('Pager/Limiter', 3)],
-         [[[('Index', 2), ('Pager/Limiter', 3)],
-           [('Index', 2), ('Pager/Limiter', 3)],
-           [('Index', 2), ('Pager/Limiter', 3)]],
-           [('Network', 2), ('Pager/Limiter', 3)]]),
+         [('Index', 3), ('Pager/Limiter', 3)],
+         [[[('Index', 3), ('Pager/Limiter', 3)],
+           [('Index', 3), ('Pager/Limiter', 3)],
+           [('Index', 3), ('Pager/Limiter', 3)]],
+           [('Network', 3), ('Pager/Limiter', 3)]]),
 
         # WITHOUTCOUNT + SORTBY 0 + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0', 'LIMIT', 0, 50],
-         [('Index', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 49), ('Pager/Limiter', 50)], [('Index', 49), ('Pager/Limiter', 50)], [('Index', 49), ('Pager/Limiter', 50)]], [('Network', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 50), ('Pager/Limiter', 50)], [('Index', 50), ('Pager/Limiter', 50)], [('Index', 50), ('Pager/Limiter', 50)]], [('Network', 50), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
@@ -709,11 +709,11 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + GROUPBY + LIMIT (stop calling before EOF)
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 25],
-         [('Index', 3100), ('Grouper', 24), ('Pager/Limiter', 25)],
+         [('Index', 3100), ('Grouper', 25), ('Pager/Limiter', 25)],
          [[[('Index', 1027), ('Grouper', 25)],
            [('Index', 1032), ('Grouper', 25)],
            [('Index', 1041), ('Grouper', 25)]],
-           [('Network', 75), ('Grouper', 24), ('Pager/Limiter', 25)]]),
+           [('Network', 75), ('Grouper', 25), ('Pager/Limiter', 25)]]),
 
          # WITHOUTCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@title'],
@@ -773,11 +773,11 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
-         [('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Scorer', 49), ('Pager/Limiter', 50)]],
-           [('Network', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 50), ('Scorer', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 50), ('Scorer', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Scorer', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Scorer', 50), ('Pager/Limiter', 50)]],
+           [('Network', 50), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + FILTER
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
@@ -789,16 +789,16 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + FILTER + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
-         [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
-         [[[('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)]],
-           [('Network', 49), ('Pager/Limiter', 50)]]),
+         [('Index', 50), ('Loader', 50), ('Filter - Predicate <', 50), ('Pager/Limiter', 50)],
+         [[[('Index', 50), ('Loader', 50), ('Filter - Predicate <', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Loader', 50), ('Filter - Predicate <', 50), ('Pager/Limiter', 50)],
+           [('Index', 50), ('Loader', 50), ('Filter - Predicate <', 50), ('Pager/Limiter', 50)]],
+           [('Network', 50), ('Pager/Limiter', 50)]]),
 
         # WITHOUTCOUNT + SORTBY + MAX -> GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
-         [('Index', 49), ('Pager/Limiter', 50), ('Grouper', 25)],
+         [('Index', 50), ('Pager/Limiter', 50), ('Grouper', 25)],
          [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
@@ -819,7 +819,7 @@ def _test_profile(protocol):
           'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
           'FILTER', '@cnt > 5'],
-         [('Index', 199), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
+         [('Index', 200), ('Loader', 200), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
          [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
