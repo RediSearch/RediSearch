@@ -1880,6 +1880,13 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
+  if (isSpecOnDisk(spec) && IndexSpec_HasIndexMissing(spec) &&
+      !SearchDisk_InitializeMissingStorage(ctx, spec->diskSpec)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Could not initialize missing-field storage");
+    goto failure;
+  }
+
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
   }
@@ -3446,6 +3453,12 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, !useSst, sp);
     if (!sp->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+      return REDISMODULE_ERR;
+    }
+    if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                          "Could not initialize missing-field storage during RDB load");
+      SearchDisk_CloseIndexOnMainThread(ctx, sp);
       return REDISMODULE_ERR;
     }
     IndexSpec_PopulateVectorDiskParams(sp);

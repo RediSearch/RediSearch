@@ -332,6 +332,11 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
+bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk);
+  return disk->index.initializeMissingStorage(ctx, index);
+}
+
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                                    SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
                                    size_t numFields, t_docId docId) {
