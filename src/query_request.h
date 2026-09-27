@@ -308,12 +308,6 @@ void QueryRequestAsyncState_RegisterAbortWakeChannel(QueryRequestAsyncState *sta
 void QueryRequestAsyncState_UnregisterAbortWakeChannel(QueryRequestAsyncState *state);
 void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
-// Configuration parameters for cursor behavior
-typedef struct {
-  uint32_t maxIdle;    // Maximum idle time for the cursor (from MAXIDLE parameter)
-  uint32_t chunkSize;  // Number of results per cursor read (from COUNT parameter)
-} CursorConfig;
-
 /* Lifetime management.
  *
  * A QueryRequest has exactly one owner at any time — no reference counting.

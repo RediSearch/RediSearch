@@ -1432,7 +1432,14 @@ def test_query_controller_set_cursor_read_size():
     # restoring it works.
     prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
     env.assertGreater(int(prev), 0)
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
+    try:
+        previous = 7
+        for value in [(1 << 32) - 1, 1 << 32, (1 << 63) - 1]:
+            env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', value).equal(previous)
+            previous = min(value, (1 << 32) - 1)
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1 << 63).error()
+    finally:
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(previous)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():

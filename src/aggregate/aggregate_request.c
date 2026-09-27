@@ -188,8 +188,8 @@ static int parseCursorSettings(uint32_t *reqflags, CursorConfig *cursorConfig, A
     return REDISMODULE_ERR;
   }
 
-  if (cursorConfig->maxIdle == 0 || cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
-    cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
+  if (cursorConfig->maxIdle == 0 || cursorConfig->maxIdle > RSGlobalConfig.cursorConfigParams.maxIdle) {
+    cursorConfig->maxIdle = RSGlobalConfig.cursorConfigParams.maxIdle;
   }
   REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_CURSOR);
   return REDISMODULE_OK;

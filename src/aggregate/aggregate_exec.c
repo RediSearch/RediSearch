@@ -2003,7 +2003,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   if (!num) {
     num = req->base.cursorConfig.chunkSize;
     if (!num) {
-      num = RSGlobalConfig.cursorReadSize;
+      num = RSGlobalConfig.cursorConfigParams.chunkSize;
     }
   }
   req->base.cursorConfig.chunkSize = num;

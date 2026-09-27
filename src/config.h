@@ -114,6 +114,12 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
 } TimeoutConfig;
 
+// Configuration parameters for cursor behavior
+typedef struct {
+  uint32_t maxIdle;    // Maximum idle time for the cursor (from MAXIDLE parameter)
+  uint32_t chunkSize;  // Number of results per cursor read (from COUNT parameter)
+} CursorConfig;
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
 typedef struct {
@@ -131,12 +137,7 @@ typedef struct {
   RequestConfig requestConfigParams;
   TimeoutConfig timeoutConfigParams;
 
-  // Number of rows to read from a cursor if not specified
-  long long cursorReadSize;
-
-  // Maximum idle time for a cursor. Users can use shorter lifespans, but never
-  // longer ones
-  long long cursorMaxIdle;
+  CursorConfig cursorConfigParams;
 
   size_t maxDocTableSize;
   size_t maxSearchResults;
@@ -452,8 +453,8 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .timeoutConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
     .timeoutConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
     .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
-    .cursorReadSize = 1000,                                                    \
-    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
+    .cursorConfigParams.chunkSize = 1000,                                      \
+    .cursorConfigParams.maxIdle = DEFAULT_MAX_CURSOR_IDLE,                     \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
     .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
