@@ -7,9 +7,9 @@
 - [x] Document best-effort profile completeness without changing timeout policy.
 - [x] Add focused RESP2/RESP3 cluster regression coverage for completion,
       responsiveness, both profile modes, and preserved global configuration.
-- [ ] Validate the final build and relevant suites using repository verify skills;
+- [x] Validate the final build and relevant suites using repository verify skills;
       retain logs and report any gaps accurately.
-- [ ] Complete independent review and address actionable findings.
-- [ ] Mark the implementation PR ready, require release notes, apply the four
+- [x] Complete independent review and address actionable findings.
+- [x] Mark the implementation PR ready, require release notes, apply the four
       affected-release backport labels, and verify its metadata.
 - [ ] Address and resolve actionable PR threads; verify final CI before handoff.
