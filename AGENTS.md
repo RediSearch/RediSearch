@@ -376,6 +376,7 @@ Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust 
 
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
+Invoke [/report-bug](.skills/report-bug/SKILL.md) to report a product bug to Jira or add a new variant to an existing bug ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
 Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/improve-flow-coverage](.skills/improve-flow-coverage/SKILL.md) to find and close flow test coverage gaps for C source files.

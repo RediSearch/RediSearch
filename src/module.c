@@ -655,13 +655,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   QueryError status = QueryError_Default();
 
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES, "Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
-    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
-    QueryError_ClearError(&status);
-    return REDISMODULE_OK;
-  }
-
   IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
@@ -1330,10 +1323,6 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   long long encodeVersion;
   if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
-  }
-
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
   }
 
   IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
@@ -4562,16 +4551,11 @@ static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString 
       return REDISMODULE_ERR;
     }
   }
-  // Saturate the size_t to LLONG_MAX before casting so values >= 2^63 do not
-  // wrap to a negative long long. Without this clamp, an oversized timeout
-  // would be treated by the cap helper as "unlimited" (<= 0) and silently
-  // capped anyway, but the saturation here is defensive and self-documenting.
   long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
-    *timeout = (size_t)capped;
-    if (wasCapped) {
-      *wasCapped = true;
-    }
+  bool didCap = RSConfig_CapQueryTimeoutToForegroundLimit(&capped);
+  *timeout = (size_t)capped;
+  if (didCap && wasCapped) {
+    *wasCapped = true;
   }
   return REDISMODULE_OK;
 }
@@ -5007,6 +4991,13 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   RSConfig_SetLoadingStartupConfig(false);
   if (loadConfigsRC == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
+    return REDISMODULE_ERR;
+  }
+  if (RSGlobalConfig.diskMinMemoryBudgetPercentage >
+      RSGlobalConfig.diskMaxMemoryPercentage) {
+    RedisModule_Log(ctx, "warning",
+                    "search-disk-write-buffer-min-percentage must not exceed "
+                    "search-disk-memory-limit-percentage");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;

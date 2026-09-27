@@ -35,7 +35,6 @@ typedef struct HybridRequest {
 
     arrayof(AREQ*) requests;
     size_t nrequests;
-    QueryError tailPipelineError;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
@@ -233,6 +232,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * Owner-only: see the ownership contract on QueryRequest.
  */
 void HybridRequest_Free(HybridRequest *req);
+
+QueryError *HybridRequest_GetFatalError(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

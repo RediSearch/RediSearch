@@ -251,8 +251,9 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
  *    returned iterator, and `sctx` must stay at a stable address for that
- *    whole window: the iterator reads the request-owned deadline back on every
- *    timeout probe. No write to that deadline may overlap a probe.
+ *    whole window. The request timeout reached through `sctx.timeout` must also remain valid
+ *    at a stable address until the iterator is dropped. Timeout source changes and deadline
+ *    writes may happen only between probes; only the blocked-client flag may change concurrently.
  * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
  *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
@@ -476,9 +477,9 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
  * 4. `q.sctx` must be a non-null pointer to a valid
  *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
- *    address for the lifetime of the returned iterator: on the Clock Based Timeout path
- *    the iterator reads the request-owned deadline back on every probe. No write to that
- *    deadline may overlap a probe.
+ *    address for the lifetime of the returned iterator. Its request timeout must also remain
+ *    valid at a stable address for that lifetime. Timeout source changes and deadline writes
+ *    may happen only between probes; only the blocked-client flag may change concurrently.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
  * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
