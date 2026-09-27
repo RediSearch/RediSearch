@@ -1,11 +1,11 @@
 # Distributed aggregate profiles under RETURN-STRICT
 
 When a distributed `FT.PROFILE ... AGGREGATE` request uses RETURN-STRICT, profile
-serialization MUST NOT wait for additional shard replies. It MAY consume the
-replies already queued when serialization starts, bounded by that queue-length
-snapshot. It MUST stop when that budget is exhausted or the drain reaches EOF.
+serialization MUST NOT wait for additional shard replies. It MUST consume available
+replies using nonblocking pops until the first empty pop or EOF, including replies
+that arrive during the drain. It MUST NOT impose a queue-length snapshot limit.
 
-The reply includes profiles already collected by the pipeline and this bounded
+The reply includes profiles already collected by the pipeline and this nonblocking
 drain. Shard profile information may be incomplete even without a timeout, for
 example after an early LIMIT. Full and LIMITED profiling use the same rule.
 
@@ -23,3 +23,5 @@ retain their existing behavior.
 - Query results are correct and the profile envelope remains valid even when
   some shard profiles are absent.
 - Global ON_TIMEOUT and TIMEOUT are identical before and after these requests.
+
+- Replies enqueued during the drain remain eligible until the first empty pop.

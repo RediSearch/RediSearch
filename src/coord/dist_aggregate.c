@@ -703,18 +703,14 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   AREQ *req = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // STRICT serializes on the main thread after the worker hands off the pipeline.
-  // There is only one channel consumer, so these queued replies cannot disappear
-  // before getNextReply pops them. Bound the drain to this snapshot: never wait for
-  // profiles or keep draining replies that arrive while we serialize.
-  const bool strict = req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
-  size_t repliesToDrain = strict ? MRIterator_GetChannelSize(rpnet->it) : SIZE_MAX;
+  // Collect available profiles without waiting for shards that may need this thread.
+  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    rpnet->drainOnly = true;
+  }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    while (repliesToDrain--) {
+    do {
       MRReply_Free(rpnet->current.root);
-      if (getNextReply(rpnet) == RS_RESULT_EOF) {
-        break;
-      }
-    }
+    } while (getNextReply(rpnet) != RS_RESULT_EOF);
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);

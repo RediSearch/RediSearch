@@ -3,7 +3,7 @@
 - [x] Inspect ticket, master dispatch, affected release refs, and backport labels.
 - [x] Record the behavior-change proposal on Jira and prepare review artifacts.
 - [x] Incorporate maintainer direction: keep STRICT and drain only buffered replies.
-- [x] Bound STRICT profile draining to the queued-reply snapshot.
+- [x] Use thread-safe try-pop for STRICT draining until the first empty pop.
 - [x] Document best-effort profile completeness without changing timeout policy.
 - [x] Add focused RESP2/RESP3 cluster regression coverage for completion,
       responsiveness, both profile modes, and preserved global configuration.

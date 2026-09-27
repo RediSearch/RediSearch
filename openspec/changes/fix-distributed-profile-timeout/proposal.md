@@ -10,9 +10,9 @@ profile replies are available.
 ## What Changes
 
 Keep RETURN-STRICT. When printing the distributed aggregate profile, drain only
-replies already queued at the start of serialization. Do not wait for outstanding
-shards or extend the drain for newly arriving replies. Return the profiles collected
-by the pipeline and this bounded drain, which may be incomplete even when the query
+available replies using try-pop until the channel is empty. Include replies arriving
+during the drain, but do not wait for outstanding shards. Return profiles collected
+by the pipeline and this nonblocking drain, which may be incomplete even when the query
 did not time out. Global timeout configuration and query results are unchanged.
 
 This follows the maintainer's direction to use nonblocking draining rather than

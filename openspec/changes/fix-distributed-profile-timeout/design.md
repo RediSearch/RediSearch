@@ -1,18 +1,17 @@
-# Bounded profile drain under RETURN-STRICT
+# Nonblocking profile drain under RETURN-STRICT
 
 ## Ownership and placement
 
 `printAggProfile` is called on the main thread when the coordinator uses STRICT's
 stored-result reply path. The background worker has handed off the pipeline before
-serialization. The MR channel has a single consumer; I/O callbacks only enqueue
-replies. A snapshot of the queue length therefore guarantees that this consumer
-can pop that many replies without waiting for more.
+serialization. I/O callbacks can continue enqueueing replies during the drain.
 
-For STRICT, bound the existing profile-drain loop by the queue length observed at
-entry. Stop earlier if `getNextReply` reports EOF. Each call consumes at most one
-queued reply and retains its existing profile extraction and cleanup behavior.
-The finite bound also prevents concurrently arriving replies from prolonging the
-main-thread drain. Other timeout policies retain their existing drain behavior.
+For STRICT, enable `drainOnly` before profile collection. In this mode,
+`getNextReply` uses a mutex-protected channel try-pop and treats an empty channel
+as EOF, independently of whether a timeout has occurred. Keep consuming until the
+first empty pop, including replies that arrive while earlier replies are processed.
+Profile extraction and reply cleanup remain in the existing path. Other timeout
+policies retain their existing drain behavior.
 
 No new wait, completion signal, timeout-policy override, or shard-collection
 mechanism is introduced. Existing request ownership and iterator teardown handle
@@ -21,7 +20,7 @@ late replies. Global ON_TIMEOUT and TIMEOUT and the request timeout remain intac
 ## User-visible behavior
 
 STRICT profiling returns the shard profiles collected by the pipeline and the
-bounded drain. It does not guarantee all shard profiles, including when LIMIT
+nonblocking drain. It does not guarantee all shard profiles, including when LIMIT
 finishes a query early without timing out. The existing incomplete-profile log
 remains. Query result semantics, command syntax, and RESP2/RESP3 shapes do not
 change. This applies to full and LIMITED distributed aggregate profiles.
@@ -29,12 +28,12 @@ change. This applies to full and LIMITED distributed aggregate profiles.
 ## Alternatives
 
 A request-local fallback to RETURN avoids the STRICT callback but changes timeout
-semantics. Keeping STRICT and bounding the drain is narrower.
+semantics. Keeping STRICT and making the drain nonblocking is narrower.
 
 Skipping the drain altogether discards profile information already buffered.
 Waiting for all shard profiles can block the main thread and is outside scope.
-The existing `drainOnly` flag alone is insufficient on normal completion: its
-nonblocking pop behavior currently relies on the timeout's abort flag being set.
+A queue-length snapshot can miss replies arriving during serialization. Try-pop
+collects those replies until the first empty pop, without a separate drain budget.
 
 ## Branch scope
 
