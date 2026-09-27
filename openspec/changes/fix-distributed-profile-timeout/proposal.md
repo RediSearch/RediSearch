@@ -7,7 +7,7 @@ aggregate profiling under RETURN-STRICT can block Redis's main thread while
 serializing shard profiles. The result-ready notification does not establish that
 all profile replies are available.
 
-Proposal discussion: [#11568](https://github.com/RediSearch/RediSearch/issues/11568).
+Proposal discussion: [MOD-17891 comment](https://redislabs.atlassian.net/browse/MOD-17891?focusedCommentId=2186300).
 Maintainer design approval is pending; this change contains no implementation.
 
 ## What Changes

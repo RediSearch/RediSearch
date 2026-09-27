@@ -1,7 +1,7 @@
 # Implementation checklist
 
 - [x] Inspect ticket, master dispatch, affected release refs, and backport labels.
-- [x] Open the behavior-change proposal issue and prepare review artifacts.
+- [x] Record the behavior-change proposal on Jira and prepare review artifacts.
 - [ ] Obtain maintainer agreement on the proposal and design before implementation.
 - [ ] Apply the request-local coordinator profile fallback before callback selection.
 - [ ] Document the user-visible timeout exception alongside the implementation.
