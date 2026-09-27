@@ -24,6 +24,12 @@ on:
           Indicates the change set is confined to tests/pytests/** -- no other code,
           workflow, or test file changed. Safe signal to skip unit tests.
         value: ${{ jobs.change-checks.outputs.ONLY_PY_TESTS_CHANGED }}
+      MIRI_RELEVANT:
+        description: >-
+          False only when the change is confined to a category MIRI can't be affected
+          by (it only interprets the Rust workspace, src/redisearch_rs): pure C/C++ unit
+          test edits, or pure Python flow test edits.
+        value: ${{ jobs.change-checks.outputs.ONLY_CPP_TESTS_CHANGED != 'true' && jobs.change-checks.outputs.ONLY_PY_TESTS_CHANGED != 'true' }}
 
 jobs:
   change-checks:
