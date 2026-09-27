@@ -34,8 +34,8 @@ static size_t diskMemoryLimitBytes = 0;
 static size_t diskLogicalIndexCount = 0;
 
 static bool SearchDisk_ApplyResourceState(size_t logicalIndexCount) {
-  RS_ASSERT(disk && disk_db && disk->basic.updateResourceState);
-  return disk->basic.updateResourceState(disk_db, diskMemoryLimitBytes, logicalIndexCount);
+  RS_ASSERT(disk && disk_db && disk->basic.updateMemoryLimit);
+  return disk->basic.updateMemoryLimit(disk_db, diskMemoryLimitBytes, logicalIndexCount);
 }
 
 static bool SearchDisk_NextLogicalIndexCount(size_t *nextCount) {
@@ -288,8 +288,10 @@ static void SearchDisk_CompleteLogicalOpen(size_t nextCount,
         spec->diskRegistered = true;
         return;
     }
-    RS_LOG_ASSERT(SearchDisk_ApplyResourceState(diskLogicalIndexCount),
-                  "Failed to restore disk resource state after an index open failure");
+    if (!SearchDisk_ApplyResourceState(diskLogicalIndexCount)) {
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Failed to restore disk resource state after an index open failure");
+    }
 }
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
     RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
@@ -338,8 +340,10 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     RS_ASSERT(diskLogicalIndexCount > 0);
     disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     const size_t nextCount = diskLogicalIndexCount - 1;
-    RS_LOG_ASSERT(SearchDisk_ApplyResourceState(nextCount),
-                  "Failed to update disk resource state after an index close");
+    if (!SearchDisk_ApplyResourceState(nextCount)) {
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Failed to update disk resource state after an index close");
+    }
     diskLogicalIndexCount = nextCount;
     spec->diskRegistered = false;
 }
@@ -753,6 +757,7 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
 void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   RS_ASSERT(disk && disk_db);
   diskMemoryLimitBytes = memoryLimitBytes;
-  RS_LOG_ASSERT(SearchDisk_ApplyResourceState(diskLogicalIndexCount),
-                "Failed to apply updated disk memory limit");
+  if (!SearchDisk_ApplyResourceState(diskLogicalIndexCount)) {
+    RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
+  }
 }
