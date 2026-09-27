@@ -163,6 +163,14 @@ def _check_queued_dispatch_args(env):
                         thread.join(timeout=10)
                 env.assertFalse(thread.is_alive())
                 env.assertEqual(errors, [])
+                if command[0] == 'FT.HYBRID':
+                    # Queueing changes elapsed time; compare every deterministic reply field.
+                    for response in (expected, results[0]):
+                        if isinstance(response, dict):
+                            response.pop('execution_time')
+                        else:
+                            offset = response.index('execution_time')
+                            del response[offset:offset + 2]
                 env.assertEqual(results, [expected, True])
     finally:
         env.expect('CONFIG', 'SET', 'search-on-timeout', policy).ok()
