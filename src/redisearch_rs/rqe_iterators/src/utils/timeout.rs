@@ -209,7 +209,7 @@ impl TimeoutChecker for TimeoutContextRequest {
 /// change it without rebuilding the iterator tree. A context without an owning request has no
 /// timeout checks.
 pub enum AnyTimeoutContext {
-    NoTimeout,
+    NoTimeout(NoTimeoutChecker),
     Request(TimeoutContextRequest),
 }
 
@@ -231,7 +231,7 @@ impl AnyTimeoutContext {
                 // SAFETY: the caller guarantees the retained request satisfies `new`'s contract.
                 Self::Request(unsafe { TimeoutContextRequest::new(timeout, granularity) })
             }
-            None => Self::NoTimeout,
+            None => Self::NoTimeout(NoTimeoutChecker),
         }
     }
 }
@@ -241,14 +241,15 @@ impl TimeoutContext for AnyTimeoutContext {
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         match self {
             Self::Request(request) => TimeoutContext::check_timeout(request),
-            Self::NoTimeout => Ok(()),
+            Self::NoTimeout(no_timeout) => TimeoutContext::check_timeout(no_timeout),
         }
     }
 
     #[inline(always)]
     fn reset_counter(&mut self) {
-        if let Self::Request(request) = self {
-            TimeoutContext::reset_counter(request);
+        match self {
+            Self::Request(request) => TimeoutContext::reset_counter(request),
+            Self::NoTimeout(no_timeout) => TimeoutContext::reset_counter(no_timeout),
         }
     }
 }
