@@ -4130,8 +4130,10 @@ void IndexSpec_AssertLockNotHeld(void) {
 
 void IndexSpec_LockRead(IndexSpec *sp) {
   RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
-  RS_ASSERT_ALWAYS(pthread_rwlock_rdlock(&sp->rwlock) == 0);
-  RS_ASSERT_ALWAYS(dictPauseRehashing(sp->keysDict));
+  const int rc = pthread_rwlock_rdlock(&sp->rwlock);
+  RS_ASSERT_ALWAYS(rc == 0);
+  const bool rehashPaused = dictPauseRehashing(sp->keysDict);
+  RS_ASSERT_ALWAYS(rehashPaused);
   lock_state.spec = sp;
   lock_state.state = SPEC_LOCK_READ;
 }
@@ -4141,7 +4143,8 @@ int IndexSpec_TryLockRead(IndexSpec *sp) {
   if (pthread_rwlock_tryrdlock(&sp->rwlock) != 0) {
     return REDISMODULE_ERR;
   }
-  RS_ASSERT_ALWAYS(dictPauseRehashing(sp->keysDict));
+  const bool rehashPaused = dictPauseRehashing(sp->keysDict);
+  RS_ASSERT_ALWAYS(rehashPaused);
   lock_state.spec = sp;
   lock_state.state = SPEC_LOCK_READ;
   return REDISMODULE_OK;
@@ -4153,7 +4156,8 @@ void IndexSpec_LockWrite(IndexSpec *sp) {
   // Publish before blocking so a worker's sync point can observe a queued writer.
   PendingSpecWriters_Incr();
 #endif
-  RS_ASSERT_ALWAYS(pthread_rwlock_wrlock(&sp->rwlock) == 0);
+  const int rc = pthread_rwlock_wrlock(&sp->rwlock);
+  RS_ASSERT_ALWAYS(rc == 0);
 #ifdef ENABLE_ASSERT
   PendingSpecWriters_Decr();
 #endif
@@ -4180,9 +4184,11 @@ void IndexSpec_Unlock(IndexSpec *sp) {
     return;
   }
   if (lock_state.state == SPEC_LOCK_READ) {
-    RS_ASSERT_ALWAYS(dictResumeRehashing(sp->keysDict));
+    const bool rehashResumed = dictResumeRehashing(sp->keysDict);
+    RS_ASSERT_ALWAYS(rehashResumed);
   }
-  RS_ASSERT_ALWAYS(pthread_rwlock_unlock(&sp->rwlock) == 0);
+  const int rc = pthread_rwlock_unlock(&sp->rwlock);
+  RS_ASSERT_ALWAYS(rc == 0);
   lock_state.spec = NULL;
   lock_state.state = SPEC_LOCK_UNSET;
 }

@@ -133,6 +133,32 @@ TEST_F(SpecLockTest, RejectsRecursiveAcquisitionAndMismatchedUnlock) {
   IndexSpec_Unlock(&spec);
 }
 
+TEST_F(SpecLockTest, FailedRehashPauseIsNotRetried) {
+  for (bool tryLock : {false, true}) {
+    spec.keysDict->pauserehash = -2;
+    if (tryLock) {
+      EXPECT_THROW(IndexSpec_TryLockRead(&spec), std::runtime_error);
+    } else {
+      EXPECT_THROW(IndexSpec_LockRead(&spec), std::runtime_error);
+    }
+    EXPECT_EQ(spec.keysDict->pauserehash, -1);
+    EXPECT_FALSE(IndexSpec_IsLocked(&spec));
+    // The mock assertion throws after acquisition but before ownership is installed.
+    EXPECT_EQ(pthread_rwlock_unlock(&spec.rwlock), 0);
+    spec.keysDict->pauserehash = 0;
+  }
+}
+
+TEST_F(SpecLockTest, FailedRehashResumeIsNotRetried) {
+  IndexSpec_LockRead(&spec);
+  spec.keysDict->pauserehash = 0;
+  EXPECT_THROW(IndexSpec_Unlock(&spec), std::runtime_error);
+  EXPECT_EQ(spec.keysDict->pauserehash, -1);
+  EXPECT_TRUE(IndexSpec_IsReadLocked(&spec));
+  spec.keysDict->pauserehash = 1;
+  IndexSpec_Unlock(&spec);
+}
+
 TEST_F(SpecLockTest, CursorReservationReclaimsIdleRequestsWithoutReleasingActiveLock) {
   IndexSpec other{};
   for (IndexSpec *idleSpec : {&spec, &other}) {
