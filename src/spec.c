@@ -1880,6 +1880,13 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
+  if (isSpecOnDisk(spec) && IndexSpec_HasIndexMissing(spec) &&
+      !SearchDisk_InitializeMissingStorage(ctx, spec->diskSpec)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Could not initialize missing-field storage");
+    goto failure;
+  }
+
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
   }
@@ -3166,6 +3173,11 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
+  if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
+    RedisModule_Log(ctx, "warning", "Failed to initialize missing-field storage during SST load");
+    return false;
+  }
+
   // Populate diskCtx for every HNSW-disk-backed vector field so we have the
   // storage context needed for both eager creation (cold fields) and the
   // bind-storage step on pending indexes (loaded inline from RDB).
@@ -3446,6 +3458,11 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, !useSst, sp);
     if (!sp->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+      return REDISMODULE_ERR;
+    }
+    if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                          "Could not initialize missing-field storage during RDB load");
       return REDISMODULE_ERR;
     }
     IndexSpec_PopulateVectorDiskParams(sp);

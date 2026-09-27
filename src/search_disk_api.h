@@ -695,7 +695,7 @@ typedef struct IndexDiskAPI {
    * only for this call. No field-expiration state is passed to disk.
    * `batch` must belong to `index`. On false, the caller must abort the batch,
    * including any missing postings already staged. These postings must never
-   * increment num_records. `ctx` is used to register the shared missing CF.
+   * increment num_records. Shared missing storage must already be initialized.
    */
   bool (*indexMissingFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                              SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
@@ -709,6 +709,10 @@ typedef struct IndexDiskAPI {
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
+  /** Initialize the shared missing CF after schema validation, before ingestion or queries.
+   * Idempotent. Returns false on failure. ctx must allow Redis BigModule CF registration;
+   * index must be a live disk index. */
+  bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
