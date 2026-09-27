@@ -64,11 +64,29 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
     return AC_ERR_PARSE;
   }
+  // Casting a double outside [LLONG_MIN, 2^63) to long long is UB, and the
+  // RString conversion accepts literal "inf" — reject NaN and handle the
+  // range before any cast. (double)LLONG_MAX rounds up to exactly 2^63,
+  // making it the correct exclusive bound.
+  if (isnan(dTmp)) {
+    return AC_ERR_PARSE;
+  }
   if (flags & AC_F_COALESCE) {
-    *ll = dTmp;
+    // Coalescing coerces: saturate out-of-range values (inf included)
+    if (dTmp >= (double)LLONG_MAX) {
+      *ll = LLONG_MAX;
+    } else if (dTmp < (double)LLONG_MIN) {
+      *ll = LLONG_MIN;
+    } else {
+      *ll = dTmp;
+    }
     return AC_OK;
   }
 
+  // Non-coalescing: out-of-range values cannot survive the integral round-trip
+  if (!(dTmp >= (double)LLONG_MIN && dTmp < (double)LLONG_MAX)) {
+    return AC_ERR_PARSE;
+  }
   if ((double)(long long)dTmp != dTmp) {
     return AC_ERR_PARSE;
   } else {
