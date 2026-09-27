@@ -9,22 +9,13 @@
 #ifndef RS_CONCERRNT_CTX_
 #define RS_CONCERRNT_CTX_
 
-#include "redisearch.h"
-#include "redismodule.h"
 #include "thpool/thpool.h"
-#include "util/references.h"
-#include "rs_wall_clock.h"
-#include "config.h"
-#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Concurrent Search Execution Context.
- */
-
-typedef void (*ConcurrentReopenCallback)(void *ctx);
+/* Coordinator thread-pool management. */
 
 /* Destroys all thread pools created with `ConcurrentSearch_CreatePool` */
 void ConcurrentSearch_ThreadPoolDestroy(void);

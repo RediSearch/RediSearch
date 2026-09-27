@@ -486,7 +486,7 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
 
 struct ReplyClusterInfoCtx {
   IORuntimeCtx *ioRuntime;
-  OpBlockClientCtx *op;
+  RedisModuleBlockedClient *bc;
 };
 
 struct MultiThreadedRedisBlockedCtx {
@@ -561,20 +561,20 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
 static void uvReplyClusterInfo(void *p) {
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
-  OpBlockClientCtx *op = replyClusterInfoCtx->op;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(op->bc);
+  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   IORuntimeCtx_RequestCompleted(ioRuntime);
   RedisModule_FreeThreadSafeContext(ctx);
-  OpBlockClientCtx_Unblock(op);
+  OpBlockClient_Unblock(bc);
   rm_free(replyClusterInfoCtx);
 }
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
-  OpBlockClientCtx *op = OpBlockClientCtx_New(ctx, NULL);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, NULL);
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
-  replyClusterInfoCtx->op = op;
+  replyClusterInfoCtx->bc = bc;
   replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
   IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, replyClusterInfoCtx);
 }

@@ -1332,8 +1332,8 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  OpBlockClientCtx *op = OpBlockClientCtx_New(ctx, GCForceInvokeReply);
-  GCContext_WaitForAllOperations(op);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, GCForceInvokeReply);
+  GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
 }
 

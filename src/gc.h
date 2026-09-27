@@ -140,8 +140,7 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForced
 void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
 // free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.
 void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata);
-struct OpBlockClientCtx;
-void GCContext_WaitForAllOperations(struct OpBlockClientCtx* op);
+void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
 void GCContext_GetStats(GCContext* gc, InfoGCStats* out);
 // Stop periodic collection and disarm the timer. A run in flight completes without re-arming.
 // Requires the GIL, as does GCContext_IsEnabled: both touch GIL-guarded scheduling state.

@@ -350,11 +350,11 @@ void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced) {
 }
 
 static void GCContext_UnblockClient(void* data) {
-  OpBlockClientCtx_Unblock(data);
+  OpBlockClient_Unblock(data);
 }
 
-void GCContext_WaitForAllOperations(OpBlockClientCtx* op) {
-  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, op, THPOOL_PRIORITY_HIGH);
+void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
+  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, bc, THPOOL_PRIORITY_HIGH);
 }
 
 void GC_ThreadPoolStart() {

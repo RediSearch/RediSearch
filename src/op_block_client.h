@@ -11,14 +11,10 @@
 
 #include "redismodule.h"
 
-/* A one-shot operational job, without query registration, timeout state or
- * request ownership. The worker owns this context until Unblock, including
- * after client disconnect. Reply contexts must be freed before Unblock. */
-typedef struct OpBlockClientCtx {
-  RedisModuleBlockedClient *bc;
-} OpBlockClientCtx;
-
-OpBlockClientCtx *OpBlockClientCtx_New(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_cb);
-void OpBlockClientCtx_Unblock(OpBlockClientCtx *op);
+/* One-shot operational blocking without query registration or timeout state.
+ * The worker owns the blocked-client handle until Unblock, including after
+ * client disconnect. Reply contexts must be freed before Unblock. */
+RedisModuleBlockedClient *OpBlockClient_Block(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_cb);
+void OpBlockClient_Unblock(RedisModuleBlockedClient *bc);
 
 #endif
