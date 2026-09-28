@@ -453,10 +453,9 @@ impl QueryNodeMut<'_> {
     ///    and a query parameter into a zeroed one a byte longer than its value.
     /// 5. Every token under a [`QueryNodeType::Tag`] node, [`QueryNodeType::Token`]
     ///    ones included, must meet the same string requirements, and on a
-    ///    case-insensitive field come from the Redis module allocator, since
-    ///    lowercasing may free and replace it.
-    ///    The parser allocates every token that way, and query expansion leaves
-    ///    tag subtrees alone.
+    ///    case-insensitive field those of [`RSTokenMut::normalize_tag`]. The
+    ///    parser allocates every token that way, and query expansion leaves tag
+    ///    subtrees alone.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {

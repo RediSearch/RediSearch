@@ -290,10 +290,9 @@ impl<'a> RSTokenRef<'a, true> {
 /// token, each able to apply one, is precisely the hazard the exclusive borrow
 /// rules out.
 ///
-/// Unlike [`RSTokenRef`], this type carries no NUL-termination typestate. Every
-/// in-place rewrite shortens the string and re-terminates it at its new end, so
-/// all of them need the terminator — requiring it unconditionally at construction
-/// leaves one contract to satisfy instead of two.
+/// Unlike [`RSTokenRef`], this type carries no NUL-termination typestate: every
+/// rewrite needs the terminator, and leaves the string terminated at its new
+/// length.
 pub struct RSTokenMut<'a> {
     tok: &'a mut ffi::RSToken,
 }
@@ -310,12 +309,8 @@ impl<'a> RSTokenMut<'a> {
     ///   or the bytes its `str_` addresses while it is live. `'a` must be chosen to
     ///   make that true — in practice by deriving it from an exclusive borrow of
     ///   whatever owns the token, such as a query node.
-    /// - A non-null `str_` must address `len` initialized bytes that are
-    ///   **writable**, and the allocation must extend one byte further: `str_[len]`
-    ///   must be readable and equal to `0`. A rewrite writes only within
-    ///   `str_[0..len]`, re-terminating the string at its new end; the extra byte
-    ///   is what already terminates it when a rewrite leaves the length alone, and
-    ///   what [`as_ref`](Self::as_ref)'s NUL-terminated handle rests on throughout.
+    /// - A non-null `str_` must address `len` initialized bytes followed by a `0`
+    ///   at `str_[len]`, all of them **writable**.
     /// - A null `str_` implies `len == 0`, since a rewrite dereferences the string
     ///   whenever `len` is non-zero.
     pub unsafe fn from_nul_terminated_ffi(tok: *mut ffi::RSToken) -> Self {
@@ -348,6 +343,47 @@ impl<'a> RSTokenMut<'a> {
         // SAFETY: the constructor's contract guarantees a valid, NUL-terminated
         // token, and `&self` is what keeps it unmutated for the result's lifetime.
         unsafe { RSTokenRef::from_nul_terminated_ffi(std::ptr::from_ref(self.tok)) }
+    }
+
+    /// Normalize this tag token for a tag index lookup: remove the query escapes
+    /// indexed values never carry, then, unless `case_sensitive` is set,
+    /// lowercase it the way tag values are lowercased at indexing time.
+    ///
+    /// A `\` is removed when it precedes an ASCII punctuation or whitespace byte.
+    /// Lowercasing may lengthen the string and so replace its buffer. Like
+    /// [`remove_wildcard_escapes`](Self::remove_wildcard_escapes), this is **not
+    /// idempotent**, and bytes after an interior NUL are left unspecified.
+    ///
+    /// # Safety
+    ///
+    /// Unless `case_sensitive` is set, a non-null `str_` must be the start of an
+    /// allocation from the Redis module allocator that only the token's owner
+    /// frees.
+    pub unsafe fn normalize_tag(&mut self, case_sensitive: bool) {
+        if self.tok.str_.is_null() {
+            return;
+        }
+
+        // SAFETY: the constructor's contract covers the C code's reads and writes,
+        // this method's covers its free, and `self` exclusively owns the `str_`
+        // and `len` it may replace.
+        unsafe {
+            ffi::tag_strtolower(
+                &raw mut self.tok.str_,
+                &raw mut self.tok.len,
+                i32::from(case_sensitive),
+            )
+        }
+
+        // Escape removal stops at an interior NUL without shortening the length,
+        // so the byte at the new length may be leftover content.
+        //
+        // SAFETY: `str_[len]` is in bounds: an in-place rewrite never grows the
+        // length, and a replacement allocation has room for a terminator.
+        let terminator = unsafe { self.tok.str_.add(self.tok.len) };
+        // SAFETY: `terminator` is in bounds, writable, and exclusively owned by
+        // `self`.
+        unsafe { *terminator = 0 };
     }
 
     /// Collapse `\x` escapes in this token's wildcard pattern, in place,
