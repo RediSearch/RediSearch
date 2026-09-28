@@ -648,6 +648,11 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
+static bool profileShouldStopCollectingReplies(AREQ *req) {
+  // A cancelled FAIL reply is discarded, so there is no need to collect more shard profiles.
+  return req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && AREQ_TimedOut(req);
+}
+
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   AREQ *req = ctx;
@@ -661,9 +666,12 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    do {
+    while (!profileShouldStopCollectingReplies(req)) {
       MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+      if (getNextReply(rpnet) == RS_RESULT_EOF) {
+        break;
+      }
+    }
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
