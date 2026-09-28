@@ -183,6 +183,12 @@ int RedisModule_Reply_Map(RedisModule_Reply *reply);
 int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
+/* Move the `elements` complete top-level elements accumulated in `buffer` (a reply over a
+ * RedisModule_CreateReplyBufferContext context) into the current collection of `reply`, in O(1).
+ * Nothing is counted while writing into a buffer; the caller knows what it wrote, and assert builds
+ * verify `elements` against the shadow. `buffer` must have no open collection; it is left empty and
+ * reusable, its scratch retained. */
+int RedisModule_Reply_Buffered(RedisModule_Reply *reply, RedisModule_Reply *buffer, size_t elements);
 /* Based on the value type, serialize the value into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 
@@ -240,6 +246,10 @@ static inline int RedisModule_Reply_MapOrArray(RedisModule_Reply *reply) {
 }
 static inline int RedisModule_Reply_MapOrArrayEnd(RedisModule_Reply *reply) {
   return reply->resp3 ? RedisModule_Reply_MapEnd(reply) : RedisModule_Reply_ArrayEnd(reply);
+}
+// The declared form: `entries` map entries under RESP3, `flatElements` array elements under RESP2. No End.
+static inline int RedisModule_Reply_MapOrArrayWithLen(RedisModule_Reply *reply, size_t entries, size_t flatElements) {
+  return reply->resp3 ? RedisModule_Reply_MapWithLen(reply, entries) : RedisModule_Reply_ArrayWithLen(reply, flatElements);
 }
 
 /*

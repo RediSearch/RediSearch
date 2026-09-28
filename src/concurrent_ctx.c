@@ -146,7 +146,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   if (handlerCtx->bcCtx.request) {
     // Safe against the just-armed timer: the timeout callback runs on this
     // same thread.
-    QueryRequest_BeginCycle(handlerCtx->bcCtx.request, cmdCtx->bc,
+    QueryRequest_BeginCycle(ctx, handlerCtx->bcCtx.request, cmdCtx->bc,
                             handlerCtx->bcCtx.reply_callback);
   }
 

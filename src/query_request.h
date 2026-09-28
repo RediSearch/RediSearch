@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "query_error.h"
+#include "reply.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
 
@@ -38,21 +39,32 @@ struct MRChannel;
 typedef struct {
   RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
+  uint32_t options;
+  uint32_t requiredFlags;
+  SendReplyFlags replyFlags;
+  int apiVersion;
+  // Per-request row shape, computed once so the per-row serializer does no flag arithmetic.
+  size_t rowElements;          // top-level reply elements one row writes (1 for a row map; a flat run in RESP2)
+  size_t rowMapEntries;        // RESP3: entries of the row map
+  size_t requiredFieldsFrom;   // first required field to emit (the sort key, if sent, was already emitted)
+  size_t requiredFieldsCount;
+  bool needRequiredFieldsMap;  // RESP3 with required fields left to emit: they get their own map
 } cachedVars;
 
 /**
- * State retained while results wait for the main-thread reply callback.
+ * Serialized rows and metadata retained until the cycle replies.
  */
 typedef struct {
-  SearchResult **results;  // Aggregated results array (NULL if not stored)
-  int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
-  bool hasStoredResults;   // Whether results are available to the reply callback
-  /* The cycle's error and warnings — the request's single error slot. Every AREQ pipeline
-   * reports into it directly (qctx->err points here from construction), so the reply phase
-   * reads it wherever and whenever it runs; cleared at the end of each cycle. */
+  // The context is borrowed from Redis; the wrapper owns its reusable scratch.
+  RedisModule_Reply rows;
+  size_t bufferedElements; // top-level elements written into `rows`, counted by the row serializers
+  int rc;                 // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  /* The cycle's error and warnings — the request's single error slot. The pipeline reports into
+   * it directly (qctx->err points here), and a bail before the pipeline stores its error here with
+   * rc = RS_RESULT_ERROR, so the reply phase treats every cycle alike. Hybrid sub-pipelines report
+   * into their own slot; the parent's reply phase collects them. */
   QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
-  size_t limit;            // Original limit, used to calculate the RESP2 result length
 } ChunkReplyState;
 
 typedef enum {
@@ -342,7 +354,7 @@ typedef struct QueryRequest {
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
   /* false: BG replies inline through a thread-safe context; true: BG stores
-   * results and the Redis reply callback serializes them on the main thread. */
+   * serialized rows and the Redis reply callback publishes them. */
   bool useReplyCallback;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;

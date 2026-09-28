@@ -59,8 +59,8 @@ typedef struct {
 // Doubles as the query request execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 typedef enum {
   QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
-  QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
-  QUERY_TIMEOUT_STAGE_REPLY = 2,    // during reply serialization
+  QUERY_TIMEOUT_STAGE_PIPELINE = 1, // while the pipeline runs and its rows are buffered
+  QUERY_TIMEOUT_STAGE_REPLY = 2,    // after production: storing and committing the buffered reply
   QUERY_TIMEOUT_STAGE_COUNT
 } QueryTimeoutStage;
 

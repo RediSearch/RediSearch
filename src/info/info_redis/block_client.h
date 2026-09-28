@@ -38,17 +38,21 @@ struct QueryRequest;
 
 /* Bind the per-cycle fields on `request`. Called on the main thread after
  * RedisModule_BlockClient returned `bc` (with QueryRequest_OnFree
- * registered as free_privdata) and before dispatching BG work. Takes
- * ownership of the request (it becomes the blocked client's privdata — see
- * the ownership contract on QueryRequest), links it into the BlockedQueries
- * query registry (crash reports), and records the cycle's reply mode
- * (`reply_cb` must be the value that was passed to RedisModule_BlockClient). */
-void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb);
+ * registered as free_privdata) and before dispatching BG work. `ctx` must be
+ * the same context passed to RedisModule_BlockClient — it is used to create
+ * this cycle's reply buffer (RedisModule_CreateReplyBufferContext), which
+ * requires the server lock and is why this must run on the main thread.
+ * Takes ownership of the request (it becomes the blocked client's privdata
+ * — see the ownership contract on QueryRequest), links it into the
+ * BlockedQueries query registry (crash reports), and records the cycle's
+ * reply mode (`reply_cb` must be the value that was passed to
+ * RedisModule_BlockClient). */
+void QueryRequest_BeginCycle(RedisModuleCtx *ctx, struct QueryRequest *request,
+                             RedisModuleBlockedClient *bc, RedisModuleCmdFunc reply_cb);
 
 /* Same as QueryRequest_BeginCycle, linking into the cursor registry instead. */
-void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
-                                   RedisModuleCmdFunc reply_cb);
+void QueryRequest_BeginCursorCycle(RedisModuleCtx *ctx, struct QueryRequest *request,
+                                   RedisModuleBlockedClient *bc, RedisModuleCmdFunc reply_cb);
 
 /* End the cycle: unlink the request from the registry, drain unconsumed
  * per-cycle reply state, then dispose of the request — execute the recorded
