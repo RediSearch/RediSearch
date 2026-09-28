@@ -342,6 +342,12 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
+static bool profileShouldStopCollectingReplies(AREQ *req) {
+  // Use the dispatch mode: CONFIG may change before the worker creates the AREQ.
+  // A cancelled background FAIL reply is discarded, including its shard profiles.
+  return req->encodeReplyInBackground && AREQ_TimedOut(req);
+}
+
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   AREQ *req = ctx;
@@ -355,9 +361,12 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    do {
+    while (!profileShouldStopCollectingReplies(req)) {
       MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+      if (getNextReply(rpnet) == RS_RESULT_EOF) {
+        break;
+      }
+    }
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
@@ -628,8 +637,14 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
 
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // Wake a worker already blocked on a shard reply so it observes the timeout.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -731,7 +746,7 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// Main-thread reply callback for coord AREQ (RETURN_STRICT). Reads results
 // stored by the BG thread in req->storedReplyState. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
