@@ -2019,7 +2019,7 @@ class TestCoordinatorTimeout:
         ])
 
     def _test_fail_timeout_coord_store_cursor_read_impl(self, before):
-        """FAIL timeout on FT.CURSOR READ paused before/after coord AREQ_StoreResults."""
+        """FAIL timeout on FT.CURSOR READ paused before/after coord the AREQ results publish."""
         env = self.env
         skipIfNoEnableAssert(env)
 
@@ -2051,11 +2051,11 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_fail_timeout_before_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just before coord AREQ_StoreResults."""
+        """Test FAIL timeout on FT.CURSOR READ just before coord the AREQ results publish."""
         self._test_fail_timeout_coord_store_cursor_read_impl(before=True)
 
     def test_fail_timeout_after_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just after coord AREQ_StoreResults."""
+        """Test FAIL timeout on FT.CURSOR READ just after coord the AREQ results publish."""
         self._test_fail_timeout_coord_store_cursor_read_impl(before=False)
 
     def test_sticky_policy_fail_aggregate_config_return_cursor_read(self):
@@ -3593,7 +3593,7 @@ class TestCoordinatorTimeout:
         SORTBY variant of test_return_strict_timeout_after_store_aggregate.
         BG runs the full pipeline (sorter accumulates all shard rows, drains
         the heap, downstream loaders/pager produce final rows) and stores
-        them via AREQ_StoreResults, then parks in debugPauseStoreResults'
+        them via the AREQ results publish, then parks in debugPauseStoreResults'
         "after store" loop. The blocked-client timeout fires, but the
         pipeline has already completed, so the stored set carries the full,
         sorted result and the reply omits the TIMEOUT warning.
@@ -3670,7 +3670,7 @@ class TestCoordinatorTimeout:
         """RETURN_STRICT timeout race after the BG pipeline has stored results.
 
         Verifies the post-pipeline race: BG runs the pipeline to completion
-        and stores its results via AREQ_StoreResults, then parks in
+        and stores its results via the AREQ results publish, then parks in
         debugPauseStoreResults' "after store" loop before calling
         AREQ_SignalAggregateResultsComplete. The blocked-client timeout
         callback fires on the main thread:
@@ -3711,7 +3711,7 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
         # Wait for BG to park in the "pause after store" loop. At this point
-        # AREQ_StoreResults has populated storedReplyState.results but
+        # the AREQ results publish has populated storedReplyState.results but
         # AREQ_SignalAggregateResultsComplete has not been called yet.
         wait_for_condition(
             lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
@@ -3975,7 +3975,7 @@ class TestCoordinatorTimeout:
 
         Mirrors test_return_strict_timeout_after_store_aggregate for FT.HYBRID.
         BG runs the pipeline to completion and stores its results via
-        HREQ_StoreResults, then parks in debugPauseStoreResultsHybrid's "after
+        the HREQ results publish, then parks in debugPauseStoreResultsHybrid's "after
         store" loop before calling HybridRequest_SignalAggregateResultsComplete.
         The blocked-client timeout callback fires on the main thread:
           - sets timedOut on the HybridRequest
@@ -4026,7 +4026,7 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
 
         # Wait for BG to park in the "pause after store" loop. At this point
-        # HREQ_StoreResults has populated storedReplyState but
+        # the HREQ results publish has populated storedReplyState but
         # HybridRequest_SignalAggregateResultsComplete has not been called yet.
         wait_for_condition(
             lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
@@ -7487,7 +7487,7 @@ class TestShardTimeout:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_fail_timeout_shard_cursor_read_before_store(self):
-        """FAIL timeout on FT.CURSOR READ paused before AREQ_StoreResults in standalone."""
+        """FAIL timeout on FT.CURSOR READ paused before the AREQ results publish in standalone."""
         env = self.env
         prev_policy, cursor_id, baseline, _, _ = _setup_fail_cursor_state(env)
         try:
@@ -7500,7 +7500,7 @@ class TestShardTimeout:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_fail_timeout_shard_cursor_read_after_store(self):
-        """FAIL timeout on FT.CURSOR READ paused after AREQ_StoreResults in standalone."""
+        """FAIL timeout on FT.CURSOR READ paused after the AREQ results publish in standalone."""
         env = self.env
         prev_policy, cursor_id, baseline, _, _ = _setup_fail_cursor_state(env)
         try:
@@ -7617,7 +7617,7 @@ class TestShardTimeout:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def _test_return_strict_timeout_shard_cursor_read_store_impl(self, before):
-        """RETURN_STRICT timeout on FT.CURSOR READ paused around AREQ_StoreResults."""
+        """RETURN_STRICT timeout on FT.CURSOR READ paused around the AREQ results publish."""
         env = self.env
         skipIfNoEnableAssert(env)
 
@@ -7675,11 +7675,11 @@ class TestShardTimeout:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_return_strict_timeout_shard_cursor_read_before_store(self):
-        """RETURN_STRICT timeout on FT.CURSOR READ paused before AREQ_StoreResults."""
+        """RETURN_STRICT timeout on FT.CURSOR READ paused before the AREQ results publish."""
         self._test_return_strict_timeout_shard_cursor_read_store_impl(before=True)
 
     def test_return_strict_timeout_shard_cursor_read_after_store(self):
-        """RETURN_STRICT timeout on FT.CURSOR READ paused after AREQ_StoreResults."""
+        """RETURN_STRICT timeout on FT.CURSOR READ paused after the AREQ results publish."""
         self._test_return_strict_timeout_shard_cursor_read_store_impl(before=False)
 
     def test_return_strict_timeout_shard_cursor_read_after_aggregate_claim(self):

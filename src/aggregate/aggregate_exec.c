@@ -440,17 +440,6 @@ static void runPipelineCycle(AREQ *req, int *rc) {
   }
 }
 
-// Publish metadata only after every row is serialized. The completion handshake
-// gives the timeout callback exclusive ownership of rows and the pipeline.
-static void AREQ_StoreResults(AREQ *req, int rc) {
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-
-  req->base.reply.rc = rc;
-  // The pipeline reports straight into reply.err (qctx->err points there), so the error is already
-  // where the reply phase reads it.
-  RS_ASSERT(qctx->err == &req->base.reply.err);
-}
-
 static void finishSendChunk(AREQ *req, bool cursor_done) {
   if (cursor_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
@@ -658,7 +647,9 @@ static void storeResultsForReplyCallback(AREQ *req, int rc) {
   if (!req->base.async.aggregateResultsClaimLost) {
     AREQ_SearchCtx(req)->redisCtx = NULL;
     debugPauseStoreResults(req, true);  // pause before
-    AREQ_StoreResults(req, rc);
+    // Publishing rc only after every row is serialized is what hands the timeout callback a
+    // complete cycle; the pipeline reports its error straight into reply.err.
+    req->base.reply.rc = rc;
     debugPauseStoreResults(req, false); // pause after
 
     // Signal completion for main-thread timeout
@@ -864,7 +855,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (QueryRequest_UsesReplyCallback(&req->base)) {
     storeResultsForReplyCallback(req, rc);
   } else {
-    AREQ_StoreResults(req, rc);
+    req->base.reply.rc = rc;
     replyStoredResults(req, reply);
   }
   if (foreground) ChunkReplyState_CloseBuffer(&req->base.reply);
@@ -1368,7 +1359,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 //   - SetTimedOut so any RP polling the request timeout bails on its next read.
 //   - TryClaim wins iff BG has not yet entered the aggregation phase (it
 //     bails in runPipelineCycle). In that case we own the reply and emit empty.
-//   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
+//   - Otherwise BG owns the buffer; wait for it to publish the cycle's rc,
 //     then drain anything still buffered (RPSorter heap) and reply.
 static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
@@ -1415,8 +1406,8 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   return REDISMODULE_OK;
 }
 
-// The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after
-// AREQ_StoreResults for foreground and direct background replies, or from the main-thread reply
+// The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after the cycle
+// publishes its rc for foreground and direct background replies, or from the main-thread reply
 // callback via AREQ_ReplyWithStoredResults.
 static void replyStoredResults(AREQ *req, RedisModule_Reply *reply) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);

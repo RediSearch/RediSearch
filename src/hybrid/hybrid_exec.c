@@ -480,11 +480,6 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 }
 #endif
 
-// The completion handshake publishes these diagnostics with the serialized rows.
-static void HREQ_StoreResults(HybridRequest *hreq, int rc) {
-  hreq->base.reply.rc = rc;
-}
-
 // Helper for error handling in coordinator HREQ execution.
 // FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
 //   reply_callback to handle.
@@ -579,7 +574,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
     debugPauseStoreResultsHybrid(hreq, true);  // pause before
-    HREQ_StoreResults(hreq, rc);
+    // Publishing rc only after every row is serialized hands the timeout callback a complete cycle.
+    hreq->base.reply.rc = rc;
     debugPauseStoreResultsHybrid(hreq, false); // pause after
 
     // Signal completion for main-thread timeout
@@ -587,7 +583,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       HybridRequest_SignalAggregateResultsComplete(hreq);
     }
   } else {
-    HREQ_StoreResults(hreq, rc);
+    hreq->base.reply.rc = rc;
     HREQ_ReplyWithStoredResults(hreq, reply);
   }
 
@@ -596,9 +592,9 @@ done:
 }
 
 /**
- * The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after
- * HREQ_StoreResults for foreground and direct background replies, or from the main-thread reply
- * callback once the background thread stored its results.
+ * The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after the cycle
+ * publishes its rc for foreground and direct background replies, or from the main-thread reply
+ * callback once the background thread published its cycle.
  */
 void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply) {
   ChunkReplyState *stored = &hreq->base.reply;

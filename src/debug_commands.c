@@ -3121,7 +3121,7 @@ static int parseStoreResultsScope(RedisModuleString **argv, int argc, StoreResul
 
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false> [INTERNAL_ONLY|NON_INTERNAL_ONLY]
- * Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+ * Enable/disable pausing before a cycle publishes its results.
  * The optional scope token restricts the pause to internal (coordinator-dispatched)
  * or non-internal (user-facing) requests; omitting it applies to both.
  */
@@ -3151,7 +3151,7 @@ DEBUG_COMMAND(setPauseBeforeStoreResults) {
 
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false> [INTERNAL_ONLY|NON_INTERNAL_ONLY]
- * Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+ * Enable/disable pausing after a cycle publishes its results.
  * The optional scope token restricts the pause to internal (coordinator-dispatched)
  * or non-internal (user-facing) requests; omitting it applies to both.
  */
