@@ -23,13 +23,11 @@ extern "C" {
 
 /**
  * Coordinator request context - wrapper for AREQ/HybridRequest that enables
- * coordinator-level timeout handling using the reply_callback pattern.
+ * coordinator-level timeout handling.
  *
- * Both AREQ and HybridRequest use the reply_callback pattern:
- * - Background thread executes query and stores results
- * - Background thread calls UnblockClient to trigger reply_callback on main thread
- * - reply_callback builds and sends the reply
- * - Timeout callback sets timedOut flag and replies with timeout error
+ * Background workers either serialize directly into the blocked-client buffer
+ * or store results for a main-thread reply callback. The timeout callback sets
+ * timedOut and replies; worker completion releases the context in either mode.
  */
 typedef struct CoordRequestCtx {
   CommandType type;

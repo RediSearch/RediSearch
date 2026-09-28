@@ -1884,10 +1884,16 @@ void AREQ_DecrRef(AREQ *req) {
   }
 }
 
-void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->storedReplyState.cursor) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
+void AREQ_FinalizeStoredCursor(AREQ *req) {
+  Cursor *cursor = req->storedReplyState.cursor;
+  req->storedReplyState.cursor = NULL;
+  if (!cursor) return;
+
+  // The timeout callback has finished before free-data cleanup runs.
+  if (req->encodeReplyInBackground && !AREQ_TimedOut(req) &&
+      !(req->stateflags & QEXEC_S_ITERDONE)) {
+    Cursor_Pause(cursor);
+  } else {
     Cursor_Free(cursor);
   }
 }
