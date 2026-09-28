@@ -426,6 +426,20 @@ def test_tail_property_not_loaded_warning_coordinator():
     env.assertTrue(any('__score' in w for w in warnings),
                    message=f"Expected warning about __score, got: {warnings}")
 
+@skip(cluster=False)
+def test_deferred_hybrid_postprocessing_warning():
+    """The deferred reply must read the tail pipeline's soft error, without asserting."""
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN-STRICT')
+    setup_basic_index(env)
+
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                       '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+                       'LOAD', '1', '@__key', 'APPLY', '2*@__score', 'AS', 'doubled_score')
+    env.assertTrue(any('__score' in warning for warning in get_warnings(response)),
+                   message=response)
+    env.expect('PING').true()
+
+
 def test_return_strict_inline_hybrid():
     """Inline HYBRID executes with RETURN-STRICT configured on standalone and cluster."""
     env = Env(moduleArgs='WORKERS 0 ON_TIMEOUT RETURN-STRICT', protocol=3)
