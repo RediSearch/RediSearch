@@ -2351,7 +2351,8 @@ def _disk_resource_startup_log(log_dir):
     return '\n'.join(contents)
 
 
-@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False,
+      missing_redis_command='bigstore')
 def test_flex_disk_resource_config_startup_boundaries():
     accepted = (
         {
@@ -2422,7 +2423,8 @@ def _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue=
     assert diagnostic in startup_log
 
 
-@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False)
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False,
+      missing_redis_command='bigstore')
 def test_flex_disk_resource_config_startup_rejections():
     invalid = (
         (
