@@ -1032,8 +1032,14 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // Wake a worker already blocked on a shard reply so it observes the timeout.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
