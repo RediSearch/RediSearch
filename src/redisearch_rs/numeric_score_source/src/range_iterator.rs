@@ -162,7 +162,8 @@ fn merge_ranges(
     emitted: Option<&mut HashSet<DocId>>,
     timeout: &mut impl TimeoutContext,
 ) -> Result<NumericScoreBatch, RQEIteratorError> {
-    let mut items: Vec<(DocId, f64)> = Vec::with_capacity(reserved_capacity(ranges, filter));
+    let mut items: Vec<(DocId, f64)> =
+        Vec::with_capacity(reserved_capacity(ranges, filter, emitted.is_some()));
     let mut record = RSIndexResult::build_numeric(0.0).build();
     // Ranges that contributed at least one record, i.e. the number of ascending
     // runs `items` holds.
@@ -187,8 +188,8 @@ fn merge_ranges(
     }
     timeout.check_timeout()?;
     if runs > 1 {
-        // Stable sort: it finds the per-range runs and merges them, where an
-        // unstable sort would re-order data that is already mostly in place.
+        // Stable sort: `sort_by_key` detects the per-range ascending runs
+        // and merges them, where `sort_unstable_by_key` re-sorts from scratch.
         items.sort_by_key(|(doc_id, _)| *doc_id);
     }
     if let Some(emitted) = emitted {
@@ -203,19 +204,23 @@ fn merge_ranges(
 }
 
 /// Records to reserve for reading `ranges` under `filter`: each range's
-/// [`NumericRange::num_docs`], capped at
-/// [`NumericRangeTree::MAXIMUM_RANGE_SIZE`] for a range that passes `filter`
-/// only in part.
+/// [`NumericRange::num_docs`] where that is the exact count the range yields,
+/// otherwise that count capped at [`NumericRangeTree::MAXIMUM_RANGE_SIZE`].
 ///
-/// Such a range may yield none of its documents, and a single-value range never
-/// splits however large it grows, so an uncapped count could reserve for
-/// millions of records that are all filtered out.
-fn reserved_capacity(ranges: &[&NumericRange], filter: NumericFilter) -> usize {
+/// The count is exact only for a range wholly inside `filter` on a field that
+/// is not `multivalued`. A range that passes `filter` only in part, or a
+/// multivalue range whose documents an earlier batch already emitted, may yield
+/// none of them — and a single-value range never splits however large it
+/// grows, so an uncapped count could reserve for millions of dropped records.
+fn reserved_capacity(ranges: &[&NumericRange], filter: NumericFilter, multivalued: bool) -> usize {
     ranges
         .iter()
         .map(|r| {
             let num_docs = r.num_docs() as usize;
-            if filter.value_in_range(r.min_val()) && filter.value_in_range(r.max_val()) {
+            let exact = !multivalued
+                && filter.value_in_range(r.min_val())
+                && filter.value_in_range(r.max_val());
+            if exact {
                 num_docs
             } else {
                 num_docs.min(NumericRangeTree::MAXIMUM_RANGE_SIZE)
@@ -412,14 +417,47 @@ mod tests {
         assert_eq!(ranges.len(), 1);
 
         assert_eq!(
-            reserved_capacity(&ranges, excluding),
+            reserved_capacity(&ranges, excluding, false),
             NumericRangeTree::MAXIMUM_RANGE_SIZE
         );
         assert_eq!(
-            reserved_capacity(&ranges, including),
+            reserved_capacity(&ranges, including, false),
             ranges[0].num_docs() as usize
         );
         assert!(drain_pairs(&tree, &excluding).is_empty());
+    }
+
+    #[cfg_attr(miri, ignore = "Too slow to run under miri")]
+    #[test]
+    fn already_emitted_multivalue_range_reserves_at_most_a_split_size() {
+        // Every doc holds both values, so each value's unsplit range holds every
+        // doc, and whichever range is read second finds them all emitted.
+        let mut tree = NumericRangeTree::new(false);
+        let docs = 2 * NumericRangeTree::MAXIMUM_RANGE_SIZE as u64;
+        for id in 1..=docs {
+            tree.add(id, 5.0, false, true, 0);
+            tree.add(id, 50.0, false, true, 0);
+        }
+        let filter = NumericFilter::default();
+        let ranges = tree.find(&filter);
+        assert_eq!(ranges.len(), 2, "expected one range per value");
+
+        let later = &ranges[1..];
+        assert_eq!(
+            reserved_capacity(later, filter, true),
+            NumericRangeTree::MAXIMUM_RANGE_SIZE
+        );
+        assert_eq!(
+            reserved_capacity(later, filter, false),
+            later[0].num_docs() as usize
+        );
+
+        // One range per batch: the second batch is empty.
+        let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
+        let mut first = it.next_n(1, &mut NoTimeoutChecker).unwrap().unwrap();
+        let mut second = it.next_n(1, &mut NoTimeoutChecker).unwrap().unwrap();
+        assert!(first.next().is_some());
+        assert_eq!(second.next(), None);
     }
 
     #[test]
