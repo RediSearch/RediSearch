@@ -1264,12 +1264,10 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 4),
                            msg=f"Shard {shardId} HYBRID VSIM timeout error should be +4")
-    # Coord: +5 — on 8.6-rse each dist-hybrid FAIL error is counted twice:
-    # DistHybridCleanups counts it when storing the error, and
-    # DistHybridReplyCallback counts it again when replying it.
+    # Coord: +4 — the coordinator worker replies the FAIL error and counts it once.
     info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 5),
-                         message="Coordinator timeout error should be +5 after FT.HYBRID (double-counted on 8.6-rse)")
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 4),
+                         message="Coordinator timeout error should be +4 after FT.HYBRID")
 
     # ---------- Timeout Warnings ----------
     allShards_change_timeout_policy(self.env, 'RETURN')

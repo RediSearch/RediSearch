@@ -694,8 +694,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
     SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
-    // Set request flags from hybridParams
-    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
+    // The distributed pipeline and its reply run on coordinator workers.
+    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags |
+                     QEXEC_F_BUILDPIPELINE_NO_ROOT | QEXEC_F_RUN_IN_BACKGROUND;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];

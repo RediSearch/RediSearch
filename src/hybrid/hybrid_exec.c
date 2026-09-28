@@ -121,6 +121,14 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
+#ifdef ENABLE_ASSERT
+// Coordinator FAIL replies are serialized on the worker while the deadline remains active.
+static inline bool isCoordBackgroundReply(const HybridRequest *hreq) {
+  return !hreq->useReplyCallback && (hreq->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT) &&
+         (hreq->reqflags & QEXEC_F_RUN_IN_BACKGROUND);
+}
+#endif
+
 static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = HREQ_RequestFlags(hreq);
@@ -195,6 +203,11 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     }
   }
   RedisModule_Reply_MapEnd(reply); // >result
+#ifdef ENABLE_ASSERT
+  if (isCoordBackgroundReply(hreq)) {
+    SyncPoint_Wait(SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -244,13 +257,24 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * Returns true if an error was sent (caller should skip to cleanup).
  */
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  QueryError *err, int rc) {
+                                        QueryError *err, int rc) {
+#ifdef ENABLE_ASSERT
+  if (isCoordBackgroundReply(hreq)) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
+  // The timeout callback already counted errors for discarded background replies.
+  const bool countError = hreq->useReplyCallback || !HybridRequest_TimedOut(hreq);
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    }
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    }
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -391,8 +415,8 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 }
 
 // Helper for error handling in coordinator HREQ execution.
-// For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
-// For RETURN policy: replies with error directly.
+// Callback-based paths store early errors for the main thread.
+// Background FAIL replies with the error directly; RETURN may reply empty with a warning.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
@@ -401,8 +425,12 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     QueryError_CloneFrom(status, &hreq->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
-  } else if (!ShouldReplyWithError(QueryError_GetCode(status),
-                                   hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+  } else if (HybridRequest_TimedOut(hreq)) {
+    // The timeout callback already replied and counted the error.
+    QueryError_ClearError(status);
+  } else if (hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Fail &&
+             !ShouldReplyWithError(QueryError_GetCode(status), hreq->reqConfig.timeoutPolicy,
+                                   IsProfile(hreq))) {
     // A timeout under a non-fail policy must not surface as an error: reply an
     // empty result set carrying the timeout warning instead (e.g. a cursor-setup
     // timeout, where no mappings were established).
@@ -469,6 +497,11 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     HybridRequest_GetError(hreq, &err);
 
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, &err);
+#ifdef ENABLE_ASSERT
+    if (isCoordBackgroundReply(hreq)) {
+      SyncPoint_Wait(SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE);
+    }
+#endif
 
 done_err:
     finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
