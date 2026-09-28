@@ -4004,12 +4004,13 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
   if (policy != TimeoutPolicy_Return) {
-    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
+    const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
+    handlerCtx.bcCtx.reply_callback = useReplyCallback ? DistHybridReplyCallback : NULL;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, useReplyCallback);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
