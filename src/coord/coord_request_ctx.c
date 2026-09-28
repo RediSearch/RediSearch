@@ -35,10 +35,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
-      // Timeout edge case for cursor queries with useReplyCallback:
-      // When timeout fires before reply_callback runs, but after the cursor was created and
-      // stored in areq->storedReplyState.cursor, the cursor needs to be freed manually.
-      AREQ_CleanUpStoredCursor(ctx->areq);
+      AREQ_FinalizeStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }
   } else {
@@ -66,11 +63,13 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
-  // Propagate useReplyCallback to the request
+  // Propagate the policy-derived flags captured at dispatch in module.c.
   if (ctx->type == COMMAND_HYBRID) {
     ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+    AREQ *areq = (AREQ *)req;
+    areq->useReplyCallback = ctx->useReplyCallback;
+    areq->encodeReplyInBackground = ctx->encodeReplyInBackground;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
@@ -127,6 +126,9 @@ void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx
     // Deep copy since QueryError contains heap-allocated strings.
     QueryError_CloneFrom(status, &req->preRequestError);
     // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else if (CoordRequestCtx_TimedOut(req)) {
+    // The timeout callback already replied and counted the error.
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);

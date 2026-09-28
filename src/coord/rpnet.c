@@ -340,6 +340,9 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_RPNET_WAITING_FOR_REPLY);
+#endif
     // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
     // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
     // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
