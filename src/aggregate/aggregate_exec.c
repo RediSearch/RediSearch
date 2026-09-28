@@ -88,6 +88,7 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+static void replyStoredResults(AREQ *req, RedisModule_Reply *reply);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -159,28 +160,28 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   RedisModule_Reply_PrefixedStringBuffer(reply, '$', s, n);
 }
 
-typedef struct {
-  arrayof(const RLookupKey *) keys;
-  uint32_t lookupWidth;
-  char *presence;  // ASCII mask sent directly as a RESP string for sparse rows.
-} RespSchema;
+#ifdef ENABLE_ASSERT
+static bool serializationTimedOut(void *arg) {
+  AREQ *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+}
+#endif
 
-static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup *lookup) {
-  RLookupIterator iterator = RLookup_Iter(lookup);
+// Runtime LOAD * only appends lookup keys, so existing schema positions stay stable: rows already
+// serialized in this chunk refer to their schema prefix.
+static void respSchemaRefresh(RespSchema *schema, const cachedVars *cv) {
+  RLookupIterator iterator = RLookup_Iter(cv->lastLookup);
   uint32_t width = iterator.remaining;
   RS_LOG_ASSERT(width >= schema->lookupWidth, "Internal RESP schema lookup must only append keys");
   if (schema->keys && schema->lookupWidth == width) return;
   if (!schema->keys) schema->keys = array_new(const RLookupKey *, width);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_NOFIELDS)) {
-    uint32_t required = req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0;
-    // Runtime LOAD * only appends lookup keys. Existing positions must stay stable
-    // because rows already emitted in this chunk refer to their schema prefix.
-    if (schema->lookupWidth) iterator.current += schema->lookupWidth;
+  if (!(cv->options & QEXEC_F_SEND_NOFIELDS)) {
+    iterator.current += schema->lookupWidth;
     iterator.remaining -= schema->lookupWidth;
     const RLookupKey *key;
     while (RLookupIterator_Next(&iterator, &key)) {
       uint32_t flags = RLookupKey_GetFlags(key);
-      if ((flags & RLOOKUP_F_HIDDEN) || (flags & required) != required) continue;
+      if ((flags & RLOOKUP_F_HIDDEN) || (flags & cv->requiredFlags) != cv->requiredFlags) continue;
       array_append(schema->keys, key);
     }
   }
@@ -188,9 +189,16 @@ static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup
   schema->presence = rm_realloc(schema->presence, array_len(schema->keys) + 1);
 }
 
-static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
-                                  const cachedVars *cv, RespSchema *schema) {
-  respSchemaRefresh(schema, req, cv->lastLookup);
+// Starts a chunk's schema, keeping the arrays' capacity from earlier chunks.
+static void respSchemaReset(RespSchema *schema) {
+  if (schema->keys) array_clear(schema->keys);
+  schema->lookupWidth = 0;
+}
+
+static void serializeSchemaResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *r) {
+  const cachedVars *cv = &request->reply.cv;
+  RespSchema *schema = &request->reply.schema;
+  respSchemaRefresh(schema, cv);
   size_t width = array_len(schema->keys), present = 0, extent = 0;
   const RLookupRow *row = SearchResult_GetRowData(r);
   for (size_t i = 0; i < width; ++i) {
@@ -201,6 +209,7 @@ static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const Sea
       extent = i + 1;
     }
   }
+  request->reply.bufferedElements++; // one [presence, values] pair in both protocols
   RedisModule_Reply_ArrayWithLen(reply, 2);
   // A dense prefix needs no mask: the value count identifies its columns in the final schema.
   if (present == extent)
@@ -208,40 +217,49 @@ static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const Sea
   else
     RedisModule_Reply_StringBuffer(reply, schema->presence, extent);
   RedisModule_Reply_ArrayWithLen(reply, present);
-  SendReplyFlags flags = (AREQ_RequestFlags(req) & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-  flags |= (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
   for (size_t i = 0; i < extent; ++i) {
     if (schema->presence[i] == '1') {
-      RedisModule_Reply_RowValue(reply, RLookupRow_Get(schema->keys[i], row), flags,
-                                 AREQ_SearchCtx(req)->apiVersion);
+      RedisModule_Reply_RowValue(reply, RLookupRow_Get(schema->keys[i], row), cv->replyFlags, cv->apiVersion);
     }
   }
 }
 
-static void finishRespSchema(AREQ *req, RedisModule_Reply *reply, const cachedVars *cv,
-                             RespSchema *schema) {
-  if (!req->internalRespSchema) return;
-  RedisModule_Reply_ArrayEnd(reply);  // rows
-  // Streaming LOAD * can discover columns in later rows, so send the completed schema last.
-  respSchemaRefresh(schema, req, cv->lastLookup);
+// The schema trailer that closes a chunk of schema rows. Streaming LOAD * can discover columns in
+// later rows, so the schema is completed after the last row.
+static void replyRespSchema(AREQ *req, RedisModule_Reply *reply) {
+  RespSchema *schema = &req->base.reply.schema;
+  respSchemaRefresh(schema, &req->base.reply.cv);
   RedisModule_Reply_ArrayWithLen(reply, array_len(schema->keys));
   for (size_t i = 0; i < array_len(schema->keys); ++i) {
     const RLookupKey *key = schema->keys[i];
     RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(key), RLookupKey_GetNameLen(key));
   }
-  array_free(schema->keys);
-  rm_free(schema->presence);
 }
 
-static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
-                                  const cachedVars *cv) {
-  const uint32_t options = AREQ_RequestFlags(req);
+// The row shape serializeResult writes, fixed per request. It mirrors serializeResult's section
+// conditions: in RESP3 a row is one map with one entry per section plus the trailing "values"; in
+// RESP2 a row is a flat run of one element per section (required fields one each, since they get no
+// map of their own there).
+static void cachedVars_SetRowShape(cachedVars *cv, const AREQ *req, bool resp3) {
+  const uint32_t options = cv->options;
+  const uint32_t oneEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
+  const size_t sections = __builtin_popcount(options & oneEach) + !(options & QEXEC_F_SEND_NOFIELDS);
+  // Sortkey is the first required field; when it was already sent, only the remaining ones are emitted.
+  cv->requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
+  cv->requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
+  const size_t requiredFields = cv->requiredFieldsCount > cv->requiredFieldsFrom ? cv->requiredFieldsCount - cv->requiredFieldsFrom : 0;
+  cv->needRequiredFieldsMap = resp3 && requiredFields > 0;
+  cv->rowMapEntries = sections + (size_t)cv->needRequiredFieldsMap + 1;
+  cv->rowElements = resp3 ? 1 : sections + requiredFields;
+}
+
+static void serializeResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *r) {
+  AREQ *req = QueryRequest_GetAREQ(request);
+  const cachedVars *cv = &request->reply.cv;
+  const uint32_t options = cv->options;
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-  bool has_map = RedisModule_IsRESP3(reply);
-  // Sortkey is the first required field; when it was already sent, the remaining ones go in their own map.
-  const size_t requiredFieldsFrom = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
-  const size_t requiredFieldsCount = options & QEXEC_F_REQUIRED_FIELDS ? array_len(req->requiredFields) : 0;
-  const bool need_map = has_map && requiredFieldsFrom < requiredFieldsCount;
+  const bool has_map = RedisModule_IsRESP3(reply);
+  const bool need_map = cv->needRequiredFieldsMap;
 
   if ((options & QEXEC_F_IS_SEARCH) && !dmd) {
     // Empty results should not be serialized! We already crashed in development env. In production,
@@ -250,12 +268,10 @@ static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const Sea
     RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
     return;
   }
+  request->reply.bufferedElements += cv->rowElements;
 
   if (has_map) {
-    // One entry per section below, plus the trailing "values" placeholder.
-    const uint32_t oneEntryEach = QEXEC_F_IS_SEARCH | QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS;
-    const size_t entries = __builtin_popcount(options & oneEntryEach) + (size_t)need_map + !(options & QEXEC_F_SEND_NOFIELDS) + 1;
-    RedisModule_Reply_MapWithLen(reply, entries);
+    RedisModule_Reply_MapWithLen(reply, cv->rowMapEntries);
   }
 
   if (options & QEXEC_F_IS_SEARCH) {
@@ -316,11 +332,11 @@ static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const Sea
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-    size_t currentField = requiredFieldsFrom;
+    size_t currentField = cv->requiredFieldsFrom;
     if (need_map) {
-      RedisModule_ReplyKV_MapWithLen(reply, "required_fields", requiredFieldsCount - currentField); // >required_fields
+      RedisModule_ReplyKV_MapWithLen(reply, "required_fields", cv->requiredFieldsCount - currentField); // >required_fields
     }
-    for(; currentField < requiredFieldsCount; currentField++) {
+    for(; currentField < cv->requiredFieldsCount; currentField++) {
       RequiredField *field = &req->requiredFields[currentField];
       if (!field->key) {
         // A name can be unresolvable for early rows and resolve later (loading
@@ -362,13 +378,14 @@ static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const Sea
     // rule's special fields (score/language/payload) are hidden from
     // creation (see the spec cache's rule names), so this path never touches
     // the spec — it may already be gone by reply time.
-    uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-    SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-    flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
     const RLookupRow *rowData = SearchResult_GetRowData(r);
-    RedisModule_Reply_MapWithLen(reply, RedisModule_Reply_RLookupRowLen(lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN));
-    RedisModule_Reply_RLookupRow(reply, lk, rowData, requiredFlags, RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
+    RedisModule_Reply_MapWithLen(reply, RedisModule_Reply_RLookupRowLen(lk, rowData, cv->requiredFlags, RLOOKUP_F_HIDDEN));
+#ifdef ENABLE_ASSERT
+    if (req->base.blockedClientCycleActive) {
+      SyncPoint_WaitUntil(SYNC_POINT_DURING_ROW_SERIALIZATION, serializationTimedOut, req);
+    }
+#endif
+    RedisModule_Reply_RLookupRow(reply, lk, rowData, cv->requiredFlags, RLOOKUP_F_HIDDEN, cv->replyFlags, cv->apiVersion);
   }
 
   if (has_map) {
@@ -378,12 +395,20 @@ static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const Sea
   }
 }
 
-static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
-                            const cachedVars *cv, RespSchema *schema) {
-  if (req->internalRespSchema)
-    serializeSchemaResult(req, reply, r, cv, schema);
-  else
-    serializeLegacyResult(req, reply, r, cv);
+static void skipResult(QueryRequest *request, RedisModule_Reply *reply, const SearchResult *row) {
+  UNUSED(request);
+  UNUSED(reply);
+  UNUSED(row);
+}
+
+static SerializeResult backgroundSerializer(AREQ *req) {
+  if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS) return skipResult;
+  return req->internalRespSchema ? serializeSchemaResult : serializeResult;
+}
+
+void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
+  int rc = RS_RESULT_EOF;
+  Pipeline_SerializeResults(&req->base, backgroundSerializer(req), false, &rc);
 }
 
 #ifdef ENABLE_ASSERT
@@ -434,13 +459,11 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
-static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  CommonPipelineCtx ctx = {
-    .timeout = &req->base.timeout,
-    .oomPolicy = req->base.reqConfig.oomPolicy,
-    .areq = req,
-  };
-
+// Claims the production phase against a racing RETURN_STRICT timeout callback (a no-op for
+// every other policy), then runs Pipeline_SerializeResults for one cycle. Not "starting" the
+// pipeline in any special sense -- sendChunk calls this identically for the very first cycle
+// and for every subsequent cursor read.
+static void runPipelineCycle(AREQ *req, int *rc) {
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before the TryClaim race
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM, areq_timeout_or_pending_spec_writers, req);
@@ -466,7 +489,11 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->base);
   }
 
-  startPipelineCommon(&ctx, rp, results, r, rc);
+  // Always serialize into a reply buffer -- the persistent per-cycle one for a
+  // background cycle, or a transient one the caller created for this
+  // foreground call (see sendChunk) -- so the caller's finalization is
+  // always the same O(1) move, regardless of policy or blocking.
+  Pipeline_SerializeResults(&req->base, backgroundSerializer(req), true, rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.
@@ -484,48 +511,18 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   }
 }
 
+// Publish metadata only after every row is serialized. The completion handshake
+// gives the timeout callback exclusive ownership of rows and the pipeline.
+static void AREQ_StoreResults(AREQ *req, int rc) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-/**
- * Store pipeline results for reply_callback path.
- * Called after startPipeline when using reply_callback mode (FAIL policy with workers).
- * Stores results in req->base.reply so serializeAndReplyResults can be called
- * from the reply_callback on the main thread.
- *
- * @param req The aggregate request
- * @param results Pipeline results (ownership transferred to req->base.reply)
- * @param rc Pipeline return code
- * @param cv Cached variables for result serialization
- * @param limit Original limit passed to sendChunk (for RESP2 resultsLen calculation)
- */
-static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
-  req->base.reply.results = results;
   req->base.reply.rc = rc;
-  req->base.reply.cv = cv;
-  req->base.reply.limit = limit;
-  req->base.reply.hasStoredResults = true;
+  // The pipeline reports straight into reply.err (qctx->err points there), so the error is already
+  // where the reply phase reads it.
+  RS_ASSERT(qctx->err == &req->base.reply.err);
 }
 
-static int populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, AREQ *req, cachedVars *cv, RespSchema *schema) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
-      serializeResult(req, reply, res, cv, schema);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
-}
-
-static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
-  if (results) {
-    destroyResults(results);
-  } else if (r) {
-    // r can be NULL in the reply_callback path when AREQ_StoreResults is called
-    SearchResult_Destroy(r);
-  }
-
+static void finishSendChunk(AREQ *req, bool cursor_done) {
   if (cursor_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
@@ -546,12 +543,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
   if (!HasWithCount(req)) {
     qctx->totalResults = 0;
-  } else {
-    // totalResults survives this reset (WITHCOUNT); fold the dropped rows into it
-    // permanently so later cursor reads stay corrected.
-    qctx->totalResults = QITR_ReportedTotal(qctx);
   }
-  qctx->skippedResults = 0;
   // The slot lives for the request, so warnings must go too or the next cursor read re-emits them
   // (and re-counts them in the warning metrics). TODO(MOD-18840): some warnings are query-scoped
   // (max prefix expansions is raised once, when the iterator tree is built) and could deliberately
@@ -561,14 +553,18 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   QueryError_ClearWarnings(qctx->err);
 }
 
-/**
- * State for chunk serialization, shared by RESP2 and RESP3 implementations.
- */
-typedef struct {
-  SearchResult **results;   // Aggregated results (for ON_TIMEOUT FAIL policy)
-  SearchResult *r;          // Current result being processed
-  bool cursor_done;         // Whether the cursor is done
-} ChunkSerializeState;
+static bool shouldReplyWithRows(const AREQ *req, int rc) {
+  if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS) return false;
+  if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) return true;
+  // Partial rows after a timeout: RETURN keeps them unless ON_OOM FAIL, RETURN_STRICT keeps them, FAIL discards them.
+  switch (req->base.timeout.config.timeoutPolicy) {
+    case TimeoutPolicy_Return: return req->base.reqConfig.oomPolicy != OomPolicy_Fail;
+    case TimeoutPolicy_ReturnStrict: return true;
+    case TimeoutPolicy_Fail: return false;
+  }
+  RS_ABORT("unknown timeout policy");
+  return false;
+}
 
 /* Record this request's blocked-client timeout into the per-stage breakdown, at
  * the stage its execution-phase marker had reached when the deadline fired. Must be
@@ -586,8 +582,9 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
  * Returns true if an error was sent (caller should skip to cleanup).
  * Shared by both RESP2 and RESP3 implementations.
  */
-static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx, int rc) {
+static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply, int rc) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  // A runtime error replies as an error under every policy; the buffered rows are simply not moved.
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->base.timeout.config.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
@@ -619,10 +616,10 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
 }
 
 /**
- * Updates the optimizer and opens the reply wrappers and the results array.
+ * Updates the optimizer's total and opens the reply arrays up to (and including) the total.
  */
-static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
-                                        QueryProcessingCtx *qctx) {
+static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, size_t rows) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
@@ -634,20 +631,20 @@ static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
     RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
-  RedisModule_Reply_Array(reply);
+  // The buffer already counted its elements, so the results array needs no postponed length.
   if (req->internalRespSchema) {
+    RedisModule_Reply_ArrayWithLen(reply, INTERNAL_RESP_SCHEMA_REPLY_LEN);
     RedisModule_Reply_CString(reply, INTERNAL_RESP_SCHEMA_TAG);
-    RedisModule_Reply_Array(reply);
   }
-  // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_Reply_LongLong(reply,
-      QITR_ReportedTotal(qctx));
+  RedisModule_Reply_ArrayWithLen(reply, 1 + rows);
+  RedisModule_Reply_LongLong(reply, qctx->totalResults);
 }
 
 /**
  * Tracks warnings in global statistics and profile context.
  */
-static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
+static void trackWarnings_Resp2(AREQ *req, int rc) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
   // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
   // and rc stays !=TIMEDOUT, so the flag is the only path through which the
@@ -726,75 +723,17 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   return true;
 }
 
-/**
- * Serializes results and handles the main reply logic for RESP2.
- * Returns the final rc value and updates state accordingly.
- */
-static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
-  QueryProcessingCtx *qctx, int rc, size_t limit, cachedVars *cv, ChunkSerializeState *state) {
-
-    // If an error occurred, or a timeout in strict mode - return a simple error
-    if (handleSendChunkError(req, reply, qctx, rc)) {
-      state->cursor_done = true;
-      return rc;
-    }
-
-    RespSchema schema = {0};
-    prepareSendChunkReply_Resp2(req, reply, qctx);
-
-    // Once we get here, we want to return the results we got from the pipeline (with no error).
-    // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
-    // timeout so the harvested rows are not dropped.
-    const bool buffered_strict_2 = state->results != NULL &&
-                                   req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict;
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-        (!buffered_strict_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      goto done_2;
-    }
-
-    // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
-    if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv, &schema);
-      state->results = NULL;
-      goto done_2;
-    }
-
-    if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv, &schema);
-      SearchResult_Clear(state->r);
-    } else {
-      goto done_2;
-    }
-
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv, &schema);
-      SearchResult_Clear(state->r);
-    }
-
-done_2:
-    finishRespSchema(req, reply, cv, &schema);
-    RedisModule_Reply_ArrayEnd(reply);    // </results>
-
-    state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
-
-    trackWarnings_Resp2(req, qctx, rc);
-    finishSendChunkReply_Resp2(req, reply, state->cursor_done);
-
-    return rc;
-}
-
 /* Reply-callback mode: hand the cycle's results to the main thread instead of
- * serializing them into `reply` (or forfeit them to a lost strict claim).
+ * publishing them through `reply` (or forfeit them to a lost strict claim).
  * The ctx loan is returned before the results are stored and signaled: the
  * strict timeout callback may serialize them on the main thread the moment it
  * wakes, and must not observe this cycle's dying ctx through sctx->redisCtx.
  * The pipeline is done with the ctx once it reaches here. */
-static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResult **results,
-                                         int rc, cachedVars cv, size_t limit) {
+static void storeResultsForReplyCallback(AREQ *req, int rc) {
   if (!req->base.async.aggregateResultsClaimLost) {
     AREQ_SearchCtx(req)->redisCtx = NULL;
     debugPauseStoreResults(req, true);  // pause before
-    AREQ_StoreResults(req, results, rc, cv, limit);
+    AREQ_StoreResults(req, rc);
     debugPauseStoreResults(req, false); // pause after
 
     // Signal completion for main-thread timeout
@@ -802,100 +741,78 @@ static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResul
       AREQ_SignalAggregateResultsComplete(req);
     }
   }
-  SearchResult_Destroy(r);
-}
-
-/**
- * Sends a chunk of <n> rows in the resp2 format
- */
-static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
-    SearchResult r = SearchResult_New();
-    int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-    ResultProcessor *rp = qctx->endProc;
-
-    ChunkSerializeState state = {
-      .results = NULL,
-      .r = NULL,
-      .cursor_done = false
-    };
-
-    startPipeline(req, rp, &state.results, &r, &rc);
-
-    if (QueryRequest_UsesReplyCallback(&req->base)) {
-      storeResultsForReplyCallback(req, &r, state.results, rc, cv, limit);
-      return;
-    }
-
-    state.r = &r;
-
-    rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
-
-    finishSendChunk(req, state.results, &r, state.cursor_done);
 }
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ProfilePrinterCtx *profileCtx = &req->profileCtx;
-  RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+  // Decide every warning first so the array can be declared, then write them in this order.
   // bgScanOOM: set from shard replies on the coordinator (RPNet), captured from
   // the spec's scan_failed_OOM on shards while a strong reference is held. The
   // reply path must not read the spec — it may outlive the last strong ref.
-  if (qctx->bgScanOOM) {
+  const bool bgScanOOM = qctx->bgScanOOM;
+  const bool queryOOM = QueryError_HasQueryOOMWarning(qctx->err);
+  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
+  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
+  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
+  // user-visible TIMEOUT warning is surfaced in that case.
+  const bool timedOut = rc == RS_RESULT_TIMEDOUT || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
+  const bool softError = !timedOut && rc == RS_RESULT_ERROR;
+  const bool maxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err);
+  const bool asmInaccurate = req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  const bool timeoutCapped = req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED;
+  RedisModule_ReplyKV_ArrayWithLen(reply, "warning", bgScanOOM + queryOOM + timedOut + softError + maxPrefixExpansions + asmInaccurate + timeoutCapped);
+  if (bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
-  if (QueryError_HasQueryOOMWarning(qctx->err)) {
+  if (queryOOM) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
     // We use the cluster warning since shard level warning sent via empty reply bailout
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
-  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
-  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
-  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
-  // user-visible TIMEOUT warning is surfaced in that case.
-  if (rc == RS_RESULT_TIMEDOUT
-      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
+  if (timedOut) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
-  } else if (rc == RS_RESULT_ERROR) {
+  } else if (softError) {
     // Non-fatal error
     RS_LOG_ASSERT(!QueryError_IsOk(qctx->err),
                   "RS_RESULT_ERROR reached the warning path without a QueryError set");
     RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
   }
-  if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+  if (maxPrefixExpansions) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
   }
-  if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+  if (asmInaccurate) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
-  if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+  if (timeoutCapped) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
-  RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
 
 /**
  * Prepares reply structure for RESP3 format.
  */
-static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
+static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, size_t rows) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
 
-  RedisModule_Reply_Map(reply);
-
   if (IsProfile(req)) {
+    // Profile nests the reply under "Results" and may or may not add "Profile" (cursor reads only
+    // print it on the last read), so the wrapper stays postponed.
+    RedisModule_Reply_Map(reply);
     Profile_PrepareMapForReply(reply);
+  } else {
+    RedisModule_Reply_MapWithLen(reply, RESP3_REPLY_ENTRIES);
   }
 
   if (IsOptimized(req)) {
@@ -903,8 +820,7 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
   }
 
   // <attributes>
-  RedisModule_ReplyKV_Array(reply, "attributes");
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_ReplyKV_ArrayWithLen(reply, "attributes", 0);
 
   // <format>
   if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
@@ -913,24 +829,23 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
     RedisModule_ReplyKV_SimpleString(reply, "format", "STRING");
   }
 
-  // <results>
-  RedisModule_ReplyKV_Array(reply, "results");
+  // <results> -- the buffer already counted its rows, so no postponed length.
   if (req->internalRespSchema) {
+    RedisModule_ReplyKV_ArrayWithLen(reply, "results", INTERNAL_RESP_SCHEMA_REPLY_LEN);
     RedisModule_Reply_CString(reply, INTERNAL_RESP_SCHEMA_TAG);
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_ArrayWithLen(reply, rows);
+  } else {
+    RedisModule_ReplyKV_ArrayWithLen(reply, "results", rows);
   }
 }
 
 /**
  * Finishes chunk reply by handling cursor ID and profile info for RESP3.
  */
-static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx, int rc, bool cursor_done) {
-  RedisModule_Reply_ArrayEnd(reply); // >results
-
-  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_ReplyKV_LongLong(reply, "total_results",
-      QITR_ReportedTotal(qctx));
+static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, int rc, bool cursor_done) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  // <total_results>
+  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
   // <error>
   _replyWarnings(req, reply, rc);
@@ -946,9 +861,8 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
     if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) || cursor_done) {
       req->profile(reply, req);
     }
+    RedisModule_Reply_MapEnd(reply); // the postponed profile wrapper; the plain reply map is declared
   }
-
-  RedisModule_Reply_MapEnd(reply);
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     // Closes the declared [results, cursor id] wrapper.
@@ -964,82 +878,31 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
  * Serializes results and handles the main reply logic for RESP3.
  * Returns the final rc value and updates state accordingly.
  */
-static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
-  QueryProcessingCtx *qctx, int rc, cachedVars *cv, ChunkSerializeState *state) {
+static bool replyBufferedChunk(AREQ *req, RedisModule_Reply *reply) {
+  const int rc = req->base.reply.rc;
+  if (handleSendChunkError(req, reply, rc)) return true;
 
-    // If an error occurred, or a timeout in strict mode - return a simple error
-    if (handleSendChunkError(req, reply, qctx, rc)) {
-      state->cursor_done = true;
-      return rc;
-    }
-
-    RespSchema schema = {0};
-    prepareSendChunkReply_Resp3(req, reply);
-
-    // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
-    // timeout so the harvested rows are not dropped.
-    const bool buffered_strict_3 = state->results != NULL &&
-                                   req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict;
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-        (!buffered_strict_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      goto done_3;
-    }
-
-    if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv, &schema);
-      state->results = NULL;
-    } else {
-      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv, &schema);
-      }
-
-      SearchResult_Clear(state->r);
-      if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-        goto done_3;
-      }
-
-      while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv, &schema);
-        SearchResult_Clear(state->r);
-      }
-    }
-
-done_3:
-    state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
-
-    finishRespSchema(req, reply, cv, &schema);
-    finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
-
-    return rc;
-}
-
-/**
- * Sends a chunk of <n> rows in the resp3 format
- */
-static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
-    SearchResult r = SearchResult_New();
-    int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-    ResultProcessor *rp = qctx->endProc;
-
-    ChunkSerializeState state = {
-      .results = NULL,
-      .r = NULL,
-    };
-
-    startPipeline(req, rp, &state.results, &r, &rc);
-
-    if (QueryRequest_UsesReplyCallback(&req->base)) {
-      storeResultsForReplyCallback(req, &r, state.results, rc, cv, limit);
-      return;
-    }
-
-    state.r = &r;
-
-    rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
-
-    finishSendChunk(req, state.results, &r, state.cursor_done);
+  const bool withRows = shouldReplyWithRows(req, rc);
+  // Top-level buffer elements: one per row in RESP3, a flat run per row in RESP2.
+  const size_t rows = withRows ? req->base.reply.bufferedElements : 0;
+  if (reply->resp3) {
+    prepareSendChunkReply_Resp3(req, reply, rows);
+  } else {
+    prepareSendChunkReply_Resp2(req, reply, rows);
+  }
+  if (withRows) {
+    int moved = RedisModule_Reply_Buffered(reply, &req->base.reply.rows, rows);
+    RS_ASSERT(moved == REDISMODULE_OK);
+  }
+  if (req->internalRespSchema) replyRespSchema(req, reply);
+  bool cursorDone = shouldSetCursorDone(req, rc);
+  if (reply->resp3) {
+    finishSendChunkReply_Resp3(req, reply, rc, cursorDone);
+  } else {
+    trackWarnings_Resp2(req, rc);
+    finishSendChunkReply_Resp2(req, reply, cursorDone);
+  }
+  return cursorDone;
 }
 
 /**
@@ -1058,21 +921,39 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     IndexSpec_IncrActiveQueries(sctx->spec);
   }
 
+  // The cycle's serialization constants live in the reply state, where the reply phase reads them.
   AGGPlan *plan = AREQ_AGGPlan(req);
-  cachedVars cv = {
-    .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-    .lastAstp = AGPLN_GetArrangeStep(plan)
+  cachedVars *cv = &req->base.reply.cv;
+  *cv = (cachedVars){
+      .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+      .lastAstp = AGPLN_GetArrangeStep(plan),
+      .options = reqFlags,
+      .requiredFlags = req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0,
+      .replyFlags = ((reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
+                    ((reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
+      .apiVersion = sctx->apiVersion,
   };
+  cachedVars_SetRowShape(cv, req, RedisModule_IsRESP3(reply));
+  respSchemaReset(&req->base.reply.schema);
 
   // Set the chunk size limit for the query
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   qctx->resultLimit = limit;
 
-  if (reply->resp3) {
-    sendChunk_Resp3(req, reply, limit, cv);
+  // Execute, store, reply. A blocked cycle opened its reply buffer when it began; a foreground
+  // call opens one here for the duration of the call. With a reply callback the reply phase runs
+  // later on the main thread (AREQ_ReplyWithStoredResults); otherwise it runs right here.
+  const bool foreground = !req->base.blockedClientCycleActive;
+  if (foreground) ChunkReplyState_OpenBuffer(&req->base.reply, reply->ctx);
+  int rc = RS_RESULT_EOF;
+  runPipelineCycle(req, &rc);
+  if (QueryRequest_UsesReplyCallback(&req->base)) {
+    storeResultsForReplyCallback(req, rc);
   } else {
-    sendChunk_Resp2(req, reply, limit, cv);
+    AREQ_StoreResults(req, rc);
+    replyStoredResults(req, reply);
   }
+  if (foreground) ChunkReplyState_CloseBuffer(&req->base.reply);
 
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
@@ -1089,7 +970,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 // Handles both RESP2 and RESP3 protocols with cursor support.
 // Includes OOM warning when QueryError has OOM status.
 // Currently used during OOM conditions to return empty results instead of failing.
-// Based on sendChunk_Resp2/3 patterns.
+// Based on sendChunk's reply-shaping patterns.
  void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError *err = AREQ_QueryProcessingCtx(req)->err;
@@ -1252,6 +1133,8 @@ void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
   QueryError *err = &req->base.reply.err;
   RS_ASSERT(QueryError_HasError(err));
   if (QueryRequest_UsesReplyCallback(&req->base)) {
+    // The bail is the cycle's stored outcome: the reply phase replies the error like any other cycle.
+    req->base.reply.rc = RS_RESULT_ERROR;
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
     // No current coord caller reaches here while a timer is waiting; kept as a
     // forward-compat invariant for future error paths. No-op for FAIL callers.
@@ -1561,13 +1444,15 @@ static bool isReleasedHybridDepleter(AREQ *req) {
 }
 #endif
 
-// Drain any queued partial results into `base.reply.results` on the main
+// Drain any queued partial results into `base.reply.rows` on the main
 // thread after the background pipeline has aborted. Shard pipelines need no
 // root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
 // flip), so this just gates and delegates the actual loop to the shared helper.
 static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->canYieldPartialResults) {
+  // A cycle that ended in an error replies that error; its pipeline may be stopped or gone (a cursor
+  // whose index was dropped), so nothing is drained from it.
+  if (!qctx->canYieldPartialResults || QueryError_HasError(&req->base.reply.err)) {
     return;
   }
 
@@ -1585,7 +1470,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 // claim/signal handshake:
 //   - SetTimedOut so any RP polling the request timeout bails on its next read.
 //   - TryClaim wins iff BG has not yet entered the aggregation phase (it
-//     bails in startPipeline). In that case we own the reply and emit empty.
+//     bails in runPipelineCycle). In that case we own the reply and emit empty.
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
 //     then drain anything still buffered (RPSorter heap) and reply.
 static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1602,7 +1487,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // That means that the background thread didn't reach the aggregation phase (runPipelineCycle) yet.
     // Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -1619,14 +1504,13 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
 
-  // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     req->base.reply.rc = RS_RESULT_TIMEDOUT;
   }
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
-  // No-op for shapes that already accumulated their rows in state.results.
+  // No-op for shapes that already accumulated their rows in the reply buffer, and for a cycle that
+  // bailed before building its pipeline.
   drainPartialResultsAfterTimeout(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
@@ -1634,43 +1518,26 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   return REDISMODULE_OK;
 }
 
-// Reply with stored results from Coord/Shard reply callback (called on main thread).
-void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
-  // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
+// The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after
+// AREQ_StoreResults for foreground and direct background replies, or from the main-thread reply
+// callback via AREQ_ReplyWithStoredResults.
+static void replyStoredResults(AREQ *req, RedisModule_Reply *reply) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  ResultProcessor *rp = qctx->endProc;
   ChunkReplyState *stored = &req->base.reply;
 
-  // Build ChunkSerializeState from stored results. RETURN_STRICT timeout paths
-  // deplete cursor replies during serialization so the caller cannot keep
-  // pulling from an incomplete query.
-  ChunkSerializeState state = {
-    .results = stored->results,
-    .r = NULL,
-    .cursor_done = false
-  };
-  int rc = stored->rc;
+  RS_ASSERT(qctx->err == &stored->err);
+  bool cursorDone = replyBufferedChunk(req, reply);
+  finishSendChunk(req, cursorDone);
+}
 
+// Reply with stored results from Coord/Shard reply callback (called on main thread).
+void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  // Call serializeAndReplyResults like the normal sendChunk path
-  if (reply->resp3) {
-    rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &stored->cv, &state);
-  } else {
-    rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, stored->limit, &stored->cv, &state);
-  }
-
+  replyStoredResults(req, reply);
   RedisModule_EndReply(reply);
 
-  // Clear stored results pointer since ownership was transferred to state
-  stored->results = NULL;
-  stored->hasStoredResults = false;
-
-  // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
-  finishSendChunk(req, state.results, NULL, state.cursor_done);
-
-  // Record the cursor resolution now that QEXEC_S_ITERDONE is known (set by
-  // finishSendChunk above).
+  // With a reply callback, resolving the cursor is the main thread's job (runCursor does it for
+  // direct replies). QEXEC_S_ITERDONE is known now, set by finishSendChunk above.
   if (req->base.cursorInfo.cursor) {
     AREQ_CursorEndOfCycle(req, req->base.cursorInfo.cursor, req->stateflags & QEXEC_S_ITERDONE);
   }
@@ -1691,19 +1558,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    // Use the stored error if available, otherwise generic error.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
+  // A cycle that bailed before its pipeline stored the error as its outcome; the reply phase replies it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
@@ -1764,16 +1619,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // cursor-shaped reply and park/free the cursor before replying.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
-    drainPartialResultsAfterTimeout(req);
-    AREQ_ReplyWithStoredResults(ctx, req);
-  } else if (QueryError_HasError(&req->base.reply.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-    QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-  } else {
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-  }
+  req->base.reply.rc = RS_RESULT_TIMEDOUT;
+  drainPartialResultsAfterTimeout(req);
+  AREQ_ReplyWithStoredResults(ctx, req);
   return REDISMODULE_OK;
 }
 
@@ -1790,17 +1638,6 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   RS_ASSERT(request != NULL);
 
   AREQ *req = QueryRequest_GetAREQ(request);
-
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
