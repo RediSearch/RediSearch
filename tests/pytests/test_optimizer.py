@@ -318,9 +318,10 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
 
+    # A wildcard filter cannot exclude anything, so it is elided rather than
+    # intersected and the entry has no child subtree.
     profiler =  {'Iterators profile':
-                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'WILDCARD', 'Number of reading operations', 3400]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range'],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 10],
                     ['Type', 'Loader', 'Results processed', 10],
@@ -666,19 +667,15 @@ def testRewindWidensWindow(env):
 
 
 @skip(cluster=True)
-def testRetryGuardUnderfillsSparseChild(env):
-    """Characterization test: a sparse child whose matches all sit past the first
-    numeric window comes back short of LIMIT.
+def testSparseChildFillsLimit(env):
+    """A sparse child whose matches all sit past the first numeric window still
+    fills LIMIT (MOD-18941).
 
-    The optimizer only widens its window while the first window's document
-    estimate is below the child's estimate. The first window is sized to hold
-    `limit` matches at the child's selectivity, so for a child sparser than
-    about sqrt(limit / num_docs) it already exceeds the child's estimate, and
-    the retry never runs: the heap is drained as the first window left it.
-
-    This pins that under-fill, not the correct answer (the unoptimized query's).
-    A top-k implementation that keeps widening returns the full LIMIT, so this
-    test is expected to flip to the complete answer when one replaces it.
+    The first window is sized to hold `limit` matches at the child's
+    selectivity, so for a child sparser than about sqrt(limit / num_docs) its
+    document estimate already exceeds the child's. Widening must not be gated
+    on that comparison, or the heap is drained as the first window left it and
+    the query comes back short of LIMIT.
     """
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
@@ -692,8 +689,7 @@ def testRetryGuardUnderfillsSparseChild(env):
     query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit, 'NOCONTENT']
     top_matches = [str(i) for i in range(first_match, first_match + limit)]
     env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
-    # Characterization: under-filled; flips to [limit] + top_matches once fixed.
-    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [0])
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [limit] + top_matches)
 
 
 @skip(cluster=True)

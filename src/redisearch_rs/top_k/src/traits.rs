@@ -36,6 +36,50 @@ pub trait ScoreBatch {
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
 }
 
+/// The filter child of a [`TopKIterator`], for sources that intersect their
+/// records with it themselves.
+///
+/// Handed to [`ScoreSource::next_batch_with_child`] as the source's view of the
+/// child. It exposes forward stepping, seeking and rewinding, the operations a
+/// source needs to leapfrog its own reader against the child, and
+/// [`accept`](Self::accept) to hand each match to the top-k.
+///
+/// [`TopKIterator`]: crate::TopKIterator
+pub trait ChildCursor {
+    /// Step the cursor to the child's next doc id, and return it. `None` means
+    /// the child has no more.
+    ///
+    /// Cheaper than [`advance_to`](Self::advance_to) for a target just past
+    /// the current doc id, since the child need not search for it.
+    fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError>;
+
+    /// Position the cursor at the smallest doc id `>= target` the child can
+    /// produce, and return it. `None` means the child has none.
+    fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError>;
+
+    /// Restart the cursor from the child's first doc id.
+    fn rewind(&mut self);
+
+    /// Offer the doc id the cursor is on, with `score`, to the top-k.
+    ///
+    /// `doc_id` must be the one the last [`next`](Self::next) or
+    /// [`advance_to`](Self::advance_to) returned: the child's record there is
+    /// what the top-k keeps alongside the score.
+    fn accept(&mut self, doc_id: DocId, score: f64);
+}
+
+/// What [`ScoreSource::next_batch_with_child`] produced.
+#[derive(Debug)]
+pub enum ChildBatch<B> {
+    /// A batch the [`TopKIterator`] still intersects with its child.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    Unmatched(B),
+    /// The source walked the child itself and passed every match to
+    /// [`ChildCursor::accept`]; nothing is left to intersect.
+    Matched,
+}
+
 /// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
 /// telling [`TopKIterator`] how to proceed in Batches mode.
 ///
@@ -102,6 +146,27 @@ pub trait ScoreSource {
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
+
+    /// Fetch the next score-ordered batch, given the child it is intersected
+    /// with.
+    ///
+    /// Called instead of [`next_batch`](Self::next_batch) whenever the
+    /// [`TopKIterator`] has a filter child. A source that can seek its own
+    /// reader may intersect the batch with `child` itself, passing each match
+    /// to [`ChildCursor::accept`] and returning [`ChildBatch::Matched`]; the
+    /// default returns the [`next_batch`](Self::next_batch) batch as
+    /// [`ChildBatch::Unmatched`] for the iterator to intersect.
+    ///
+    /// `child`'s position on return is unspecified — the iterator rewinds it
+    /// before intersecting.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn next_batch_with_child(
+        &mut self,
+        _child: &mut dyn ChildCursor,
+    ) -> Result<Option<ChildBatch<Self::Batch>>, RQEIteratorError> {
+        Ok(self.next_batch()?.map(ChildBatch::Unmatched))
+    }
 
     /// Single-shot query returning all results directly, without a heap.
     ///
