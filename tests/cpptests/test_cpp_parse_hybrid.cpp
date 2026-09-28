@@ -1389,7 +1389,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
 // The validation happens during query execution in the flow:
-// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// QAST_Iterate() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
 
 TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {

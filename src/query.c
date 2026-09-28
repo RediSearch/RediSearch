@@ -615,35 +615,6 @@ static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *em
   return buf;
 }
 
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig) {
-  switch (n->type) {
-    case QN_IDS:
-    case QN_WILDCARD:
-    case QN_NULL:
-    case QN_MISSING:
-    case QN_OPTIONAL:
-    case QN_NOT:
-    case QN_PHRASE:
-    case QN_UNION:
-    case QN_NUMERIC:
-    case QN_GEO:
-    case QN_TOKEN:
-    case QN_GEOMETRY:
-    case QN_PREFIX:
-    case QN_WILDCARD_QUERY:
-    case QN_FUZZY:
-    case QN_VECTOR:
-    case QN_TAG:
-      // These node types have been ported to Rust.
-      return Query_EvalNode_Rs(q, n, evalConfig);
-    case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
-      RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
-  }
-
-  RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE — unreachable: all valid node types handled in switch
-  return NULL; // LCOV_EXCL_LINE
-}
-
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {

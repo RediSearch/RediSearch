@@ -73,11 +73,6 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
-// Opaque handle to the Rust-side evaluator-config snapshot (`query_eval::Config`).
-typedef struct EvalConfig EvalConfig;
-
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig);
-
 /**
  * Blocked-client timeout probe used by Rust query iterators.
  *

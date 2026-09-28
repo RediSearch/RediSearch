@@ -15,11 +15,9 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{
-    QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSQueryNode, RSSearchOptions, RedisSearchCtx,
-};
+use ffi::{QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSSearchOptions, RedisSearchCtx};
 use query_eval::{
-    Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate,
+    Config, QueryEvalContext, QueryNodeMut, qast_iterate,
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
 use query_types::QueryNodeOptions;
@@ -128,62 +126,6 @@ pub unsafe extern "C" fn queryNeedsOffsets(
     unsafe { scorerNeedsOffsets(scorer_name) }
 }
 
-/// Evaluate a single query AST node, producing the corresponding
-/// [`QueryIterator`].
-///
-/// Returns a null pointer when the node produces no results (e.g. a
-/// missing-field node for a field that has no missing values).
-///
-/// # Safety
-///
-/// 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
-///    all the invariants documented on [`QueryEvalContext::new`] and remains
-///    valid for the lifetime of the returned iterator.
-/// 2. `n` must be a non-null pointer to a valid [`RSQueryNode`] whose subtree
-///    also satisfies invariants (4) and (5) of [`QueryNodeMut::new`], since
-///    evaluation rewrites tokens in place.
-/// 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
-///    pointing to a valid [`Config`] that stays valid for the duration of the
-///    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
-///    dispatcher.
-#[unsafe(no_mangle)]
-// TODO: remove the '_Rs' suffix once fully ported.
-pub unsafe extern "C" fn Query_EvalNode_Rs(
-    q: *mut QueryEvalCtx,
-    n: *mut RSQueryNode,
-    eval_config: *const ffi::EvalConfig,
-) -> *mut QueryIterator {
-    let q = NonNull::new(q).expect("Query_EvalNode_Rs: q is null");
-    let n = NonNull::new(n).expect("Query_EvalNode_Rs: n is null");
-    let config = NonNull::new(eval_config.cast_mut())
-        .expect("Query_EvalNode_Rs: eval_config is null")
-        .cast::<Config>();
-
-    // SAFETY: `q` is a non-null pointer to a valid `QueryEvalCtx` upholding the
-    // `QueryEvalContext::new` invariants (precondition 1). The wrapper borrows
-    // it exclusively for the duration of this call.
-    let mut ctx = unsafe { QueryEvalContext::new(q) };
-    // SAFETY: `n` is a non-null pointer to a valid `RSQueryNode` (precondition 2),
-    // borrowed only for the duration of this call. Evaluation owns the subtree
-    // exclusively: the C dispatcher hands each node to exactly one evaluator and
-    // waits for it to return, and query evaluation is single-threaded, so no
-    // other wrapper or reference into this subtree — nor into any token string it
-    // points at — is live for the call. Precondition 2 also carries invariants (4)
-    // and (5).
-    let node = unsafe { QueryNodeMut::new(n) };
-
-    // SAFETY: `config` is non-null (checked) and points to a valid `Config`
-    // (precondition 3); read by value here (`Config` is `Copy`).
-    let config = unsafe { config.read() };
-    match eval_node(&mut ctx, node, config) {
-        // The returned handle is heap-allocated and self-owning; erasing its
-        // borrow is sound because the index data it reads outlives it
-        // (precondition 1).
-        Some(it) => it.into_c_iterator(),
-        None => std::ptr::null_mut(),
-    }
-}
-
 /// Build the executable iterator tree for a parsed query AST and return its
 /// root [`QueryIterator`].
 ///
@@ -194,10 +136,11 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
 /// # Safety
 ///
 /// 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
-///    a valid [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
-///    must stay valid and exclusively borrowed for the duration of the call. The
-///    root's subtree must meet the token-buffer requirement of
-///    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
+///    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
+///    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
+///    for the duration of the call. The root's subtree must also satisfy
+///    invariants (4) and (5) of [`QueryNodeMut::new`], since evaluation
+///    rewrites tokens in place.
 /// 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
 /// 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
