@@ -4,6 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include <limits.h>
 #include <stdio.h>
 #include <redismodule.h>
 #include <unistd.h>
@@ -94,7 +95,44 @@ static int testTypeConversion() {
   return 0;
 }
 
+static int testLongLongFallbackBounds() {
+  const char *objs[] = {NULL};
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, objs, 1);
+  long long value;
+  const char *invalid[] = {"nan", "inf", "-inf", "9223372036854775808", "-9223372036854777856"};
+  for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+    objs[0] = invalid[i];
+    ac.offset = 0;
+    value = 42;
+    ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &value, 0));
+    ASSERT(ac.offset == 0 && value == 42);
+  }
+
+  objs[0] = "nan";
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &value, AC_F_COALESCE));
+  ASSERT(ac.offset == 0 && value == 42);
+
+  const char *positive[] = {"9223372036854775808"};
+  for (size_t i = 0; i < sizeof(positive) / sizeof(positive[0]); ++i) {
+    objs[0] = positive[i];
+    ac.offset = 0;
+    ASSERT(AC_OK == AC_GetLongLong(&ac, &value, AC_F_COALESCE));
+    ASSERT(ac.offset == 1 && value == LLONG_MAX);
+  }
+
+  const char *negative[] = {"-9223372036854777856"};
+  for (size_t i = 0; i < sizeof(negative) / sizeof(negative[0]); ++i) {
+    objs[0] = negative[i];
+    ac.offset = 0;
+    ASSERT(AC_OK == AC_GetLongLong(&ac, &value, AC_F_COALESCE));
+    ASSERT(ac.offset == 1 && value == LLONG_MIN);
+  }
+  return 0;
+}
+
 TEST_MAIN({
   TESTFUNC(testCArgs);
   TESTFUNC(testTypeConversion);
+  TESTFUNC(testLongLongFallbackBounds);
 })
