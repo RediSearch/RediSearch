@@ -410,8 +410,8 @@ class TestCoordinatorTimeout:
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
                                      allow_timeout_warning=True)
 
-    def test_fail_timeout_wakes_profile_reply_wait(self):
-        """FAIL releases the worker even while a shard's final profile is missing."""
+    def _test_fail_timeout_wakes_profile_reply_wait(self, change_policy_while_queued=False):
+        """FAIL cancellation uses the dispatch mode, including after CONFIG changes."""
         env = self.env
         skipIfNoEnableAssert(env)
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
@@ -433,7 +433,17 @@ class TestCoordinatorTimeout:
         shard.suspend()
         try:
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', encode_point).ok()
+            if change_policy_while_queued:
+                env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+                    'Coordinator threads did not pause', timeout=5)
             thread.start()
+            if change_policy_while_queued:
+                # Dispatch captured FAIL; AREQ_New must observe RETURN instead.
+                wait_for_blocked_query_client(env, 'FT.PROFILE')
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return').ok()
+                env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', encode_point),
                          {'results': results, 'errors': errors}),
@@ -471,11 +481,19 @@ class TestCoordinatorTimeout:
                 'FAIL timeout left the worker waiting for the paused shard', timeout=5)
         finally:
             shard.resume()
+            if change_policy_while_queued and env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED'):
+                env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encode_point)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', reply_point)
             thread.join(timeout=5)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
             env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_fail_timeout_wakes_profile_reply_wait(self):
+        self._test_fail_timeout_wakes_profile_reply_wait()
+
+    def test_fail_timeout_wakes_profile_reply_wait_after_policy_change(self):
+        self._test_fail_timeout_wakes_profile_reply_wait(change_policy_while_queued=True)
 
     def test_fail_timeout_profile_hybrid(self):
         self._test_fail_timeout_impl([

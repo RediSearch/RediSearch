@@ -343,8 +343,9 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
 static bool profileShouldStopCollectingReplies(AREQ *req) {
-  // A cancelled FAIL reply is discarded, so there is no need to collect more shard profiles.
-  return req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && AREQ_TimedOut(req);
+  // Use the dispatch mode: CONFIG may change before the worker creates the AREQ.
+  // A cancelled background FAIL reply is discarded, including its shard profiles.
+  return req->encodeReplyInBackground && AREQ_TimedOut(req);
 }
 
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
