@@ -12,6 +12,8 @@ import redis
 from includes import *
 from common import *
 from RLTest import Env
+from test_config import _grep_file_count
+from test_short_read import ShardMock
 
 # End-to-end coverage for the pre-2.0 module types (ft_invidx / numericdx / ft_tagidx). These keys
 # can only be created by deserializing an old payload, so RESTORE is the only way to get one into a
@@ -186,4 +188,68 @@ def testLegacyIndexSpecRestoreIsRefused(env):
         env.expect('RESTORE', key, 0, payload).error().contains('Bad data format')
         env.assertEqual(conn.execute_command('EXISTS', key), 0, message=key)
 
+    env.assertTrue(env.isUp())
+
+
+def _fail_full_sync(env, shard_mock):
+    """Make the server a replica of `shard_mock` and cut its full sync short, so the load fails.
+
+    The load has to be diskless: a truncated RDB loaded from disk makes Redis exit instead of firing
+    `LOADING_FAILED`. `on-empty-db` needs an empty keyspace, but unlike `swapdb` it does not require
+    every module to support async loading."""
+    env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'on-empty-db')
+    env.cmd('REPLICAOF', '127.0.0.1', shard_mock.server_port)
+    conn = shard_mock.GetConnection(timeout=10)
+    env.assertEqual(conn.read_request(), ['PING'])
+    conn.send_status('PONG')
+    req = conn.read_request()
+    while req[0] == 'REPLCONF':
+        conn.send_status('OK')
+        req = conn.read_request()
+    env.assertEqual(req[0], 'PSYNC')
+    conn.send_status('FULLRESYNC af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc 0')
+    # Announce more bytes than we send, then hang up mid-header.
+    conn.send(b'$1000\r\nREDIS')
+    conn.flush()
+    conn.close()
+
+    for _ in range(100):
+        try:
+            env.cmd('PING')
+            break
+        except redis.exceptions.BusyLoadingError:
+            time.sleep(0.1)
+    env.cmd('REPLICAOF', 'NO', 'ONE')
+
+
+@skip(cluster=True, redis_less_than='7.0.0')
+def testLegacyIndexSpecRestoreIsRefusedAfterFailedLoad(env):
+    """A failed load leaves the legacy-spec registry and the UPGRADE_INDEX rules allocated, so the
+    refusal must key on loading state, not on the globals. The rules are freed only when a load
+    succeeds, so this needs a server that has not completed one since startup - hence the restart
+    without an RDB. A replica whose first full sync failed and was then promoted is in that state."""
+    skipOnExistingEnv(env)
+    if env.useSlaves or env.useAof:
+        env.skip()
+
+    dbDir = env.cmd('CONFIG', 'GET', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, env.cmd('CONFIG', 'GET', 'dbfilename')[1])
+    logFilePath = os.path.join(dbDir, env.cmd('CONFIG', 'GET', 'logfile')[1])
+    env.stop()
+    if os.path.exists(rdbFilePath):
+        os.unlink(rdbFilePath)
+    env.start()
+
+    failedSyncMsg = 'Failed trying to load the MASTER synchronization DB'
+    failedSyncsBefore = _grep_file_count(logFilePath, failedSyncMsg)
+    with ShardMock(env) as shardMock:
+        _fail_full_sync(env, shardMock)
+    env.assertGreater(_grep_file_count(logFilePath, failedSyncMsg), failedSyncsBefore,
+                      message='the full sync did not fail, so this test proves nothing')
+
+    conn = _binary_conn(env)
+    # The name is stored as a string; a uint in its place makes the read fail, which crashed the
+    # server when the loader got that far.
+    payload = _dump_payload(conn, 'ft_index0', _module_uint(0), encver=16)
+    env.expect('RESTORE', 'idx:legacy', 0, payload).error().contains('Bad data format')
     env.assertTrue(env.isUp())
