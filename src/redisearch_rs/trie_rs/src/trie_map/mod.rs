@@ -16,8 +16,9 @@ mod utils;
 use crate::automaton::{Automaton, wildcard::WildcardNfa};
 use crate::trie_map::{
     iter::{
-        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter,
-        RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter, filter::VisitAll,
+        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PatternLendingIter,
+        PatternMode, PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend,
+        WildcardFilterIter, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -297,6 +298,16 @@ impl<Data> TrieMap<Data> {
     /// in lexicographical key order.
     pub fn prefixed_lending_iter(&self, prefix: &[u8]) -> LendingIter<'_, Data, VisitAll> {
         self.prefixed_iter(prefix).into()
+    }
+
+    /// Iterate over the entries whose key matches `pattern` under the given [`PatternMode`],
+    /// borrowing the current key from the iterator, in lexicographical key order.
+    pub fn pattern_lending_iter<'trie, 'pattern>(
+        &'trie self,
+        pattern: &'pattern [u8],
+        mode: PatternMode,
+    ) -> PatternLendingIter<'trie, 'pattern, Data> {
+        PatternLendingIter::new(self, pattern, mode)
     }
 
     /// Iterate over references to the values stored in this trie, in lexicographical key order.
