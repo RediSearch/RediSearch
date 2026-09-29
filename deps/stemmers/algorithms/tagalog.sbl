@@ -1,320 +1,269 @@
-// Tagalog stemmer derived from https://github.com/andrianllmm/tagalog-stemmer
-
-strings ( dup )
-integers ( start )
-booleans (
-    removed_prefix
-    removed_infix
-    removed_duplication
-    removed_suffix
-    likely_foreign
-)
+// Tagalog (Filipino) stemmer.
+//
+// Tagalog inflects almost entirely at the edges of a root: stacked prefixes,
+// CV reduplication and the infixes -um-/-in- at the front; -an/-in (-han/-hin
+// after a vowel) and the linker -ng/-g at the back.  The front is stripped
+// first because many roots themselves end in -in/-an (kain, laban, bayan) and
+// only look like suffixed forms once a prefix has been removed.  No removal
+// leaves fewer than three letters and two vowels, which keeps the disyllabic
+// roots that make up most of the vocabulary intact.
 
 routines (
-    special_cases
-    exception1
-    scan_foreign
-    has_minimum_remainder
-    has_replacement_remainder
-    has_minimum_infix_remainder
-    remove_partial_duplication
-    remove_prefix_9
-    remove_prefix_8
-    remove_prefix_7
-    remove_prefix_6
-    remove_prefix_5
-    remove_prefix_4
-    remove_prefix_3
-    remove_prefix_2
-    remove_prefix_once
-    remove_infix
-    has_minimum_suffix_stem
-    remove_suffix
-    normalize_suffix
-    normalize_initial
+    exception
+    R RB
+    onset
+    pre_v pre_v0 pre_c pre_n pre_ng pre_in pre_i pre_ni pre_kaka
+    prefix
+    reduplication
+    infix
+    undouble
+    linker
+    suffix
+    after_v after_c whole
+    normalise
 )
 
 externals ( stem )
 
-groupings ( vowel )
+strings ( s1 )
+
+booleans ( prefixed ka second )
+
+groupings ( v liquid g_ang g_ing g_yang )
 
 stringescapes {}
 
-define vowel 'aeiou'
+define v 'aeiou'
+define liquid 'lrwy'
 
-define special_cases as (
+// Consonants before -ang / -ing / -yang after which the linker is -g on an
+// -an/-in suffix (isipan+g, bigyan+g) rather than -ng on a vowel-final root
+// (lupa+ng).
+define g_ang 'p'
+define g_ing 'np'
+define g_yang 'bdgklpt'
+
+define exception as (
     [substring] atlimit among (
-        'araw-araw' (<- 'araw')
-        'kanyang' (<- 'kanya')
+        // ka+ilan+an would strip to ilan / ilang (existing words)
+        'kailangan' 'kailangang' 'kinakailangan' 'kinakailangang'
+        'kailanganin' 'kakailanganin' 'pangangailangan'
+            (<- 'kailangan')
+        'kailan' 'kailanman' (<- 'kailan')
+        // roots beginning with a prefix-like syllable
+        'kainan' 'kainang' 'kainin' 'kinain' 'kinainan' 'pakainin' 'pakakainin'
+            (<- 'kain')
+        'inuman' 'inumin' 'inuming' (<- 'inom')
+        'mahalin' (<- 'mahal')
+        // reduplication that is part of the root: la-laki is not laki
+        'lalaki' 'lalaking' 'kalalakihan' 'lalake' (<- 'lalaki')
+        'makilala' 'makikilala' 'nakikilala' 'nakilala' 'pakikilala'
+        'kakilala' 'magkakilala' (<- 'kilala')
+        // roots that look like infixed or prefixed forms of other roots
+        'binata' 'kinatawan' 'pantalon'
     )
 )
 
-define exception1 as (
-    [substring] atlimit among (
-        'alipin'
-        'alitan'
-        'asian'
-        'baitang'
-        'bakasyon'
-        'baybayin'
-        'birheng'
-        'buhangin'
-        'bulwagan'
-        'dinamita'
-        'dinastiya'
-        'kalakal'
-        'kamara'
-        'kampanya'
-        'kapangyarihan'
-        'kapilya'
-        'kapital'
-        'karapatan'
-        'karera'
-        'kailangan'
+// The remainder after a removal must hold at least three letters and two
+// vowels.
+define R as ( test hop 3 test (gopast v gopast v) )
+
+// What can begin a root: a vowel, ng+vowel, or a consonant followed by a
+// vowel or a liquid (loanwords: trabaho, plano).
+define onset as (
+    v or ('ng' v) or (non-v (v or liquid))
+)
+
+// Prefix conditions.  A hyphen may separate a prefix from a vowel-initial
+// root (pag-aaral).  pa+siya 'decide' is not the pronoun siya.
+define pre_v0 as ( try '-' test onset not (test 'siya') R )
+// A second layer of vowel-final prefixes must leave a longer remainder: the
+// first syllable of a root is too easily mistaken for ma-/ka-/pa-
+// (ka+matay+an, not ka+ma+tayan).
+define pre_v as ( pre_v0 (not second or test (gopast v gopast v gopast v)) )
+// Consonant-final prefixes only attach to consonant-initial roots unless
+// hyphenated: ma+ganda, not mag+anda.
+define pre_c as ( test ('-' or non-v) pre_v0 )
+// ...and an n-final prefix never precedes g, since ng is a single consonant:
+// ma+ngako, not man+gako.
+define pre_n as ( test (not 'g') pre_c )
+// ng-final prefixes do attach to vowel-initial roots (mang+alaga), but a
+// short remainder is more often a root that happens to start with pa/ma+ng
+// (pangako), and V+ng+V is the reduplicated form of such a root
+// (pa-nga-ngalaga).
+define pre_ng as (
+    pre_c
+    or (not (test ('anga' or 'inge' or 'ingi' or 'ongo' or 'ungu')) test hop 4 pre_v)
+)
+// in-/um- are the infixes on a vowel-initial root.
+define pre_in as ( test v pre_v )
+// i- verbs never take -an/-in, so i+...+an/in (possibly with the linker
+// -g) is an i-initial root with a suffix (isip+in, ma+isip+an).
+define pre_i as ( not (test (backwards (try 'g' ('an' or 'in')))) pre_v )
+// ni- (the -in- infix on a root beginning with l/w/y) is only ever the
+// outermost prefix.
+define pre_ni as ( not second pre_v )
+// kaka- 'just now' marks a verb that takes no suffix; ka+ka…+an/han is the
+// ka-...-an nominalisation of a ka-initial root (ka+kaya+han).
+define pre_kaka as ( not (test (backwards (try 'g' ('an' or 'in')))) pre_v )
+
+define prefix as (
+    [substring] among (
+        'i' pre_i 'mai' pre_i 'nai' pre_i 'maii' pre_i 'naii' pre_i
+        'ni' pre_ni
+
+        'ma' pre_v 'na' pre_v 'pa' pre_v
+        'ika' pre_v 'ipa' pre_v 'ini' pre_v 'pina' pre_v 'ipina' pre_v
+        'kina' pre_v 'ikina' pre_v 'maka' pre_v 'naka' pre_v 'mapa' pre_v
+        'napa' pre_v 'magpa' pre_v 'nagpa' pre_v 'pagpa' pre_v 'maki' pre_v
+        'naki' pre_v 'paki' pre_v 'taga' pre_v 'tiga' pre_v
+        'pinaka' pre_v 'napaka' pre_v 'kaka' pre_kaka
+        'makaka' pre_v 'nakaka' pre_v
+        'makapa' pre_v 'nakapa' pre_v 'napapa' pre_v 'magpapa' pre_v
+        'nagpapa' pre_v 'pagpapa' pre_v 'ipapa' pre_v 'ipinapa' pre_v
+        'pakiki' pre_v 'makiki' pre_v 'nakiki' pre_v 'pinakama' pre_v
+
+        'mag' pre_c 'nag' pre_c 'pag' pre_c 'ipag' pre_c 'pinag' pre_c
+        'ipinag' pre_c 'mapag' pre_c 'napag' pre_c 'makapag' pre_c
+        'nakapag' pre_c 'makipag' pre_c 'nakipag' pre_c 'pakipag' pre_c
+        'makikipag' pre_c 'nakikipag' pre_c 'pakikipag' pre_c
+        'tagapag' pre_c 'tigapag' pre_c 'makakapag' pre_c 'nakakapag' pre_c
+        'mangag' pre_c 'nangag' pre_c 'pam' pre_c 'mam' pre_c 'nam' pre_c
+        'ipam' pre_c 'ipinam' pre_c 'pinam' pre_c 'tag' pre_c 'tig' pre_c
+
+        'pang' pre_ng 'mang' pre_ng 'nang' pre_ng 'ipang' pre_ng
+        'ipinang' pre_ng 'pinang' pre_ng 'kasing' pre_ng
+
+        'pan' pre_n 'man' pre_n 'nan' pre_n 'ipan' pre_n 'ipinan' pre_n
+        'pinan' pre_n
+
+        'in' pre_in 'um' pre_in
+            (delete try (['-'] delete) set prefixed)
+
+        // ka- attaches to roots, never to infixed verb forms, and its
+        // ka-...-an nominalisations take the linker as -g.
+        'ka' pre_v 'pagka' pre_v 'magka' pre_v 'nagka' pre_v 'pinagka' pre_v
+        'ipinagka' pre_v 'magkaka' pre_v 'nagkaka' pre_v 'pagkaka' pre_v
+        'pinagkaka' pre_v 'ipinagkaka' pre_v
+            (delete try (['-'] delete) set prefixed try (not second set ka))
     )
 )
 
-define scan_foreign as (
-    do (
-        goto ('c' or 'f' or 'j' or 'q' or 'v' or 'x' or 'z')
-        set likely_foreign
-    )
-)
-
-define has_minimum_remainder as (
-    $(limit - cursor >= 3)
-    test (gopast vowel gopast vowel)
-)
-
-define has_replacement_remainder as (
-    $(limit - cursor >= 1)
-    test gopast vowel
-)
-
-define has_minimum_infix_remainder as (
-    $(limit - cursor >= 2)
-    test (gopast vowel gopast vowel)
-)
-
-define remove_partial_duplication as (
+// Partial reduplication of the first syllable: a-alis, bi-bili, nga-ngalaga.
+define reduplication as (
     (
-        $(limit >= 5)
-        [vowel] -> dup
-        test dup
-        delete
-        set removed_duplication
-    ) or (
-        $(limit >= 6)
-        [hop 2] -> dup
-        test dup
-        delete
-        set removed_duplication
-    ) or (
-        $(limit >= 9)
-        [hop 3] -> dup
-        test dup
-        delete
-        set removed_duplication
+        ([v] -> s1 test s1 R delete)
+        or ([non-v v] -> s1 test s1 R delete)
+        // d becomes r between vowels, so da-dami reduplicates as da-rami
+        or (test ('d' [v] -> s1 'r' s1) [hop 2] R delete)
+        or (
+            ['ng' v] -> s1 test s1 R delete
+            // the ng of a reduplicated nga- is the prefix nasal: pa-nga-ng+alaga
+            try (['ng'] test v test hop 4 R delete)
+        )
     )
+    set prefixed
 )
 
-define remove_prefix_9 as (
-    [substring] among (
-        'nakikipag' 'pakikipag'
-            (has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_8 as (
-    [substring] among (
-        'pinakama'
-            (has_minimum_remainder delete set removed_prefix)
-
-        'panganga'
-            (has_replacement_remainder <- 'ka' set removed_prefix)
-    )
-)
-
-define remove_prefix_7 as (
-    [substring] among (
-        'makapag' 'nakapag' 'tagapag' 'makipag' 'nakipag'
-            (has_minimum_remainder delete set removed_prefix)
-        'pagpapa' 'pinagka'
-            (has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_6 as (
-    [substring] among (
-        'pakiki' 'napaka' 'pinaka' 'ipinag'
-            (has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_5 as (
-    [substring] among (
-        'magpa' 'pagka' 'pinag' 'mapag'
-            (has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_4 as (
-    [substring] among (
-        'mapa' 'taga' 'ipag' 'tiga' 'pala' 'pina' 'pang'
-            (has_minimum_remainder delete set removed_prefix)
-        'naka' 'nang' 'mang' 'sing'
-            (has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_3 as (
-    [substring] among (
-        'ipa' 'pam' 'pan' 'pag' 'tag'
-            (has_minimum_remainder delete set removed_prefix)
-        'mai' 'mag' 'nam' 'nag' 'man' 'may'
-            (has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_2 as (
-    [substring] among (
-        'ma' 'na' 'ni' 'pa'
-            (has_minimum_remainder delete set removed_prefix)
-        'ka'
-            (not 'ny' has_minimum_remainder delete set removed_prefix)
-    )
-)
-
-define remove_prefix_once as (
-    remove_prefix_9 or remove_prefix_8 or remove_prefix_7 or remove_prefix_6 or
-    remove_prefix_5 or remove_prefix_4 or remove_prefix_3 or remove_prefix_2
-)
-
-define remove_infix as (
-    $(limit >= 5)
-    non-vowel
-    [substring] among (
-        'um'
-            (test vowel has_minimum_infix_remainder delete set removed_infix)
-        'in'
-            (
-                test vowel
-                has_minimum_infix_remainder
-                not (
-                    atlimit 'd'
-                    goto ('i' 'y' 'a' or 'i' 't' 'a')
-                    atlimit
-                )
-                delete
-                set removed_infix
-            )
-    )
+// s-um-ulat, b-in-ili, tr-in-abaho.  The completed-aspect -in- never combines
+// with the suffix -in (linis+in, not l-in-is+in).
+define infix as (
+    not ka
+    (non-v or (non-v non-v))
+    [ 'um' or ('in' not (test (backwards 'in'))) ]
+    test v R delete
 )
 
 backwardmode (
 
-    define has_minimum_suffix_stem as (
-        $(cursor >= 3)
-        test (gopast vowel gopast vowel)
+    define RB as ( test hop 3 test (gopast v gopast v) )
+
+    // X-X (araw-araw) reduces to X.
+    define undouble as (
+        [goto '-'] -> s1
+        ['-' s1 atlimit] delete
     )
 
-    define remove_suffix as (
+    define after_v as ( test v )
+    define after_c as ( test non-v )
+    define whole as ( test atlimit )
+
+    // The linker after a vowel is -ng, but after a word already ending in -n
+    // (mostly -an/-in suffixes) it is just -g.  The choice is lexical, so it
+    // follows the contexts where -n+g dominates; elsewhere -ng is removed.
+    define linker as (
         (
             ['g']
-            test ('n' 'o' ('y' or 'i' or 't'))
-            has_minimum_suffix_stem
-            delete
-            set removed_suffix
-        ) or (
-            $(len >= 7)
-            ['g' 'n']
-            test vowel
-            has_minimum_suffix_stem
-            delete
-            set removed_suffix
-        ) or (
-            [substring] among (
-                'han'
-                    (has_minimum_suffix_stem delete set removed_suffix)
-                'hin'
-                    (has_minimum_suffix_stem delete set removed_suffix)
-                'in'
-                    (
-                        (removed_prefix or removed_infix or removed_duplication)
-                        has_minimum_suffix_stem
-                        delete
-                        set removed_suffix
-                    )
-                'an'
-                    (
-                        not likely_foreign
-                        has_minimum_suffix_stem
-                        (
-                            (removed_prefix or removed_infix or removed_duplication)
-                            or
-                            ($(cursor >= 5) test non-vowel)
-                        )
-                        $(cursor >= 3)
-                        delete
-                        set removed_suffix
-                    )
+            test (
+                'n' (
+                    (v v)
+                    or ('yo' non-v)
+                    or (('a' or 'i') ka)
+                    or ('a' g_ang)
+                    or ('i' g_ing)
+                    or ('ya' g_yang)
+                )
             )
-        )
-    )
-
-    define normalize_suffix as (
-        (removed_prefix or removed_infix or removed_duplication or removed_suffix)
-        do (
-            ['u']
-            $(cursor >= 3)
-            <- 'o'
-        )
-        do (
-            ['r']
-            $(cursor >= 3)
-            <- 'd'
-        )
-        do (
-            ['h']
-            $(cursor >= 3)
-            test vowel
             delete
+        ) or (
+            ['ng'] test v RB delete
         )
     )
-)
 
-define normalize_initial as (
-    (removed_prefix or removed_infix or removed_duplication or removed_suffix)
-    $(limit >= 4)
-    [hop 1] -> dup
-    test dup
-    delete
+    define suffix as (
+        [substring] among (
+            'an' 'in'
+                (RB delete)
+            'han' after_v 'hin' after_v
+                (RB delete)
+            // syncope: bil(i)+hin, dal(a)+hin, big(a)y+an
+            'ilhin' 'ilhan' (<- 'ili')
+            'alhin' 'alhan' (<- 'ala')
+            'yan' after_c (<- 'ay')
+            // frequent roots whose suffixed form is too short or too
+            // irregular for the general rules
+            'gawin' whole 'gawan' whole (<- 'gawa')
+            'buksan' whole (<- 'bukas')
+            'kunin' whole 'kunan' whole (<- 'kuha')
+            'sundin' whole 'sundan' whole (<- 'sunod')
+            'saktan' whole (<- 'sakit')
+            'takpan' whole (<- 'takip')
+            // contractions of at / ay
+            '{'}t' after_v '{'}y' after_v (delete)
+        )
+    )
+
+    // Undo the sound changes a suffix causes at the end of the root.  A
+    // root-final -ong is treated like the linker -ng (tulong -> tulo), so
+    // tulung+an must reduce to the same form.
+    define normalise as (
+        try (['r'] <- 'd')
+        try (
+            (['ung'] <- 'o')
+            or (['u'] <- 'o')
+            or (non-v ['u'] <- 'o')
+        )
+    )
 )
 
 define stem as (
-    setmark start
-    unset removed_prefix
-    unset removed_infix
-    unset removed_duplication
-    unset removed_suffix
-    unset likely_foreign
-    do scan_foreign
-    tomark start
-    special_cases or exception1 or (
-        do remove_prefix_once
-        tomark start
-        do remove_prefix_once
-        tomark start
-        do remove_partial_duplication
-        tomark start
-        do remove_infix
-        tomark start
-        do remove_partial_duplication
+    exception or (
+        unset prefixed unset ka unset second
+        backwards do undouble
+        do prefix
+        backwards do undouble
+        do reduplication
+        do infix
+        do reduplication
+        // a second layer of prefixes: ka+mag-aral, pam+pa+aralan
+        set second do prefix
+        do reduplication
+        // d becomes r between vowels: ma+dami -> marami, da-rami
+        do (prefixed ['r'] test v <- 'd')
         backwards (
-            do remove_suffix
-            do normalize_suffix
+            do linker
+            do (suffix normalise)
+            do undouble
         )
-        tomark start
-        do normalize_initial
     )
 )
