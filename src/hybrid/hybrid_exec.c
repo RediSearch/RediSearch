@@ -283,14 +283,15 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   }
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r,
+                                 rs_wall_clock_ns_t duration, bool countQuery) {
   if (results) {
     destroyResults(results);
   } else {
     SearchResult_Destroy(r);
   }
 
-  if (QueryError_IsOk(err) || hasTimeoutError(err)) {
+  if (countQuery) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -299,7 +300,6 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
   qctx->skippedResults = 0;
-  QueryError_ClearError(err);
 }
 
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
@@ -327,9 +327,8 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
   QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
 }
 
-static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  QueryError *err, int rc) {
-  if (ShouldReplyWithError(QueryError_GetCode(err), hreq->base.timeout.config.timeoutPolicy, IsProfile(hreq))) {
+static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const QueryError *err, int rc) {
+  if (err && ShouldReplyWithError(QueryError_GetCode(err), hreq->base.timeout.config.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
@@ -425,8 +424,9 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Returns true if reply was sent, false if error/timeout occurred before replying.
  */
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  ResultProcessor *rp, QueryProcessingCtx *qctx, int rc, cachedVars *cv,
-  SearchResult *r, SearchResult ***results, QueryError *err) {
+                                            ResultProcessor *rp, QueryProcessingCtx *qctx, int rc,
+                                            cachedVars *cv, SearchResult *r,
+                                            SearchResult ***results, const QueryError *err) {
 
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
@@ -576,7 +576,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
-    QueryError err = QueryError_Default();
+    const QueryError *fatalError = NULL;
+    bool countQuery = true;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
@@ -614,13 +615,13 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       return;
     }
 
-    // Get errors before replying (do not clear here; cleanup/teardown will handle it)
-    HybridRequest_GetError(hreq, &err);
-
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, &err);
+    fatalError = HybridRequest_GetFatalError(hreq);
+    countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
+  finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
+                       countQuery);
 }
 
 /**
@@ -635,31 +636,21 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
 
-    // Get error directly from hreq (no need to copy in HREQ_StoreResults)
-    QueryError err = QueryError_Default();
-    HybridRequest_GetError(hreq, &err);
-
-    // Point qctx->err to the local error so finishSendChunkReply_hybrid/replyWarningsWithSuffixes
-    // can access it. The original qctx->err pointed to a stack variable in RSExecDistHybrid
-    // which is now gone (background thread returned). This local `err` remains valid until
-    // we clear it at the end of this function.
-    qctx->err = &err;
-
     // Get stored results and rc
     SearchResult **results = stored->results;
     int rc = stored->rc;
+    const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
+    bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, &err);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
+                                    fatalError);
 
     // Clear stored results pointer since ownership was transferred
     stored->results = NULL;
     stored->hasStoredResults = false;
 
-    // finishSendChunk_HREQ handles cleanup and stats
-    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
-
-    // Clear the local error to avoid leak (QueryError may have allocated strings)
-    QueryError_ClearError(&err);
+    finishSendChunk_HREQ(hreq, results, &r,
+                         rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), countQuery);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -805,7 +796,8 @@ int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
 
 int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
     if (req->nrequests == 0) {
-      QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
+      QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC,
+                          "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
     arrayof(ResultProcessor*) depleters =
@@ -895,21 +887,6 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     return REDISMODULE_OK;
 }
 
-// Lend the read lock held by buildPipelineAndExecute to every sub-request context, and
-// take the markers back once its depletion is done. The rwlock itself is only ever
-// touched by the scope that took it.
-static void borrowSpecReadLocks(HybridRequest *hreq) {
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    RedisSearchCtx_BorrowSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
-  }
-}
-
-static void returnSpecReadLocks(HybridRequest *hreq) {
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    RedisSearchCtx_ClearBorrowedSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
-  }
-}
-
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -936,16 +913,16 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Who holds the one read lock across depletion. Background hands it off to its workers
-  // (RPSafeDepleter); foreground in-memory lends it to the sub-requests, which share this
-  // writer-preferring, non-recursive rwlock and would deadlock against a queued writer
-  // (fork-GC) if they re-acquired it on this thread; a disk spec drops it instead, since
-  // its iterators read from the snapshot taken during the build.
-  const bool lendLockToRequests = !depleteInBackground && !sctx->spec->diskSpec;
+  // Background depleters acquire their own read locks before this thread releases its lock.
+  // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
+  // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
+  // Disk depletion uses the snapshot taken during the build and needs no spec lock.
+  const bool suppressSubqueryUnlocks = !depleteInBackground && !sctx->spec->diskSpec;
+  bool unlockSuppressed = false;
 
   // QAST_Iterate reads the trie/stats, which GC can mutate concurrently, so the
   // build runs under the read lock.
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
@@ -970,10 +947,11 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   }
 
   // Carry that one read lock into depletion.
-  if (lendLockToRequests) {
-    borrowSpecReadLocks(hreq);
+  if (suppressSubqueryUnlocks) {
+    IndexSpec_SuppressUnlock(sctx->spec);
+    unlockSuppressed = true;
   } else if (!depleteInBackground) {
-    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpec_Unlock(sctx->spec);
   }
 
   if (!isCursor) {
@@ -1024,12 +1002,12 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   rc = REDISMODULE_OK;
 
 done:
-  if (lendLockToRequests) {
-    returnSpecReadLocks(hreq);
+  if (unlockSuppressed) {
+    IndexSpec_AllowUnlock(sctx->spec);
   }
   // Idempotent: a no-op if the lock was already released above or by the
   // background handoff.
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
   if (rc == REDISMODULE_OK) {
     freeHybridParams(hybridParams);
   }
@@ -1518,7 +1496,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   // The lock state must be clean before the pipeline may take the spec lock.
-  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
+  IndexSpec_AssertLockNotHeld();
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -1576,6 +1554,6 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   // Unblocking the client below may free the request; last touch before destroy.
-  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
+  IndexSpec_AssertLockNotHeld();
   blockedClientHybridCtx_destroy(BCHCtx);
 }

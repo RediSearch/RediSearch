@@ -678,6 +678,305 @@ def testPartial(env):
                              'doc4', ['test', 11, 'testtest', '5'],
                              'doc5', ['test', 17.1, 'testtest', '5.5']])
 
+def _drainUntilBackendField(env, field, key, expected, message):
+    # DEBUG WORKERS DRAIN blocks for jobs already queued, but under CI's contention (many
+    # tests' worker threads competing for CPU) the async ingest job may not have been queued
+    # yet at all by the time this is first called -- confirmed by re-running this exact check
+    # against real CI: it reliably failed under the full suite's contention but never failed
+    # in isolation (a narrowed CI run, or 15/15 runs on a dedicated, uncontended box). Retrying
+    # for a few seconds is enough to absorb that scheduling delay either way.
+    def check():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        backend = to_dict(get_vecsim_debug_dict(env, 'idx', field)['BACKEND_INDEX'])
+        return backend[key] == expected, backend
+    wait_for_condition(check, message, timeout=10)
+
+def _assertVectorOnlyChangeKeepsDocId(env, algo):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2').ok()
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
+    if algo == 'HNSW':
+        # FLAT is never tiered; HNSW always is (see spec.c). SVS-VAMANA is tiered too, but
+        # unlike HNSW it needs a training-threshold-sized corpus before it promotes anything
+        # to the backend at all -- confirmed against real CI, a single vector never reaches
+        # it no matter how long this waits, so this check is HNSW-only. Wait for the vector
+        # to actually become resident in the backend graph before the update below --
+        # otherwise the update would only ever touch the frontend buffer, never exercising
+        # the backend's own updateVectors code path.
+        _drainUntilBackendField(env, 'vec', 'INDEX_LABEL_COUNT', 1,
+                                'the vector must reach the backend before the update')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+    # Only the vector field changes.
+    env.expect('HSET', 'doc1', 'vec', 'eeeeffffgggghhhh').equal(0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                    message='a vector-only change must not reindex')
+    if algo == 'HNSW':
+        # updateVectors on a backend-resident label writes the new value to the frontend
+        # buffer and marks the backend's old copy deleted -- proof the update genuinely
+        # reached the backend, not just the frontend buffer it would otherwise be confined to.
+        _drainUntilBackendField(env, 'vec', 'NUMBER_OF_MARKED_DELETED', 1,
+                                'updateVectors must mark the backend copy deleted')
+    # The new value is what a KNN query against it finds -- proof the vector itself was
+    # updated, not just the doc-id preserved.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'eeeeffffgggghhhh', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocId(env):
+    """A write touching only a VECTOR field takes the updateVectors fast path (MOD-17704):
+    the document keeps its doc-id, and the new vector is queryable without reindexing
+    anything else.
+
+    Standalone only, for the same reason `testPartial` and `testHDel` are: `DOCIDTOID` takes
+    no key, so it answers from whichever shard receives it, while `HSET doc1` is routed by
+    hash slot.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'FLAT')
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocIdHNSW(env):
+    """Same as testVectorOnlyChangeKeepsDocId, but on HNSW: HNSWIndex::updateVectors is its
+    own implementation, independent of FLAT's. WORKERS 1 lets the vector actually reach the
+    tiered index's backend graph (drained explicitly below) instead of staying in the
+    frontend buffer, so this exercises the backend's own update path, not just the buffer's.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'HNSW')
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocIdSVSVamana(env):
+    """Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
+    backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
+    Unlike HNSW, SVS needs a training-threshold-sized corpus before it promotes anything to
+    the backend at all, so (confirmed against real CI) a single vector never reaches it no
+    matter how long you wait -- this covers the frontend-buffer update path only, same as
+    the C++ suite. WORKERS 1 is still set to match HNSW's config, even though nothing here
+    depends on it draining anywhere.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'SVS-VAMANA')
+
+@skip(cluster=True)
+def testIndexMissingVectorFieldReindexes(env):
+    """A write that sets a previously-unset INDEXMISSING vector field for the first time must
+    not take the vector-only fast path (MOD-17704): the field's ismissing() posting is only
+    ever retired by a full reindex, which moves the document to a new doc-id -- the old
+    doc-id's stale posting itself is only cleaned up by GC, exactly like any other field
+    (see testMissingGC in test_missing.py), not synchronously on reindex.
+
+    Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2', 'INDEXMISSING').ok()
+
+    # doc1 is indexed without ever setting vec: it is missing.
+    env.expect('HSET', 'doc1', 'title', 'hello').equal(1)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([1, 'doc1'])
+
+    # vec is set for the first time on this hash, so HSET reports it as a newly-added field
+    # (1, not 0) even though the change set names only a vector field; the write must still
+    # reindex under a new doc-id, so GC has a fresh doc-id to retire the old posting in favor of.
+    env.expect('HSET', 'doc1', 'vec', 'aaaabbbbccccdddd').equal(1)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='an INDEXMISSING vector field must not take the fast path')
+    forceInvokeGC(env)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+@skip(cluster=True)
+def testDeletingVectorFieldReindexes(env):
+    """HDEL removing an indexed vector field, while another field keeps the key alive, must
+    not take the vector-only fast path (MOD-17704): the field's raw value is gone, so
+    updateHashVectorFields fails closed and the caller's full path removes the old KNN label
+    instead of leaving it stale.
+
+    Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2').ok()
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+    # title keeps the key alive; only vec is deleted.
+    env.expect('HDEL', 'doc1', 'vec').equal(1)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='deleting an indexed vector field must not take the fast path')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([0])
+
+# Two-vector-field schema shared by the tests below: unlike testVectorOnlyChangeKeepsDocId's
+# single vector field, these exercise a document where TWO vector fields can independently be
+# changed or not, in the same write. Standalone only, same reason as testVectorOnlyChangeKeepsDocId
+# (DOCIDTOID takes no key).
+_VEC_A1 = 'aaaa1111bbbb2222'
+_VEC_A2 = 'aaaa3333bbbb4444'
+_VEC_B1 = 'cccc5555dddd6666'
+_VEC_B2 = 'cccc7777dddd8888'
+
+def _createTwoVectorFieldIndex(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vecA', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4', 'DISTANCE_METRIC', 'L2',
+              'vecB', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4', 'DISTANCE_METRIC', 'L2').ok()
+
+def _assertVectorValue(env, field, value):
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{field} $b AS dist]', 'PARAMS', '2', 'b',
+              value, 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+# A write touching a non-vector field AND one of two vector fields forces a full reindex (the
+# non-vector field alone would already force it), during which the changed vector field (vecA)
+# is deleted and re-added under the new doc-id, while the untouched one (vecB) is relabeled
+# onto it instead -- two different mechanisms for two fields on the same document, same write.
+@skip(cluster=True)
+def testTwoVectorFieldsOneChangedOneNotWithNonVectorTrigger(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    # title (non-vector) and vecA change; vecB does not.
+    env.expect('HSET', 'doc1', 'title', 'world', 'vecA', _VEC_A2).equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='a non-vector field change must reindex, unlike vector-only')
+    _assertVectorValue(env, 'vecA', _VEC_A2)  # changed field: new value
+    _assertVectorValue(env, 'vecB', _VEC_B1)  # untouched field: original value preserved
+
+# Same trigger, but neither vector field changes: both are candidates for relabeling onto the
+# new doc-id, and both must still be found with their original values afterward.
+@skip(cluster=True)
+def testTwoVectorFieldsBothUnchangedWithNonVectorTrigger(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    # Only title changes; neither vector field is touched.
+    env.expect('HSET', 'doc1', 'title', 'world').equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='a non-vector field change must reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A1)
+    _assertVectorValue(env, 'vecB', _VEC_B1)
+
+# Same trigger, but both vector fields also change: neither is a relabel candidate, so both
+# take the normal delete-then-add path, same as a single-vector-field reindex would.
+@skip(cluster=True)
+def testTwoVectorFieldsBothChangedWithNonVectorTrigger(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    env.expect('HSET', 'doc1', 'title', 'world', 'vecA', _VEC_A2, 'vecB', _VEC_B2).equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='a non-vector field change must reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A2)
+    _assertVectorValue(env, 'vecB', _VEC_B2)
+
+# With no non-vector field in the write at all, changing just one of the two vector fields
+# takes the updateVectors fast path (MOD-17704): doc-id preserved, the other vector untouched.
+@skip(cluster=True)
+def testTwoVectorFieldsOnlyOneChangedTakesFastPath(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A2).equal(0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                    message='a vector-only change must not reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A2)
+    _assertVectorValue(env, 'vecB', _VEC_B1)
+
+# Changing both vector fields together, still with no non-vector field touched, is still
+# vector-only: every schema field the change set names is a vector field.
+@skip(cluster=True)
+def testTwoVectorFieldsBothChangedTogetherTakesFastPath(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A2, 'vecB', _VEC_B2).equal(0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                    message='a vector-only change must not reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A2)
+    _assertVectorValue(env, 'vecB', _VEC_B2)
+
+# A document that isn't indexed yet must always take the full (initial) indexing path,
+# regardless of how few fields it sets -- there is no doc-id yet to preserve or relabel onto.
+@skip(cluster=True)
+def testNotYetIndexedOneVectorFieldSet(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A1).equal(1)
+    env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), 0)
+    _assertVectorValue(env, 'vecA', _VEC_A1)
+    # vecB was never set on this document at all.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @vecB $b AS dist]', 'PARAMS', '2', 'b',
+              _VEC_B1).equal([0])
+
+@skip(cluster=True)
+def testNotYetIndexedTwoVectorFieldsSet(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(2)
+    env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), 0)
+    _assertVectorValue(env, 'vecA', _VEC_A1)
+    _assertVectorValue(env, 'vecB', _VEC_B1)
+
 @skip(cluster=True)
 def testHDel(env):
     if env.env == 'existing-env':

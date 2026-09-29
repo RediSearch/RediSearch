@@ -629,34 +629,34 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     array_append(arguments, globalAddRSstrings[0]);
     array_append(arguments, opts->scoreStr);
-    RedisSearchCtx_LockSpecWrite(ctx);
+    IndexSpec_LockWrite(ctx->spec);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
       IndexSpec_RefreshSpecCache(ctx->spec);
     }
-    RedisSearchCtx_UnlockSpec(ctx);
+    IndexSpec_Unlock(ctx->spec);
   }
 
   if (opts->languageStr) {
     array_append(arguments, globalAddRSstrings[1]);
     array_append(arguments, opts->languageStr);
-    RedisSearchCtx_LockSpecWrite(ctx);
+    IndexSpec_LockWrite(ctx->spec);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
       IndexSpec_RefreshSpecCache(ctx->spec);
     }
-    RedisSearchCtx_UnlockSpec(ctx);
+    IndexSpec_Unlock(ctx->spec);
   }
 
   if (opts->payload) {
     array_append(arguments, globalAddRSstrings[2]);
     array_append(arguments, opts->payload);
-    RedisSearchCtx_LockSpecWrite(ctx);
+    IndexSpec_LockWrite(ctx->spec);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
       IndexSpec_RefreshSpecCache(ctx->spec);
     }
-    RedisSearchCtx_UnlockSpec(ctx);
+    IndexSpec_Unlock(ctx->spec);
   }
 
   RedisModuleCallReply *rep = NULL;

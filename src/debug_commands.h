@@ -238,7 +238,7 @@ void DebugSendError_Arm(int count);
 // failed. Thread-safe.
 bool DebugSendError_Consume(void);
 
-// Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
+// Process-wide counter of threads parked in `IndexSpec_LockWrite`
 // waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
 // decremented once the write lock has been acquired. Used by tests (sync-point
 // stop predicates) to observe a pending writer without depending on the main

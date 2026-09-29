@@ -62,7 +62,13 @@ static inline void AddToInfo_CoordinatorErrorsAndWarnings(RedisModuleInfoCtx *ct
 
 // Collection also primes the Enterprise disk metrics, so disk-only requests need it too.
 static bool AddSectionWithIndexStats(RedisModuleInfoCtx *ctx, const char *section,
-                                     TotalIndexesInfo *info, bool *collected) {
+                                     TotalIndexesInfo *info, bool *collected,
+                                     bool for_crash_report) {
+  // Aggregate collection takes spec and vector locks, which the interrupted thread may own.
+  // Crash reports use the lock-free per-index snapshot in AddToInfo_CurrentThread instead.
+  if (for_crash_report) {
+    return false;
+  }
   if (RedisModule_InfoAddSection(ctx, section) == REDISMODULE_ERR) {
     return false;
   }
@@ -105,28 +111,30 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   TotalIndexesInfo total_info;
   bool collected = false;
 
-  if (AddSectionWithIndexStats(ctx, "indexes", &total_info, &collected)) {
+  if (AddSectionWithIndexStats(ctx, "indexes", &total_info, &collected, for_crash_report)) {
     AddToInfo_Indexes(ctx, &total_info);
   }
   if (RedisModule_InfoAddSection(ctx, "fields_statistics") == REDISMODULE_OK) {
     AddToInfo_Fields(ctx);
   }
-  if (AddSectionWithIndexStats(ctx, "memory", &total_info, &collected)) {
+  if (AddSectionWithIndexStats(ctx, "memory", &total_info, &collected, for_crash_report)) {
     AddToInfo_Memory(ctx, &total_info);
   }
-  if (AddSectionWithIndexStats(ctx, "vector_index", &total_info, &collected)) {
+  if (AddSectionWithIndexStats(ctx, "vector_index", &total_info, &collected, for_crash_report)) {
     AddToInfo_VectorIndex(ctx, &total_info);
   }
   if (RedisModule_InfoAddSection(ctx, "cursors") == REDISMODULE_OK) {
     AddToInfo_Cursors(ctx);
   }
-  if (AddSectionWithIndexStats(ctx, "garbage_collector", &total_info, &collected)) {
+  if (AddSectionWithIndexStats(ctx, "garbage_collector", &total_info, &collected,
+                               for_crash_report)) {
     AddToInfo_GC(ctx, &total_info);
   }
-  if (AddSectionWithIndexStats(ctx, "queries", &total_info, &collected)) {
+  if (AddSectionWithIndexStats(ctx, "queries", &total_info, &collected, for_crash_report)) {
     AddToInfo_Queries(ctx, &total_info);
   }
-  if (AddSectionWithIndexStats(ctx, "warnings_and_errors", &total_info, &collected)) {
+  if (AddSectionWithIndexStats(ctx, "warnings_and_errors", &total_info, &collected,
+                               for_crash_report)) {
     AddToInfo_ErrorsAndWarnings(ctx, &total_info);
   }
   if (RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors") == REDISMODULE_OK) {
@@ -142,7 +150,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     AddToInfo_RSConfig(ctx);
   }
 
-  if (SearchDisk_IsEnabled() && AddSectionWithIndexStats(ctx, "disk", &total_info, &collected)) {
+  if (SearchDisk_IsEnabled() &&
+      AddSectionWithIndexStats(ctx, "disk", &total_info, &collected, for_crash_report)) {
     RS_ASSERT(SearchDisk_IsInitialized());
     AddToInfo_Disk(ctx);
   }

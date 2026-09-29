@@ -87,7 +87,6 @@ pub enum QueryErrorCode {
     VectorNotAllowed,
     OutOfMemory,
     UnavailableSlots,
-    FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
@@ -410,11 +409,6 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_SLOTS_UNAVAIL ",
                 default_msg: c"Query requires unavailable slots",
                 default_full_msg: c"SEARCH_SLOTS_UNAVAIL Query requires unavailable slots",
-            },
-            Self::FlexLimitNumberOfIndexes => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES ",
-                default_msg: c"Flex index limit was reached",
-                default_full_msg: c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES Flex index limit was reached",
             },
             Self::FlexUnsupportedField => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_FIELD ",

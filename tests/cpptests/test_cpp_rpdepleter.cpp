@@ -24,6 +24,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <future>
 
 #define NumberOfContexts 3
 
@@ -315,6 +316,69 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
 
   SearchResult_Destroy(&res);
   depleter->Free(depleter);
+}
+
+// Both hybrid depleters deliberately share one context. The gate keeps their
+// read locks overlapping until the launcher's handoff has completed.
+TEST_P(RPSafeDepleterTest, SharedContextOwnership) {
+  if (!GetParam()) {
+    GTEST_SKIP() << "Requires spec locking";
+  }
+  struct GatedUpstream : ResultProcessor {
+    std::shared_future<void> gate;
+    IndexSpec *spec;
+    bool yielded = false;
+
+    GatedUpstream(std::shared_future<void> gate, IndexSpec *spec)
+        : ResultProcessor{}, gate(gate), spec(spec) {
+      Next = [](ResultProcessor *base, SearchResult *result) -> int {
+        auto *self = static_cast<GatedUpstream *>(base);
+        EXPECT_TRUE(IndexSpec_IsReadLocked(self->spec));
+        self->gate.wait();
+        if (self->yielded) return RS_RESULT_EOF;
+        self->yielded = true;
+        SearchResult_SetDocId(result, 1);
+        return RS_RESULT_OK;
+      };
+    }
+  };
+  std::promise<void> release;
+  auto gate = release.get_future().share();
+  GatedUpstream upstream1(gate, mockSpec), upstream2(gate, mockSpec);
+  QueryProcessingCtx qctx1{}, qctx2{};
+  QueryError error = QueryError_Default();
+  qctx1.err = qctx2.err = &error;
+  StrongRef sync = DepleterSync_New(2, true);
+  ResultProcessor *first =
+      RPSafeDepleter_New(StrongRef_Clone(sync), &searchContexts[0], depleterPool);
+  ResultProcessor *second = RPSafeDepleter_New(sync, &searchContexts[0], depleterPool);
+  QITR_PushRP(&qctx1, &upstream1);
+  QITR_PushRP(&qctx1, first);
+  QITR_PushRP(&qctx2, &upstream2);
+  QITR_PushRP(&qctx2, second);
+  auto depleters = array_new(ResultProcessor *, 2);
+  array_append(depleters, first);
+  array_append(depleters, second);
+
+  IndexSpec_LockRead(mockSpec);
+  EXPECT_EQ(RPSafeDepleter_StartAll(depleters, &searchContexts[0], &error), RS_RESULT_OK);
+  EXPECT_FALSE(IndexSpec_IsLocked(mockSpec));
+  EXPECT_EQ(mockSpec->keysDict->pauserehash, 2);
+  EXPECT_NE(pthread_rwlock_trywrlock(&mockSpec->rwlock), 0);
+  release.set_value();
+  RPSafeDepleter_JoinAll(depleters);
+  EXPECT_EQ(mockSpec->keysDict->pauserehash, 0);
+  for (auto *depleter : {first, second}) {
+    SearchResult result = SearchResult_New();
+    EXPECT_EQ(depleter->Next(depleter, &result), RS_RESULT_OK);
+    EXPECT_EQ(SearchResult_GetDocId(&result), 1);
+    SearchResult_Clear(&result);
+    EXPECT_EQ(depleter->Next(depleter, &result), RS_RESULT_EOF);
+    SearchResult_Destroy(&result);
+    depleter->Free(depleter);
+  }
+  array_free(depleters);
+  QueryError_ClearError(&error);
 }
 
 // Instantiate the parameterized test with both true and false values

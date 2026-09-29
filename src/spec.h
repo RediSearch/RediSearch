@@ -889,6 +889,26 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
 
+// A thread may hold one spec lock. Acquisitions are non-recursive, including
+// acquisitions through a different search context for the same spec.
+void IndexSpec_LockRead(IndexSpec *sp);
+int IndexSpec_TryLockRead(IndexSpec *sp);
+void IndexSpec_LockWrite(IndexSpec *sp);
+// Idempotent when this thread holds no lock; never releases another thread's lock.
+void IndexSpec_Unlock(IndexSpec *sp);
+bool IndexSpec_IsLocked(const IndexSpec *sp);
+bool IndexSpec_IsReadLocked(const IndexSpec *sp);
+// Debug-only check at worker-cycle boundaries, independent of request/context lifetime.
+void IndexSpec_AssertLockNotHeld(void);
+
+// Suppress Unlock on this thread while synchronous hybrid subqueries use the
+// outer scope's read lock, so one subquery reaching EOF cannot release it early.
+// Requires a held read lock; suppression scopes cannot nest. AllowUnlock ends
+// suppression on the same thread without releasing the lock; the outer scope
+// must then call Unlock.
+void IndexSpec_SuppressUnlock(IndexSpec *sp);
+void IndexSpec_AllowUnlock(IndexSpec *sp);
+
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)
 // =============================================================================
