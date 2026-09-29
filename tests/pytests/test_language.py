@@ -565,20 +565,19 @@ def testTagalogLanguage(env):
         'kailangan': ['kailangan', 'kinakailangan', 'kailangang'],
         'bilis': ['bilis', 'mabilis'],
     }
-    i = 0
     for words in families.values():
         for word in words:
-            i += 1
-            conn.execute_command('HSET', f'{{tl}}:{i}', 'word', word)
+            conn.execute_command('HSET', f'{{tl}}:{word}', 'word', word)
 
     env.cmd('FT.CREATE', 'idx_tl', 'ON', 'HASH', 'PREFIX', '1', '{tl}:',
             'LANGUAGE', 'tagalog', 'SCHEMA', 'word', 'TEXT')
     waitForIndex(env, 'idx_tl')
 
     for words in families.values():
+        expected = {f'{{tl}}:{word}' for word in words}
         for query in words:
             res = env.cmd('FT.SEARCH', 'idx_tl', query, 'NOCONTENT', 'LIMIT', '0', '100')
-            env.assertEqual(res[0], len(words), message=query)
+            env.assertEqual(set(res[1:]), expected, message=query)
 
 
 def testMalayLanguage(env):
