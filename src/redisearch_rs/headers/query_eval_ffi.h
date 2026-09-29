@@ -47,7 +47,11 @@ extern "C" {
  *    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
  * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
- *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
+ *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
+ *    request timeout reached through `sctx.timeout` must stay valid at stable
+ *    addresses for the lifetime of the returned iterator. Timeout source
+ *    changes and deadline writes may occur only between iterator probes;
+ *    only the blocked-client flag may change concurrently.
  * 4. `status` must be a non-null pointer to a valid [`QueryError`].
  *
  * Together these are exactly the invariants documented on

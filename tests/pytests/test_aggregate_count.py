@@ -798,7 +798,7 @@ def _test_profile(protocol):
         # WITHOUTCOUNT + SORTBY + MAX -> GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
-         [('Index', 49), ('Pager/Limiter', 50), ('Grouper', 25)],
+         [('Index', 3100), ('Sorter', 50), ('Grouper', 25)],
          [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
@@ -819,7 +819,7 @@ def _test_profile(protocol):
           'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
           'FILTER', '@cnt > 5'],
-         [('Index', 199), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
+         [('Index', 3100), ('Loader', 3100), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
          [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
@@ -835,22 +835,25 @@ def _test_profile(protocol):
            [('Index', 1041), ('Grouper', 25)]],
            [('Network', 75), ('Grouper', 25), ('Grouper', 1)]]),
 
-        # MOD-14849: WITHOUTCOUNT + SORTBY (no MAX) + GROUPBY returns
-        # "Success (not an error)". Uncomment when MOD-14849 is fixed.
-        #
-        # # WITHOUTCOUNT + SORTBY -> GROUPBY
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title',
-        #   'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
-        #  [<TBD standalone profile>],
-        #  [<TBD cluster profile>]),
-        #
-        # # WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline)
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
-        #   'GROUPBY', 1, '@category', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
-        #   'SORTBY', 2, '@cnt', 'DESC',
-        #   'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_categories'],
-        #  [<TBD standalone profile>],
-        #  [<TBD cluster profile>]),
+        # WITHOUTCOUNT + SORTBY -> GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+         [('Index', 3100), ('Sorter', 10), ('Grouper', 7)],
+         [[[('Index', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10), ('Grouper', 7)]]),
+
+        # WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'SORTBY', 2, '@cnt', 'DESC',
+          'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_brands'],
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 10), ('Grouper', 1)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 10), ('Grouper', 1)]]),
 
     ]
 

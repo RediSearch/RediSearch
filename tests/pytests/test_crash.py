@@ -151,7 +151,18 @@ def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_r
 @skip(cluster=True)
 def test_query_thread_crash():
     env = CrashingEnv(testName="test_query_thread_crash", freshEnv=True)
+    _test_query_thread_crash(env)
 
+
+@skip(cluster=True)
+def test_query_worker_crash():
+    """Crash reporting must not reacquire the interrupted worker's spec lock."""
+    env = CrashingEnv(testName="test_query_worker_crash", freshEnv=True,
+                      moduleArgs="WORKERS 2")
+    _test_query_thread_crash(env)
+
+
+def _test_query_thread_crash(env):
     doc_count = 10
     terms = ['hello', 'world']
     prepare_index(env, terms=terms, doc_count=doc_count)

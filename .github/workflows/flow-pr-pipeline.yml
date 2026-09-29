@@ -51,6 +51,19 @@ on:
           tests (and never ship the binary) can turn LTO off to skip the link.
         type: string
         default: ''
+      skip-unit-tests:
+        description: >-
+          Skip test-unit. Set by the caller when it already knows the change set can't
+          affect it (e.g. only Python flow test files changed).
+        type: boolean
+        default: false
+      skip-flow-tests:
+        description: >-
+          Skip test-flow-standalone and test-flow-coordinator. Set by the caller when it
+          already knows the change set can't affect them (e.g. only C/C++ unit test files
+          changed).
+        type: boolean
+        default: false
 
 jobs:
   get-config:
@@ -164,7 +177,7 @@ jobs:
   test-unit:
     name: ${{ inputs.job-type }} (Unit)
     needs: [get-config, build-image, build]
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    if: ${{ !inputs.skip-unit-tests && !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -197,7 +210,7 @@ jobs:
   test-flow-standalone:
     name: ${{ inputs.job-type }} (Standalone)
     needs: [get-config, build-image, build, build-redis, build-rejson]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    if: ${{ !inputs.skip-flow-tests && !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -235,7 +248,7 @@ jobs:
   test-flow-coordinator:
     name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: [get-config, build-image, build, build-redis, build-rejson]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    if: ${{ !inputs.skip-flow-tests && !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     # Coordinator tests are the slowest flow suite (cluster setup, inter-shard
     # PINGs, 5-min timeouts), so split them across file-level shards. The
     # instrumented builds (coverage, sanitize) run noticeably slower, so give

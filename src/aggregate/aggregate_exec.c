@@ -1123,8 +1123,8 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
-  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
-  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
+  IndexSpec_Unlock(AREQ_SearchCtx(req)->spec);
+  IndexSpec_AssertLockNotHeld();
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
@@ -1172,7 +1172,7 @@ void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
   // The lock state must be clean from the previous cycle before this one may take it.
-  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
+  IndexSpec_AssertLockNotHeld();
 
   // Check if timed out while in the job queue.
   if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
@@ -1216,10 +1216,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 #endif
 
   // Lock spec. Should be released on the BG thread by every downstream path.
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
-    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpec_Unlock(sctx->spec);
     goto error;
   }
 
@@ -1231,7 +1231,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
   // NOTE: Revisit as more index types are supported.
   if (sctx->diskSnapshot) {
-    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpec_Unlock(sctx->spec);
   }
 
 #ifdef ENABLE_ASSERT
@@ -1247,7 +1247,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       // Cursor reservation failed before runCursor could release the lock.
-      RedisSearchCtx_UnlockSpec(sctx);
+      IndexSpec_Unlock(sctx->spec);
       goto error;
     }
   } else {
@@ -1262,7 +1262,7 @@ error:
   // this cycle through the reply callback's reference.
   sctx->redisCtx = NULL;
   // Both jumps here explicitly unlocked.
-  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
+  IndexSpec_AssertLockNotHeld();
 
 cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
@@ -1815,10 +1815,11 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     }
 
     // Take a read lock on the spec (to avoid conflicts with the GC).
-    // This is released in AREQ_Free or while executing the query.
-    RedisSearchCtx_LockSpecRead(sctx);
+    // Every execution or error path releases on this thread.
+    IndexSpec_LockRead(sctx->spec);
 
     if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+      IndexSpec_Unlock(sctx->spec);
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
@@ -1831,7 +1832,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
     // NOTE: Revisit as more index types are supported.
     if (sctx->diskSnapshot) {
-      RedisSearchCtx_UnlockSpec(sctx);
+      IndexSpec_Unlock(sctx->spec);
     }
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
@@ -1843,6 +1844,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       int rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
+        IndexSpec_Unlock(sctx->spec);
         CurrentThread_ClearIndexSpec();
         return REDISMODULE_ERR;
       }
@@ -1953,16 +1955,18 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                                      r->reqConfig.queryTimeoutMS);
   }
   // Take a read lock on the spec (to avoid conflicts with the GC).
-  // released in `AREQ_Free`.
+  // Released here before the request is freed.
   QueryRequestTimeout_BeginCycle(&r->base.timeout,
                                  QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+    IndexSpec_Unlock(sctx->spec);
     AREQ_Free(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
+  IndexSpec_Unlock(sctx->spec);
   AREQ_Free(r);
   CurrentThread_ClearIndexSpec();
   return ret;
@@ -2023,10 +2027,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 #endif
 
   sendChunk(req, reply, num);
-  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
+  IndexSpec_Unlock(AREQ_SearchCtx(req)->spec);  // Verify that we release the spec lock
   // Below this point the cursor (and with it `req`) may be freed, paused, or
   // handed off, so the lock must be released here, on this worker thread.
-  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
+  IndexSpec_AssertLockNotHeld();
 
   // With a reply callback, resolving the cursor is the main thread's job.
   if (!QueryRequest_UsesReplyCallback(&req->base)) {
@@ -2130,7 +2134,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   // A paused cursor must have released the spec lock at the end of the
   // previous read cycle.
-  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
+  IndexSpec_AssertLockNotHeld();
   if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
       AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);

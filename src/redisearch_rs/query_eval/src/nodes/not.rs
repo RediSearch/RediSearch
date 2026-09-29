@@ -47,7 +47,7 @@ pub(crate) fn eval<'index>(
     // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees that `sctx` and its
     // borrowed timeout outlive every timeout context derived from `ctx`. The returned context
     // is handed straight to `new_not_iterator` below, so it cannot outlive the query. Writes to
-    // the request-owned deadline never overlap a probe (see `TimeoutContextDeadline::new`).
+    // the request-owned deadline and changes to the timeout source never overlap a probe.
     let timeout_ctx = unsafe { ctx.build_timeout_context() };
 
     // SAFETY: the preconditions of `new_not_iterator` map to

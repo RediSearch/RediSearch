@@ -81,8 +81,9 @@ impl MemTracker for ExternalCounter {
 /// 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
 ///    returned iterator, and `sctx` must stay at a stable address for that
-///    whole window: the iterator reads the request-owned deadline back on every
-///    timeout probe. No write to that deadline may overlap a probe.
+///    whole window. The request timeout reached through `sctx.timeout` must also remain valid
+///    at a stable address until the iterator is dropped. Timeout source changes and deadline
+///    writes may happen only between probes; only the blocked-client flag may change concurrently.
 /// 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
 /// 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
 ///    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
@@ -113,9 +114,8 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
     // SAFETY: precondition 1 guarantees `sctx` and `sctx.spec` are valid and outlive the returned iterator.
     let expiration_checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter, 0) };
 
-    // SAFETY: precondition 1 guarantees `sctx` is valid and outlives the returned iterator, which
-    // is what `from_sctx` requires in order to read the deadline back on each probe. Writes to the
-    // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
+    // SAFETY: precondition 1 keeps `sctx` and its request timeout valid until the iterator is
+    // dropped, and excludes source changes and deadline writes during probes.
     let timeout_ctx = unsafe { AnyTimeoutContext::from_sctx(sctx_nn, TIMEOUT_CHECK_GRANULARITY) };
 
     let ids_list = if !ids.is_null() {
