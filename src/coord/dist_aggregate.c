@@ -648,6 +648,11 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
+static bool profileShouldStopCollectingReplies(AREQ *req) {
+  // A cancelled FAIL reply is discarded, so there is no need to collect more shard profiles.
+  return req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && AREQ_TimedOut(req);
+}
+
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   AREQ *req = ctx;
@@ -661,9 +666,12 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    do {
+    while (!profileShouldStopCollectingReplies(req)) {
       MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+      if (getNextReply(rpnet) == RS_RESULT_EOF) {
+        break;
+      }
+    }
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
@@ -1024,8 +1032,14 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // Wake a worker already blocked on a shard reply so it observes the timeout.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1104,7 +1118,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// Main-thread reply callback for coord AREQ (RETURN_STRICT). Reads results
 // stored by the BG thread in req->storedReplyState. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1149,9 +1163,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // QEXEC_S_SHARD_TIMED_OUT_WARNING flag. The only RETURN-STRICT path that
   // still produces rc=TIMEDOUT is the coord's own deadline firing, which
   // routes through DistAggregateTimeoutReturnStrictCallback -- not this
-  // callback. Under FAIL, a shard timeout still bails the coord pipeline
-  // early; the BG thread stores the resulting error in storedReplyState.err
-  // and the early-error branch above replies with it.
+  // callback.
   AREQ_ReplyWithStoredResults(ctx, req);
 
   // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.
