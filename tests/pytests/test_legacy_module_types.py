@@ -266,11 +266,13 @@ def _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_ENC_VER):
     return _write_legacy_spec_body_rdb(env, _legacy_spec_body(doc, encver), encver)
 
 
-def _write_legacy_spec_body_rdb(env, body, encver):
+def _write_legacy_spec_body_rdb(env, body, encver, key=b'idx:idx'):
     """Stop the server and replace its RDB file with one holding a single legacy index spec, the
-    encver-`encver` `ft_index0` value `body`. A legacy spec is only upgraded during the first RDB load
-    after the module loads, so it cannot be RESTOREd (see testLegacyIndexSpecRestoreIsRefused) and has
-    to come from the file the server starts from. Returns the server's log file path."""
+    encver-`encver` `ft_index0` value `body`, stored under `key`. The default is INDEX_SPEC_KEY_FMT for
+    the spec named `idx`: the key the upgrade deletes once it has loaded it. A legacy spec is only
+    upgraded during the first RDB load after the module loads, so it cannot be RESTOREd (see
+    testLegacyIndexSpecRestoreIsRefused) and has to come from the file the server starts from.
+    Returns the server's log file path."""
     conn = _binary_conn(env)
     rdb_version = _rdb_version(conn)
     db_dir = env.cmd('CONFIG', 'GET', 'dir')[1]
@@ -278,8 +280,6 @@ def _write_legacy_spec_body_rdb(env, body, encver):
     log_path = os.path.join(db_dir, env.cmd('CONFIG', 'GET', 'logfile')[1])
     env.stop()
 
-    # INDEX_SPEC_KEY_FMT for the spec named `idx`: the key the upgrade deletes once it has loaded it.
-    key = b'idx:idx'
     rdb = (b'REDIS%04d' % rdb_version
            + bytes([RDB_OPCODE_SELECTDB]) + _save_len(0)
            + bytes([RDB_TYPE_MODULE_2]) + _save_len(len(key)) + key
@@ -410,6 +410,35 @@ def testLegacySpecWithoutFieldPathLoads():
     env.assertEqual(attribute['identifier'], 't')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
 
+
+
+@skip(cluster=True, asan=True)
+def testLegacySpecUnderUnexpectedKeyFailsToLoad():
+    """The upgrade deletes a legacy spec's key by the name the spec was saved under. A spec stored
+    under any other key used to load and stay in the keyspace after the upgrade, and the next save of
+    that key crashed the server. Its load must fail instead."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    log_path = _write_legacy_spec_body_rdb(
+        env, _legacy_spec_body(_legacy_doc(0, b''), LEGACY_SPEC_ENC_VER), LEGACY_SPEC_ENC_VER,
+        key=b'legacy:idx')
+
+    # Give the server time to fail during the load before RLTest's readiness probe races with it.
+    env.envRunner.startupGraceSecs = 1
+    try:
+        env.start()
+    except Exception as e:
+        env.assertContains('Redis server is dead', str(e))
+    if env.isUp():
+        # Where the load is accepted, saving the leftover key is what brings the server down.
+        env.cmd('SAVE')
+    env.assertFalse(env.isUp())
+
+    with open(log_path) as f:
+        log = f.read()
+    # Redis writes a bug report for both a signal and a failed assertion.
+    env.assertNotContains('REDIS BUG REPORT', log, message=log[-4000:])
+    env.assertContains('Refusing a legacy index that is not stored under its index key in db 0', log)
 
 def _fail_full_sync(env, shard_mock):
     """Make the server a replica of `shard_mock` and cut its full sync short, so the load fails.
