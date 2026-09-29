@@ -305,6 +305,26 @@ typedef struct BasicDiskAPI {
                             size_t logicalIndexCount);
 
   /**
+   * @brief Charge one index against the search-disk-max-open-files cap, requesting more
+   * of the process's RLIMIT_NOFILE headroom from Redis if the current grant is insufficient.
+   *
+   * Real admission check: used only for new-index creation, from SearchDisk_CanCreateIndex.
+   * On refusal, no usage is charged. On success, release via releaseOpenFiles if the index
+   * is not actually opened (e.g. a later step in the same creation fails).
+   *
+   * @param disk Pointer to the disk context
+   * @return true if the reservation was granted
+   */
+  bool (*reserveOpenFiles)(RedisSearchDisk *disk);
+
+  /**
+   * @brief Undo a reserveOpenFiles charge that was never matched by an opened index.
+   *
+   * @param disk Pointer to the disk context
+   */
+  void (*releaseOpenFiles)(RedisSearchDisk *disk);
+
+  /**
    * Create a result processor that loads document fields from disk asynchronously.
    *
    * Drop-in replacement for RPLoader_New: the pipeline calls this instead of

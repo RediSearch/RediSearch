@@ -1856,6 +1856,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
                                           spec->rule->type, true, spec);
     if (!spec->diskSpec) {
+      SearchDisk_ReleaseCreateFailure();
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }

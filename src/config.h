@@ -240,7 +240,9 @@ typedef struct {
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
-  // Per-database open-file cap.
+  // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
+  // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
+  // rather than raising it later.
   int diskMaxOpenFiles;
   // Concurrent async document-metadata reads a single query iterator keeps in flight.
   unsigned int diskAsyncReadPoolSize;
@@ -431,7 +433,9 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX 100
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 3
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
-#define DEFAULT_DISK_MAX_OPEN_FILES 1024
+#define DEFAULT_DISK_MAX_OPEN_FILES 200
+// Smallest accepted positive cap. SpeedB's SanitizeOptions already clamps below this to 20, so reject it directly here
+// instead of letting the requested and effective caps diverge.
 #define DISK_MAX_OPEN_FILES_MIN 20
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
