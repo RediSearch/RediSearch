@@ -15,6 +15,7 @@ build_utils.workspace = true
 
 [dependencies]
 c_trie.workspace = true
+dict.workspace = true
 ffi.workspace = true
 field.workspace = true
 hidden_string.workspace = true

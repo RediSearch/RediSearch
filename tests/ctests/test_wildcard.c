@@ -189,6 +189,18 @@ int _testMatch(char *pattern, char *str, match_t expected) {
   match_t actual = Wildcard_MatchChar(pattern, strlen(pattern), str, strlen(str));
   //printf("%d %s\n", i++, str);
   ASSERT_EQUAL(expected, actual);
+
+  // Wildcard_MatchRune implements the same algorithm over runes and must agree with
+  // Wildcard_MatchChar on every input -- run every case through both.
+  rune patternRunes[65], strRunes[64];
+  size_t patternLen = strlen(pattern), strLen = strlen(str);
+  for (size_t i = 0; i < patternLen; ++i) patternRunes[i] = (rune)(unsigned char)pattern[i];
+  // Wildcard_MatchRune assumes a NUL-terminated pattern (see wildcard.h) -- a pattern ending
+  // in '*' reads one rune past patternLen after skipping the trailing star(s).
+  patternRunes[patternLen] = 0;
+  for (size_t i = 0; i < strLen; ++i) strRunes[i] = (rune)(unsigned char)str[i];
+  match_t actualRune = Wildcard_MatchRune(patternRunes, patternLen, strRunes, strLen);
+  ASSERT_EQUAL(expected, actualRune);
   return 0;
 }
 
@@ -232,6 +244,15 @@ int test_match() {
   _testMatch("f?o*bar", "barfoo", NO_MATCH);
   _testMatch("f?o*bar", "bar", NO_MATCH);
   _testMatch("*f?o*bar", "bar", PARTIAL_MATCH);
+
+  // Literal '*' in the string, at a position the pattern's '*' backtracks onto
+  // (https://github.com/RediSearch/RediSearch/issues/5895): Wildcard_MatchRune used to
+  // check the literal/'?' branch before the '*' branch, so a literal '*' in the string
+  // matched the pattern's '*' operator as an ordinary character and the backtrack
+  // re-entered the same state forever.
+  _testMatch("*abc123*", "456a*456", PARTIAL_MATCH);
+  _testMatch("a*b", "a*b", FULL_MATCH);
+  _testMatch("*abc*", "xxabcyy", FULL_MATCH);
 
   return 0;
 }

@@ -151,11 +151,9 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   chain->root = dmd;
 }
 
-/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
- * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
   /* Get the metadata */
-  if (!dmd || !data) {
+  if (!dmd || !data || !(dmd->flags & Document_HasPayloadSlot)) {
     return 0;
   }
 
@@ -178,6 +176,17 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
   dmd->flags |= Document_HasPayload;
   t->memsize += len;
   return 1;
+}
+
+void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd) {
+  if (!dmd || !hasPayload(dmd->flags)) {
+    return;
+  }
+  t->memsize -= sizeof(RSPayload) + dmd->payload->len;
+  rm_free(dmd->payload->data);
+  rm_free(dmd->payload);
+  dmd->payload = NULL;
+  dmd->flags &= ~Document_HasPayload;
 }
 
 /* Set the sorting vector for a document. If the vector is empty we mark the doc as not having a
@@ -283,15 +292,18 @@ void DocTable_ClearExpirationData(DocTable *t) {
 /* Put a new document into the table with a fresh incremental id. The key -> docId
  * mapping is published separately by the caller via DocIdMeta; there is no key-based
  * dedup here, so callers must detect an existing document before calling. */
-RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
-                                 const char *payload, size_t payloadSize, DocumentType type) {
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score,
+                                 RSDocumentFlags flags, const char *payload, size_t payloadSize,
+                                 DocumentType type) {
 
   t_docId docId = ++t->maxDocId;
 
-  RSDocumentMetadata *dmd;
   if (payload && payloadSize) {
+    flags |= Document_HasPayload | Document_HasPayloadSlot;
+  }
+  RSDocumentMetadata *dmd;
+  if (flags & Document_HasPayloadSlot) {
     dmd = rm_calloc(1, sizeof(*dmd));
-    flags |= Document_HasPayload;
     t->memsize += sizeof(RSDocumentMetadata);
   } else {
     size_t leanSize = sizeof(*dmd) - sizeof(RSPayload *);
@@ -409,10 +421,10 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   md->flags |= Document_Deleted;
 
   t->memsize -= sdsAllocSize(md->keyPtr);
-  if (!hasPayload(md->flags)) {
-    t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
-  } else {
-    t->memsize -= sizeof(RSDocumentMetadata);
+  t->memsize -= (md->flags & Document_HasPayloadSlot)
+                    ? sizeof(RSDocumentMetadata)
+                    : sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
+  if (hasPayload(md->flags)) {
     t->memsize -= md->payload->len + sizeof(RSPayload);
   }
   if (RSSortingVector_Length(&md->sortVector)) {
@@ -484,7 +496,7 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
     RedisModule_Free(tmpPtr);
 
-    dmd->flags = RedisModule_LoadUnsigned(rdb);
+    dmd->flags = RedisModule_LoadUnsigned(rdb) | Document_HasPayloadSlot;
     dmd->maxTermFreq = 1;
     dmd->docLen = 1;
     if (encver > 1) {

@@ -12,7 +12,7 @@
 mod hash;
 mod json;
 
-pub use hash::HashDocumentFormat;
+pub use hash::{HashDocumentFormat, HashFieldNames};
 pub use json::JsonDocumentFormat;
 
 use std::ffi::CStr;

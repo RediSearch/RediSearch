@@ -17,11 +17,15 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 __attribute__((weak))
 bool SearchDisk_HasAPI();
 
 __attribute__((weak))
- RedisSearchDiskAPI *SearchDisk_GetAPI();
+RedisSearchDiskAPI *SearchDisk_GetAPI();
 
 __attribute__((weak))
 void SearchDisk_SetAPI();
@@ -67,6 +71,25 @@ void SearchDisk_UpdateLogObfuscation();
 // Basic API wrappers
 
 /**
+ * @brief Return whether one more disk index fits the configured write-buffer budget and the
+ * search-disk-max-open-files cap.
+ *
+ * Applies only to new index creation. On success, charges the FD cap immediately; call
+ * SearchDisk_ReleaseCreateFailure if the index does not end up opening. Restore paths always
+ * proceed and let the disk backend clamp shared write-buffer capacity and FD usage instead of
+ * rejecting the index.
+ *
+ * @param status Receives the reason creation was rejected.
+ */
+bool SearchDisk_CanCreateIndex(QueryError *status);
+
+/**
+ * @brief Undo the FD charge SearchDisk_CanCreateIndex applied, after a create attempt that it
+ * admitted subsequently failed to open.
+ */
+void SearchDisk_ReleaseCreateFailure(void);
+
+/**
  * @brief Open an index, **Important** must be called once and only once for every index
  * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
@@ -78,7 +101,9 @@ void SearchDisk_UpdateLogObfuscation();
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
+    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
+    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -233,6 +258,19 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+
+bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+
+/** Stage absent INDEXMISSING fields in the document batch; false requires aborting it.
+ * The field-index array is borrowed only for the call. See IndexDiskAPI.indexMissingFields. */
+bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                   SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                                   size_t numFields, t_docId docId);
+
+/** Open missing postings using sctx's query snapshot. See IndexDiskAPI.newMissingIterator. */
+QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
+                                             const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                             QueryError *status);
 
 /**
  * @brief Stage a numeric value for a document on a write batch.
@@ -924,28 +962,11 @@ void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
- * @brief Update the buffer budget and WBM in response to RAM configuration changes
+ * @brief Update the memory limit used to derive Search disk resource limits.
  *
- * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
- * and updates the WriteBufferManager with the new size. Should be called in response
- * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
- *
- * @param ctx Redis module context
- * @param percentage Percentage of available memory to request (0-100)
+ * @param memoryLimitBytes Current bigredis-max-ram value in bytes
  */
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
-
-/**
- * @brief Reapply the max_open_files cap to all live disk databases.
- *
- * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
- * the configured value on the shared disk context (so newly created indexes use it)
- * and applies the resolved per-DB cap to every existing index's database at runtime.
- *
- * @param ctx Redis module context
- * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
- */
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
@@ -1010,3 +1031,7 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  * Intended for test teardown so a stuck pause can't poison the next test.
  */
 void SearchDisk_DebugResetCompactionController(void);
+
+#ifdef __cplusplus
+}
+#endif

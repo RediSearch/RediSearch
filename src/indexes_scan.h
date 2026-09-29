@@ -27,6 +27,13 @@ extern "C" {
 // or main thread).
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 
+// Schedules indexing for a successful ALTER. addedFieldsStart is the schema size before
+// that command added its fields. When safe, skips documents with none of those fields;
+// otherwise schedules the same full scan as IndexSpec_ScanAndReindex.
+// Same locking assumption as IndexSpec_ScanAndReindex.
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef ref,
+                                      t_fieldIndex addedFieldsStart);
+
 // Schedule a background scan + reindex of all registered indexes.
 void Indexes_ScanAndReindex();
 

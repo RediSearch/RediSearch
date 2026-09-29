@@ -197,7 +197,6 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
 
   ASM_StateMachine_Init();
   Initialize_ServerEventNotifications(ctx);
-  Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);
 

@@ -126,10 +126,19 @@ fn resolve_score_field(
     }
 
     if !vq.scoreField.is_null() {
-        debug_assert!(!vq.field.is_null(), "a vector query must have a field spec");
-        // SAFETY: a well-formed vector query points at a valid `FieldSpec`
-        // whose `fieldName` is a valid `HiddenString`.
-        let field = unsafe { &*vq.field };
+        let spec = ctx.spec();
+        debug_assert!(
+            vq.fieldIndex < spec.numFields,
+            "fieldIndex must be within the spec's current field count"
+        );
+        // SAFETY: `fieldIndex` is within `spec.numFields` (asserted above), so this stays
+        // within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(vq.fieldIndex as usize) };
+        // SAFETY: `fieldIndex` was captured from the field's own stable index at parse
+        // time. `IndexSpec.fields` only grows between then and now (existing indices stay
+        // valid), and `spec` is the current field array, read under the lock evaluation
+        // holds.
+        let field = unsafe { &*field_ptr };
         let default = default_score_field(field);
         // SAFETY: the parser only ever stores a live, NUL-terminated string here.
         let score_field = unsafe { CStr::from_ptr(vq.scoreField) };

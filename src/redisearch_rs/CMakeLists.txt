@@ -61,20 +61,147 @@ else()
   set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
 endif()
 
+set(REDISEARCH_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(CHEADERGEN_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.cheadergen_generate")
+set(RUST_BUILD_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/redisearch_rs_build_config.txt")
+set(RUST_BUILD_CONFIG_TMP "${RUST_BUILD_CONFIG}.tmp")
+
+set(RUST_BUILD_CONFIG_CONTENT
+  "CARGO_EXECUTABLE=${CARGO_EXECUTABLE}\n"
+  "CARGO_BUILD_FLAGS=${CARGO_BUILD_FLAGS}\n"
+  "CARGO_BUILD_TARGET=${CARGO_BUILD_TARGET}\n"
+  "RUST_ARTIFACT_DIR=${RUST_ARTIFACT_DIR}\n"
+  "RUST_FLAGS=${RUST_FLAGS}\n"
+  "RUST_LIB_PATH=${RUST_LIB_PATH}\n"
+  "RUST_PROFILE=${RUST_PROFILE}\n"
+  "RUST_TARGET_DIR=${RUST_TARGET_DIR}\n"
+  "TOOLCHAIN_MODIFIER=${TOOLCHAIN_MODIFIER}\n"
+)
+set(RUST_BUILD_STAMP "${RUST_TARGET_DIR}/${RUST_ARTIFACT_DIR}/.redisearch_rs_cmake_build")
+
+file(WRITE "${RUST_BUILD_CONFIG_TMP}" "${RUST_BUILD_CONFIG_CONTENT}")
+configure_file("${RUST_BUILD_CONFIG_TMP}" "${RUST_BUILD_CONFIG}" COPYONLY)
+file(REMOVE "${RUST_BUILD_CONFIG_TMP}")
+
+set(RUST_BUILD_INPUTS
+  "${CMAKE_CURRENT_SOURCE_DIR}/.cargo/config.toml"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.lock"
+  "${REDISEARCH_ROOT}/.rust-nightly"
+  "${REDISEARCH_ROOT}/rust-toolchain.toml"
+)
+
+file(GLOB RUST_TOP_LEVEL_MANIFESTS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.toml"
+)
+list(APPEND RUST_BUILD_INPUTS ${RUST_TOP_LEVEL_MANIFESTS})
+
+file(GLOB RUST_WORKSPACE_ENTRIES CONFIGURE_DEPENDS LIST_DIRECTORIES true
+  "${CMAKE_CURRENT_SOURCE_DIR}/*"
+)
+foreach(RUST_WORKSPACE_ENTRY IN LISTS RUST_WORKSPACE_ENTRIES)
+  if(NOT IS_DIRECTORY "${RUST_WORKSPACE_ENTRY}")
+    continue()
+  endif()
+
+  get_filename_component(RUST_WORKSPACE_ENTRY_NAME "${RUST_WORKSPACE_ENTRY}" NAME)
+  if(RUST_WORKSPACE_ENTRY_NAME STREQUAL "target"
+      OR RUST_WORKSPACE_ENTRY_NAME STREQUAL "tools"
+      OR RUST_WORKSPACE_ENTRY_NAME MATCHES "_bencher$")
+    continue()
+  endif()
+
+  file(GLOB_RECURSE RUST_CRATE_INPUTS CONFIGURE_DEPENDS
+    "${RUST_WORKSPACE_ENTRY}/*.rs"
+    "${RUST_WORKSPACE_ENTRY}/*.toml"
+  )
+  foreach(RUST_CRATE_INPUT IN LISTS RUST_CRATE_INPUTS)
+    file(RELATIVE_PATH RUST_CRATE_INPUT_RELATIVE "${RUST_WORKSPACE_ENTRY}" "${RUST_CRATE_INPUT}")
+    if(RUST_CRATE_INPUT_RELATIVE MATCHES "(^|/)(tests?|benches?)/")
+      continue()
+    endif()
+    list(APPEND RUST_BUILD_INPUTS "${RUST_CRATE_INPUT}")
+  endforeach()
+endforeach()
+list(REMOVE_DUPLICATES RUST_BUILD_INPUTS)
+
+set(RUST_FFI_INPUT_ROOTS
+  "${REDISEARCH_ROOT}/deps"
+  "${REDISEARCH_ROOT}/src/redisearch_rs/headers"
+)
+set(RUST_FFI_INPUTS)
+file(GLOB RUST_FFI_TOP_LEVEL_INPUTS CONFIGURE_DEPENDS
+  "${REDISEARCH_ROOT}/src/*.c"
+  "${REDISEARCH_ROOT}/src/*.h"
+)
+list(APPEND RUST_FFI_INPUTS ${RUST_FFI_TOP_LEVEL_INPUTS})
+file(GLOB REDISEARCH_SRC_ENTRIES CONFIGURE_DEPENDS LIST_DIRECTORIES true
+  "${REDISEARCH_ROOT}/src/*"
+)
+foreach(REDISEARCH_SRC_ENTRY IN LISTS REDISEARCH_SRC_ENTRIES)
+  if(NOT IS_DIRECTORY "${REDISEARCH_SRC_ENTRY}")
+    continue()
+  endif()
+
+  get_filename_component(REDISEARCH_SRC_ENTRY_NAME "${REDISEARCH_SRC_ENTRY}" NAME)
+  if(REDISEARCH_SRC_ENTRY_NAME STREQUAL "redisearch_rs")
+    continue()
+  endif()
+
+  file(GLOB_RECURSE RUST_FFI_SRC_INPUTS CONFIGURE_DEPENDS
+    "${REDISEARCH_SRC_ENTRY}/*.c"
+    "${REDISEARCH_SRC_ENTRY}/*.h"
+  )
+  list(APPEND RUST_FFI_INPUTS ${RUST_FFI_SRC_INPUTS})
+endforeach()
+foreach(RUST_FFI_INPUT_ROOT IN LISTS RUST_FFI_INPUT_ROOTS)
+  if(EXISTS "${RUST_FFI_INPUT_ROOT}")
+    file(GLOB_RECURSE RUST_FFI_ROOT_INPUTS CONFIGURE_DEPENDS
+      "${RUST_FFI_INPUT_ROOT}/*.c"
+      "${RUST_FFI_INPUT_ROOT}/*.h"
+    )
+    list(APPEND RUST_FFI_INPUTS ${RUST_FFI_ROOT_INPUTS})
+  endif()
+endforeach()
+
+set(RUST_FFI_FILTERED_INPUTS)
+foreach(RUST_FFI_INPUT IN LISTS RUST_FFI_INPUTS)
+  file(RELATIVE_PATH RUST_FFI_INPUT_RELATIVE "${REDISEARCH_ROOT}" "${RUST_FFI_INPUT}")
+  if(RUST_FFI_INPUT_RELATIVE MATCHES "(^|/)(\\.git|target|bin|build)/")
+    continue()
+  endif()
+  list(APPEND RUST_FFI_FILTERED_INPUTS "${RUST_FFI_INPUT}")
+endforeach()
+set(RUST_FFI_INPUTS ${RUST_FFI_FILTERED_INPUTS})
+list(REMOVE_DUPLICATES RUST_FFI_INPUTS)
+
+set(RUST_BUILD_DEPENDS
+  "${RUST_BUILD_CONFIG}"
+  ${RUST_BUILD_INPUTS}
+  ${RUST_FFI_INPUTS}
+)
+
 # Check if we're being used as a subdirectory to avoid target conflicts
 if(NOT TARGET redisearch_rs_build)
-  # Create the custom target for building Rust code
+  add_custom_command(
+    OUTPUT "${RUST_LIB_PATH}" "${RUST_BUILD_STAMP}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${RUST_TARGET_DIR}/${RUST_ARTIFACT_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E env
+      "RUSTFLAGS=${RUST_FLAGS}"
+      "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
+      ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
+      build
+      --package redisearch_rs
+      --profile=${RUST_PROFILE}
+    COMMAND ${CMAKE_COMMAND} -E touch_nocreate "${RUST_LIB_PATH}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${RUST_BUILD_STAMP}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    DEPENDS ${RUST_BUILD_DEPENDS}
+    COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
+    VERBATIM
+  )
   add_custom_target(redisearch_rs_build
-        COMMAND ${CMAKE_COMMAND} -E env
-            "RUSTFLAGS=${RUST_FLAGS}"
-            "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
-            build
-            --package redisearch_rs
-            --profile=${RUST_PROFILE}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
-    )
+    DEPENDS "${RUST_LIB_PATH}" "${RUST_BUILD_STAMP}"
+  )
 endif()
 
 # Generate C headers from Rust FFI crates using cheadergen.
@@ -93,25 +220,30 @@ if(NOT TARGET cheadergen_generate)
     # recipe is a single source of truth shared with the top-level
     # Makefile's `generate-rust-headers` target.
     find_program(CHEADERGEN_EXECUTABLE cheadergen REQUIRED)
+    add_custom_command(
+      OUTPUT "${CHEADERGEN_STAMP}"
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/regen_headers.sh
+      COMMAND ${CMAKE_COMMAND} -E touch "${CHEADERGEN_STAMP}"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      DEPENDS
+        redisearch_rs_build
+        ${RUST_BUILD_INPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/regen_headers.sh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../.cheadergen-version"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../.rust-nightly"
+      COMMENT "Generating C headers from Rust FFI crates via cheadergen"
+      VERBATIM
+    )
     add_custom_target(cheadergen_generate
-          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/regen_headers.sh
-          COMMENT "Generating C headers from Rust FFI crates via cheadergen"
-      )
-    add_dependencies(cheadergen_generate redisearch_rs_build)
+      DEPENDS "${CHEADERGEN_STAMP}"
+    )
   else()
     # No-op stub so dependents can still depend on `cheadergen_generate`.
     add_custom_target(cheadergen_generate
-          COMMENT "Skipping header generation (REDISEARCH_GENERATE_HEADERS=OFF); using checked-in headers"
-      )
+      COMMENT "Skipping header generation (REDISEARCH_GENERATE_HEADERS=OFF); using checked-in headers"
+    )
   endif()
 endif()
-
-# Create a custom command to ensure the library exists
-add_custom_command(
-    OUTPUT ${RUST_LIB_PATH}
-    DEPENDS redisearch_rs_build
-    COMMENT "Ensuring Rust library exists at ${RUST_LIB_PATH}"
-)
 
 # Check if we're being used as a subdirectory to avoid target conflicts
 if(NOT TARGET redisearch_rs)
@@ -123,12 +255,8 @@ if(NOT TARGET redisearch_rs)
         IMPORTED_LOCATION "${RUST_LIB_PATH}"
     )
 
-  # Make the imported library depend on the build target and the library file
+  # Make the imported library depend on the build target
   add_dependencies(redisearch_rs redisearch_rs_build)
-
-  # Create a target that depends on the library file
-  add_custom_target(redisearch_rs_lib_file DEPENDS ${RUST_LIB_PATH})
-  add_dependencies(redisearch_rs redisearch_rs_lib_file)
 endif()
 
 message(STATUS "Rust configuration:")
@@ -139,3 +267,4 @@ message(STATUS "  Cargo Build Flags: ${CARGO_BUILD_FLAGS}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
 message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
 message(STATUS "  Library Path: ${RUST_LIB_PATH}")
+message(STATUS "  Build stamp: ${RUST_BUILD_STAMP}")

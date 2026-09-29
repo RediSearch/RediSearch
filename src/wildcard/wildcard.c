@@ -79,11 +79,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
   while (1) {
     if (pattern_end != pattern_itr) {
       const rune c = *pattern_itr;
-      if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
-        ++str_itr;
-        ++pattern_itr;
-        continue;
-      } else if (c == '*') {
+      if (c == '*') {
         while ((pattern_end != pattern_itr) && (*pattern_itr == '*')) {
           ++pattern_itr;
         }
@@ -93,6 +89,10 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
         }
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
+        continue;
+      } else if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
+        ++str_itr;
+        ++pattern_itr;
         continue;
       }
     } else if (str_end == str_itr) {
