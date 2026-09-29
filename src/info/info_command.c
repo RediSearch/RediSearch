@@ -140,7 +140,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   const IndexSpec *sp = sctx->spec;
 
   // Lock the spec
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   IndexSpec *specForOpeningIndexes = sctx->spec;
   const char* specName = IndexSpec_FormatName(sp, obfuscate);
@@ -370,7 +370,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
 
   // Unlock spec
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);

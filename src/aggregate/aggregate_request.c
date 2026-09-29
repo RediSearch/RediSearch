@@ -1854,7 +1854,6 @@ void AREQ_Free(AREQ *req) {
   // owned, so there is nothing to release here.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx) {
-    // Here we unlock the spec
     SearchCtx_Free(sctx);
   }
 

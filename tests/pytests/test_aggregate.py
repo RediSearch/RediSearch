@@ -1756,3 +1756,67 @@ def testWithoutCountWithSortBy(env):
         res_withcount = conn.execute_command(*query_withcount)
         res_withoutcount = conn.execute_command(*query_withoutcount)
         env.assertEqual(res_withoutcount[1:], res_withcount[1:])
+
+
+def testAggregateWithoutCountSortByThenGroupBy(env):
+    """Test SORTBY (no MAX) followed by GROUPBY, with WITHOUTCOUNT"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE', 'brand', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'zeta', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:2', 'title', 'alpha', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:3', 'title', 'mike', 'brand', 'acme')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '1', '@title',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res, [1, ['brand', 'acme', 'cnt', '3']])
+
+    # A LIMIT after the GROUPBY adds a trailing arrange step without sort keys.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '1', '@title',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'LIMIT', '0', '10')
+    env.assertEqual(res, [1, ['brand', 'acme', 'cnt', '3']])
+
+    # A SORTBY between two GROUPBYs.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'SORTBY', '2', '@cnt', 'DESC',
+        'GROUPBY', '1', '@cnt', 'REDUCE', 'COUNT', '0', 'AS', 'num')
+    env.assertEqual(res, [1, ['cnt', '3', 'num', '1']])
+
+
+def testAggregateWithoutCountSortByThenGroupByFirstValueOrdering(env):
+    """Test SORTBY preceding GROUPBY must still order rows seen by order-sensitive reducers"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE', 'brand', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    # Inserted out of title order, so a dropped sorter would surface as the wrong FIRST_VALUE.
+    conn.execute_command('HSET', 'doc:1', 'title', 'zeta', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:2', 'title', 'alpha', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:3', 'title', 'mike', 'brand', 'acme')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'ASC',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha']])
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'DESC',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'zeta']])
+
+    # MAX must keep the top rows by @title, not the first rows in index order.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'ASC', 'MAX', '1',
+        'GROUPBY', '1', '@brand',
+        'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first',
+        'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha', 'cnt', '1']])

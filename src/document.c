@@ -1060,7 +1060,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
   LoadIndividualKeysOptions opts = {0};
 
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
   dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, sctx->redisCtx, key);
   if (!dmd) {
     // We don't know the document...
@@ -1108,7 +1108,7 @@ done:
   RLookup_Cleanup(&lookup_s);
   ExprAST_Free(e);
   DMD_Return(dmd);
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
   return rc;
 }
 

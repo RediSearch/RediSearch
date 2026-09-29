@@ -653,13 +653,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   QueryError status = QueryError_Default();
 
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_FLEX_LIMIT_NUMBER_OF_INDEXES, "Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
-    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
-    QueryError_ClearError(&status);
-    return REDISMODULE_OK;
-  }
-
   IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
@@ -882,17 +875,17 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
 
   IndexSpec_InitializeSynonym(sp);
 
   SynonymMapResult ret = SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
   if (ret == SYNONYM_MAP_ERR_MAX_TERMS) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
     CurrentThread_ClearIndexSpec();
     return RedisModule_ReplyWithError(ctx, "Maximum synonym terms limit reached");
   } else if (ret == SYNONYM_MAP_ERR_MAX_GROUP_IDS) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
     CurrentThread_ClearIndexSpec();
     return RedisModule_ReplyWithError(ctx, "Maximum group IDs per term limit reached");
   }
@@ -901,7 +894,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -944,7 +937,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecRead(&sctx);
+  IndexSpec_LockRead(sctx.spec);
 
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
@@ -962,7 +955,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
 
   rm_free(terms_data);
@@ -1018,9 +1011,9 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     size_t fieldNameSize;
 
     AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-    RedisSearchCtx_LockSpecRead(&sctx);
+    IndexSpec_LockRead(sctx.spec);
     const FieldSpec *field_exists = IndexSpec_GetFieldWithLength(sp, fieldName, fieldNameSize);
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
 
     if (field_exists) {
       RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_ALTER_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
@@ -1028,13 +1021,13 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   }
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
   const t_fieldIndex addedFieldsStart = sp->numFields;
   int addFieldsOk = IndexSpec_AddFields(ref, sp, ctx, &ac, &status);
 
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
     CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -1043,7 +1036,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     IndexSpec_ScanAndReindexForAlter(ctx, ref, addedFieldsStart);
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
 
   // Log successful index alteration
@@ -1328,10 +1321,6 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   long long encodeVersion;
   if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
-  }
-
-  if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
   }
 
   IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
@@ -4561,16 +4550,11 @@ static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString 
       return REDISMODULE_ERR;
     }
   }
-  // Saturate the size_t to LLONG_MAX before casting so values >= 2^63 do not
-  // wrap to a negative long long. Without this clamp, an oversized timeout
-  // would be treated by the cap helper as "unlimited" (<= 0) and silently
-  // capped anyway, but the saturation here is defensive and self-documenting.
   long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
-    *timeout = (size_t)capped;
-    if (wasCapped) {
-      *wasCapped = true;
-    }
+  bool didCap = RSConfig_CapQueryTimeoutToForegroundLimit(&capped);
+  *timeout = (size_t)capped;
+  if (didCap && wasCapped) {
+    *wasCapped = true;
   }
   return REDISMODULE_OK;
 }
@@ -5006,6 +4990,13 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   RSConfig_SetLoadingStartupConfig(false);
   if (loadConfigsRC == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
+    return REDISMODULE_ERR;
+  }
+  if (RSGlobalConfig.diskMinMemoryBudgetPercentage >
+      RSGlobalConfig.diskMaxMemoryPercentage) {
+    RedisModule_Log(ctx, "warning",
+                    "search-disk-write-buffer-min-percentage must not exceed "
+                    "search-disk-memory-limit-percentage");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;

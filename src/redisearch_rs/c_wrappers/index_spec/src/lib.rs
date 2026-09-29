@@ -472,7 +472,7 @@ impl Drop for IndexSpecReadGuard<'_> {
     fn drop(&mut self) {
         // This Drop implementation should never run because:
         // 1. from_locked() (the only way to create this guard) returns ManuallyDrop
-        // 2. C code is responsible for releasing the read lock via RedisSearchCtx_UnlockSpec
+        // 2. C code is responsible for releasing the read lock via IndexSpec_Unlock
         //
         // If this runs, it's a bug - the guard was created incorrectly or manually unwrapped.
         panic!(
