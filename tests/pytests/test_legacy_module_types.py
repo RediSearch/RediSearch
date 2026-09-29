@@ -196,6 +196,8 @@ RDB_OPCODE_EOF = 0xFF
 
 # The newest encoding that still routes to the legacy spec loader (LEGACY_INDEX_MAX_VERSION).
 LEGACY_SPEC_ENC_VER = 16
+DOCUMENT_DELETED = 0x01
+DOCUMENT_HAS_PAYLOAD = 0x02
 DOCUMENT_HAS_OFFSET_VECTOR = 0x08
 
 
@@ -302,3 +304,18 @@ def testLegacySpecWithTruncatedByteOffsetsFailsToLoad():
     # Redis writes a bug report for both a signal and a failed assertion.
     env.assertNotContains('REDIS BUG REPORT', log, message=log[-4000:])
     env.assertContains('truncated byte offsets for doc id 1', log)
+
+
+@skip(cluster=True)
+def testLegacySpecWithDeletedPayloadDocLoads():
+    """A deleted doc flagged as having a payload is dropped during the load without its payload ever
+    being read. Its flag used to survive, so freeing the dropped doc dereferenced a NULL payload and
+    crashed the server mid-load."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    _write_legacy_spec_rdb(env, _legacy_doc(DOCUMENT_DELETED | DOCUMENT_HAS_PAYLOAD, b''))
+    env.start()
+    env.assertTrue(env.isUp())
+    info = index_info(env, 'idx')
+    env.assertEqual(info['index_name'], 'idx')
+    env.assertEqual(info['num_docs'], 0)
