@@ -2618,6 +2618,8 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
   f->fieldName = NewHiddenString(name, len, true);
+  // These encodings predate field paths; a field without one uses its name, as elsewhere.
+  f->fieldPath = f->fieldName;
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
