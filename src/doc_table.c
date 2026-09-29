@@ -539,6 +539,13 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
       rm_free(bufTmp);
       RedisModule_Free(tmp);
+      if (!dmd->byteOffsets) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: truncated byte offsets for doc id %llu",
+                               (unsigned long long)dmd->id);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
     }
 
     if (dmd->flags & Document_Deleted) {
