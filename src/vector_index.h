@@ -167,6 +167,15 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fs, bool create_if_
  */
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId);
 
+#ifdef ENABLE_ASSERT
+// Test seam, compiled in assert-enabled builds only (ENABLE_ASSERT): replaces the VecSim call
+// inside VectorIndex_RelabelField, so unit tests can reach refusal codes the FLAT and HNSW
+// backends never return (e.g. Unsupported). NULL restores VecSim.
+typedef VecSimRelabelCode (*VectorIndex_RelabelFn)(VecSimIndex *index, size_t oldLabel,
+                                                   size_t newLabel);
+void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn);
+#endif
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);

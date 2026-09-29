@@ -55,6 +55,21 @@ static const char *const kVecB = "eeeeffffgggghhhh";
 // magnitudes but puts it 0.94 away under cosine. Use it wherever direction matters.
 static const char *const kVecC = "ddddccccbbbbaaaa";
 
+#ifdef ENABLE_ASSERT
+// Installed through VectorIndex_SetRelabelFnForTests: refuses the next `relabelRefusalsLeft`
+// relabels with Unsupported, which no FLAT or HNSW index returns on its own, then defers to
+// VecSim. The seam exists in assert-enabled builds only (ENABLE_ASSERT); the tests that use it
+// skip elsewhere.
+static int relabelRefusalsLeft = 0;
+static VecSimRelabelCode refuseThenDelegate(VecSimIndex *index, size_t oldLabel, size_t newLabel) {
+  if (relabelRefusalsLeft > 0) {
+    --relabelRefusalsLeft;
+    return VecSimRelabel_Unsupported;
+  }
+  return VecSimIndex_RelabelVector(index, oldLabel, newLabel);
+}
+#endif
+
 class VectorRelabelTest : public ::testing::Test {
 protected:
   RedisModuleCtx *ctx = nullptr;
@@ -76,6 +91,10 @@ protected:
   }
 
   void TearDown() override {
+#ifdef ENABLE_ASSERT
+    VectorIndex_SetRelabelFnForTests(nullptr);
+    relabelRefusalsLeft = 0;
+#endif
     RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
@@ -911,4 +930,47 @@ TEST_F(VectorRelabelTest, alterErrorBeforeVectorFieldLeavesNoStrandedEntry) {
   backfillExtra();
 
   EXPECT_TRUE(labelAbsent(old));
+}
+
+// The relabel-unsupported case: a backend that cannot relabel (e.g. SVS built without
+// replace_external_id) refuses the move, and the caller must fall back to delete + insert
+// without leaving a second entry behind.
+TEST_F(VectorRelabelTest, alterUnsupportedRelabelFallsBackToInsert) {
+#ifndef ENABLE_ASSERT
+  GTEST_SKIP() << "needs the ENABLE_ASSERT relabel seam";
+#else
+  VectorIndex_SetRelabelFnForTests(refuseThenDelegate);
+  relabelRefusalsLeft = 1;
+  createAlterIndex();
+  t_docId old = indexFresh("doc:1", "hello", kVecA);
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectVectorMovedTo(old, neu, kVecA);
+  expectOpsSince(before, 1, 0);
+  EXPECT_EQ(relabelRefusalsLeft, 0);
+  EXPECT_EQ(VecSimIndex_IndexSize(vecsim()), 1u);
+#endif
+}
+
+// Per-field fallback on refusal: one field's relabel is refused and the other's succeeds within
+// the same update. The expectations hold whichever of the two is refused.
+TEST_F(VectorRelabelTest, alterUnsupportedOnOneOfTwoFields) {
+#ifndef ENABLE_ASSERT
+  GTEST_SKIP() << "needs the ENABLE_ASSERT relabel seam";
+#else
+  VectorIndex_SetRelabelFnForTests(refuseThenDelegate);
+  relabelRefusalsLeft = 1;
+  createTwoVectorIndex("extra", "TAG");
+  t_docId old = indexTwoVectorDoc();
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectOpsSince(before, 1, 1);
+  expectBothVectorsMovedTo(old, neu);
+#endif
 }
