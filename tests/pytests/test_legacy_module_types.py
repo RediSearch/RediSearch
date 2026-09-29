@@ -196,6 +196,12 @@ RDB_OPCODE_EOF = 0xFF
 
 # The newest encoding that still routes to the legacy spec loader (LEGACY_INDEX_MAX_VERSION).
 LEGACY_SPEC_ENC_VER = 16
+# INDEX_MIN_EXPIRE_VERSION: the only encoding that saved the payload of a deleted doc.
+LEGACY_SPEC_EXPIRE_ENC_VER = 13
+# INDEX_MIN_ALIAS_VERSION: the first encoding that saves the alias list.
+LEGACY_SPEC_ALIAS_ENC_VER = 15
+DOCUMENT_DELETED = 0x01
+DOCUMENT_HAS_PAYLOAD = 0x02
 DOCUMENT_HAS_OFFSET_VECTOR = 0x08
 
 
@@ -217,8 +223,8 @@ def _byte_offsets(fields, data, data_len=None):
 
 
 def _legacy_doc(flags, tail):
-    """An encver-16 doc table record for `doc1` (doc id 1). `tail` holds whatever `flags` says follows
-    the fixed fields: payload, sorting vector, byte offsets."""
+    """A doc table record for `doc1` (doc id 1), laid out the same for encver 12 through 16. `tail`
+    holds whatever `flags` says follows the fixed fields: payload, sorting vector, byte offsets."""
     return (_module_string(b'doc1')
             + _module_uint(1)            # doc id
             + _module_uint(flags)
@@ -228,8 +234,9 @@ def _legacy_doc(flags, tail):
             + tail)
 
 
-def _legacy_spec_body(doc):
-    """An encver-16 `ft_index0` value: an index `idx` with no fields and the single doc record `doc`."""
+def _legacy_spec_body(doc, encver):
+    """An `ft_index0` value for encver 13 through 16: an index `idx` with no fields and the single doc
+    record `doc`."""
     return (_module_string(b'idx\0')
             + _module_uint(0)            # index flags
             + _module_uint(0)            # number of fields
@@ -239,10 +246,10 @@ def _legacy_spec_body(doc):
             + doc
             + _module_uint(0)            # terms trie size
             + _module_uint(0)            # timeout
-            + _module_uint(0))           # aliases
+            + (_module_uint(0) if encver >= LEGACY_SPEC_ALIAS_ENC_VER else b''))  # aliases
 
 
-def _write_legacy_spec_rdb(env, doc):
+def _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_ENC_VER):
     """Stop the server and replace its RDB file with one holding a single legacy index spec. A legacy
     spec is only upgraded during the first RDB load after the module loads, so it cannot be RESTOREd
     (see testLegacyIndexSpecRestoreIsRefused) and has to come from the file the server starts from.
@@ -258,8 +265,8 @@ def _write_legacy_spec_rdb(env, doc):
     rdb = (b'REDIS%04d' % rdb_version
            + bytes([RDB_OPCODE_SELECTDB]) + _save_len(0)
            + bytes([RDB_TYPE_MODULE_2]) + _save_len(len(key)) + key
-           + _save_len(_module_type_id('ft_index0', LEGACY_SPEC_ENC_VER))
-           + _legacy_spec_body(doc)
+           + _save_len(_module_type_id('ft_index0', encver))
+           + _legacy_spec_body(doc, encver)
            + _save_len(RDB_MODULE_OPCODE_EOF)
            + bytes([RDB_OPCODE_EOF]))
     with open(rdb_path, 'wb') as f:
@@ -302,3 +309,34 @@ def testLegacySpecWithTruncatedByteOffsetsFailsToLoad():
     # Redis writes a bug report for both a signal and a failed assertion.
     env.assertNotContains('REDIS BUG REPORT', log, message=log[-4000:])
     env.assertContains('truncated byte offsets for doc id 1', log)
+
+
+@skip(cluster=True)
+def testLegacySpecWithDeletedPayloadDocLoads():
+    """A deleted doc flagged as having a payload is dropped during the load without its payload ever
+    being read. Its flag used to survive, so freeing the dropped doc dereferenced a NULL payload and
+    crashed the server mid-load."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    _write_legacy_spec_rdb(env, _legacy_doc(DOCUMENT_DELETED | DOCUMENT_HAS_PAYLOAD, b''))
+    env.start()
+    env.assertTrue(env.isUp())
+    info = index_info(env, 'idx')
+    env.assertEqual(info['index_name'], 'idx')
+    env.assertEqual(info['num_docs'], 0)
+
+
+@skip(cluster=True)
+def testLegacySpecWithDeletedPayloadDocLoadsExpireEncoding():
+    """Encver 13 saved the payload of a deleted doc anyway. The load must skip that string as well as
+    clear the flag: if it left the string unread, every later field would be read out of place and the
+    load would fail."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    doc = _legacy_doc(DOCUMENT_DELETED | DOCUMENT_HAS_PAYLOAD, _module_string(b'payload\0'))
+    _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_EXPIRE_ENC_VER)
+    env.start()
+    env.assertTrue(env.isUp())
+    info = index_info(env, 'idx')
+    env.assertEqual(info['index_name'], 'idx')
+    env.assertEqual(info['num_docs'], 0)
