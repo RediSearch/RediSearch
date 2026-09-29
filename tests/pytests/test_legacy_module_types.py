@@ -190,6 +190,7 @@ def testLegacyIndexSpecRestoreIsRefused(env):
 
 
 RDB_MODULE_OPCODE_FLOAT = 3
+RDB_MODULE_OPCODE_DOUBLE = 4
 RDB_MODULE_OPCODE_STRING = 5
 RDB_OPCODE_SELECTDB = 0xFE
 RDB_OPCODE_EOF = 0xFF
@@ -211,6 +212,15 @@ def _module_string(value):
 
 def _module_float(value):
     return _save_len(RDB_MODULE_OPCODE_FLOAT) + struct.pack('<f', value)
+
+
+def _module_double(value):
+    return _save_len(RDB_MODULE_OPCODE_DOUBLE) + struct.pack('<d', value)
+
+
+def _module_sint(value):
+    # Redis saves a signed value as the unsigned integer with the same bits.
+    return _module_uint(value & 0xFFFFFFFFFFFFFFFF)
 
 
 def _byte_offsets(fields, data, data_len=None):
@@ -250,10 +260,15 @@ def _legacy_spec_body(doc, encver):
 
 
 def _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_ENC_VER):
-    """Stop the server and replace its RDB file with one holding a single legacy index spec. A legacy
-    spec is only upgraded during the first RDB load after the module loads, so it cannot be RESTOREd
-    (see testLegacyIndexSpecRestoreIsRefused) and has to come from the file the server starts from.
-    Returns the server's log file path."""
+    """`_write_legacy_spec_body_rdb` for the spec built by `_legacy_spec_body`."""
+    return _write_legacy_spec_body_rdb(env, _legacy_spec_body(doc, encver), encver)
+
+
+def _write_legacy_spec_body_rdb(env, body, encver):
+    """Stop the server and replace its RDB file with one holding a single legacy index spec, the
+    encver-`encver` `ft_index0` value `body`. A legacy spec is only upgraded during the first RDB load
+    after the module loads, so it cannot be RESTOREd (see testLegacyIndexSpecRestoreIsRefused) and has
+    to come from the file the server starts from. Returns the server's log file path."""
     conn = _binary_conn(env)
     rdb_version = _rdb_version(conn)
     db_dir = env.cmd('CONFIG', 'GET', 'dir')[1]
@@ -261,12 +276,13 @@ def _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_ENC_VER):
     log_path = os.path.join(db_dir, env.cmd('CONFIG', 'GET', 'logfile')[1])
     env.stop()
 
-    key = b'idx'
+    # INDEX_SPEC_KEY_FMT for the spec named `idx`: the key the upgrade deletes once it has loaded it.
+    key = b'idx:idx'
     rdb = (b'REDIS%04d' % rdb_version
            + bytes([RDB_OPCODE_SELECTDB]) + _save_len(0)
            + bytes([RDB_TYPE_MODULE_2]) + _save_len(len(key)) + key
            + _save_len(_module_type_id('ft_index0', encver))
-           + _legacy_spec_body(doc, encver)
+           + body
            + _save_len(RDB_MODULE_OPCODE_EOF)
            + bytes([RDB_OPCODE_EOF]))
     with open(rdb_path, 'wb') as f:
@@ -340,3 +356,54 @@ def testLegacySpecWithDeletedPayloadDocLoadsExpireEncoding():
     info = index_info(env, 'idx')
     env.assertEqual(info['index_name'], 'idx')
     env.assertEqual(info['num_docs'], 0)
+
+
+# The newest encoding whose fields have no separate path (INDEX_MIN_TAGFIELD_VERSION - 1).
+LEGACY_SPEC_NO_FIELD_PATH_ENC_VER = 7
+INDEXFLD_T_FULLTEXT = 0x01
+
+
+def _legacy_spec_body_no_field_path():
+    """An encver-7 `ft_index0` value: an index `idx` with one TEXT field `t` and no documents. Fields
+    of this encoding have a name but no path."""
+    return (_module_string(b'idx\0')
+            + _module_uint(0)            # index flags
+            + _module_uint(1)            # number of fields
+            + _module_string(b't\0')     # field name
+            + _module_uint(0)            # field id
+            + _module_uint(INDEXFLD_T_FULLTEXT)
+            + _module_double(1.0)        # weight
+            + _module_uint(0)            # field options
+            + _module_sint(-1)           # sort index: not sortable
+            + _module_uint(0) * 10       # index stats
+            # Doc table: size (one past the last doc) and max doc id; this encoding has no max size.
+            + _module_uint(1) + _module_uint(0)
+            + _module_uint(0))           # terms trie size
+
+
+@skip(cluster=True)
+def testLegacySpecWithoutFieldPathLoads():
+    """A field from an encoding that predates field paths loads with its name as its path, so the
+    upgraded index serves the field. The path used to stay NULL, which crashed the server while the
+    load built the spec's field cache."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    _write_legacy_spec_body_rdb(env, _legacy_spec_body_no_field_path(),
+                                LEGACY_SPEC_NO_FIELD_PATH_ENC_VER)
+    env.start()
+    env.assertTrue(env.isUp())
+    info = index_info(env, 'idx')
+    env.assertEqual(info['index_name'], 'idx')
+    attribute = to_dict(info['attributes'][0])
+    env.assertEqual(attribute['identifier'], 't')
+    env.assertEqual(attribute['attribute'], 't')
+
+    env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Saving the upgraded index writes it in the current format, which records the field's path.
+    env.dumpAndReload()
+    waitForIndex(env, 'idx')
+    attribute = to_dict(index_info(env, 'idx')['attributes'][0])
+    env.assertEqual(attribute['identifier'], 't')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
