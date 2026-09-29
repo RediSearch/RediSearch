@@ -96,17 +96,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
 
-  // Crash reports must avoid traversing index and global state, which may be
-  // protected by locks held by the crashed worker thread.
-  if (for_crash_report) {
-    AddToInfo_CurrentThread(ctx);
-    AddToInfo_BlockedQueries(ctx);
-    AddToInfo_RustBacktrace(ctx);
-    return;
-  }
-
-  // Optionally suppress RediSearch metrics when there are no indexes.
-  if (!RSGlobalConfig.infoEmitOnZeroIndexes && Indexes_Count() == 0) {
+  // On normal INFO runs, optionally suppress RediSearch metrics when there are no indexes.
+  // (We never suppress crash-report info.)
+  if (!for_crash_report && !RSGlobalConfig.infoEmitOnZeroIndexes && Indexes_Count() == 0) {
     // Still emit the number of indexes and runtime configuration so operators can understand
     // why metrics are suppressed.
     AddToInfo_IndexesEmpty(ctx);
@@ -162,6 +154,13 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
       AddSectionWithIndexStats(ctx, "disk", &total_info, &collected, for_crash_report)) {
     RS_ASSERT(SearchDisk_IsInitialized());
     AddToInfo_Disk(ctx);
+  }
+
+  // Active operations
+  if (for_crash_report) {
+    AddToInfo_CurrentThread(ctx);
+    AddToInfo_BlockedQueries(ctx);
+    AddToInfo_RustBacktrace(ctx);
   }
 }
 
