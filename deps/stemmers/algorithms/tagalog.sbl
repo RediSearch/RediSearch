@@ -25,7 +25,7 @@ routines (
 
 externals ( stem )
 
-strings ( s1 )
+strings ( s1 s2 )
 
 booleans ( prefixed ka second )
 
@@ -59,8 +59,12 @@ define exception as (
         'lalaki' 'lalaking' 'kalalakihan' 'lalake' (<- 'lalaki')
         'makilala' 'makikilala' 'nakikilala' 'nakilala' 'pakikilala'
         'kakilala' 'magkakilala' (<- 'kilala')
+        // ka-initial roots whose remainder is another word: dapat, yari, dera
+        'karapatan' 'karapatang' (<- 'karapatan')
+        'kapangyarihan' 'kapangyarihang' 'makapangyarihan' 'makapangyarihang'
+        'pinakamakapangyarihan' (<- 'kapangyarihan')
         // roots that look like infixed or prefixed forms of other roots
-        'binata' 'kinatawan' 'pantalon'
+        'binata' 'kinatawan' 'pantalon' 'kapilya' 'kamara' 'karera'
     )
 )
 
@@ -156,6 +160,8 @@ define reduplication as (
         or ([non-v v] -> s1 test s1 R delete)
         // d becomes r between vowels, so da-dami reduplicates as da-rami
         or (test ('d' [v] -> s1 'r' s1) [hop 2] R delete)
+        // a cluster onset reduplicates its first consonant only: ta-trabaho
+        or (test ([non-v] -> s1 [v] -> s2 s1 liquid s2) [hop 2] R delete)
         or (
             ['ng' v] -> s1 test s1 R delete
             // the ng of a reduplicated nga- is the prefix nasal: pa-nga-ng+alaga
@@ -169,7 +175,9 @@ define reduplication as (
 // with the suffix -in (linis+in, not l-in-is+in).
 define infix as (
     not ka
-    (non-v or (non-v non-v))
+    // the cluster onset must be tried first: `or` does not backtrack into
+    // its second alternative once the first has matched
+    ((non-v liquid) or non-v)
     [ 'um' or ('in' not (test (backwards 'in'))) ]
     test v R delete
 )

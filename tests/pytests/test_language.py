@@ -554,13 +554,15 @@ def testTagalogLanguage(env):
 
     # Each family lists inflected forms of one root that must all match each
     # other: infix (k-um-ain), reduplication (bi-bili), prefixes (pag-bili),
-    # syncopated suffix (bilhin), the -ng linker (magandang) and the u/o
-    # change before a suffix (tulungan).  bilis 'speed' must stay apart from
-    # bili 'buy'.
+    # syncopated suffix (bilhin), the -ng linker (magandang), the u/o
+    # change before a suffix (tulungan) and a loanword cluster onset
+    # (tr-in-abaho, ta-trabaho).  bilis 'speed' must stay apart from bili
+    # 'buy'.
     families = {
         'kain': ['kumain', 'kain', 'kinain', 'kakainin'],
         'bili': ['bili', 'bumili', 'binili', 'bibilhin', 'pagbili'],
         'tulong': ['tulong', 'tulungan', 'nakakatulong'],
+        'trabaho': ['trabaho', 'trinabaho', 'nagtatrabaho', 'magtrabaho'],
         'ganda': ['maganda', 'magandang', 'kagandahan'],
         'kailangan': ['kailangan', 'kinakailangan', 'kailangang'],
         'bilis': ['bilis', 'mabilis'],
