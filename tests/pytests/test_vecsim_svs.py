@@ -98,6 +98,56 @@ def test_small_window_size():
                        f'__{field_name}_score').noError()
             conn.execute_command('FLUSHALL')
 
+'''
+SEARCH_WINDOW_SIZE and SEARCH_BUFFER_CAPACITY are plain KNN query attributes, and SVS sizes its
+search buffer from the pair, requiring the capacity to hold the whole window. The backend
+enforces that by throwing, which would escape the module's C frames and take the server down,
+so the pair has to be rejected while the query parameters are resolved.
+'''
+@skip(cluster=True)
+def test_search_buffer_capacity_below_window_size():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 4
+    # The SVS backend serves queries only once trained; an untrained one returns before it
+    # builds the search buffer, so the invariant would never be reached.
+    num_docs = int(DEFAULT_BLOCK_SIZE * 1.1)
+    create_vector_index(env, dim, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
+    query_vec = populate_with_vectors(env, num_docs=num_docs, dim=dim)
+    conn = getConnectionByEnv(env)
+    p = conn.pipeline(transaction=False)
+    for i in range(1, num_docs + 1):
+        p.execute_command('HSET', f'doc{i}', 't', 'filtered')
+    p.execute()
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    # A bare KNN drives SVS topKQuery; a filter in front of it makes NewVectorIterator take its
+    # hybrid branch (child_it != NULL) and drives the SVS batch iterator instead. Both reach the
+    # same VecSim_ResolveQueryParams, which is the only caller of VecSimIndex_ResolveParams, so
+    # covering both pins that the single choke point really does cover every KNN entry point.
+    def knn(*attrs, prefix='*'):
+        return f'{prefix}=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec {" ".join(attrs)}]'
+
+    # Both a wildly undersized capacity and one just below the window are rejected, on the bare
+    # KNN and on the filtered form that routes through the batch iterator.
+    for prefix in ['*', '@t:filtered']:
+        for capacity in [1, 99]:
+            env.expect('FT.SEARCH', DEFAULT_INDEX_NAME,
+                       knn('SEARCH_WINDOW_SIZE', '100', 'SEARCH_BUFFER_CAPACITY', str(capacity),
+                           prefix=prefix),
+                       'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT').error().contains(
+                'SEARCH_BUFFER_CAPACITY must not be smaller than SEARCH_WINDOW_SIZE'
+                f' ({capacity} < 100)')
+
+    # A capacity that does hold the window, and a capacity with no window size at all (which SVS
+    # ignores), both stay accepted - the check must not narrow the legitimate surface. The second
+    # case is the one a future VecSim change could silently invalidate.
+    for prefix in ['*', '@t:filtered']:
+        for attrs in [('SEARCH_WINDOW_SIZE', '100', 'SEARCH_BUFFER_CAPACITY', '100'),
+                      ('SEARCH_BUFFER_CAPACITY', '1')]:
+            res = env.cmd('FT.SEARCH', DEFAULT_INDEX_NAME, knn(*attrs, prefix=prefix),
+                          'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT')
+            env.assertEqual(res[0], 10, message=res)
+
 def test_rdb_load_trained_svs_vamana():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
