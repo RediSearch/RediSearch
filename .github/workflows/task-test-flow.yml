@@ -28,7 +28,7 @@ on:
       redis-ref:
         description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: 'd3abc02fed6664cc0afaf9ffe4e172a99e274f44'
+        default: '8.10.2'
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -440,10 +440,10 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 0
-          # unstable refuses an unauthenticated cluster bus by default
-          # (redis/redis#15722); oss-cluster shards don't use TLS, so waive it
-          # explicitly. Other redis-ref values lack the option (MOD-18751).
-          RLTEST_ARGS: ${{ inputs.redis-ref == 'unstable' && '--cluster_bus_port_protected_mode no' || '' }}
+          # unstable and Redis 8.10.2+ refuse an unauthenticated cluster bus by
+          # default (redis/redis#15722); oss-cluster shards don't use TLS, so waive
+          # it explicitly. Older redis-ref values lack the option (MOD-18751).
+          RLTEST_ARGS: ${{ (inputs.redis-ref == 'unstable' || (startsWith(inputs.redis-ref, '8.10.') && inputs.redis-ref != '8.10.0' && inputs.redis-ref != '8.10.1')) && '--cluster_bus_port_protected_mode no' || '' }}
           # RLTest writes failed test ids here (relative -> runtests.sh resolves
           # under $ROOT); consumed by the flaky-record + focused-log steps below.
           FAILEDFILE: .failed_coordinator.txt

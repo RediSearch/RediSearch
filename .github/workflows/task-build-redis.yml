@@ -22,7 +22,7 @@ on:
       redis-ref:
         description: 'Redis git ref to build (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: 'd3abc02fed6664cc0afaf9ffe4e172a99e274f44'
+        default: '8.10.2'
       san:
         type: string
       coverage:

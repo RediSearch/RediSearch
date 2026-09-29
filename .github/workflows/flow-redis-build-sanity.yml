@@ -20,7 +20,7 @@ on:
       redis-ref:
         description: 'Redis ref containing modules-update/bootstrap/build/run'
         type: string
-        default: unstable
+        default: 8.10.2
       redisearch-repository:
         description: 'RediSearch repository to inject into Redis modules.yaml. Defaults to this repository.'
         type: string
@@ -54,7 +54,7 @@ on:
       redis-ref:
         description: 'Redis ref containing modules-update/bootstrap/build/run'
         type: string
-        default: unstable
+        default: 8.10.2
       redisearch-repository:
         description: 'RediSearch repository to inject into Redis modules.yaml. Empty means this repository.'
         type: string
