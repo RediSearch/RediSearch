@@ -178,6 +178,11 @@ def _wait_pinned_shard_with_blocked_cmd(shard_conn, sync_point, cmd_name, timeou
         f'Shard not pinned at {sync_point} with a blocked {cmd_name} client within {timeout}s')
 
 
+def _get_coord_req_ctx_free_count(env):
+    """Read the coordinator CoordRequestCtx_Free invocation counter (debug builds)."""
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_COORD_REQ_CTX_FREE_COUNT'))
+
+
 def _setup_hybrid_index(env):
     """Create a small hybrid index with a few docs on `env` and return a query vector."""
     for i in range(1, env.shardsCount + 1):
@@ -3174,14 +3179,22 @@ def _reply_parity(protocol):
             ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', *_aggregate(timeout)[2:]],
         ]
         for command in commands:
-            run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'return-strict')
+            # RETURN_STRICT is not a public policy on 8.8-rse; use successful RETURN replies.
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'return')
             expected = env.cmd(*command)
             run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'fail')
             actual = env.cmd(*command)
             if command[0] == 'FT.PROFILE':
                 expected = expected['Results'] if protocol == 3 else expected[0]
                 actual = actual['Results'] if protocol == 3 else actual[0]
-            env.assertEqual(actual, expected, message=str(command))
+            if protocol == 2:
+                # On the 8.8-rse baseline, streaming RETURN can report 1 here while
+                # buffered FAIL reports the complete chunk count. Preserve that
+                # distinction and compare the returned rows independently.
+                env.assertEqual(actual[0], len(actual) - 1, message=str(command))
+                env.assertEqual(actual[1:], expected[1:], message=str(command))
+            else:
+                env.assertEqual(actual, expected, message=str(command))
 
         for withcount in (False, True):
             chunk, cursor = env.cmd(*_aggregate(timeout, withcount), 'WITHCURSOR', 'COUNT', 2)
