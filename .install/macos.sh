@@ -13,7 +13,9 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 brew update
 brew install coreutils
 brew install make
-brew install openssl
+# Pin the major version: the unversioned `openssl` formula now resolves to
+# OpenSSL 4, which deprecates APIs Redis's tls.c uses and breaks its -Werror build.
+brew install openssl@3
 brew install wget
 "$(dirname "$0")/install_llvm.sh"
 

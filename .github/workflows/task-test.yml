@@ -374,10 +374,16 @@ jobs:
 
       - name: Build Redis
         working-directory: redis
-        run:  ${{ steps.mode.outputs.mode }} make install
-              BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=${{ inputs.san }}
+        run: |
+          EXTRA=()
+          # Use the OpenSSL major version pinned by .install/macos.sh.
+          if [[ "$(uname -s)" == "Darwin" ]]; then
+            EXTRA+=("OPENSSL_PREFIX=$(brew --prefix openssl@3)")
+          fi
+          ${{ steps.mode.outputs.mode }} make install \
+            BUILD_TLS=yes \
+            ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }} \
+            SANITIZER=${{ inputs.san }} "${EXTRA[@]}"
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
