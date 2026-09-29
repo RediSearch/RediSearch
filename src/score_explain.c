@@ -16,13 +16,15 @@
 
 static void recExplainReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp, int depth) {
   int numChildren = scrExp->numChildren;
+  // Extension scorers are not required to write an explanation, so str can be NULL.
+  const char *text = scrExp->str ? scrExp->str : "";
 
   if (numChildren == 0 ||
      (depth >= REDIS_ARRAY_LIMIT - 1 && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT))) {
-    RedisModule_Reply_SimpleString(reply, scrExp->str);
+    RedisModule_Reply_SimpleString(reply, text);
   } else {
     RedisModule_Reply_ArrayWithLen(reply, SE_REPLY_NODE_ARITY);
-    RedisModule_ReplyKV_ArrayWithLen(reply, scrExp->str, numChildren);
+    RedisModule_ReplyKV_ArrayWithLen(reply, text, numChildren);
     for (int i = 0; i < numChildren; i++) {
       recExplainReply(reply, &scrExp->children[i], depth + 2);
     }
