@@ -71,7 +71,7 @@ fn a_block_that_does_not_open_with_the_magic_is_rejected() {
 
 #[test]
 fn a_block_of_another_version_is_rejected() {
-    // Not read as best-effort: a different version may have re-used a tag, so guessing at the
+    // Not read as best-effort: a different version may have reused a tag, so guessing at the
     // payloads would produce wrong values rather than an error.
     let mut corrupt = valid_block();
     corrupt[4] = VERSION.wrapping_add(1);
