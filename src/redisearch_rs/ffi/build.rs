@@ -276,7 +276,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/redisearch.h",
         fns: &[],
         types: &["RSToken"],
-        vars: &[],
+        vars: &["BAD_POINTER_ADDR"],
     },
     // `row_block_ffi`'s replay path emits decoded rows through the same reply
     // helpers the RESP row serializer uses, so a chunk that falls back is
@@ -373,6 +373,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "IndexSpec_AcquireWriteLock",
             "IndexSpec_AddTerm",
+            "IndexSpec_CreateField",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",

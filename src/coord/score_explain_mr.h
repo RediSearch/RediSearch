@@ -16,9 +16,6 @@
 extern "C" {
 #endif
 
-// Arity of a non-leaf wire node emitted by recExplainReply in score_explain.c.
-#define SE_REPLY_NODE_ARITY 2
-
 // Inverse of SEReply: reconstruct an RSScoreExplain tree from a shard reply.
 // The returned root is heap-owned by the caller — release with SEDestroy.
 // Any shape that SEReply could not have produced aborts.

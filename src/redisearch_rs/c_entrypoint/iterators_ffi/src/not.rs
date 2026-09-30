@@ -160,7 +160,8 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
     // SAFETY: caller guarantees q is valid (3).
     let q_ref = unsafe { q.as_ref() };
     let sctx = NonNull::new(q_ref.sctx).expect("q.sctx must be non-null (precondition 4)");
-    // SAFETY: caller guarantees `q.sctx` and its borrowed request timeout remain valid (4).
+    // SAFETY: precondition 4 keeps `q.sctx` and its request timeout valid and excludes source
+    // changes and deadline writes during probes.
     unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
 }
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
@@ -181,9 +182,9 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 /// 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
 /// 4. `q.sctx` must be a non-null pointer to a valid
 ///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
-///    address for the lifetime of the returned iterator: on the Clock Based Timeout path
-///    the iterator reads the request-owned deadline back on every probe. No write to that
-///    deadline may overlap a probe.
+///    address for the lifetime of the returned iterator. Its request timeout must also remain
+///    valid at a stable address for that lifetime. Timeout source changes and deadline writes
+///    may happen only between probes; only the blocked-client flag may change concurrently.
 /// 5. `q.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec).
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid

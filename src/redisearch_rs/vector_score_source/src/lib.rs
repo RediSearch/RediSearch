@@ -24,6 +24,7 @@ extern crate redisearch_rs;
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
+pub mod interop;
 pub mod reducer;
 pub mod score_batch;
 pub mod source;

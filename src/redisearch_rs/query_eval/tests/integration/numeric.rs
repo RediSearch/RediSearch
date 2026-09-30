@@ -75,7 +75,7 @@ impl NumericFixture {
             max,
             min_inclusive: true,
             max_inclusive: true,
-            field_spec: context.field_spec() as *const _,
+            field_index: context.field_spec().index,
             ..Default::default()
         });
         let mut node = MockQueryNode::new(QueryNodeType::Numeric);

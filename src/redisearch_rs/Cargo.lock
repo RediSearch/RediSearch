@@ -1851,6 +1851,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "dict",
  "ffi",
  "field",
  "geo",
@@ -2074,7 +2075,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=a808377ffde496d2cb8bcf26ee76a52080da9d89#a808377ffde496d2cb8bcf26ee76a52080da9d89"
 dependencies = [
  "backtrace",
  "bindgen",
@@ -2097,7 +2098,7 @@ dependencies = [
 [[package]]
 name = "redis-module-common"
 version = "0.1.1"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=a808377ffde496d2cb8bcf26ee76a52080da9d89#a808377ffde496d2cb8bcf26ee76a52080da9d89"
 dependencies = [
  "serde",
 ]
@@ -2105,7 +2106,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=a808377ffde496d2cb8bcf26ee76a52080da9d89#a808377ffde496d2cb8bcf26ee76a52080da9d89"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2129,6 +2130,7 @@ dependencies = [
 name = "redis_mock"
 version = "0.0.1"
 dependencies = [
+ "cc",
  "ffi",
  "global_config",
  "libc",
@@ -2314,6 +2316,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "ahash",
  "build_utils",
  "c_ffi_utils",
  "cheadergen",
@@ -2322,6 +2325,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field_spec",
+ "hashbrown",
  "index_spec",
  "index_spec_cache",
  "itertools 0.15.0",
@@ -2523,10 +2527,12 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field",
  "geo",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -2672,9 +2678,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.41"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b92b125634d9b795e7beca796cc790df15a7fb38323bf3196fda83292d06b1f"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -2696,9 +2702,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -3642,6 +3648,7 @@ dependencies = [
  "c_ffi_utils",
  "cheadergen",
  "ffi",
+ "itoa",
  "libc",
  "nul_terminated_bytes",
  "query_error",
@@ -3716,6 +3723,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "field",
  "index_result",
  "redis_mock",
  "redis_reply",
@@ -4007,6 +4015,7 @@ dependencies = [
  "clang-sys",
  "either",
  "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "getrandom 0.4.3",
  "insta",
  "itertools 0.13.0",

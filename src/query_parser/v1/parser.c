@@ -1527,10 +1527,12 @@ static YYACTIONTYPE yy_reduce(
         if (ctx->sctx->spec) {
             // Tag field names must be case sensitive, we can't do strdupcase
             yymsp[-2].minor.yy0.len = unescapen((char*)yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-            yylhsminor.yy75->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-            if (!yylhsminor.yy75->tag.fs) {
+            const FieldSpec *fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+            if (!fs) {
                 QueryNode_Free(yylhsminor.yy75);
                 yylhsminor.yy75 = NULL;
+            } else {
+                yylhsminor.yy75->tag.fieldIndex = fs->index;
             }
         }
     }
@@ -1584,7 +1586,7 @@ static YYACTIONTYPE yy_reduce(
       case 50: /* numeric_range ::= LSQB num num RSQB */
 {
   yymsp[-3].minor.yy62 = NewQueryParam(QP_NUMERIC_FILTER);
-  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, true, NULL, NULL);
+  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, true, RS_INVALID_FIELD_INDEX, NULL);
 }
         break;
       case 51: /* expr ::= modifier COLON geo_filter */
@@ -1592,8 +1594,9 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
     if (ctx->sctx->spec) {
-        yylhsminor.yy75->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->gn.gf->fieldSpec) {
+        const FieldSpec *fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        GeoFilter_SetField(yylhsminor.yy75->gn.gf, fs);
+        if (!fs) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }

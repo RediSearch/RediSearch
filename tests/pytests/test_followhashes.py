@@ -245,6 +245,243 @@ def testBinaryPayload(env):
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads', **{NEVER_DECODE: []})
         env.assertEqual(res, [1, b'thing:foo', b'\x00\xAB\x20', [b'name', b'foo']])
 
+
+@skip(cluster=True)
+def testMetadataLastFieldDeletion(env):
+    """Deleting the only metadata field reaches the update callback with no live key."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    conn = getConnectionByEnv(env)
+    for field, value in [('score', '0.5'), ('payload', 'data')]:
+        conn.execute_command('HSET', 'doc:1', field, value)
+        env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:1'])
+        env.assertEqual(conn.execute_command('HDEL', 'doc:1', field), 1)
+        env.assertEqual(conn.execute_command('EXISTS', 'doc:1'), 0)
+        env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+        env.assertEqual(to_dict(env.cmd('FT.INFO', 'idx'))['num_docs'], 0)
+
+
+@skip(cluster=True)
+def testMetadataOnlyUpdatesPreserveIndexes():
+    """Metadata-only Hash notifications retain document IDs, postings, and vector entries."""
+    # Synchronous HNSW writes make backend deletion and indexing counters deterministic.
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    conn = getConnectionByEnv(env)
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
+               'SCORE_FIELD', 'score', 'PAYLOAD_FIELD', 'payload', 'SCHEMA',
+               'title', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'SORTABLE',
+               'geom', 'GEOSHAPE', 'FLAT', 'optional', 'TEXT', 'INDEXMISSING',
+               'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    vector = create_np_array_typed([1, 2]).tobytes()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'tag', 'blue', 'n', '7', 'v', vector,
+                         'geom', 'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+
+    def index_state():
+        info = conn.execute_command('INFO', 'MODULES')
+        metadata = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc:1', 'REVEAL'))
+        vector_info = get_vecsim_debug_dict(env, 'idx', 'v')
+        backend = to_dict(vector_info['BACKEND_INDEX'])
+        return {
+            'operations': {kind: info[f'search_total_indexing_ops_{kind}_fields']
+                           for kind in ('tag', 'numeric', 'vector', 'geoshape')},
+            'metadata': {key: metadata[key] for key in
+                         ('internal_id', 'num_tokens', 'max_freq', 'sortables')},
+            'text': env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'),
+            'tag': env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 'tag'),
+            'numeric': env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'n'),
+            'geometry': env.cmd(debug_cmd(), 'DUMP_GEOMIDX', 'idx', 'geom'),
+            'missing': env.cmd('FT.SEARCH', 'idx', 'ismissing(@optional)', 'NOCONTENT'),
+            'inverted_size': index_info(env)['inverted_sz_mb'],
+            'vector': {key: backend[key] for key in
+                       ('INDEX_SIZE', 'INDEX_LABEL_COUNT', 'NUMBER_OF_MARKED_DELETED')},
+        }
+
+    before = index_state()
+    env.assertEqual(before['missing'], [1, 'doc:1'])
+    updates = [
+        (('HSET', 'doc:1', 'score', '0.5'), b'0.5', None),
+        (('HSET', 'doc:1', 'payload', b'a\x00\xab'), b'0.5', b'a\x00\xab'),
+        (('HSET', 'doc:1', 'score', '0.75', 'payload', 'last', 'unread', 'x'),
+         b'0.75', b'last'),
+        (('HDEL', 'doc:1', 'score', 'payload'), b'0.25', None),
+        (('HSET', 'doc:1', 'payload', ''), b'0.25', None),
+        (('HSET', 'doc:1', 'score', '0.125', 'score', '0.5'), b'0.5', None),
+        (('HINCRBYFLOAT', 'doc:1', 'score', '0.25'), b'0.75', None),
+    ]
+    for command, score, payload in updates:
+        conn.execute_command(*command)
+        res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE',
+                      'WITHSCORES', 'WITHPAYLOADS', 'NOCONTENT', **{NEVER_DECODE: []})
+        env.assertEqual(res, [1, b'doc:1', score, payload], message=command)
+        env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first,
+                        message=command)
+        env.assertEqual(index_state(), before, message=command)
+        env.expect('FT.SEARCH', 'idx', '@tag:{blue} @n:[7 7]', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', 'ismissing(@optional)', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', '@geom:[within $shape]', 'PARAMS', '2', 'shape',
+                   'POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))', 'NOCONTENT', 'DIALECT', '3').equal(
+                       [1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $vec AS distance]',
+                   'PARAMS', '2', 'vec', vector, 'RETURN', '1', 'distance').equal(
+                       [1, 'doc:1', ['distance', '0']])
+
+    # An indexed-field update is a control: the same probes must detect its reindex.
+    conn.execute_command('HSET', 'doc:1', 'title', 'goodbye', 'score', '1')
+    after = index_state()
+    env.assertGreater(after['metadata']['internal_id'], first, message=after)
+    for kind in ('tag', 'numeric', 'geoshape'):
+        env.assertEqual(after['operations'][kind], before['operations'][kind] + 1, message=after)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'goodbye', 'NOCONTENT').equal([1, 'doc:1'])
+    # Unchanged vectors may be relabeled instead of inserted again during reindexing.
+    env.expect('FT.SEARCH', 'idx', 'goodbye=>[KNN 1 @v $vec AS distance]',
+               'PARAMS', '2', 'vec', vector, 'RETURN', '1', 'distance').equal(
+                   [1, 'doc:1', ['distance', '0']])
+
+
+@skip(cluster=True)
+def testSharedScoreAndPayloadFieldUpdatesBoth(env):
+    """One Hash field configured for both metadata roles refreshes both values."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
+               'SCORE_FIELD', 'metadata', 'PAYLOAD_FIELD', 'metadata',
+               'SCHEMA', 'title', 'TEXT').ok()
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+
+    conn.execute_command('HSET', 'doc:1', 'metadata', '0.5')
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1'), first)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', '0.5', '0.5'])
+
+
+@skip(cluster=True)
+def testMetadataUpdatesMatchFullReindex(env):
+    """Score defaults and payload removal agree with the plain-notification full-index path."""
+    if env.env == 'existing-env':
+        env.skip()
+
+    def run_updates(force_plain):
+        # The subscription mode is fixed by the first index, so each side needs a new server.
+        server = Env(freshEnv=True, moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+        try:
+            if force_plain:
+                server.expect(debug_cmd(), 'FORCE_PLAIN_HASH_NOTIFICATIONS', '1').ok()
+            server.assertEqual(server.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'),
+                               0 if force_plain else 1)
+            server.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
+                          'SCORE_FIELD', 'score', 'PAYLOAD_FIELD', 'payload',
+                          'SCHEMA', 'title', 'TEXT').ok()
+            conn = getConnectionByEnv(server)
+            conn.execute_command('HSET', 'doc:1', 'title', 'hello')
+            previous = server.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+            commands = [
+                ('HSET', 'doc:1', 'score', 'not-a-number'),
+                ('HSET', 'doc:1', 'score', '10'),
+                ('HSET', 'doc:1', 'score', '-2'),
+                ('HDEL', 'doc:1', 'score'),
+                ('HSET', 'doc:1', 'payload', b'first\x00payload'),
+                ('HSET', 'doc:1', 'payload', ''),
+                ('HSET', 'doc:1', 'payload', 'again'),
+                ('HDEL', 'doc:1', 'payload'),
+                ('HSET', 'doc:1', 'score', '0.5', 'payload', 'combined'),
+            ]
+            results = []
+            for command in commands:
+                conn.execute_command(*command)
+                current = server.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+                if force_plain:
+                    server.assertGreater(current, previous, message=command)
+                else:
+                    server.assertEqual(current, previous, message=command)
+                previous = current
+                results.append(server.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE',
+                                          'WITHSCORES', 'WITHPAYLOADS', 'NOCONTENT',
+                                          **{NEVER_DECODE: []}))
+            server.assertEqual(results[0], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[1], [1, b'doc:1', b'10', None])
+            server.assertEqual(results[3], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[4], [1, b'doc:1', b'0.25', b'first\x00payload'])
+            server.assertEqual(results[5], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[6], [1, b'doc:1', b'0.25', b'again'])
+            server.assertEqual(results[7], [1, b'doc:1', b'0.25', None])
+            server.assertEqual(results[8], [1, b'doc:1', b'0.5', b'combined'])
+            conn.execute_command('DEL', 'doc:1')
+            server.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+            conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', 'recreated')
+            server.expect('FT.SEARCH', 'idx', 'hello', 'WITHPAYLOADS', 'NOCONTENT').equal(
+                [1, 'doc:1', 'recreated'])
+            return results
+        finally:
+            server.stop()
+
+    env.assertEqual(run_updates(False), run_updates(True))
+
+
+@skip(cluster=True)
+def testMetadataUpdateClassificationIsPerIndex(env):
+    """A shared Hash field can be metadata, an aliased schema path, or a FILTER input."""
+    conn = getConnectionByEnv(env)
+    env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
+    env.expect('FT.CREATE', 'metadata', 'SCORE_FIELD', 'shared',
+               'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.CREATE', 'indexed', 'SCORE_FIELD', 'shared',
+               'SCHEMA', 'title', 'TEXT', 'shared', 'AS', 'weight', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'filtered', 'SCORE_FIELD', 'shared', 'FILTER', '@shared >= 0.5',
+               'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'shared', '1')
+    first = {idx: env.cmd(debug_cmd(), 'DOCIDTOID', idx, 'doc:1')
+             for idx in ('metadata', 'indexed', 'filtered')}
+
+    conn.execute_command('HSET', 'doc:1', 'shared', '0.75')
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'metadata', 'doc:1'), first['metadata'])
+    for idx in ('indexed', 'filtered'):
+        current = env.cmd(debug_cmd(), 'DOCIDTOID', idx, 'doc:1')
+        env.assertGreater(current, first[idx], message=(idx, current, first[idx]))
+    env.expect('FT.SEARCH', 'indexed', '@weight:[0.75 0.75]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'indexed', '@weight:[1 1]', 'NOCONTENT').equal([0])
+    for idx in ('metadata', 'filtered'):
+        env.expect('FT.SEARCH', idx, 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+                   'NOCONTENT').equal([1, 'doc:1', '0.75'])
+
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    conn.execute_command('HSET', 'doc:1', 'shared', '0.25')
+    env.expect('FT.SEARCH', 'filtered', '*', 'NOCONTENT').equal([0])
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'filtered', 'doc:1'), 0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'metadata', 'doc:1'), first['metadata'])
+    env.expect('FT.SEARCH', 'indexed', '@weight:[0.25 0.25]', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def testMetadataUpdateWithExpirationReindexes(env):
+    """A metadata write falls back when document or Hash-field expiration may affect postings."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'score', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', 'fields').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'score', '0.25')
+    expire_at = int(conn.execute_command('TIME')[0]) * 1000 + 3600000
+    conn.execute_command('PEXPIREAT', 'doc:1', expire_at)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    conn.execute_command('HSET', 'doc:1', 'score', '0.5')
+    current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.assertGreater(current, first, message=(first, current))
+    env.assertEqual(conn.execute_command('PEXPIRETIME', 'doc:1'), expire_at)
+
+    conn.execute_command('PERSIST', 'doc:1')
+    conn.execute_command('HPEXPIREAT', 'doc:1', expire_at, 'FIELDS', '1', 'title')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    conn.execute_command('HSET', 'doc:1', 'score', '0.75')
+    current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.assertGreater(current, first, message=(first, current))
+    env.assertEqual(conn.execute_command('HPEXPIRETIME', 'doc:1', 'FIELDS', '1', 'title'), [expire_at])
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'NOCONTENT').equal([1, 'doc:1', '0.75'])
+
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
@@ -441,6 +678,305 @@ def testPartial(env):
                              'doc4', ['test', 11, 'testtest', '5'],
                              'doc5', ['test', 17.1, 'testtest', '5.5']])
 
+def _drainUntilBackendField(env, field, key, expected, message):
+    # DEBUG WORKERS DRAIN blocks for jobs already queued, but under CI's contention (many
+    # tests' worker threads competing for CPU) the async ingest job may not have been queued
+    # yet at all by the time this is first called -- confirmed by re-running this exact check
+    # against real CI: it reliably failed under the full suite's contention but never failed
+    # in isolation (a narrowed CI run, or 15/15 runs on a dedicated, uncontended box). Retrying
+    # for a few seconds is enough to absorb that scheduling delay either way.
+    def check():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        backend = to_dict(get_vecsim_debug_dict(env, 'idx', field)['BACKEND_INDEX'])
+        return backend[key] == expected, backend
+    wait_for_condition(check, message, timeout=10)
+
+def _assertVectorOnlyChangeKeepsDocId(env, algo):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2').ok()
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
+    if algo == 'HNSW':
+        # FLAT is never tiered; HNSW always is (see spec.c). SVS-VAMANA is tiered too, but
+        # unlike HNSW it needs a training-threshold-sized corpus before it promotes anything
+        # to the backend at all -- confirmed against real CI, a single vector never reaches
+        # it no matter how long this waits, so this check is HNSW-only. Wait for the vector
+        # to actually become resident in the backend graph before the update below --
+        # otherwise the update would only ever touch the frontend buffer, never exercising
+        # the backend's own updateVectors code path.
+        _drainUntilBackendField(env, 'vec', 'INDEX_LABEL_COUNT', 1,
+                                'the vector must reach the backend before the update')
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+    # Only the vector field changes.
+    env.expect('HSET', 'doc1', 'vec', 'eeeeffffgggghhhh').equal(0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                    message='a vector-only change must not reindex')
+    if algo == 'HNSW':
+        # updateVectors on a backend-resident label writes the new value to the frontend
+        # buffer and marks the backend's old copy deleted -- proof the update genuinely
+        # reached the backend, not just the frontend buffer it would otherwise be confined to.
+        _drainUntilBackendField(env, 'vec', 'NUMBER_OF_MARKED_DELETED', 1,
+                                'updateVectors must mark the backend copy deleted')
+    # The new value is what a KNN query against it finds -- proof the vector itself was
+    # updated, not just the doc-id preserved.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'eeeeffffgggghhhh', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocId(env):
+    """A write touching only a VECTOR field takes the updateVectors fast path (MOD-17704):
+    the document keeps its doc-id, and the new vector is queryable without reindexing
+    anything else.
+
+    Standalone only, for the same reason `testPartial` and `testHDel` are: `DOCIDTOID` takes
+    no key, so it answers from whichever shard receives it, while `HSET doc1` is routed by
+    hash slot.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'FLAT')
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocIdHNSW(env):
+    """Same as testVectorOnlyChangeKeepsDocId, but on HNSW: HNSWIndex::updateVectors is its
+    own implementation, independent of FLAT's. WORKERS 1 lets the vector actually reach the
+    tiered index's backend graph (drained explicitly below) instead of staying in the
+    frontend buffer, so this exercises the backend's own update path, not just the buffer's.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'HNSW')
+
+@skip(cluster=True)
+def testVectorOnlyChangeKeepsDocIdSVSVamana(env):
+    """Same again, on SVS-VAMANA: created as a *tiered* index (frontend flat buffer + SVS
+    backend), whose TieredSVSIndex::updateVectors is a third, independent implementation.
+    Unlike HNSW, SVS needs a training-threshold-sized corpus before it promotes anything to
+    the backend at all, so (confirmed against real CI) a single vector never reaches it no
+    matter how long you wait -- this covers the frontend-buffer update path only, same as
+    the C++ suite. WORKERS 1 is still set to match HNSW's config, even though nothing here
+    depends on it draining anywhere.
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    _assertVectorOnlyChangeKeepsDocId(env, 'SVS-VAMANA')
+
+@skip(cluster=True)
+def testIndexMissingVectorFieldReindexes(env):
+    """A write that sets a previously-unset INDEXMISSING vector field for the first time must
+    not take the vector-only fast path (MOD-17704): the field's ismissing() posting is only
+    ever retired by a full reindex, which moves the document to a new doc-id -- the old
+    doc-id's stale posting itself is only cleaned up by GC, exactly like any other field
+    (see testMissingGC in test_missing.py), not synchronously on reindex.
+
+    Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2', 'INDEXMISSING').ok()
+
+    # doc1 is indexed without ever setting vec: it is missing.
+    env.expect('HSET', 'doc1', 'title', 'hello').equal(1)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([1, 'doc1'])
+
+    # vec is set for the first time on this hash, so HSET reports it as a newly-added field
+    # (1, not 0) even though the change set names only a vector field; the write must still
+    # reindex under a new doc-id, so GC has a fresh doc-id to retire the old posting in favor of.
+    env.expect('HSET', 'doc1', 'vec', 'aaaabbbbccccdddd').equal(1)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='an INDEXMISSING vector field must not take the fast path')
+    forceInvokeGC(env)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@vec)', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+@skip(cluster=True)
+def testDeletingVectorFieldReindexes(env):
+    """HDEL removing an indexed vector field, while another field keeps the key alive, must
+    not take the vector-only fast path (MOD-17704): the field's raw value is gone, so
+    updateHashVectorFields fails closed and the caller's full path removes the old KNN label
+    instead of leaving it stale.
+
+    Standalone only, same reason as testVectorOnlyChangeKeepsDocId (DOCIDTOID takes no key).
+    """
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4',
+              'DISTANCE_METRIC', 'L2').ok()
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vec', 'aaaabbbbccccdddd').equal(2)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+    # title keeps the key alive; only vec is deleted.
+    env.expect('HDEL', 'doc1', 'vec').equal(1)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='deleting an indexed vector field must not take the fast path')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
+              'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([0])
+
+# Two-vector-field schema shared by the tests below: unlike testVectorOnlyChangeKeepsDocId's
+# single vector field, these exercise a document where TWO vector fields can independently be
+# changed or not, in the same write. Standalone only, same reason as testVectorOnlyChangeKeepsDocId
+# (DOCIDTOID takes no key).
+_VEC_A1 = 'aaaa1111bbbb2222'
+_VEC_A2 = 'aaaa3333bbbb4444'
+_VEC_B1 = 'cccc5555dddd6666'
+_VEC_B2 = 'cccc7777dddd8888'
+
+def _createTwoVectorFieldIndex(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+              'vecA', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4', 'DISTANCE_METRIC', 'L2',
+              'vecB', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '4', 'DISTANCE_METRIC', 'L2').ok()
+
+def _assertVectorValue(env, field, value):
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{field} $b AS dist]', 'PARAMS', '2', 'b',
+              value, 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
+
+# A write touching a non-vector field AND one of two vector fields forces a full reindex (the
+# non-vector field alone would already force it), during which the changed vector field (vecA)
+# is deleted and re-added under the new doc-id, while the untouched one (vecB) is relabeled
+# onto it instead -- two different mechanisms for two fields on the same document, same write.
+@skip(cluster=True)
+def testTwoVectorFieldsOneChangedOneNotWithNonVectorTrigger(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    # title (non-vector) and vecA change; vecB does not.
+    env.expect('HSET', 'doc1', 'title', 'world', 'vecA', _VEC_A2).equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='a non-vector field change must reindex, unlike vector-only')
+    _assertVectorValue(env, 'vecA', _VEC_A2)  # changed field: new value
+    _assertVectorValue(env, 'vecB', _VEC_B1)  # untouched field: original value preserved
+
+# Same trigger, but neither vector field changes: both are candidates for relabeling onto the
+# new doc-id, and both must still be found with their original values afterward.
+@skip(cluster=True)
+def testTwoVectorFieldsBothUnchangedWithNonVectorTrigger(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    # Only title changes; neither vector field is touched.
+    env.expect('HSET', 'doc1', 'title', 'world').equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='a non-vector field change must reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A1)
+    _assertVectorValue(env, 'vecB', _VEC_B1)
+
+# Same trigger, but both vector fields also change: neither is a relabel candidate, so both
+# take the normal delete-then-add path, same as a single-vector-field reindex would.
+@skip(cluster=True)
+def testTwoVectorFieldsBothChangedWithNonVectorTrigger(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    env.expect('HSET', 'doc1', 'title', 'world', 'vecA', _VEC_A2, 'vecB', _VEC_B2).equal(0)
+    env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                       message='a non-vector field change must reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A2)
+    _assertVectorValue(env, 'vecB', _VEC_B2)
+
+# With no non-vector field in the write at all, changing just one of the two vector fields
+# takes the updateVectors fast path (MOD-17704): doc-id preserved, the other vector untouched.
+@skip(cluster=True)
+def testTwoVectorFieldsOnlyOneChangedTakesFastPath(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A2).equal(0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                    message='a vector-only change must not reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A2)
+    _assertVectorValue(env, 'vecB', _VEC_B1)
+
+# Changing both vector fields together, still with no non-vector field touched, is still
+# vector-only: every schema field the change set names is a vector field.
+@skip(cluster=True)
+def testTwoVectorFieldsBothChangedTogetherTakesFastPath(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'title', 'hello', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(3)
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1')
+    env.assertGreater(first, 0)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A2, 'vecB', _VEC_B2).equal(0)
+    env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
+                    message='a vector-only change must not reindex')
+    _assertVectorValue(env, 'vecA', _VEC_A2)
+    _assertVectorValue(env, 'vecB', _VEC_B2)
+
+# A document that isn't indexed yet must always take the full (initial) indexing path,
+# regardless of how few fields it sets -- there is no doc-id yet to preserve or relabel onto.
+@skip(cluster=True)
+def testNotYetIndexedOneVectorFieldSet(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A1).equal(1)
+    env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), 0)
+    _assertVectorValue(env, 'vecA', _VEC_A1)
+    # vecB was never set on this document at all.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @vecB $b AS dist]', 'PARAMS', '2', 'b',
+              _VEC_B1).equal([0])
+
+@skip(cluster=True)
+def testNotYetIndexedTwoVectorFieldsSet(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    _createTwoVectorFieldIndex(env)
+
+    env.expect('HSET', 'doc1', 'vecA', _VEC_A1, 'vecB', _VEC_B1).equal(2)
+    env.assertGreater(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), 0)
+    _assertVectorValue(env, 'vecA', _VEC_A1)
+    _assertVectorValue(env, 'vecB', _VEC_B1)
+
 @skip(cluster=True)
 def testHDel(env):
     if env.env == 'existing-env':
@@ -621,17 +1157,20 @@ def testJsonWriteIsNeverSkipped(env):
     Standalone only, as with the other `DOCIDTOID` assertions in this file.
     """
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCORE_FIELD', '$.score', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
 
     conn.execute_command('JSON.SET', 'doc:1', '$', '{"t":"hello","other":"world"}')
     first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
     env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # A path outside the schema. The equivalent hash write is the one that gets skipped.
-    conn.execute_command('JSON.SET', 'doc:1', '$.other', '"changed"')
+    # A score path outside the schema is still fully reindexed for JSON.
+    conn.execute_command('JSON.SET', 'doc:1', '$.score', '0.5')
     env.assertGreater(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
                       message='a JSON write must reindex even when no indexed path changed')
     env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    env.expect('FT.SEARCH', 'idx', '@t:hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'NOCONTENT').equal([1, 'doc:1', '0.5'])
 
 @skip(cluster=True)
 def testRestore(env):

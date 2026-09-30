@@ -45,12 +45,13 @@ type Indexed = (Vec<u8>, Vec<DocId>);
 const TAG_APPLE: &[u8] = b"apple"; // docs 1, 2
 const TAG_APRICOT: &[u8] = b"apricot"; // docs 2, 3 -- doc 2 is the overlap
 const TAG_BANANA: &[u8] = b"banana"; // docs 3, 4
-const TAG_PHRASE: &[u8] = b"red apple"; // doc 5 -- the `sdsjoin` target
+const TAG_PHRASE: &[u8] = b"red apple"; // doc 5 -- the phrase-join target
 const TAG_BINARY: &[u8] = b"caf\xff"; // doc 6 -- 0xff appears in no UTF-8 sequence
 const TAG_NUL: &[u8] = b"ab\0cd"; // doc 7
+const TAG_FIELD_NAME: &[u8] = b"tag_field";
 const TAG_NUL_HEAD: &[u8] = b"ab"; // doc 8 -- what a truncated lookup of TAG_NUL hits
-const TAG_NUL_PHRASE_JOINED: &[u8] = b"ab x"; // doc 9 -- what `sdsjoin` builds from TAG_NUL
-const TAG_NUL_PHRASE_WHOLE: &[u8] = b"ab\0cd x"; // doc 10 -- what a binary-safe join would build
+const TAG_NUL_PHRASE_JOINED: &[u8] = b"ab x"; // doc 9 -- what a strlen-based join would build from TAG_NUL
+const TAG_NUL_PHRASE_WHOLE: &[u8] = b"ab\0cd x"; // doc 10 -- what the length-based join builds
 // doc 11 -- the value production indexes for an empty tag field, and the only
 // one the empty wildcard pattern can reach.
 const TAG_EMPTY: &[u8] = b"";
@@ -238,15 +239,18 @@ struct TagOptions {
     min_term_prefix: Option<u32>,
     /// What deadline `sctx->time` carries.
     timeout: Timeout,
-    /// The field's `t_fieldIndex`, threaded into both `field_spec.index` and
-    /// each indexed posting's field mask, so a field-expiration check has a
-    /// real (non-default) index to key on -- `0` is indistinguishable from
-    /// "no field index set".
-    field_index: ffi::t_fieldIndex,
     /// Which documents get their posting written with `hasFieldExpiration`
     /// set. A posting written with it unset skips the expiration check
     /// unconditionally, regardless of what
     /// [`TestContext::mark_index_expired`] later marks.
+    ///
+    /// The field's own `t_fieldIndex` is not a knob here: it comes from
+    /// wherever [`TagFixture`] actually adds the field to its spec (via
+    /// [`TestContext::add_field`]), which for every field but `context`'s own
+    /// unused one is never `0` -- so a port that hardcodes field index `0`
+    /// when checking a record's expiration state, instead of using the
+    /// node's real one, fails the same way whatever that real index turns
+    /// out to be.
     field_expiration_docs: &'static [DocId],
 }
 
@@ -267,7 +271,6 @@ impl Default for TagOptions {
             max_prefix_expansions: None,
             min_term_prefix: None,
             timeout: Timeout::NoTimeout,
-            field_index: 0,
             field_expiration_docs: &[],
         }
     }
@@ -523,28 +526,28 @@ struct TagFixture {
     /// first of the two to drop.
     ctx: QueryEvalContext,
     /// Owns the `sctx`, the `DocTable` and the `QueryEvalCtx` that `ctx`
-    /// wraps. Its own tag field is unused -- the node names `field_spec`
-    /// instead.
+    /// wraps, and the field the node names (added via
+    /// [`TestContext::add_field`], so evaluation re-deriving the field
+    /// through `IndexSpec.fields` -- rather than trusting the node's own
+    /// `fs` pointer, see MOD-18356 -- finds it there).
     _context: TestContext,
     /// The `QN_TAG` node under evaluation.
     node: MockQueryNode,
     /// The node's children, and the phrase children's own token nodes, kept
     /// alive because the node holds raw pointers to them.
     _children: Vec<MockQueryNode>,
-    /// The field spec the node names. Boxed for a stable address, since the
-    /// node points at it. For every [`TagField`] but [`TagField::NoIndex`]
-    /// its `tagOpts.tagIndex` is a `TagIndex` this fixture created and frees
-    /// -- see the [`Drop`] impl, which must run before `_context` releases
-    /// the allocator the index was built with.
-    field_spec: Box<ffi::FieldSpec>,
+    /// The field spec the node names, added to `_context`'s spec by [`new`](Self::new).
+    /// For every [`TagField`] but [`TagField::NoIndex`] its `tagOpts.tagIndex`
+    /// is a `TagIndex` this fixture created; `_context`'s own teardown frees
+    /// it (`FieldSpec_Cleanup`, since the field is now really part of its
+    /// spec), so nothing here does.
+    field_spec: ptr::NonNull<ffi::FieldSpec>,
 }
 
 impl TagFixture {
     fn new(opts: TagOptions) -> Self {
         let _guard = GlobalGuard::default();
 
-        // sctx, docTable and qctx only -- the node points at the fixture's
-        // own spec below, so the context's own tag field is unreachable.
         let mut context = TestContext::tag(std::iter::empty());
 
         if opts.max_prefix_expansions.is_some() || opts.min_term_prefix.is_some() {
@@ -563,20 +566,26 @@ impl TagFixture {
             Timeout::ExpiredButSkipped => context.set_search_time(EXPIRED_DEADLINE, true),
         }
 
-        // SAFETY: an all-zero bit pattern is a valid (empty) `FieldSpec`.
-        let mut field_spec: Box<ffi::FieldSpec> = Box::new(unsafe { std::mem::zeroed() });
-        field_spec.set_types(ffi::FieldType_INDEXFLD_T_TAG);
-        field_spec.index = opts.field_index;
+        // Genuinely added to `context`'s spec, not a standalone allocation:
+        // evaluation re-derives the field via `node.fieldIndex` into
+        // `ctx.spec().fields` rather than trusting the node's own `fs` pointer
+        // directly (MOD-18356), so the field has to actually live there for
+        // that re-derivation to find it.
+        let field_spec = context.add_field(TAG_FIELD_NAME);
+        // SAFETY: `field_spec` was just added above and is exclusively ours to
+        // set up before anything else can observe it.
+        let field_spec_mut = unsafe { field_spec.as_ptr().as_mut() }.expect("non-null");
+        field_spec_mut.set_types(ffi::FieldType_INDEXFLD_T_TAG);
         let with_suffix = matches!(opts.field, TagField::IndexedWithSuffixTrie);
         if with_suffix {
-            field_spec.set_options(ffi::FieldSpecOptions_FieldSpec_WithSuffixTrie);
+            field_spec_mut.set_options(ffi::FieldSpecOptions_FieldSpec_WithSuffixTrie);
         }
         if opts.case_sensitive {
-            // SAFETY: `field_spec` is exclusively owned, and the field is a
+            // SAFETY: `field_spec_mut` is exclusively ours, and the field is a
             // tag field per `set_types` above, so `tagOpts` is the active
             // union member.
             unsafe {
-                field_spec
+                field_spec_mut
                     .__bindgen_anon_1
                     .tagOpts
                     .set_tagFlags(ffi::TagFieldFlags_TagField_CaseSensitive);
@@ -594,11 +603,11 @@ impl TagFixture {
                 // `TagIndex_Ensure` also writes the index it creates into
                 // `field_spec.tagOpts.tagIndex`, not just its return value.
                 //
-                // SAFETY: `field_spec` is exclusively owned and outlives the
-                // index built from it (freed in `Drop` before `field_spec`
-                // itself is dropped).
+                // SAFETY: `field_spec_mut` is exclusively ours and outlives the
+                // index built from it (freed with `_context`'s own spec
+                // teardown, since the field is really part of it).
                 let idx =
-                    unsafe { ffi::TagIndex_Ensure(&mut *field_spec, ptr::null_mut(), with_suffix) };
+                    unsafe { ffi::TagIndex_Ensure(field_spec_mut, ptr::null_mut(), with_suffix) };
                 assert!(!idx.is_null(), "TagIndex_Ensure returned null");
                 index_values(idx, &opts.values, with_suffix, opts.field_expiration_docs);
             });
@@ -636,7 +645,9 @@ impl TagFixture {
 
         let mut node = MockQueryNode::new(QueryNodeType::Tag);
         node.opts_mut().weight = opts.weight;
-        node.set_tag_field_spec(&*field_spec as *const ffi::FieldSpec);
+        // SAFETY: `field_spec` is valid and non-null.
+        let field_index = unsafe { field_spec.as_ref() }.index;
+        node.set_tag_field_index(field_index);
         node.set_children(&child_ptrs);
 
         Self {
@@ -647,6 +658,16 @@ impl TagFixture {
             _children: children,
             field_spec,
         }
+    }
+
+    /// The field's real `t_fieldIndex` in `_context`'s spec, as
+    /// [`TestContext::add_field`] assigned it in [`new`](Self::new). Never
+    /// `0`, since `_context`'s own (unused) tag field always occupies that
+    /// slot first.
+    const fn field_index(&self) -> ffi::t_fieldIndex {
+        // SAFETY: `field_spec` is exclusively ours and was fully initialised
+        // in `new`.
+        unsafe { self.field_spec.as_ref() }.index
     }
 
     /// Evaluate the node, wrapping whatever it yields in a contract checker.
@@ -678,18 +699,13 @@ impl TagFixture {
 }
 
 impl Drop for TagFixture {
-    /// Frees the fixture's `TagIndex`, which takes the per-value inverted
-    /// indexes and the suffix trie with it.
     fn drop(&mut self) {
-        // SAFETY: `field_spec` is exclusively owned by this fixture, and
-        // `tagOpts` is the active union member since the field is always
-        // built as a tag field in `new`.
-        let idx = unsafe { self.field_spec.__bindgen_anon_1.tagOpts.tagIndex };
-        if !idx.is_null() {
-            // SAFETY: `idx` is the `TagIndex` this fixture created in `new`
-            // and nothing else references it once evaluation has finished.
-            unsafe { ffi::TagIndex_Free(idx) };
-        }
+        // The fixture's `TagIndex` (which takes the per-value inverted indexes
+        // and the suffix trie with it) is not freed here: it hangs off the
+        // tag field this fixture added to `_context`'s spec (see
+        // `TestContext::add_field`), so `_context`'s own teardown
+        // (`FieldSpec_Cleanup`, via its `Drop`, which runs after this method
+        // returns) frees it exactly once.
     }
 }
 
@@ -1279,7 +1295,7 @@ fn eval_tag_phrase_child_joins_its_tokens_with_a_space() {
 }
 
 #[test]
-fn eval_tag_phrase_child_truncates_a_token_at_a_nul() {
+fn eval_tag_phrase_child_keeps_a_token_past_a_nul() {
     let values = values(&[(TAG_NUL_PHRASE_JOINED, &[9]), (TAG_NUL_PHRASE_WHOLE, &[10])]);
     let mut fixture = TagFixture::new(TagOptions {
         values,
@@ -1287,12 +1303,20 @@ fn eval_tag_phrase_child_truncates_a_token_at_a_nul() {
         children: vec![Child::Phrase(&[TAG_NUL, b"x"])],
         ..TagOptions::default()
     });
-    let mut it = fixture.eval().expect("the truncated join is indexed");
-    assert_eq!(
-        drain_doc_ids(&mut it),
-        vec![9],
-        "sdsjoin is strlen-based, even though no lowering step ran"
-    );
+    let mut it = fixture.eval().expect("the whole join is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![10]);
+}
+
+#[test]
+fn eval_tag_phrase_child_treats_an_empty_token_as_a_zero_length_word() {
+    let values = values(&[(b"foo ", &[1]), (b"foo", &[2])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::Phrase(&[b"foo", b""])],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("\"foo \" is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![1]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1392,7 +1416,7 @@ fn eval_tag_lowercases_the_query_on_a_case_insensitive_field() {
 // `tag_strtolower` is called once per branch, not once ahead of the dispatch:
 // `Query_EvalTagPrefixNode` and `Query_EvalTagWildcardNode` each call it on
 // their own pattern, and the phrase case calls it on each child before the
-// `sdsjoin`. [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`]
+// join. [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`]
 // above only exercises the `Token` branch's call -- every other pattern used
 // so far is already lowercase, so a port that dropped lowering from one of
 // the other three would still pass unnoticed. The three tests below give
@@ -1559,16 +1583,23 @@ fn eval_tag_case_insensitive_field_matches_a_binary_value() {
     assert_eq!(drain_doc_ids(&mut it), vec![17]);
 }
 
-// No test here for lowering a case-insensitive token ending in an invalid
-// UTF-8 lead byte (e.g. `CAF\xff`): `unicode_tolower`'s slow (non-ASCII) path
-// unconditionally reads three bytes past such a byte (`utf8_4b` in
-// `deps/libnu/utf8_internal.h`) with no bounds check. A real query token is
-// allocated with exactly its length plus a NUL terminator, so this is a
-// genuine heap-buffer-overflow read reachable from `@tag:{CAF\xff}` today --
-// padding this test's allocation to observe a result would characterise the
-// overread's accidental output as sanctioned behaviour instead of pinning
-// the bug. Tracked in https://github.com/RediSearch/RediSearch/issues/11135;
-// fix `tag_strtolower`/`unicode_tolower` before adding this case back.
+#[test]
+fn eval_tag_case_insensitive_field_keeps_a_dangling_utf8_lead_byte() {
+    // 0xff declares a 4-byte sequence the token ends before completing, so
+    // lowering cannot decode it without reading past the allocation. It is
+    // copied through verbatim instead, while the bytes before it are still
+    // lowered.
+    let values = values(&[(TAG_BINARY, &[6])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::Token(b"CAF\xff")],
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the lowered prefix plus the untouched 0xff is the indexed value");
+    assert_eq!(drain_doc_ids(&mut it), vec![6]);
+}
 
 #[test]
 fn eval_tag_lookup_stops_at_a_nul_on_a_case_insensitive_field() {
@@ -2156,23 +2187,23 @@ fn eval_tag_expansion_without_a_deadline_is_complete() {
 
 #[test]
 fn eval_tag_reader_filters_an_expired_field() {
-    // Both docs carry a real (non-default) field index and a posting written
-    // with `hasFieldExpiration` set, so a port that omits `fs->index` when
-    // opening the reader, or checks the wrong field's expiration state,
+    // Both docs carry a real (non-default) field index -- the fixture's field
+    // is never index 0, see `TagFixture::field_index` -- and a posting
+    // written with `hasFieldExpiration` set, so a port that omits `fs->index`
+    // when opening the reader, or checks the wrong field's expiration state,
     // would see no expired field here at all -- only doc 1 is actually
     // marked expired, and only it must be filtered.
-    const FIELD_INDEX: ffi::t_fieldIndex = 3;
     let values = values(&[(TAG_APPLE, &[1, 2])]);
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        field_index: FIELD_INDEX,
         field_expiration_docs: &[1, 2],
         children: vec![Child::Token(TAG_APPLE)],
         ..TagOptions::default()
     });
+    let field_index = fixture.field_index();
     fixture
         ._context
-        .mark_index_expired(vec![1], FieldMaskOrIndex::Index(FIELD_INDEX));
+        .mark_index_expired(vec![1], FieldMaskOrIndex::Index(field_index));
     let mut it = fixture.eval().expect("apple is indexed");
     assert_eq!(drain_doc_ids(&mut it), vec![2]);
 }

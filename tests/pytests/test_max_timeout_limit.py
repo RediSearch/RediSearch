@@ -241,6 +241,21 @@ class TestMaxForegroundTimeoutLimit:
         env.assertNotContains(CAP_WARNING, _get_warnings(res),
                               message=f"FT.SEARCH should not warn with limit disabled, got: {res}")
 
+    def test_coordinator_handles_timeout_above_signed_range(self):
+        """Oversized coordinator timeouts fail safely with the foreground cap disabled."""
+        skipTest(cluster=False)
+        self._reset(workers=2, timeout=100, limit=0)
+        blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+        oversized = str(2**63)
+        commands = (
+            ('FT.SEARCH', 'idx', '*', 'TIMEOUT', oversized, 'NOCONTENT'),
+            ('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', oversized),
+            ('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
+             'PARAMS', '2', 'BLOB', blob, 'TIMEOUT', oversized),
+        )
+        for command in commands:
+            self.env.expect(*command).error().contains('TIMEOUT requires a non negative integer')
+
     # ---------------------------- Cursor capping --------------------------------
     #
     # Cursors cache the resolved timeout on the AREQ at WITHCURSOR time, so a

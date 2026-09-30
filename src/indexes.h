@@ -82,7 +82,8 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
  * Re-index `key` on every spec whose schema rules match it.
  *
  * `changedFields` / `numChangedFields` name the fields the originating command
- * modified, letting a spec that indexes none of them skip the reindex. They come
+ * modified, letting an existing RAM Hash document skip reindexing or update only
+ * its score/payload when those are the only relevant fields changed. They come
  * from a hash subkey notification; pass `NULL` / `0` when the change set is
  * unknown — for JSON writes, the background scan, and any event that carries no
  * subkeys — which reindexes unconditionally.
@@ -106,7 +107,19 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            DocumentType type);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+// Callback for Indexes_ForEachSpec: one spec, plus the caller's opaque user data.
+typedef void (*IndexesSpecVisitor)(IndexSpec *sp, void *ud);
+
+// Visit every spec in the global registry, in registry order. Sets and clears
+// the crash-report thread-local (CurrentThread_SetIndexSpec) around each call,
+// so callbacks must not.
+void Indexes_ForEachSpec(IndexesSpecVisitor visit, void *ud);
+
 void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
+
+// Replies with this shard's internal _FT._LIST WITHCLUSTERSTATE payload. node_id may be NULL when
+// unknown. Fingerprints are compared only within matching recipe/version groups.
+void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id);
 
 // Collect the specs whose schema rules match `key` (of document `type`) into a
 // freshly allocated SpecOpIndexingCtx. `runFilters` controls whether FILTER

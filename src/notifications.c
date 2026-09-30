@@ -729,8 +729,9 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
 }
 
-#define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 #define BIGREDIS_MAX_RAM "bigredis-max-ram"
+
+#define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 #define REDIS_LOGLEVEL "loglevel"
 
 bool getHideUserDataFromLogs() {
@@ -758,6 +759,14 @@ static void onUpdatedLogLevel(RedisModuleCtx *ctx) {
   RedisModule_FreeString(ctx, level);
 }
 
+static void refreshDiskResourceState(RedisModuleCtx *ctx) {
+  if (!SearchDisk_IsInitialized()) {
+    return;
+  }
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, BIGREDIS_MAX_RAM, 0);
+  SearchDisk_UpdateMemoryLimit((size_t)configured_memory_limit);
+}
+
 void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
   if (eid.id != REDISMODULE_EVENT_CONFIG ||
       event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
@@ -770,8 +779,7 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
       onUpdatedHideUserDataFromLogs(ctx);
     }
     if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
-      RS_ASSERT(SearchDisk_IsInitialized());
-      SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+      refreshDiskResourceState(ctx);
     }
     if (strcmp(conf, REDIS_LOGLEVEL) == 0) {
       onUpdatedLogLevel(ctx);
@@ -1277,9 +1285,11 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
     Restore_Globals(ctx);
+    refreshDiskResourceState(ctx);
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
     Discard_Globals_Backup(ctx);
+    refreshDiskResourceState(ctx);
     break;
   }
 }
@@ -1340,13 +1350,14 @@ void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Enabled role change notification");
 }
 
-// Latch set at LOADING/RDB_START when a partial-RDB (SST) load is staged.
+// Latched at any LOADING_*_START when an SST load is staged.
 //
-// The SST_RDB context flag is reliably ON at RDB_START, but for a hot restart
-// the server clears it *before* firing LOADING_ENDED (unlike replication, which
-// keeps it ON across the event). Latching here lets the LOADING_ENDED handler
-// run the finish step regardless of the flag's clear-timing.
-static bool g_partialRdbLoadStaged = false;
+// The SST_RDB context flag is reliably ON when a load starts, but the server may
+// clear it before LOADING_ENDED fires: a hot restart always does, and an SST
+// replication does so once its RDB and SST phases are done, before the final
+// ingestion wait. Latching at start lets the LOADING_ENDED handler run the
+// finish step regardless of the flag's clear-timing.
+static bool g_sstLoadStaged = false;
 
 // This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
@@ -1355,14 +1366,11 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
-    if (useSst) {
-      // Latch that a partial-RDB (SST) load is staged; the flag is reliably ON
-      // here but may be cleared before LOADING_ENDED (hot restart).
-      g_partialRdbLoadStaged = true;
-    }
-    // fallthrough
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START: {
+    if (useSst) {
+      g_sstLoadStaged = true;
+    }
     // Two orthogonal dimensions here, logged separately:
     //  - source: where the data arrives from (chosen by rdbflags in the
     //    server's loadingFireEvent) — an RDB file, an AOF, or a replication
@@ -1393,12 +1401,10 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "LOAD rdb-stream end");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED: {
-    // For a hot restart the server clears the SST_RDB flag before firing this
-    // event, so IS_SST_RDB_IN_PROCESS is false here even though we staged a
-    // partial-RDB load. Fall back to the latch set at RDB_START. Replication
-    // keeps the flag ON, so useSst still covers it.
-    bool finishSst = useSst || g_partialRdbLoadStaged;
-    g_partialRdbLoadStaged = false;
+    // The server may have cleared the SST_RDB flag before firing this event
+    // (see g_sstLoadStaged), so decide from the latch as well as the flag.
+    bool finishSst = useSst || g_sstLoadStaged;
+    g_sstLoadStaged = false;
     // Re-enable the DocIdMeta RDB callbacks now that this load is done.
     DocIdMeta_SetForgetDocIdMetadata(false);
     if (!SearchDisk_IsEnabled()) {
@@ -1418,7 +1424,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // aborted, network dropped, validation rejected, etc.) Redis fires LOADING_FAILED. Tear down anything we
     // staged for the round so the next attempt starts from a clean slate.
     // No-op when no specs are staged.
-    g_partialRdbLoadStaged = false;
+    g_sstLoadStaged = false;
     DocIdMeta_SetForgetDocIdMetadata(false);
     if (SearchDisk_IsEnabled()) {
       Indexes_AbortSSTReplicationLoading(ctx);

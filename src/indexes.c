@@ -58,6 +58,8 @@
 #include "field_spec.h"
 #include "indexes_scanner.h"
 #include "obfuscation/hidden.h"
+#include "vector_index.h"
+#include "redis_index.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "result_processor.h"
@@ -69,6 +71,7 @@
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
 #include "util/arr/arr.h"
+#include "rs_wall_clock.h"
 
 // The global index registry, keyed by name and by spec id. Other translation
 // units read these as externs (declared in indexes.h).
@@ -277,6 +280,10 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
+    StrongRef_Release(sp->own_ref);
+    return NULL;
+  }
   if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
     StrongRef_Release(sp->own_ref);
     return NULL;
@@ -300,10 +307,6 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
         rdb, "warning",
         "RDB Load: Number of indexes (%zu) exceeds maximum allowed (%u)",
         nIndexes, maxIndexes_g);
-    return REDISMODULE_ERR;
-  }
-  if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
-    RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;
   }
   for (size_t i = 0; i < nIndexes; ++i) {
@@ -598,33 +601,32 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   return res;
 }
 
-/**
- * True when `changedFields` proves this update cannot change anything `spec` holds for the
- * document, so the reindex can be skipped. False whenever that cannot be established --
- * including when there is no change set to reason from.
- *
- * "No schema field was named" is not enough on its own, in three ways:
- *
- * - A hash matching the rule's prefix is a document whether or not it carries an indexed
- *   field, so `*`, result counts and `ismissing()` all depend on it being registered. A
- *   document the index does not hold yet must be indexed whatever the change set says,
- *   which is what the doc-table lookup below establishes.
- * - A rule FILTER may test a field the schema never mentions, and its verdict flips when
- *   that field changes, so a spec carrying one can never skip.
- * - The rule's language, score and payload fields are read from the document without being
- *   part of the schema.
- *
- * Conservative for a disk-backed spec, whose document bookkeeping does not run through
- * this doc table.
- */
-static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
-                                           RedisModuleString *key,
-                                           RedisModuleString **changedFields,
-                                           size_t numChangedFields) {
+static bool ruleFieldEquals(const char *ruleField, const char *field, size_t length) {
+  return ruleField && strlen(ruleField) == length && !memcmp(ruleField, field, length);
+}
+
+typedef enum {
+  IndexUpdate_Skip = 0,
+  IndexUpdate_Score = 1 << 0,
+  IndexUpdate_Payload = 1 << 1,
+  IndexUpdate_MetadataMask = IndexUpdate_Score | IndexUpdate_Payload,
+  // Every schema field the change set named is a VECTOR field: the label can be updated via
+  // VecSimIndex_UpdateVectors, keeping the doc's id, instead of a full reindex.
+  IndexUpdate_VectorOnly = 1 << 2,
+  IndexUpdate_Full = 1 << 3,
+} IndexUpdateAction;
+
+// FILTER expressions may depend on fields outside the schema. Unknown changes and disk
+// bookkeeping likewise cannot establish that the existing index entries can be retained.
+static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ctx,
+                                             RedisModuleString *key,
+                                             RedisModuleString **changedFields,
+                                             size_t numChangedFields) {
   if (!changedFields || spec->diskSpec || spec->rule->filter_exp) {
-    return false;
+    return IndexUpdate_Full;
   }
 
+  IndexUpdateAction action = IndexUpdate_Skip;
   // TODO: improve implementation to avoid O(n^2)
   //
   // The change set is the outer loop deliberately: it holds the fields one command wrote,
@@ -633,32 +635,235 @@ static bool changeSetAllowsSkippingReindex(IndexSpec *spec, RedisModuleCtx *ctx,
   for (size_t i = 0; i < numChangedFields; ++i) {
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+    bool isSchemaVectorField = false;
+    // A single Hash path can be mapped to more than one schema field (`v AS vv VECTOR ...,
+    // v AS txt TEXT` is an explicitly supported configuration). One non-vector mapping forces
+    // a full reindex immediately, regardless of how many other mappings are vector fields.
     for (size_t j = 0; j < spec->numFields; ++j) {
-      if (FieldSpec_PathEquals(&spec->fields[j], field, length)) {
-        return false;
+      if (!FieldSpec_PathEquals(&spec->fields[j], field, length)) {
+        continue;
+      }
+      isSchemaVectorField = true;
+      if (!RSGlobalConfig.optimizePartialUpdate ||
+          !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR) ||
+          FieldSpec_IndexesMissing(&spec->fields[j])) {
+        return IndexUpdate_Full;
       }
     }
-    // The rule's language, score and payload fields are read from the document without being
-    // part of the schema, so they are matched by name rather than through a FieldSpec.
-    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
-        (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
-        (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
-      return false;
+    // LANGUAGE_FIELD can name a path that is *also* a vector schema field: language affects
+    // TEXT tokenization independently of whether this path is a vector, so it must still force
+    // a full reindex even when every schema mapping above was vector-only.
+    if (ruleFieldEquals(spec->rule->lang_field, field, length)) {
+      return IndexUpdate_Full;
+    }
+    // SCORE_FIELD/PAYLOAD_FIELD can likewise name a path that is also a vector schema field:
+    // both bits compose, so a shared path takes the metadata-update fast path AND the
+    // vector-only fast path for the same write, instead of one silently shadowing the other.
+    if (ruleFieldEquals(spec->rule->score_field, field, length)) {
+      action |= IndexUpdate_Score;
+    }
+    if (ruleFieldEquals(spec->rule->payload_field, field, length)) {
+      action |= IndexUpdate_Payload;
+    }
+    if (isSchemaVectorField) {
+      action |= IndexUpdate_VectorOnly;
     }
   }
 
-  // Last, because it is the only check that takes a lock. Same locking rationale as
-  // Indexes_UpdateMatchingDocExpiration: read lock suffices for a DMD chain traversal and
-  // refcount, and notification callbacks are serialized on the main thread.
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  RedisSearchCtx_LockSpecRead(&sctx);
-  const RSDocumentMetadata *dmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
-  const bool alreadyIndexed = dmd != NULL;
-  if (dmd) {
-    DMD_Return(dmd);
+  if (action & IndexUpdate_MetadataMask) {
+    // The metadata writer (and the vector-field writer, if IndexUpdate_VectorOnly also rode
+    // along) checks existence under its own write lock.
+    return action;
   }
-  RedisSearchCtx_UnlockSpec(&sctx);
-  return alreadyIndexed;
+
+  // Last, because it is the only check that takes a lock. A read lock protects the
+  // document-table chain traversal.
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  IndexSpec_LockRead(sctx.spec);
+  t_docId docId = IndexSpec_GetDocIdByKeyR(spec, ctx, key);
+  const bool alreadyIndexed = DocTable_Exists(&spec->docs, docId);
+  IndexSpec_Unlock(sctx.spec);
+  // Even a hash with no schema fields must be registered for counts, * and ismissing(). A
+  // vector-only change on a key that isn't indexed yet must still take the full path to create
+  // that registration -- `action` (Skip or VectorOnly) is only correct once already indexed.
+  return alreadyIndexed ? action : IndexUpdate_Full;
+}
+
+// Checks whether an opened Hash key is eligible for the metadata/vector-only fast paths.
+// Returns false (nothing to do but goto cleanup) if not; fills *docId on success.
+static bool checkKeyUpdateHash(const IndexSpec *spec, RedisModuleKey *key, uint64_t *docId) {
+  // HDEL removes the key before notifying us when it deletes the last field.
+  if (!key) {
+    return false;
+  }
+  RS_ASSERT(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH);
+
+  // Expiration can change indexed content independently of the fields named by this write.
+  if (RedisModule_GetAbsExpire(key) != REDISMODULE_NO_EXPIRE ||
+      RedisModule_HashFieldMinExpire(key) != REDISMODULE_NO_EXPIRE ||
+      DocIdMeta_GetWithOpenKey(key, spec->specId, docId) != REDISMODULE_OK) {
+    return false;
+  }
+
+  return true;
+}
+
+// Checks whether a borrowed DMD is eligible for the metadata/vector-only fast paths.
+static bool checkDmdUpdateHash(const IndexSpec *spec, uint64_t docId, RSDocumentMetadata *dmd) {
+  if (!dmd || __atomic_load_n(&dmd->ref_count, __ATOMIC_ACQUIRE) != 2) {
+    return false;
+  }
+  RS_ASSERT(dmd->type == DocumentType_Hash);
+  if ((dmd->flags & Document_FailedToOpen) ||
+      __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED) ||
+      DocTable_GetFieldExpirations(&spec->docs, docId).len) {
+    return false;
+  }
+  return true;
+}
+
+// Attempts a score/payload update for a Hash change classified as metadata-only.
+// Returns true if handled without reindexing; false requires the caller's full update path.
+static bool updateHashMetadata(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *keyName,
+                               IndexUpdateAction action) {
+  if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
+    return false;
+  }
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RedisModuleString *payload = NULL;
+  RSDocumentMetadata *dmd = NULL;
+  bool success = false;
+  uint64_t docId = 0;
+  const char *keyname = NULL;
+  double score = 0;
+  size_t payloadSize = 0;
+  const char *payloadData = NULL;
+
+  if (!checkKeyUpdateHash(spec, key, &docId)) {
+    goto cleanup;
+  }
+
+  keyname = RedisModule_StringPtrLen(keyName, NULL);
+  if (action & IndexUpdate_Score) {
+    score = SchemaRule_HashScore(ctx, spec->rule, key, keyname);
+  }
+  if (action & IndexUpdate_Payload) {
+    payload = SchemaRule_HashPayload(ctx, spec->rule, key, keyname);
+    payloadData = payload ? RedisModule_StringPtrLen(payload, &payloadSize) : NULL;
+  }
+
+  IndexSpec_LockWrite(sctx.spec);
+  dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
+  // Readers may retain metadata after releasing the spec lock.
+  if (!checkDmdUpdateHash(spec, docId, dmd) ||
+      ((action & IndexUpdate_Payload) && !(dmd->flags & Document_HasPayloadSlot))) {
+    goto cleanup;
+  }
+
+  IndexSpec_IncrActiveWrites(spec);
+  success = true;
+  if (action & IndexUpdate_Payload) {
+    if (payloadSize) {
+      success = DocTable_SetPayload(&spec->docs, dmd, payloadData, payloadSize);
+    } else {
+      // Full indexing treats an empty payload as absent too.
+      DocTable_ClearPayload(&spec->docs, dmd);
+    }
+  }
+  if (success && (action & IndexUpdate_Score)) {
+    dmd->score = score;
+  }
+  IndexSpec_DecrActiveWrites(spec);
+
+cleanup:
+  DMD_Return(dmd);
+  IndexSpec_Unlock(sctx.spec);
+  if (payload) {
+    RedisModule_FreeString(ctx, payload);
+  }
+  if (key) {
+    RedisModule_CloseKey(key);
+  }
+  return success;
+}
+
+// Attempts a vector update for a Hash change classified as vector-only (every schema
+// field the change set named is INDEXFLD_T_VECTOR, per getHashUpdateAction). Updates each named
+// vector field via VecSimIndex_UpdateVectors under the document's existing doc-id.
+// Returns true if every named vector field was updated without reindexing; false requires the
+// caller's full update path. A field this already updated before a later one fails is not
+// undone: the fallback's full replace deletes the old doc-id's entries (including whatever this
+// touched) and rebuilds everything fresh, so a partial update followed by the fallback still
+// lands on the correct final state.
+static bool updateHashVectorFields(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *keyName,
+                                   RedisModuleString **changedFields, size_t numChangedFields) {
+  if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
+    return false;
+  }
+
+  rs_wall_clock startTime;
+  rs_wall_clock_init(&startTime);
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RSDocumentMetadata *dmd = NULL;
+  bool success = false;
+  uint64_t docId = 0;
+  int fieldsUpdated = 0;
+
+  if (!checkKeyUpdateHash(spec, key, &docId)) {
+    goto cleanup;
+  }
+
+  IndexSpec_LockWrite(sctx.spec);
+  dmd = (RSDocumentMetadata *)DocTable_Borrow(&spec->docs, docId);
+  // Readers may retain metadata after releasing the spec lock.
+  if (!checkDmdUpdateHash(spec, docId, dmd)) {
+    goto cleanup;
+  }
+
+  IndexSpec_IncrActiveWrites(spec);
+  success = true;
+  for (int i = 0; i < spec->numFields && success; ++i) {
+    FieldSpec *fs = &spec->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR) ||
+        !FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)) {
+      continue;
+    }
+    RedisModuleString *v = NULL;
+    RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS,
+                        HiddenString_GetUnsafe(fs->fieldPath, NULL), &v, NULL);
+    size_t vecLen = 0;
+    const char *blob = v ? RedisModule_StringPtrLen(v, &vecLen) : NULL;
+    VecSimIndex *vecsim = NULL;
+    if (!blob || vecLen != fs->vectorOpts.expBlobSize ||
+        !(vecsim = openVectorIndex(ctx, fs, CREATE_INDEX)) ||
+        VecSimIndex_UpdateVectors(vecsim, docId, blob, 1) != VecSimUpdate_OK) {
+      success = false;
+    } else {
+      ++fieldsUpdated;
+    }
+    if (v) {
+      RedisModule_FreeString(ctx, v);
+    }
+  }
+  if (success && fieldsUpdated) {
+    // Counted the same way a normal delete-then-add would be: there is no separate
+    // "updated in place" bucket, only the existing add-side counter.
+    FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, fieldsUpdated);
+    spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startTime);
+  }
+  IndexSpec_DecrActiveWrites(spec);
+
+cleanup:
+  DMD_Return(dmd);
+  IndexSpec_Unlock(sctx.spec);
+  if (key) {
+    RedisModule_CloseKey(key);
+  }
+  return success;
 }
 
 void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
@@ -667,8 +872,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
   rm_free(specs);
 }
 
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **changedFields,
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           DocumentType type, RedisModuleString **changedFields,
                                            size_t numChangedFields) {
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc.
@@ -682,11 +887,24 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     SpecOpCtx *specOp = specs->specsOps + i;
 
     if (specOp->op == SpecOp_Add) {
-      if (changeSetAllowsSkippingReindex(specOp->spec, ctx, key, changedFields,
-                                         numChangedFields)) {
+      IndexUpdateAction action =
+          getHashUpdateAction(specOp->spec, ctx, key, changedFields, numChangedFields);
+      if (action == IndexUpdate_Skip) {
         continue;
       }
-      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
+      //no indexing needed - just change metadata
+      bool metadataDone = !(action & IndexUpdate_MetadataMask) ||
+                          updateHashMetadata(specOp->spec, ctx, key, action);
+      //no indexing needed - just change the vector/s under same doc id
+      bool onlyVectorDone = !(action & IndexUpdate_VectorOnly) ||
+                            updateHashVectorFields(specOp->spec, ctx, key, changedFields,
+                                                   numChangedFields);
+      if (metadataDone && onlyVectorDone &&
+          (action & (IndexUpdate_MetadataMask | IndexUpdate_VectorOnly))) {
+        continue;
+      }
+      //continue to indexing
+      IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL, changedFields, numChangedFields);
     } else {
       // specOp->op is SpecOp_Del when the key matches the index prefix but
       // the filter expression fails (e.g. a field value changed so the filter
@@ -753,7 +971,7 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     // notifications all dispatch on the Redis main thread, so this callback is
     // serialized against itself and against other notification-driven writers
     // by the event loop, not by the spec lock.
-    RedisSearchCtx_LockSpecRead(&sctx);
+    IndexSpec_LockRead(sctx.spec);
     const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
     if (cdmd) {
       // Only the doc-level TTL changes here. EXPIRE/PERSIST do not affect
@@ -763,7 +981,7 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
       DocTable_SetDocExpiration((RSDocumentMetadata *)cdmd, ttl);
       DMD_Return(cdmd);
     }
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
   }
 
   Indexes_SpecOpsIndexingCtxFree(specs);
@@ -775,24 +993,17 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
-    }
+    IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
+  }
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
-// True iff the spec has any field with INDEXMISSING. Linear scan over the
-// schema's fields[] array; called from the HEXPIRE fast path on the main
-// thread without the spec lock, which is safe because the schema descriptors
-// read here are only mutated by FT.CREATE / FT.ALTER / RDB load on the same
-// thread.
+// Called from the HEXPIRE fast path on the main thread without the spec lock,
+// which is safe because missing.fields is only mutated by FT.CREATE /
+// FT.ALTER / RDB load on the same thread.
 static bool specHasIndexMissing(const IndexSpec *spec) {
-  for (size_t i = 0; i < spec->numFields; ++i) {
-    if (FieldSpec_IndexesMissing(&spec->fields[i])) {
-      return true;
-    }
-  }
-  return false;
+  return IndexSpec_HasIndexMissing(spec);
 }
 
 // Returns true if `after` contains a field index that is not present in
@@ -826,7 +1037,7 @@ static void reindexDocAfterFieldExpirationAdded(RedisModuleCtx *ctx, IndexSpec *
   // instead — otherwise the stale entry (with a clear inline bit) keeps being
   // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
   if (SchemaRule_ShouldIndex(spec, key, type, openKey)) {
-    IndexSpec_UpdateDoc(spec, ctx, key, type, openKey);
+    IndexSpec_UpdateDoc(spec, ctx, key, type, openKey, NULL, 0);
   } else {
     IndexSpec_DeleteDoc(spec, ctx, key, openKey);
   }
@@ -894,7 +1105,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
       if (SchemaRule_ShouldIndex(spec, key, type, k)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type, k);
+        IndexSpec_UpdateDoc(spec, ctx, key, type, k, NULL, 0);
       } else {
         IndexSpec_DeleteDoc(spec, ctx, key, k);
       }
@@ -920,7 +1131,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     }
 
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
+    IndexSpec_LockWrite(sctx.spec);
 
     const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
     if (cdmd) {
@@ -939,7 +1150,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
       if (fieldExpirationAdded(before, &sorted)) {
         DMD_Return(cdmd);
-        RedisSearchCtx_UnlockSpec(&sctx);
+        IndexSpec_Unlock(sctx.spec);
         FieldExpirations_Free(&sorted);
         reindexDocAfterFieldExpirationAdded(ctx, spec, key, type, k);
         continue;
@@ -951,7 +1162,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       DMD_Return(cdmd);
     }
 
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
 
     // Doc not in this index (filter failed or never indexed): free the list
     // we built speculatively. FieldExpirations_Free handles the empty sentinel.
@@ -993,7 +1204,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       // The document should be indexed by the new key as well, so we need to update the key name in the index.
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-      RedisSearchCtx_LockSpecWrite(&sctx);
+      IndexSpec_LockWrite(sctx.spec);
 
       // After RENAME the docId metadata rides to to_key (Redis keeps key-meta
       // on rename when no rename callback is registered), so look it up there
@@ -1007,7 +1218,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         }
       }
 
-      RedisSearchCtx_UnlockSpec(&sctx);
+      IndexSpec_Unlock(sctx.spec);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
@@ -1032,26 +1243,77 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type, NULL);
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type, NULL, NULL, 0);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
 }
 
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
-  RedisModule_Reply_Set(reply);
+void Indexes_ForEachSpec(IndexesSpecVisitor visit, void *ud) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
     CurrentThread_SetIndexSpec(ref);
-    const char *specName = IndexSpec_FormatName(sp, obfuscate);
-    REPLY_SIMPLE_SAFE(specName);
+    visit(sp, ud);
     CurrentThread_ClearIndexSpec();
   }
   dictReleaseIterator(iter);
+}
+
+typedef struct {
+  RedisModule_Reply *reply;
+  bool obfuscate;
+} SpecNameReplyCtx;
+
+static void replySpecName(IndexSpec *sp, void *ud) {
+  SpecNameReplyCtx *nameCtx = ud;
+  RedisModule_Reply *reply = nameCtx->reply;
+  const char *specName = IndexSpec_FormatName(sp, nameCtx->obfuscate);
+  REPLY_SIMPLE_SAFE(specName);
+}
+
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
+  RedisModule_Reply_Set(reply);
+  SpecNameReplyCtx nameCtx = {.reply = reply, .obfuscate = obfuscate};
+  Indexes_ForEachSpec(replySpecName, &nameCtx);
   RedisModule_Reply_SetEnd(reply);
+  RedisModule_EndReply(reply);
+}
+
+static void replySpecNameAndFingerprint(IndexSpec *sp, RedisModule_Reply *reply) {
+  RedisModule_Reply_Array(reply);
+  size_t nameLen;
+  const char *specName = HiddenString_GetUnsafe(sp->specName, &nameLen);
+  RedisModule_Reply_StringBuffer(reply, specName, nameLen);
+  RedisModule_Reply_LongLong(reply, (long long)IndexSpec_SchemaFingerprint(sp));
+  RedisModule_Reply_ArrayEnd(reply);
+}
+
+static void replySpecNameAndFingerprintVisitor(IndexSpec *sp, void *ud) {
+  replySpecNameAndFingerprint(sp, ud);
+}
+
+// Wire format of the internal _FT._LIST WITHCLUSTERSTATE payload; the FT._LIST
+// reducer in index_list_command.c decodes it, so the two must change together.
+//   [node_id, fingerprint recipe, index encoding version,
+//    [[index name, fingerprint or nil], ...]]
+// node_id is empty when the shard's identity is unknown. The reducer accepts
+// nil fingerprints as unavailable; this producer always emits an integer.
+void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *node_id) {
+  RedisModule_Reply_Array(reply);
+
+  RedisModule_Reply_SimpleString(reply, node_id ? node_id : "");
+
+  RedisModule_Reply_LongLong(reply, SCHEMA_FINGERPRINT_VERSION);
+  RedisModule_Reply_LongLong(reply, INDEX_CURRENT_VERSION);
+
+  RedisModule_Reply_Array(reply);
+  Indexes_ForEachSpec(replySpecNameAndFingerprintVisitor, reply);
+  RedisModule_Reply_ArrayEnd(reply);
+
+  RedisModule_Reply_ArrayEnd(reply);
   RedisModule_EndReply(reply);
 }
 

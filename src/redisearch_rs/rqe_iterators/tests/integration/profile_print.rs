@@ -485,7 +485,7 @@ fn missing_with_field() {
     let ii = DocIdsOnly::from_opaque(ctx.missing_inverted_index());
     let field_index = ctx.field_spec().index;
     // SAFETY: ctx provides a valid RedisSearchCtx with a valid spec,
-    // missingFieldDict, and field_index.
+    // missing.indexes, and field_index.
     let iter = unsafe {
         rqe_iterators::inverted_index::Missing::new(
             ii.reader(),
@@ -567,7 +567,7 @@ fn numeric_variant_geo() {
     let nw_score = nw_hash.bits as f64;
 
     let geo_filter = ffi::GeoFilter {
-        fieldSpec: std::ptr::null(),
+        fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,
