@@ -2324,7 +2324,7 @@ def test_flex_disk_resource_configs(env):
         'search-disk-memory-limit-percentage': '60',
         'search-disk-write-buffer-min-percentage': '20',
         'search-disk-write-buffer-per-index-mb': '3',
-        'search-disk-max-open-files': '1024',
+        'search-disk-max-open-files': '200',
     }
     wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
     for name, default in configs.items():

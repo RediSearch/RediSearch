@@ -37,7 +37,7 @@ static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
   return disk->basic.updateMemoryLimit(disk_db, diskMemoryLimitBytes, registeredIndexCount);
 }
 
-static size_t SearchDisk_RegisteredIndexCount(void) {
+static size_t SearchDisk_CountDiskIndexes(bool includeStaged) {
   if (!specDict_g) {
     return 0;
   }
@@ -48,7 +48,7 @@ static size_t SearchDisk_RegisteredIndexCount(void) {
   while ((entry = dictNext(iterator))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *spec = StrongRef_Get(spec_ref);
-    if (spec && spec->diskRegistered) {
+    if (spec && (spec->diskRegistered || (includeStaged && spec->pendingDiskRdbState))) {
       ++count;
     }
   }
@@ -56,27 +56,58 @@ static size_t SearchDisk_RegisteredIndexCount(void) {
   return count;
 }
 
-bool SearchDisk_CanCreateIndex(QueryError *status) {
-  RS_ASSERT(status);
-  const size_t nextCount = SearchDisk_RegisteredIndexCount() + 1;
+static size_t SearchDisk_RegisteredIndexCount(void) {
+  return SearchDisk_CountDiskIndexes(false);
+}
 
+static bool SearchDisk_HasMemoryForIndexCount(size_t count, bool restoring, QueryError *status) {
   const size_t percentage = RSGlobalConfig.diskMaxMemoryPercentage;
   if (diskMemoryLimitBytes == 0 || percentage == 0 || percentage > 100) {
     QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                        "Cannot create disk index: invalid Search disk memory configuration");
+                        restoring
+                            ? "Cannot restore disk index: invalid Search disk memory configuration"
+                            : "Cannot create disk index: invalid Search disk memory configuration");
     return false;
   }
   const size_t maximumMemory =
       (diskMemoryLimitBytes / 100) * percentage + ((diskMemoryLimitBytes % 100) * percentage) / 100;
 
   const size_t budgetPerIndex = RSGlobalConfig.diskWbmBudgetPerIndexMB * 1024 * 1024;
-  if (nextCount > maximumMemory / budgetPerIndex) {
+  if (count > maximumMemory / budgetPerIndex) {
     QueryError_SetError(
         status, QUERY_ERROR_CODE_DISK_CREATION,
-        "Cannot create disk index: write-buffer budget exceeds Search disk maximum memory");
+        restoring
+            ? "Cannot restore disk index: write-buffer budget exceeds Search disk maximum memory"
+            : "Cannot create disk index: write-buffer budget exceeds Search disk maximum memory");
     return false;
   }
   return true;
+}
+
+bool SearchDisk_CanRestoreIndex(QueryError *status) {
+  RS_ASSERT(status);
+  return SearchDisk_HasMemoryForIndexCount(SearchDisk_CountDiskIndexes(true) + 1, true, status);
+}
+
+bool SearchDisk_CanCreateIndex(QueryError *status) {
+  RS_ASSERT(status);
+  if (!SearchDisk_HasMemoryForIndexCount(SearchDisk_RegisteredIndexCount() + 1, false, status)) {
+    return false;
+  }
+
+  RS_ASSERT(disk && disk_db && disk->basic.reserveOpenFiles);
+  if (!disk->basic.reserveOpenFiles(disk_db)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Cannot create disk index: not enough file descriptors available; "
+                        "lower search-disk-max-open-files or reduce the number of indexes");
+    return false;
+  }
+  return true;
+}
+
+void SearchDisk_ReleaseCreateFailure(void) {
+  RS_ASSERT(disk && disk_db && disk->basic.releaseOpenFiles);
+  disk->basic.releaseOpenFiles(disk_db);
 }
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
