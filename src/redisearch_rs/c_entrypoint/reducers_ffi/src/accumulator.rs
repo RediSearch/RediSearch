@@ -8,16 +8,17 @@
 */
 
 //! FFI layer for the [`Accumulator`] reducers: `COUNT`, `SUM`, `AVG`, `MIN`,
-//! `MAX` and `STDDEV`.
+//! `MAX`, `STDDEV` and `FIRST_VALUE`.
 //!
 //! C parses the reducer arguments and calls one of the constructors below; the
 //! rest of the vtable is one set of callbacks, generic over the accumulator.
 
 use std::ffi::{c_int, c_void};
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
+use reducers::first_value::{FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
@@ -90,16 +91,44 @@ pub unsafe extern "C" fn StdDevReducer_Create(srckey: *const ffi::RLookupKey) ->
     into_c_reducer(StdDev::new(key))
 }
 
+/// Creates a `FIRST_VALUE` reducer of `retkey`, sorted by `sortkey` in ascending
+/// order if `ascending`, or unsorted if `sortkey` is null, and returns its base
+/// [`ffi::Reducer`], which the caller frees through its `Free` callback.
+///
+/// # Safety
+///
+/// 1. `retkey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey], and
+///    `sortkey` null or one, that remain valid, and are not mutated, for the
+///    lifetime of the returned reducer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FirstValueReducer_Create(
+    retkey: *const ffi::RLookupKey,
+    sortkey: *const ffi::RLookupKey,
+    ascending: bool,
+) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { retkey.cast::<RLookupKey>().as_ref() }.expect("retkey must not be null");
+    // SAFETY: ensured by caller (1.)
+    let sort_key = unsafe { sortkey.cast::<RLookupKey>().as_ref() };
+    let sort_by = sort_key.map(|key| SortBy { key, ascending });
+    into_c_reducer(FirstValue::new(key, sort_by))
+}
+
 /// Boxes an [`AccumulatorReducer`] running `accumulator` and wires its vtable.
 fn into_c_reducer<A: Accumulator>(accumulator: A) -> *mut ffi::Reducer {
-    // No `FreeInstance`: states need no dropping (see `Accumulator::State`).
     let mut reducer = Box::new(AccumulatorReducer::new(accumulator));
-    reducer
+    let vtable = reducer
         .reducer_mut()
         .set_new_instance(new_instance::<A>)
         .set_add(add::<A>)
         .set_finalize(finalize::<A>)
         .set_free(free::<A>);
+    // Optimization only: skip the per-group callback when dropping the state is a no-op.
+    if std::mem::needs_drop::<A::State>() {
+        vtable.set_free_instance(free_instance::<A>);
+    }
     Box::into_raw(reducer).cast()
 }
 
@@ -158,6 +187,22 @@ unsafe extern "C" fn finalize<A: Accumulator>(
     let state = unsafe { state.cast::<A::State>().as_ref() }.unwrap();
 
     r.accumulator().finalize(state).into_raw() as *mut ffi::RSValue
+}
+
+/// # Safety
+///
+/// 1. `r` must point to a [valid] [`AccumulatorReducer<A>`] created by
+///    [`into_c_reducer`].
+/// 2. `state` must be a group state returned by [`new_instance`] for `r`, not
+///    freed yet, and not used afterwards.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn free_instance<A: Accumulator>(r: *mut ffi::Reducer, state: *mut c_void) {
+    // SAFETY: ensured by caller (1.)
+    let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
+    let state = NonNull::new(state.cast::<A::State>()).unwrap();
+    // SAFETY: ensured by caller (2.)
+    unsafe { r.drop_state(state.as_ptr()) };
 }
 
 /// # Safety
