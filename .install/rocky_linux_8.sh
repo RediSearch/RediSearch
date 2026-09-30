@@ -5,7 +5,7 @@ set -e
 $MODE dnf update -y
 
 # Development Tools includes config-manager
-$MODE dnf groupinstall "Development Tools" -yqq
+$MODE dnf groupinstall "Development Tools" -yqq --nobest
 
 # powertools is needed to install epel
 $MODE dnf config-manager --set-enabled powertools
