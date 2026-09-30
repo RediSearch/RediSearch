@@ -36,6 +36,7 @@ extern crate ttl_table_ffi as _;
 extern crate types_ffi as _;
 extern crate value_ffi as _;
 extern crate varint_ffi as _;
+extern crate vector_index_ffi as _;
 
 mod fmt;
 mod matches;

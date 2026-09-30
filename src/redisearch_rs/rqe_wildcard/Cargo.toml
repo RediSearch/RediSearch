@@ -63,3 +63,4 @@ ttl_table_ffi = { path = "../c_entrypoint/ttl_table_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
+vector_index_ffi = { path = "../c_entrypoint/vector_index_ffi" }
