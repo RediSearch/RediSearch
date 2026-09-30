@@ -119,6 +119,7 @@ c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
 dict = { path = "./c_wrappers/dict" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
+fat_array = { path = "./c_wrappers/fat_array" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
