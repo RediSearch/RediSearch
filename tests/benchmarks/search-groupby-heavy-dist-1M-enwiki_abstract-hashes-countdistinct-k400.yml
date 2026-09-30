@@ -1,44 +1,10 @@
 name: "search-groupby-heavy-dist-1M-enwiki_abstract-hashes-countdistinct-k400"
-description: "
-             - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
-               English-language Wikipedia:Database page abstracts.
-             - total docs: 1 million
-             - fields per doc: 3 TEXT sortable fields
-             - Type (read/write/mixed): read
-             - Query type: FT.AGGREGATE high-cardinality GROUPBY with COUNT_DISTINCT
-
-             This case measures raw-row fan-in and grouping at the coordinator.
-             COUNT_DISTINCT has no distributed reducer, so shards send loaded title/url
-             rows and the coordinator performs the GROUPBY and distinct counting.
-             Its per-group hash membership set produces a count rather than an array.
-
-             The term filter is deliberate and is what keeps this benchmark honest. Over the
-             whole keyspace this aggregation cannot finish inside the shipped search-timeout
-             of 500ms, and the default RETURN policy then answers with a partial reply
-             carrying the count and zero groups - the fan-in being measured never happens and
-             the run reports a meaningless number. The five-term union yields 32,308 groups,
-             which measured p50 266ms and p99 365ms on a 4-primary cluster: enough fan-in for
-             the coordinator to dominate, with headroom under the timeout so no reply is
-             silently truncated. That was verified by sampling the returned group count under
-             sustained load and confirming it stayed at 32,308.
-
-             The -collect- sibling uses the same dataset and filter, but distributes
-             TOLIST grouping to shards. The two cases therefore have different execution
-             plans and wire payloads: equal final group counts do not imply equal fan-in.
-             Compare each case against its own baseline rather than attributing differences
-             between cases solely to array materialization versus counting.
-
-             The configuration probes record the timeout and row-block setting.
-             An empty row-block CONFIG GET result means that build does not support the
-             setting; it is not a disabled value. Supporting builds report yes or no.
-
-             Group count is a property of the fixed dataset rather than of a tuning knob, so
-             it does not drift if the benchmark is re-run. Cluster setups only, deliberately:
-             on a single shard the fan-in effect being measured does not exist.
-             oss-cluster-02-primaries is excluded on purpose - it requests 2 CPUs for 2 shards
-             plus the coordinator and I/O threads, so it saturates CPU before the coordinator
-             becomes the bottleneck.
-             "
+description: >-
+  This filtered 1M-document enwiki workload measures COUNT_DISTINCT raw-row fan-in:
+  shards send loaded values and the coordinator groups and deduplicates them into counts.
+  TOLIST uses a different plan with partial-group fan-in, so compare each workload
+  against its own baseline. The default query timeout requires completion validation
+  for each run. An empty row-block configuration probe means unsupported, not disabled.
 
 metadata:
   component: "search"
