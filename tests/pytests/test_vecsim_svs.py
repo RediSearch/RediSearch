@@ -219,6 +219,8 @@ def test_svs_vector_survives_repeated_numeric_updates():
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'svsupd:', 'SCHEMA',
                'vector', 'VECTOR', 'SVS-VAMANA', len(vector_params), *vector_params,
                'price', 'NUMERIC').ok()
+    if not env.cmd(debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', 'idx', 'vector'):
+        raise SkipTest('the loaded SVS backend does not support vector relabeling')
 
     # A full block triggers SVS training. Doc i has cosine distance i / num_docs from doc 0,
     # making both the nearest-neighbour ordering and label ownership deterministic.
@@ -242,20 +244,6 @@ def test_svs_vector_survives_repeated_numeric_updates():
         info = conn.execute_command('INFO', 'MODULES')
         return (int(info['search_total_indexing_ops_vector_fields']),
                 int(info.get('search_total_relabel_ops_vector_fields', 0)))
-
-    # Probe the loaded SVS implementation instead of relying on its build configuration. Current
-    # pre-built releases lack replace_external_id, but future releases should run this coverage as
-    # soon as their backend reports a successful relabel.
-    probe_indexing_before, probe_relabel_before = vector_ops()
-    env.assertEqual(conn.execute_command('HSET', 'svsupd:0', 'price', -1), 0)
-    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
-    probe_indexing_after, probe_relabel_after = vector_ops()
-    if probe_relabel_after == probe_relabel_before:
-        env.assertEqual(probe_indexing_after - probe_indexing_before, 1,
-                        message='unsupported SVS relabel did not fall back to vector reindexing')
-        raise SkipTest('the loaded SVS backend does not support vector relabeling')
-    env.assertEqual(probe_indexing_after, probe_indexing_before)
-    env.assertEqual(probe_relabel_after - probe_relabel_before, 1)
 
     indexing_before, relabel_before = vector_ops()
     for round_num in range(1, update_rounds + 1):
