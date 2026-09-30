@@ -180,15 +180,6 @@ void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                                             VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status);
-size_t VecSimType_sizeof(VecSimType type);
-const char *VecSimType_ToString(VecSimType type);
-const char *VecSimMetric_ToString(VecSimMetric metric);
-const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
-const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode);
-const char *VecSimHnswCompression_ToString(VecSimQuantType quantType);
-const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
-const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
-bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
 bool isLVQSupported();
 
 VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField);

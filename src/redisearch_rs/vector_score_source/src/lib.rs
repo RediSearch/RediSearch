@@ -37,12 +37,11 @@ use rqe_iterators::profile_print::ProfilePrint;
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
 
-use std::{ffi::CStr, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use ffi::{
     VecSearchMode, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
     VecSearchMode_HYBRID_BATCHES_TO_ADHOC_BF, VecSearchMode_STANDARD_KNN,
-    VecSimSearchMode_ToString,
 };
 use redis_reply::MapBuilder;
 use rqe_iterators::profile_print::ProfilePrintCtx;
@@ -161,11 +160,9 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
         map.kv_simple_string(c"Type", c"VECTOR");
         ctx.print_optional_counters(map);
 
-        let mode_enum = top_k_mode_to_vecsim(mode, switches);
-        // SAFETY: `mode_enum` is one of the four VecSearchMode values above, each
-        // of which VecSimSearchMode_ToString maps to a non-null static C string.
-        let mode_cstr: &CStr = unsafe { CStr::from_ptr(VecSimSearchMode_ToString(mode_enum)) };
-        map.kv_simple_string(c"Vector search mode", mode_cstr);
+        let mode_name = vecsim::names::search_mode_name(top_k_mode_to_vecsim(mode, switches))
+            .expect("top-k modes map to valid search modes");
+        map.kv_simple_string(c"Vector search mode", mode_name);
 
         let is_batch_mode = matches!(mode, TopKMode::Batches | TopKMode::ForcedBatches)
             || (matches!(mode, TopKMode::AdhocBF) && switches > 0);

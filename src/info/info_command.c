@@ -17,6 +17,7 @@
 #include "indexes.h"
 #include "indexes_scanner.h"
 #include "vector_index.h"
+#include "vector_index_ffi.h"
 #include "cursor.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"

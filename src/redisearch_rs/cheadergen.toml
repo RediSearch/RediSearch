@@ -428,6 +428,9 @@ includes = ["redismodule.h", "hiredis/sds.h"]
 [header.varint_ffi]
 includes = ["buffer.h", "redisearch.h"]
 
+[header.vector_index_ffi]
+includes = ["VecSim/vec_sim.h"]
+
 [header.ttl_table]
 includes = ["redisearch.h"]
 after_includes = """

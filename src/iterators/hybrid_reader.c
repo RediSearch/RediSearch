@@ -18,6 +18,7 @@
 #include "query_request.h"
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
+#include "vector_index_ffi.h"
 #include "query.h"
 #include "doc_table.h"
 #include "field.h"

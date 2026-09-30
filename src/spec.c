@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "triemap_ffi.h"
+#include "vector_index_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
 #include "rmutil/util.h"

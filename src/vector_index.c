@@ -24,6 +24,7 @@
 #include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
+#include "vector_index_ffi.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"
@@ -428,118 +429,6 @@ void VectorQuery_Free(VectorQuery *vq) {
   array_free(vq->params.params);
   array_free(vq->params.needResolve);
   rm_free(vq);
-}
-
-const char *VecSimType_ToString(VecSimType type) {
-  switch (type) {
-    case VecSimType_FLOAT32: return VECSIM_TYPE_FLOAT32;
-    case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
-    case VecSimType_FLOAT16: return VECSIM_TYPE_FLOAT16;
-    case VecSimType_BFLOAT16: return VECSIM_TYPE_BFLOAT16;
-    case VecSimType_UINT8: return VECSIM_TYPE_UINT8;
-    case VecSimType_INT8: return VECSIM_TYPE_INT8;
-    case VecSimType_INT32: return VECSIM_TYPE_INT32;
-    case VecSimType_INT64: return VECSIM_TYPE_INT64;
-  }
-  return NULL;
-}
-
-size_t VecSimType_sizeof(VecSimType type) {
-    switch (type) {
-        case VecSimType_FLOAT32: return sizeof(float);
-        case VecSimType_FLOAT64: return sizeof(double);
-        case VecSimType_FLOAT16: return sizeof(float)/2;
-        case VecSimType_BFLOAT16: return sizeof(float)/2;
-        case VecSimType_UINT8: return sizeof(uint8_t);
-        case VecSimType_INT8: return sizeof(int8_t);
-        case VecSimType_INT32: return sizeof(int32_t);
-        case VecSimType_INT64: return sizeof(int64_t);
-    }
-    return 0;
-}
-
-const char *VecSimMetric_ToString(VecSimMetric metric) {
-  switch (metric) {
-    case VecSimMetric_IP: return VECSIM_METRIC_IP;
-    case VecSimMetric_L2: return VECSIM_METRIC_L2;
-    case VecSimMetric_Cosine: return VECSIM_METRIC_COSINE;
-  }
-  return NULL;
-}
-
-const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
-  switch (algo) {
-    case VecSimAlgo_BF: return VECSIM_ALGORITHM_BF;
-    case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
-    case VecSimAlgo_TIERED: return VECSIM_ALGORITHM_TIERED;
-    case VecSimAlgo_SVS: return VECSIM_ALGORITHM_SVS;
-  }
-  return NULL;
-}
-const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
-    switch (vecsimSearchMode) {
-    case EMPTY_MODE:
-        return "EMPTY_MODE";
-    case STANDARD_KNN:
-        return "STANDARD_KNN";
-    case HYBRID_ADHOC_BF:
-        return "HYBRID_ADHOC_BF";
-    case HYBRID_BATCHES:
-        return "HYBRID_BATCHES";
-    case HYBRID_BATCHES_TO_ADHOC_BF:
-        return "HYBRID_BATCHES_TO_ADHOC_BF";
-    case RANGE_QUERY:
-        return "RANGE_QUERY";
-    }
-    return NULL;
-}
-
-bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
-  return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
-}
-
-const char *VecSimHnswCompression_ToString(VecSimQuantType quantType) {
-  switch (quantType) {
-    case VecSimQuant_NONE:
-      return VECSIM_NO_COMPRESSION;
-    case VecSimQuant_SQ8:
-      return VECSIM_SQ8;
-  }
-  return NULL;
-}
-
-const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
-  // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
-  // need to fall back to scalar quantization.
-  if (quantBits == VecSimSvsQuant_NONE) {
-    return VECSIM_NO_COMPRESSION;
-  }
-  // If we are running on non-intel machine, only scalar quantization is possible.
-  if (!isLVQSupported()) {
-    return VECSIM_LVQ_SCALAR;
-  }
-  // Otherwise, we are running on intel machine, and we return the appropriate quantization mode.
-  switch (quantBits) {
-    case VecSimSvsQuant_4: return VECSIM_LVQ_4;
-    case VecSimSvsQuant_8: return VECSIM_LVQ_8;
-    case VecSimSvsQuant_4x4: return VECSIM_LVQ_4X4;
-    case VecSimSvsQuant_4x8: return VECSIM_LVQ_4X8;
-    case VecSimSvsQuant_4x8_LeanVec: return VECSIM_LEANVEC_4X8;
-    case VecSimSvsQuant_8x8_LeanVec: return VECSIM_LEANVEC_8X8;
-    default:;
-  }
-  return NULL;
-
-}
-
-const char *VecSimSearchHistory_ToString(VecSimOptionMode option) {
-    if (option == VecSimOption_ENABLE)
-        return VECSIM_USE_SEARCH_HISTORY_ON;
-    else if (option == VecSimOption_DISABLE)
-        return VECSIM_USE_SEARCH_HISTORY_OFF;
-    else if (option == VecSimOption_AUTO)
-        return VECSIM_USE_SEARCH_HISTORY_DEFAULT;
-    return NULL;
 }
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {

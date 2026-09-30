@@ -44,5 +44,6 @@ pub use ttl_table_ffi as ttl_table;
 pub use types_ffi as types;
 pub use value_ffi as value;
 pub use varint_ffi as varint;
+pub use vector_index_ffi as vector_index;
 
 include!(concat!(env!("OUT_DIR"), "/link_guard.rs"));

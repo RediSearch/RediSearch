@@ -18,9 +18,12 @@
 //!
 //! The non-owning [`IndexRef`] is the entry point; everything else is
 //! produced from it.
+//!
+//! Separately, [`names`] maps the VecSim enums to their display names.
 
 mod batch;
 mod index;
+pub mod names;
 mod params;
 mod reply;
 

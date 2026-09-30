@@ -12,3 +12,8 @@ workspace = true
 ffi.workspace = true
 rqe_core.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+# Crate required to invoke C symbols
+redisearch_rs.workspace = true
+redis_mock.workspace = true

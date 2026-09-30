@@ -2187,6 +2187,7 @@ dependencies = [
  "types_ffi",
  "value_ffi",
  "varint_ffi",
+ "vector_index_ffi",
  "walkdir",
  "workspace_hack",
 ]
@@ -3681,7 +3682,18 @@ name = "vecsim"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
+name = "vector_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "vecsim",
  "workspace_hack",
 ]
 
