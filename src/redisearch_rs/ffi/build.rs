@@ -452,7 +452,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "array_len_func",
             "array_new_sz",
         ],
-        types: &[],
+        types: &["array_hdr_t"],
         vars: &[],
     },
     HeaderAllowlist {
