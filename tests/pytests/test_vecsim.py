@@ -2760,9 +2760,15 @@ def test_vector_only_update_no_reindex():
     env.assertEqual(pipe.execute(), [2] * num_docs)
 
     # Settle every vector in HNSW so the updates exercise the tiered backend, not its flat buffer.
-    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    env.assertEqual(get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE'], 0)
-    env.assertEqual(get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE'], num_docs)
+    # A drain only waits for work already queued, so retry until async ingest has queued and run.
+    def backend_settled():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        frontend_size = get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        backend_size = get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        state = {'frontend_size': frontend_size, 'backend_size': backend_size}
+        return frontend_size == 0 and backend_size == num_docs, state
+
+    wait_for_condition(backend_settled, 'all vectors must reach the HNSW backend', timeout=10)
 
     def field_ops():
         info = conn.execute_command('INFO', 'MODULES')
