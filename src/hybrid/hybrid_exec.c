@@ -1000,6 +1000,27 @@ done:
   return rc;
 }
 
+// The blocked-query node owns a reference until FreeQueryNode runs. The worker
+// keeps its own reference and remains responsible for unblocking the client.
+static void HybridQueryDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  BlockedQueryNode *node = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(node && node->privdata);
+  HybridRequest *hreq = node->privdata;
+  HybridRequest_SetTimedOut(hreq);
+  HybridRequest_WakeAbortChannels(hreq);
+
+  // Redis skips the reply callback after disconnect. Reclaim any internal
+  // cursors already published for that callback; later publication sees timedOut.
+  HybridRequest_LockCursors(hreq);
+  arrayof(Cursor *) cursors = hreq->cursors;
+  hreq->cursors = NULL;
+  HybridRequest_UnlockCursors(hreq);
+  if (cursors) {
+    array_free_ex(cursors, Cursor_Free(*(Cursor **)ptr));
+  }
+}
+
 // Timeout callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (FAIL policy only).
 // Acquires cursorMutex to synchronize with HybridRequest_StartCursors:
@@ -1244,6 +1265,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
 
     if (timeoutPolicy != TimeoutPolicy_Return) {
+      blockClientCtx.disconnectCallback = HybridQueryDisconnectCallback;
       // Standalone FAIL serializes on the worker while the deadline remains active.
       hreq->useReplyCallback = internal || timeoutPolicy == TimeoutPolicy_ReturnStrict;
       if (hreq->useReplyCallback) {

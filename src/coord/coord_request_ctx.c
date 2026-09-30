@@ -133,6 +133,7 @@ void CoordRequestCtx_Disconnect(RedisModuleCtx *redisCtx, RedisModuleBlockedClie
   CoordRequestCtx_LockSetRequest(ctx);
   CoordRequestCtx_SetTimedOut(ctx);
   AREQ *req = ctx->type == COMMAND_AGGREGATE ? ctx->areq : NULL;
+  HybridRequest *hreq = ctx->type == COMMAND_HYBRID ? ctx->hreq : NULL;
   CoordRequestCtx_UnlockSetRequest(ctx);
 
   // The blocked client retains the request until worker completion. A timeout
@@ -140,6 +141,7 @@ void CoordRequestCtx_Disconnect(RedisModuleCtx *redisCtx, RedisModuleBlockedClie
   if (req) {
     RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
   }
+  HybridRequest_WakeAbortChannels(hreq);
 }
 
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback) {
