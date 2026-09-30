@@ -325,6 +325,14 @@ typedef struct BasicDiskAPI {
   void (*releaseOpenFiles)(RedisSearchDisk *disk);
 
   /**
+   * Reserve FD headroom for unopened RDB indexes in addition to live disk handles.
+   * Does not charge an index or leave a pending create reservation. Successful opens
+   * account for their own caps; an aborted load leaves reusable headroom.
+   * Must run on the main thread before SST loading is committed.
+   */
+  bool (*reserveRestoreOpenFiles)(RedisSearchDisk *disk, size_t unopenedIndexCount);
+
+  /**
    * Create a result processor that loads document fields from disk asynchronously.
    *
    * Drop-in replacement for RPLoader_New: the pipeline calls this instead of
