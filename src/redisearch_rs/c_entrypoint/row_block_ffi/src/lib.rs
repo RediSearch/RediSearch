@@ -262,7 +262,7 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
             // SAFETY: ensured by caller (2.); `name` is borrowed from the writer's buffer,
             // which this function does not touch.
             unsafe {
-                ffi::RedisModule_Reply_StringBuffer(reply, name.as_ptr(), name.count_bytes())
+                ffi::RedisModule_Reply_StringBuffer_FFI(reply, name.as_ptr(), name.count_bytes())
             };
             // SAFETY: ensured by caller (2.); `value` is a live `RSValue` owned by `row`.
             unsafe { ffi::RedisModule_Reply_RSValue(reply, value.as_ptr().cast(), flags) };
