@@ -418,6 +418,24 @@ def _wait_shard_paused_after_aggregate_result(shard_conn, cmd_name, timeout=30):
             time.sleep(0.1)
 
 
+def _run_internal_hybrid_expect_disconnect(client, query_args, unexpected):
+    """Mark the exact connection issuing an internal HYBRID query or cursor read."""
+    connection = client.connection_pool.get_connection()
+    try:
+        connection.send_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        connection.read_response()
+        connection.send_command(*query_args)
+        connection.read_response()
+        unexpected.append(AssertionError('query returned after its client was killed'))
+    except redis_exceptions.ConnectionError:
+        pass
+    except Exception as exc:
+        unexpected.append(exc)
+    finally:
+        connection.disconnect()
+        client.connection_pool.release(connection)
+
+
 def _internal_hybrid_cursor_map(result):
     if isinstance(result, dict):
         result = dict(result)
@@ -880,6 +898,29 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
+    def test_disconnect_wakes_hybrid_abort_channels(self):
+        """A disconnected coordinator hybrid wakes both subqueries and its tail."""
+        self._assert_disconnect_wakes_abort_channels(
+            [
+                'FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            ],
+            'FT.HYBRID',
+        )
+
+    def test_disconnect_wakes_hybrid_return_strict_and_profile(self):
+        """Keep 8.10's RETURN_STRICT and PROFILE coverage on the shared wake test."""
+        for policy, profile in (('return-strict', False), ('fail', True),
+                                ('return-strict', True)):
+            prefix = (['FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY'] if profile else
+                      ['FT.HYBRID', 'hybrid_idx'])
+            self._assert_disconnect_wakes_abort_channels(
+                prefix + ['SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
+                          'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', '0'],
+                prefix[0], policy=policy)
+
     def test_return_strict_timeout_setup_phase_hybrid(self):
         """RETURN-STRICT setup-phase timeout, one shard suspended: no in-band deadline, so CLIENT UNBLOCK fires the timeout callback; reply is empty + warning."""
         env = self.env
@@ -1006,6 +1047,39 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_before_coord_pickup_aggregate(self):
         """Test timeout occurring before coordinator picks up an FT.AGGREGATE query."""
         self._test_fail_timeout_before_coord_pickup_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_disconnect_before_coord_pickup_hybrid(self):
+        """Queued HYBRID cancellation retains its context until dispatcher cleanup."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        query = ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                 'VSIM', '@embedding', '$BLOB',
+                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', '0']
+        try:
+            for policy in ('fail', 'return-strict'):
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy)
+                env.cmd(debug_cmd(), 'COORD_THREADS', 'PAUSE')
+                freed = _get_coord_req_ctx_free_count(env)
+                unexpected = []
+                thread = threading.Thread(target=run_cmd_expect_disconnect,
+                                          args=(env, query, unexpected), daemon=True)
+                thread.start()
+                try:
+                    client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+                    env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+                    thread.join(timeout=10)
+                    env.assertFalse(thread.is_alive())
+                    env.assertEqual(unexpected, [])
+                    env.assertEqual(_get_coord_req_ctx_free_count(env), freed)
+                finally:
+                    env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+                    thread.join(timeout=10)
+                wait_for_condition(
+                    lambda: (_get_coord_req_ctx_free_count(env) == freed + 1, {}),
+                    'Queued disconnected HYBRID did not release its request', timeout=10)
+        finally:
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_fail_timeout_before_coord_pickup_hybrid(self):
         """Test timeout occurring before coordinator picks up an FT.HYBRID query."""
@@ -1737,6 +1811,53 @@ class TestCoordinatorTimeout:
                 c.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
                                   'SET_CURSOR_READ_SIZE', prev)
 
+    def test_disconnect_internal_hybrid_cursor_read(self):
+        """Both subquery cursors cancel using their cached FAIL/RETURN_STRICT policy."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        shard = env.getConnection(1)
+        slots = dict(get_shard_slot_ranges(env))[1]
+        sync_point = 'BeforeCursorReadSendChunk'
+        prev_policy = shard.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        query = ['_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                 'VSIM', '@embedding', '$BLOB',
+                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', '0',
+                 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', slots,
+                 '_COORD_DISPATCH_TIME', '1000000']
+        try:
+            for policy in ('fail', 'return-strict'):
+                shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy)
+                with shard.client() as connection:
+                    connection.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+                    cursors = _internal_hybrid_cursor_map(connection.execute_command(*query))
+                shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+                for component in ('SEARCH', 'VSIM'):
+                    cursor_id = cursors[component]
+                    env.assertNotEqual(cursor_id, 0)
+                    shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+                    unexpected = []
+                    command = ['_FT.CURSOR', 'READ', 'hybrid_idx', cursor_id]
+                    thread = threading.Thread(target=_run_internal_hybrid_expect_disconnect,
+                                              args=(shard, command, unexpected), daemon=True)
+                    thread.start()
+                    try:
+                        wait_for_condition(
+                            lambda: (shard.execute_command(debug_cmd(), 'SYNC_POINT',
+                                                          'IS_WAITING', sync_point) == 1, {}),
+                            f'{component} cursor read did not pause')
+                        client_id = wait_for_blocked_query_client(shard, '_FT.CURSOR|READ')
+                        env.assertEqual(shard.execute_command('CLIENT', 'KILL', 'ID', client_id), 1)
+                        thread.join(timeout=10)
+                        env.assertFalse(thread.is_alive())
+                        env.assertEqual(unexpected, [])
+                        _wait_for_background_fail_workers(env)
+                    finally:
+                        shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                        shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                        thread.join(timeout=10)
+        finally:
+            shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
     def test_return_strict_internal_hybrid_vsim_cursor_read_timeout_uses_cached_policy(self):
         """_FT.HYBRID-created VSIM cursors keep RETURN_STRICT for _FT.CURSOR READ.
 
@@ -2166,6 +2287,55 @@ class TestCoordinatorTimeout:
         env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id_after).ok()
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_disconnect_internal_hybrid_cursor_publication(self):
+        """Disconnect before/after cursor publication releases workers and cursors."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        shard = env.getConnection(1)
+        slots = dict(get_shard_slot_ranges(env))[1]
+        prev_policy = shard.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        query = ['_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                 'VSIM', '@embedding', '$BLOB',
+                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', '0',
+                 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', slots,
+                 '_COORD_DISPATCH_TIME', '1000000']
+
+        def cursor_total():
+            # Killing a connection clears its internal-client marker on reconnect.
+            with shard.client() as connection:
+                connection.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+                info = to_dict(connection.execute_command('_FT.INFO', 'hybrid_idx'))
+            return int(to_dict(info['cursor_stats'])['index_total'])
+
+        try:
+            for policy in ('fail', 'return-strict'):
+                shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy)
+                for phase in ('BEFORE', 'AFTER'):
+                    pause_cmd = f'SET_PAUSE_{phase}_HYBRID_STORE_CURSORS'
+                    shard.execute_command(debug_cmd(), 'QUERY_CONTROLLER', pause_cmd, 'true')
+                    baseline = cursor_total()
+                    unexpected = []
+                    thread = threading.Thread(target=_run_internal_hybrid_expect_disconnect,
+                                              args=(shard, query, unexpected), daemon=True)
+                    thread.start()
+                    try:
+                        wait_for_condition(
+                            lambda: (getIsHybridStoreCursorsPaused(env) == 1, {}),
+                            f'Internal HYBRID did not pause {phase.lower()} cursor publication')
+                        client_id = wait_for_blocked_query_client(shard, '_FT.HYBRID')
+                        env.assertEqual(shard.execute_command('CLIENT', 'KILL', 'ID', client_id), 1)
+                        thread.join(timeout=10)
+                        env.assertFalse(thread.is_alive())
+                        env.assertEqual(unexpected, [])
+                        _wait_for_background_fail_workers(env)
+                        wait_for_condition(lambda: (cursor_total() == baseline, {}),
+                                           'Disconnected HYBRID leaked internal cursors', timeout=10)
+                    finally:
+                        shard.execute_command(debug_cmd(), 'QUERY_CONTROLLER', pause_cmd, 'false')
+                        thread.join(timeout=10)
+        finally:
+            shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def _test_fail_timeout_shard_store_cursors_impl(self, before):
         """Test timeout occurring before/after shard stores cursors for internal FT.HYBRID.
@@ -6519,6 +6689,42 @@ class TestShardTimeout:
     def test_fail_timeout_after_encode_aggregate(self):
         """Test timeout occurring after encoding results for FT.AGGREGATE in standalone."""
         self._test_fail_timeout_after_store_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_disconnect_hybrid_and_profile(self):
+        """Both policies stop running HYBRID/PROFILE without a clock deadline."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeHybridResultsClaim'
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        try:
+            for policy in ('fail', 'return-strict'):
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy)
+                for profile in (False, True):
+                    query = self._standalone_hybrid_query(['TIMEOUT', '0'])
+                    if profile:
+                        query = ['FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY'] + query[2:]
+                    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+                    unexpected = []
+                    thread = threading.Thread(target=run_cmd_expect_disconnect,
+                                              args=(env, query, unexpected), daemon=True)
+                    thread.start()
+                    try:
+                        wait_for_condition(
+                            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                            'HYBRID did not reach its tail pipeline')
+                        client_id = wait_for_blocked_query_client(env, query[0])
+                        env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+                        thread.join(timeout=10)
+                        env.assertFalse(thread.is_alive())
+                        env.assertEqual(unexpected, [])
+                        # Only the published timeout flag can release the parked worker.
+                        _wait_for_background_fail_workers(env)
+                    finally:
+                        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                        thread.join(timeout=10)
+        finally:
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_fail_timeout_before_encode_hybrid(self):
         """Test timeout occurring before encoding results for FT.HYBRID in standalone."""
