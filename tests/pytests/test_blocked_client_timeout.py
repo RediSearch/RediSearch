@@ -9472,9 +9472,9 @@ def test_coord_background_fail_reply_parity_resp3():
     _reply_parity(3)
 
 
-def test_hybrid_cursor_read_timeout_during_background_encoding():
+def _test_last_hybrid_cursor_read_timeout(policy):
     """Exercise each HYBRID subcursor as the last owner of its parent request."""
-    env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
+    env = Env(protocol=3, moduleArgs=f'WORKERS 1 TIMEOUT 0 ON_TIMEOUT {policy} NOGC')
     skipIfNoEnableAssert(env)
     vector = _setup_hybrid_index(env)
     waitForIndex(env, 'hybrid_idx')
@@ -9493,7 +9493,7 @@ def test_hybrid_cursor_read_timeout_during_background_encoding():
             'VSIM', '@embedding', '$BLOB', 'KNN', 2, 'K', 100,
             'COMBINE', 'RRF', 2, 'WINDOW', 100,
             'WITHCURSOR', 'COUNT', 2, '_SLOTS_INFO', slots,
-            'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', 1000)
+            'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', 1000 if policy == 'FAIL' else 0)
         cursors = _internal_hybrid_cursor_map(reply)
         env.assertEqual(set(cursors), {'SEARCH', 'VSIM'})
         return cursors
@@ -9514,7 +9514,8 @@ def test_hybrid_cursor_read_timeout_during_background_encoding():
                     and cursor_total() == total, stats)
         wait_for_condition(finished, 'HYBRID cursor READ did not release its cursor', timeout=5)
 
-    point = 'DuringBackgroundReplyEncode'
+    point = ('DuringBackgroundReplyEncode' if policy == 'FAIL'
+             else 'AfterCursorReadSendChunk')
     for protocol in (2, 3):
         for subquery in ('SEARCH', 'VSIM'):
             baseline = cursor_total()
@@ -9543,15 +9544,28 @@ def test_hybrid_cursor_read_timeout_during_background_encoding():
                         debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
                         {'results': results}),
                     f'{subquery} RESP{protocol} did not reach {point}', timeout=5)
-                # The timeout must reply while the encoding worker is still paused.
+                if policy != 'FAIL':
+                    # Results are stored, but the worker has not finished using its context.
+                    env.assertEqual(shard.execute_command(
+                        'CLIENT', 'UNBLOCK', client_id, 'TIMEOUT'), 1)
+                # The timeout must reply while the worker is still paused.
                 thread.join(timeout=5)
                 env.assertFalse(thread.is_alive(), message='Timeout waited for cursor worker')
                 env.assertEqual(len(results), 1)
-                env.assertTrue(isinstance(results[0], ResponseError), message=results)
-                env.assertContains(TIMEOUT_ERROR, str(results[0]))
+                if policy == 'FAIL':
+                    env.assertTrue(isinstance(results[0], ResponseError), message=results)
+                    env.assertContains(TIMEOUT_ERROR, str(results[0]))
+                    env.assertEqual(cursor_total(), baseline + 1)
+                else:
+                    env.assertFalse(isinstance(results[0], Exception), message=results)
+                    reply, cursor_id = results[0]
+                    env.assertEqual(cursor_id, 0)
+                    if protocol == 3:
+                        env.assertEqual(reply['warning'], [TIMEOUT_WARNING])
+                    # The reply is depleted, but the cursor retains its parent until cleanup.
+                    env.assertEqual(cursor_total(), baseline + 1)
                 env.assertTrue(client.ping())
                 env.assertEqual(client.client_id(), client_id)
-                env.assertEqual(cursor_total(), baseline + 1)
                 env.assertEqual(shard.execute_command(
                     debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), 1)
             finally:
@@ -9565,3 +9579,11 @@ def test_hybrid_cursor_read_timeout_during_background_encoding():
                     client.close()
                     pool.disconnect()
                     shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+
+def test_hybrid_cursor_read_timeout_during_background_encoding():
+    _test_last_hybrid_cursor_read_timeout('FAIL')
+
+
+def test_last_hybrid_cursor_return_strict_timeout_before_worker_cleanup():
+    _test_last_hybrid_cursor_read_timeout('RETURN-STRICT')

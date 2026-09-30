@@ -337,6 +337,9 @@ typedef struct AREQ {
   // timer owns the deadline, and free-data cleanup finalizes the pending cursor.
   bool encodeReplyInBackground;
 
+  // Blocked cursor READs defer callback-driven cursor disposal until worker cleanup.
+  bool deferCursorCleanup;
+
   // Stored results for callback-based serialization, or only the pending cursor
   // for background FAIL until blocked-client free-data cleanup.
   ChunkReplyState storedReplyState;
@@ -537,8 +540,8 @@ void AREQ_DecrRef(AREQ *req);
 /**
  * Finalize a cursor parked in `req->storedReplyState.cursor`, if any.
  * Called by blocked-client free-data cleanup after worker completion.
- * Background FAIL pauses successful nonterminal cursors; all other pending
- * cursors are freed. Callback-based replies already finalized their cursors.
+ * Background FAIL and deferred cursor READs pause successful nonterminal cursors;
+ * all other pending cursors are freed.
  */
 void AREQ_FinalizeStoredCursor(AREQ *req);
 
