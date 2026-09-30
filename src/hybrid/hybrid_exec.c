@@ -1000,25 +1000,14 @@ done:
   return rc;
 }
 
-// The blocked-query node owns a reference until FreeQueryNode runs. The worker
-// keeps its own reference and remains responsible for unblocking the client.
+// Background standalone FT.HYBRID/FT.PROFILE and shard _FT.HYBRID/_FT.PROFILE,
+// including the shard's initial cursor creation. Internal cursor reads use
+// CursorReadDisconnectCallback; coordinator queries use CoordRequestCtx_Disconnect.
 static void HybridQueryDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
   UNUSED(ctx);
   BlockedQueryNode *node = RedisModule_BlockClientGetPrivateData(bc);
   RS_ASSERT(node && node->privdata);
-  HybridRequest *hreq = node->privdata;
-  HybridRequest_SetTimedOut(hreq);
-  HybridRequest_WakeAbortChannels(hreq);
-
-  // Redis skips the reply callback after disconnect. Reclaim any internal
-  // cursors already published for that callback; later publication sees timedOut.
-  HybridRequest_LockCursors(hreq);
-  arrayof(Cursor *) cursors = hreq->cursors;
-  hreq->cursors = NULL;
-  HybridRequest_UnlockCursors(hreq);
-  if (cursors) {
-    array_free_ex(cursors, Cursor_Free(*(Cursor **)ptr));
-  }
+  HybridRequest_SetTimedOut(node->privdata);
 }
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.
@@ -1227,9 +1216,17 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
 }
 
-// Wrapper for HybridRequest_DecrRef to match BlockedClientFreePrivDataCB signature
-static void HybridRequest_DecrRefWrapper(void *privdata) {
-  HybridRequest_DecrRef((HybridRequest *)privdata);
+// The worker has finished before Redis frees the blocked client's private data.
+// If disconnect skipped the reply callback, park unreturned shard cursors for
+// normal MAXIDLE expiry. No cursorMutex is needed after worker completion.
+static void HybridQueryFreePrivData(void *privdata) {
+  HybridRequest *hreq = privdata;
+  if (hreq->cursors) {
+    arrayof(Cursor *) cursors = hreq->cursors;
+    hreq->cursors = NULL;
+    array_free_ex(cursors, Cursor_Pause(*(Cursor **)ptr));
+  }
+  HybridRequest_DecrRef(hreq);
 }
 
 // Background execution functions implementation
@@ -1261,7 +1258,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     blockClientCtx.privdata = hreq;
     HybridRequest_IncrRef(hreq);
-    blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
+    blockClientCtx.freePrivData = HybridQueryFreePrivData;
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
 
     if (timeoutPolicy != TimeoutPolicy_Return) {

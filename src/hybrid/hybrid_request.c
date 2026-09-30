@@ -343,8 +343,8 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
 static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Cursors should have been freed by the timeout callback or reply callback.
-    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
+    // The cursor array must be detached by the reply/timeout callback or the
+    // blocked-client finalizer before the last cursor releases this request.
     RS_ASSERT(req->cursors == NULL);
 
     // Free all individual AREQ requests and their pipelines.

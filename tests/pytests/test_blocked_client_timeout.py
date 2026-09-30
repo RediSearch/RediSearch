@@ -2289,7 +2289,7 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_disconnect_internal_hybrid_cursor_publication(self):
-        """Disconnect before/after cursor publication releases workers and cursors."""
+        """Disconnect stops workers; any published cursors expire through MAXIDLE."""
         env = self.env
         skipIfNoEnableAssert(env)
         shard = env.getConnection(1)
@@ -2298,7 +2298,7 @@ class TestCoordinatorTimeout:
         query = ['_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
                  'VSIM', '@embedding', '$BLOB',
                  'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', '0',
-                 'WITHCURSOR', 'COUNT', '1', '_SLOTS_INFO', slots,
+                 'WITHCURSOR', 'COUNT', '1', 'MAXIDLE', '100', '_SLOTS_INFO', slots,
                  '_COORD_DISPATCH_TIME', '1000000']
 
         def cursor_total():
@@ -2330,7 +2330,7 @@ class TestCoordinatorTimeout:
                         env.assertEqual(unexpected, [])
                         _wait_for_background_fail_workers(env)
                         wait_for_condition(lambda: (cursor_total() == baseline, {}),
-                                           'Disconnected HYBRID leaked internal cursors', timeout=10)
+                                           'Disconnected HYBRID cursors did not expire', timeout=10)
                     finally:
                         shard.execute_command(debug_cmd(), 'QUERY_CONTROLLER', pause_cmd, 'false')
                         thread.join(timeout=10)
