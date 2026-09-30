@@ -81,7 +81,7 @@ void SearchDisk_UpdateLogObfuscation();
  */
 bool SearchDisk_CanCreateIndex(QueryError *status);
 
-/** Reject an RDB-restored disk index if its write-buffer budget exceeds the configured maximum. */
+/** Check memory and reserve FD headroom before opening or staging an RDB-restored disk index. */
 bool SearchDisk_CanRestoreIndex(QueryError *status);
 
 /**
