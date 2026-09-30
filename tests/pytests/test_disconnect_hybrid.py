@@ -69,7 +69,10 @@ def _wait_idle(client):
 
 
 def _cursor_count(client):
-    info = to_dict(client.execute_command('_FT.INFO', 'hybrid_idx'))
+    # The killed query connection may be reused after reconnecting.
+    with client.client() as connection:
+        connection.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        info = to_dict(connection.execute_command('_FT.INFO', 'hybrid_idx'))
     return int(to_dict(info['cursor_stats'])['index_total'])
 
 
