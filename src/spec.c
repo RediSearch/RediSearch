@@ -3440,6 +3440,11 @@ cleanup:
     // Idempotent — no-op if the open never registered on this path.
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
   StrongRef_Release(spec_ref);
   goto cleanup_no_index;
 cleanup_name:
