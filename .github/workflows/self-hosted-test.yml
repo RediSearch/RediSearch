@@ -21,18 +21,8 @@ jobs:
       matrix:
         v1: [1]
         #v2: [1,2,3,4,5]
-    env:
-    # The type of runner that the job will run on
-    #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
-    #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
-    #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
-    #runs-on: [self-hosted, staging-ubuntu-2204-x64]
-    #runs-on: [self-hosted, staging-rhel9-fips-x64]
-    #runs-on: [self-hosted, ubuntu-2204-x64]
-    #runs-on: [u-x64-small]
     runs-on:
       - staging-u-arm64-small
-    #runs-on: [self-hosted, ubuntu-2204-x64-xl]
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
