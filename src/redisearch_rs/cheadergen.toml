@@ -382,6 +382,9 @@ includes = ["inverted_index.h"]
 [header.numeric_range_tree_ffi]
 includes = ["redisearch.h", "redismodule.h"]
 
+[header.rmr_ffi]
+includes = ["rmr/endpoint.h"]
+
 [header.search_result_ffi]
 includes = ["redisearch.h", "score_explain.h"]
 

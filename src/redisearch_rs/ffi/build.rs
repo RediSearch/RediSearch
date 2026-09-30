@@ -89,6 +89,13 @@ const HEADERS: &[HeaderAllowlist] = &[
         ],
         vars: &[],
     },
+    // `rmr_ffi`: the status codes of `MREndpoint_Parse`.
+    HeaderAllowlist {
+        path: "deps/hiredis/read.h",
+        fns: &[],
+        types: &[],
+        vars: &["REDIS_ERR", "REDIS_OK"],
+    },
     HeaderAllowlist {
         path: "deps/hiredis/sds.h",
         fns: &["sdscatlen", "sdsnewlen", "sdsfree"],
@@ -122,6 +129,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[],
         types: &[],
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
+    },
+    HeaderAllowlist {
+        path: "src/coord/rmr/endpoint.h",
+        fns: &[],
+        types: &["MREndpoint"],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/doc_table.h",

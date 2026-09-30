@@ -25,6 +25,7 @@
 #include "rmalloc.h"
 #include "rmr/command.h"
 #include "rmr/endpoint.h"
+#include "rmr_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
 

@@ -13,6 +13,7 @@
 #include <stdbool.h>
 
 #include "endpoint.h"
+#include "rmr_ffi.h"
 #include "rmalloc.h"
 #include "slot_ranges.h"
 #include "rmutil/rm_assert.h"

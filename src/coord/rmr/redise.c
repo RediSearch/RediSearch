@@ -18,6 +18,7 @@
 #include "config.h"
 #include "hiredis/read.h"
 #include "rmr/endpoint.h"
+#include "rmr_ffi.h"
 #include "rmr/node.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"

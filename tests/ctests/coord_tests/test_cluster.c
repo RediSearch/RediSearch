@@ -8,6 +8,7 @@
 */
 #include "minunit.h"
 #include "endpoint.h"
+#include "rmr_ffi.h"
 #include "command.h"
 #include "cluster.h"
 #include "slot_ranges.h"

@@ -2173,6 +2173,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "rmr_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -2403,6 +2404,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmr_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "redis_mock",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rqe_core"
 version = "0.0.1"
 dependencies = [
@@ -2544,6 +2555,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "rmr_ffi",
  "rqe_wildcard",
  "search_result_ffi",
  "slots_tracker_ffi",

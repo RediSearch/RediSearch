@@ -10,6 +10,7 @@
 #include "gtest/gtest.h"
 #include "io_runtime_ctx.h"
 #include "cluster.h"
+#include "rmr_ffi.h"
 #include "rmutil/alloc.h"
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
