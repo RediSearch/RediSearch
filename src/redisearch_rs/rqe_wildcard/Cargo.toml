@@ -40,6 +40,7 @@ wildcard_cloudflare.workspace = true
 # libredisearch_c_bundle.a. They must be listed here (and force-linked via
 # `extern crate` in tests/integration/main.rs) so the linker can
 # resolve those symbols when building the test binary.
+aggregate_functions_ffi = { path = "../c_entrypoint/aggregate_functions_ffi" }
 fnv_ffi = { path = "../c_entrypoint/fnv_ffi" }
 fork_gc_ffi = { path = "../c_entrypoint/fork_gc_ffi" }
 geo_ffi = { path = "../c_entrypoint/geo_ffi" }

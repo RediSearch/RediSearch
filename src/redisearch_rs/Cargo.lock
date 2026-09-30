@@ -2534,6 +2534,7 @@ dependencies = [
 name = "rqe_wildcard"
 version = "0.0.1"
 dependencies = [
+ "aggregate_functions_ffi",
  "build_utils",
  "criterion",
  "ffi",
