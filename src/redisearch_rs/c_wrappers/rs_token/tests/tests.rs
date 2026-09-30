@@ -442,7 +442,10 @@ mod remove_wildcard_escapes {
     }
 }
 
-// These tests call the C tag normalization, so they cannot run under miri.
+// The normalization rules are tested with `string_utils::tag::unescape` and
+// `string_utils::unicode::tolower_bytes`; these cover writing the result back
+// into the token. The tokens come from the Redis module allocator, which miri
+// cannot reach.
 #[cfg(not(miri))]
 mod normalize_tag {
     use super::*;
@@ -495,18 +498,10 @@ mod normalize_tag {
     }
 
     #[test]
-    fn removes_escapes_before_punctuation_and_whitespace() {
+    fn removes_escapes_in_place() {
         let (bytes, moved) = normalize(br"a\,b\ c", true);
         assert_eq!(bytes, b"a,b c");
         assert!(!moved, "escape removal happens in place");
-    }
-
-    #[test]
-    fn keeps_a_backslash_before_other_bytes() {
-        // Only punctuation and whitespace can be escaped, and a trailing
-        // backslash has nothing to escape.
-        let (bytes, _) = normalize(br"a\b\", true);
-        assert_eq!(bytes, br"a\b\");
     }
 
     #[test]
@@ -525,9 +520,10 @@ mod normalize_tag {
     }
 
     #[test]
-    fn keeps_case_when_case_sensitive() {
-        let (bytes, _) = normalize(br"\,AB", true);
-        assert_eq!(bytes, b",AB");
+    fn leaves_a_normalized_token_alone() {
+        let (bytes, moved) = normalize(b"abc", false);
+        assert_eq!(bytes, b"abc");
+        assert!(!moved);
     }
 
     #[test]
@@ -539,27 +535,13 @@ mod normalize_tag {
     }
 
     #[test]
-    fn replaces_the_buffer_when_lowercasing_outgrows_the_unescaped_length() {
-        // Escape removal shortens the string by a byte in place, and lowercasing
-        // then grows it by one. The result would fit the original buffer, but it
-        // exceeds the unescaped length, so it still needs a new allocation.
+    fn lowercases_in_place_when_the_result_fits_the_original_buffer() {
+        // Escape removal frees a byte that lowercasing then takes back, so the
+        // result is longer than the unescaped string but no longer than the
+        // token was.
         let (bytes, moved) = normalize("\\,\u{23a}".as_bytes(), false);
         assert_eq!(bytes, ",\u{2c65}".as_bytes());
-        assert!(
-            moved,
-            "a result longer than the unescaped string is reallocated"
-        );
-    }
-
-    #[test]
-    fn replaces_the_buffer_when_escape_removal_changes_the_decoding() {
-        // As given, the bytes `C8 5C` decode as U+021C, which lowercases to a
-        // sequence as long, so the escaped string would lowercase in place.
-        // Removing the `\` pairs `C8` with `:` instead, which decodes as U+023A,
-        // and that lowercases to a longer sequence.
-        let (bytes, moved) = normalize(b"\xC8\\:", false);
-        assert_eq!(bytes, "\u{2c65}".as_bytes());
-        assert!(moved, "the unescaped string is what gets lowercased");
+        assert!(!moved, "a result no longer than the token fits its buffer");
     }
 
     #[test]
@@ -579,20 +561,17 @@ mod normalize_tag {
     }
 
     #[test]
-    fn case_sensitive_keeps_the_length_past_an_interior_nul() {
-        // Escape removal stops at the NUL without shortening the length, so the
-        // bytes it no longer covers are left over, not dropped. The `B` that
-        // then sits at the new length is overwritten by the terminator.
-        let (bytes, _) = normalize(b"\\,a\0B", true);
-        assert_eq!(bytes, b",a\0\0");
+    fn keeps_the_bytes_past_an_interior_nul_when_case_sensitive() {
+        let (bytes, moved) = normalize(b"\\,a\0B", true);
+        assert_eq!(bytes, b",a\0B");
+        assert!(!moved);
     }
 
     #[test]
-    fn lowercases_the_bytes_before_an_interior_nul() {
-        // Whether the bytes past the NUL survive is unspecified, so only the part
-        // before it is checked; `normalize` checks the terminator.
-        let (bytes, _) = normalize(b"A\0B", false);
-        assert!(bytes.starts_with(b"a"), "{bytes:?}");
+    fn shortens_the_token_to_the_nul_when_lowercasing() {
+        let (bytes, moved) = normalize(b"A\0B", false);
+        assert_eq!(bytes, b"a");
+        assert!(!moved);
     }
 
     #[test]

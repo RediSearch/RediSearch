@@ -10,13 +10,18 @@
 //! Safe wrapper around [`ffi::RSToken`].
 
 use std::{
-    ffi::{CStr, c_char},
+    borrow::Cow,
+    ffi::{CStr, c_char, c_void},
     ptr::NonNull,
 };
 
 use query_term::RSTokenFlags;
 use rqe_wildcard::remove_escape_in_place;
-use string_utils::libnu::{NU_MAX_READAHEAD, tail_may_overread};
+use string_utils::{
+    libnu::{NU_MAX_READAHEAD, tail_may_overread},
+    tag::unescape,
+    unicode::tolower_bytes,
+};
 
 /// Upper bound on how many token bytes are copied for a rune conversion. A term
 /// is stored under at most [`ffi::MAX_RUNE_STR_LEN`] runes, and every UTF-8
@@ -349,10 +354,11 @@ impl<'a> RSTokenMut<'a> {
     /// indexed values never carry, then, unless `case_sensitive` is set,
     /// lowercase it the way tag values are lowercased at indexing time.
     ///
-    /// A `\` is removed when it precedes an ASCII punctuation or whitespace byte.
-    /// Lowercasing may lengthen the string and so replace its buffer. Like
+    /// The rules are [`unescape`]'s and [`tolower_bytes`]'s; this writes the
+    /// result back into the token. A result that fits the current buffer is written in place, and a
+    /// longer one — lowercasing can lengthen a string — replaces the buffer. Like
     /// [`remove_wildcard_escapes`](Self::remove_wildcard_escapes), this is **not
-    /// idempotent**, and bytes after an interior NUL are left unspecified.
+    /// idempotent**.
     ///
     /// # Safety
     ///
@@ -360,30 +366,96 @@ impl<'a> RSTokenMut<'a> {
     /// allocation from the Redis module allocator that only the token's owner
     /// frees.
     pub unsafe fn normalize_tag(&mut self, case_sensitive: bool) {
-        if self.tok.str_.is_null() {
+        let len = self.tok.len;
+        // A token carrying no string is an empty one, per the constructor's
+        // contract, and an empty token normalizes to itself.
+        if len == 0 {
             return;
         }
 
-        // SAFETY: the constructor's contract covers the C code's reads and writes,
-        // this method's covers its free, and `self` exclusively owns the `str_`
-        // and `len` it may replace.
-        unsafe {
-            ffi::tag_strtolower(
-                &raw mut self.tok.str_,
-                &raw mut self.tok.len,
-                i32::from(case_sensitive),
-            )
+        let str_ = self.tok.str_;
+        debug_assert!(!str_.is_null(), "a non-empty token always carries a string");
+
+        // SAFETY: per the constructor's contract, `str_` addresses `len`
+        // initialized bytes, and this handle is the only way to reach them.
+        let bytes = unsafe { std::slice::from_raw_parts(str_.cast::<u8>(), len) };
+        let unescaped = unescape(bytes);
+        let normalized = match (case_sensitive, unescaped) {
+            (true, unescaped) => unescaped,
+            (false, Cow::Borrowed(unescaped)) => tolower_bytes(unescaped),
+            (false, Cow::Owned(unescaped)) => Cow::Owned(tolower_bytes(&unescaped).into_owned()),
+        };
+        let normalized = match normalized {
+            Cow::Borrowed(prefix) => {
+                // A borrowed result is a prefix of the token, so only its length
+                // can have changed.
+                self.set_len_in_place(prefix.len());
+                return;
+            }
+            Cow::Owned(normalized) => normalized,
+        };
+
+        if normalized.len() <= len {
+            // SAFETY: `normalized` is a separate allocation, and `str_` addresses
+            // at least `len` writable bytes, which is enough to hold it.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    normalized.as_ptr(),
+                    str_.cast::<u8>(),
+                    normalized.len(),
+                )
+            };
+            self.set_len_in_place(normalized.len());
+            return;
         }
 
-        // Escape removal stops at an interior NUL without shortening the length,
-        // so the byte at the new length may be leftover content.
-        //
-        // SAFETY: `str_[len]` is in bounds: an in-place rewrite never grows the
-        // length, and a replacement allocation has room for a terminator.
-        let terminator = unsafe { self.tok.str_.add(self.tok.len) };
+        // Escape removal only ever shortens a token, so a longer result comes
+        // from lowercasing, which this method's contract covers.
+        debug_assert!(!case_sensitive, "only lowercasing lengthens a token");
+        // SAFETY: `RedisModule_Alloc` is set during module init and not mutated
+        // afterwards.
+        let rm_alloc =
+            unsafe { redis_module::RedisModule_Alloc.expect("Redis allocator not available") };
+        // SAFETY: `RedisModule_Free` is set during module init and not mutated
+        // afterwards.
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
+
+        // SAFETY: the module allocator is initialized, as above.
+        let replacement = unsafe { rm_alloc(normalized.len() + 1) }.cast::<u8>();
+        assert!(!replacement.is_null(), "the module allocator aborts on OOM");
+        // SAFETY: `replacement` is a fresh allocation of `normalized.len() + 1`
+        // bytes that nothing else reaches, so both slices fit in it.
+        let dst = unsafe { std::slice::from_raw_parts_mut(replacement, normalized.len() + 1) };
+        dst[..normalized.len()].copy_from_slice(&normalized);
+        dst[normalized.len()] = 0;
+
+        // SAFETY: per this method's contract, `str_` is a module allocation that
+        // only the token's owner frees, and `self` exclusively borrows that owner's
+        // token; `bytes` is no longer used.
+        unsafe { rm_free(str_.cast::<c_void>()) };
+        self.tok.str_ = replacement.cast::<c_char>();
+        self.tok.len = normalized.len();
+    }
+
+    /// Shorten the token to `new_len` bytes of its current buffer, re-terminating
+    /// it there.
+    fn set_len_in_place(&mut self, new_len: usize) {
+        debug_assert!(
+            new_len <= self.tok.len,
+            "the token can only shrink in place"
+        );
+        if new_len == self.tok.len {
+            // Already terminated there, per the constructor's contract.
+            return;
+        }
+        // SAFETY: `new_len` is below `len`, so `str_[new_len]` is one of the
+        // token's own writable bytes.
+        let terminator = unsafe { self.tok.str_.add(new_len) };
         // SAFETY: `terminator` is in bounds, writable, and exclusively owned by
         // `self`.
         unsafe { *terminator = 0 };
+        self.tok.len = new_len;
     }
 
     /// Collapse `\x` escapes in this token's wildcard pattern, in place,
