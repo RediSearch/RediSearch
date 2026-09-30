@@ -547,6 +547,20 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
   }
 }
 
+// A parked MR pop may be blocked on the hybrid request's own channel (setup
+// phase) or a subquery's channel (read phase); wake all of them.
+void HybridRequest_WakeAbortChannels(HybridRequest *hreq) {
+  if (!hreq) {
+    return;
+  }
+  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+    }
+  }
+}
+
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,

@@ -1084,7 +1084,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if(CoordRequestCtx_TimedOut(reqCtx)) {
-      // Query timed out before request creation
+      // Query timed out or disconnected before request creation.
+      WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
       return;
     }
 
@@ -1175,6 +1176,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if(CoordRequestCtx_TimedOut(reqCtx)) {
+      WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
       return;
     }
 
@@ -1261,18 +1263,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CurrentThread_ClearIndexSpec();
 }
 
-// A parked MR pop may be blocked on the hybrid request's own channel (setup
-// phase) or a subquery's channel (read phase); wake all of them.
-static void wakeHybridAbortChannels(HybridRequest *hreq) {
-  if (!hreq) return;
-  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    if (hreq->requests[i]) {
-      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
-    }
-  }
-}
-
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
 int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1298,7 +1288,7 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
-  wakeHybridAbortChannels(hreq);
+  HybridRequest_WakeAbortChannels(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1328,7 +1318,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
-  wakeHybridAbortChannels(hreq);
+  HybridRequest_WakeAbortChannels(hreq);
 
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
     // Either the request is NULL or we were able to claim the aggregation results.

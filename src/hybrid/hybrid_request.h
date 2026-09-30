@@ -99,6 +99,9 @@ static inline bool HybridRequest_TimedOut(HybridRequest *req) {
 // blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
 void HybridRequest_SetTimedOut(HybridRequest *req);
 
+// Wake setup and subquery network readers after publishing their timeout flags.
+void HybridRequest_WakeAbortChannels(HybridRequest *req);
+
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
 static inline void HybridRequest_LockCursors(HybridRequest *req) {
   pthread_mutex_lock(&req->cursorMutex);
