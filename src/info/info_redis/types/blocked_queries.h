@@ -44,6 +44,8 @@ typedef struct {
   time_t start;       // Time node was added into list
   void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
   BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
+  // Keeps hybrid-owned subquery contexts alive through worker and callback cleanup.
+  StrongRef hybrid_ref;
 } BlockedCursorNode;
 
 /**

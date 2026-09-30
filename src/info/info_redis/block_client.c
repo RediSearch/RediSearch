@@ -32,6 +32,10 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   if (cursorNode->freePrivData && cursorNode->privdata) {
     cursorNode->freePrivData(cursorNode->privdata);
   }
+  // Release after the AREQ reference: its context belongs to the hybrid request.
+  if (cursorNode->hybrid_ref.rm) {
+    StrongRef_Release(cursorNode->hybrid_ref);
+  }
   BlockedQueries_RemoveCursor(cursorNode);
   rm_free(cursorNode);
 }
@@ -78,6 +82,11 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
                                                      cursor->id, count,
                                                      blockClientCtx->privdata,
                                                      blockClientCtx->freePrivData);
+  // A timeout callback can free the last hybrid cursor before its worker returns.
+  // Keep the parent alive until FreeCursorNode finishes the AREQ cleanup.
+  if (cursor->hybrid_ref.rm) {
+    node->hybrid_ref = StrongRef_Clone(cursor->hybrid_ref);
+  }
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the

@@ -2227,6 +2227,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   sendChunk(req, reply, num);
+#ifdef ENABLE_ASSERT
+  // Stored results are ready, but the cursor worker still needs its search context.
+  SyncPoint_Wait(SYNC_POINT_AFTER_CURSOR_READ_SEND_CHUNK);
+#endif
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
   // Below this point the cursor (and with it `req`) may be freed, paused, or
   // handed off, so the lock must be released here, on this worker thread.
