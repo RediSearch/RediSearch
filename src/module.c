@@ -3908,6 +3908,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
   CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
+    handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
     bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
     handlerCtx.bcCtx.reply_callback = useReplyCallback ? DistAggregateReplyCallback : NULL;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
@@ -4103,6 +4104,7 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       CoordRequestCtx_SetTimeoutPolicy(reqCtx, info.queryTimeoutPolicy);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+      handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
       bool useReplyCallback = info.queryTimeoutPolicy == TimeoutPolicy_ReturnStrict;
       handlerCtx.bcCtx.reply_callback = useReplyCallback ? DistAggregateReplyCallback : NULL;
       handlerCtx.bcCtx.timeoutMS = (size_t)capped;
@@ -4487,6 +4489,13 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   }
 }
 
+static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(mrctx);
+  MRCtx_SetTimedOut(mrctx);
+}
+
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata);
 
@@ -4727,6 +4736,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
+  RedisModule_SetDisconnectCallback(bc, DistSearchDisconnectCallback);
 
   SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);

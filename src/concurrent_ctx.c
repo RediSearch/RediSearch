@@ -145,6 +145,9 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   if (handlerCtx->bcCtx.privdata) {
     RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
   }
+  if (handlerCtx->bcCtx.disconnect_callback) {
+    RedisModule_SetDisconnectCallback(cmdCtx->bc, handlerCtx->bcCtx.disconnect_callback);
+  }
 
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;

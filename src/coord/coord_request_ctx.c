@@ -124,6 +124,24 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   }
 }
 
+void CoordRequestCtx_Disconnect(RedisModuleCtx *redisCtx, RedisModuleBlockedClient *bc) {
+  UNUSED(redisCtx);
+  CoordRequestCtx *ctx = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(ctx);
+
+  // Serialize with request publication, including cursor read state resets.
+  CoordRequestCtx_LockSetRequest(ctx);
+  CoordRequestCtx_SetTimedOut(ctx);
+  AREQ *req = ctx->type == COMMAND_AGGREGATE ? ctx->areq : NULL;
+  CoordRequestCtx_UnlockSetRequest(ctx);
+
+  // The blocked client retains the request until worker completion. A timeout
+  // flag alone cannot wake a reader already sleeping on the shard channel.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
+}
+
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback) {
   ctx->useReplyCallback = useReplyCallback;
 }

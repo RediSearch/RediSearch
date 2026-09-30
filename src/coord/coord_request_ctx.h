@@ -105,6 +105,12 @@ static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
  */
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
+/**
+ * Cancel a disconnected blocked client and wake its coordinator reader.
+ * The worker retains responsibility for unblocking and releasing the request.
+ */
+void CoordRequestCtx_Disconnect(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
+
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback);
 
 /**
