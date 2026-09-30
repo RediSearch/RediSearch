@@ -112,6 +112,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE "BeforeBackgroundReplyEncode"
 #define SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE "DuringBackgroundReplyEncode"
 #define SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE "AfterBackgroundReplyEncode"
+#define SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE "BeforeCoordBackgroundReplyEncode"
+#define SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE "DuringCoordBackgroundReplyEncode"
+#define SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE "AfterCoordBackgroundReplyEncode"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
