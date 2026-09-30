@@ -8,16 +8,18 @@
 */
 
 #include "config.h"
-#include "util/config_macros.h"
-#include "rmr/rmr.h"
-
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "hiredis/hiredis.h"
-#include "module.h"
 
 #include <string.h>
-#include <stdlib.h>
+#include <limits.h>
+#include <stdint.h>
+
+#include "util/config_macros.h"
+#include "rmr/rmr.h"
+#include "module.h"
+#include "hiredis/sds.h"
+#include "rmutil/args.h"
+
+struct timeval;
 
 extern RedisModuleCtx *RSDummyContext;
 

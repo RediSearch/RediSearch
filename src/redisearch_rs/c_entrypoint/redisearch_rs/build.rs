@@ -33,10 +33,10 @@ use walkdir::WalkDir;
 ///
 /// We have issues when it comes to tests and benchmarks.
 /// Some of our tests and benchmarks need to invoke C-defined symbols, which are provided by
-/// the `redisearch_all` static library. Those C-defined symbols may in turn call back into Rust-defined FFI
+/// the `redisearch_c_bundle` static library. Those C-defined symbols may in turn call back into Rust-defined FFI
 /// symbols. `cargo` isn't able to see this relationship: `redisearch_rs` is consumed
 /// as a regular Rust dependency (an `rlib`) by our tests and benchmarks, and the FFI symbols it
-/// defines are stripped out as unused. This in turn causes the `redisearch_all` static library to fail linking,
+/// defines are stripped out as unused. This in turn causes the `redisearch_c_bundle` static library to fail linking,
 /// since the Rust-provided symbols it needs are missing.
 ///
 /// # Obvious Solutions That Don't Work

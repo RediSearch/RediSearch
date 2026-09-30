@@ -34,17 +34,11 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Sets the local slot ranges this shard is responsible for.
+ * Checks if all requested slots are available and returns version information.
  *
- * This function updates the "local slots" set to match the provided ranges.
- * If the ranges differ from the current configuration:
- * - Updates "local slots" to the new ranges
- * - Removes any overlapping slots from "fully available slots" and "partially available slots"
- * - Increments the version counter
- *
- * If the ranges are identical to the current configuration, no changes are made.
- *
- * Returns the current version after the operation.
+ * Return values (via OptionSlotTrackerVersion):
+ * - `is_some = false`: Required slots are not available. Query should be rejected.
+ * - `is_some = true`: Slots available; Store the returned `version` and compare it (equality check) with the tracker's version.
  *
  * # Safety
  *
@@ -53,7 +47,53 @@ extern "C" {
  * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
-uint32_t slots_tracker_set_local_slots(const struct RedisModuleSlotRangeArray *ranges);
+struct OptionSlotTrackerVersion slots_tracker_check_availability(const struct RedisModuleSlotRangeArray *ranges);
+
+/**
+ * Returns the current local slot ranges as a newly allocated array.
+ *
+ * The returned array is allocated with the Rust global allocator, which in the
+ * RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
+ * returned pointer and must free it with `RedisModule_Free` (`rm_free`).
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ */
+struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
+
+/**
+ * Checks if there is any overlap between the given slot ranges and the fully available slots.
+ *
+ * This function checks if any of the provided slot ranges overlap with "fully available slots".
+ * Returns true if there is at least one overlapping slot, false otherwise.
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+ * The ranges array must contain `num_ranges` valid elements.
+ * All ranges must be sorted and have start <= end, with values in [0, 16383].
+ */
+bool slots_tracker_has_fully_available_overlap(const struct RedisModuleSlotRangeArray *ranges);
+
+/**
+ * Marks the given slot ranges as fully available non-owned.
+ *
+ * This function updates the "fully available slots" set by adding the provided ranges.
+ * It also removes the given slots from "local slots".
+ *
+ * Note: This does NOT increment the version counter (slots availability is unchanged).
+ * It also does NOT remove from "partially available slots".
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+ * The ranges array must contain `num_ranges` valid elements.
+ * All ranges must be sorted and have start <= end, with values in [0, 16383].
+ */
+void slots_tracker_mark_fully_available_slots(const struct RedisModuleSlotRangeArray *ranges);
 
 /**
  * Marks the given slot ranges as partially available.
@@ -94,24 +134,6 @@ uint32_t slots_tracker_mark_partially_available_slots(const struct RedisModuleSl
 void slots_tracker_promote_to_local_slots(const struct RedisModuleSlotRangeArray *ranges);
 
 /**
- * Marks the given slot ranges as fully available non-owned.
- *
- * This function updates the "fully available slots" set by adding the provided ranges.
- * It also removes the given slots from "local slots".
- *
- * Note: This does NOT increment the version counter (slots availability is unchanged).
- * It also does NOT remove from "partially available slots".
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-void slots_tracker_mark_fully_available_slots(const struct RedisModuleSlotRangeArray *ranges);
-
-/**
  * Removes deleted slot ranges from the partially available slots.
  *
  * This function removes the given slot ranges from "partially available slots" only.
@@ -127,50 +149,6 @@ void slots_tracker_mark_fully_available_slots(const struct RedisModuleSlotRangeA
 void slots_tracker_remove_deleted_slots(const struct RedisModuleSlotRangeArray *ranges);
 
 /**
- * Checks if there is any overlap between the given slot ranges and the fully available slots.
- *
- * This function checks if any of the provided slot ranges overlap with "fully available slots".
- * Returns true if there is at least one overlapping slot, false otherwise.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-bool slots_tracker_has_fully_available_overlap(const struct RedisModuleSlotRangeArray *ranges);
-
-/**
- * Returns the current local slot ranges as a newly allocated array.
- *
- * The returned array is allocated with the Rust global allocator, which in the
- * RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
- * returned pointer and must free it with `RedisModule_Free` (`rm_free`).
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- */
-struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
-
-/**
- * Checks if all requested slots are available and returns version information.
- *
- * Return values (via OptionSlotTrackerVersion):
- * - `is_some = false`: Required slots are not available. Query should be rejected.
- * - `is_some = true`: Slots available; Store the returned `version` and compare it (equality check) with the tracker's version.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-struct OptionSlotTrackerVersion slots_tracker_check_availability(const struct RedisModuleSlotRangeArray *ranges);
-
-/**
  * Resets the tracker to its initial state.
  *
  * This function is intended for testing purposes only. It resets the tracker
@@ -181,6 +159,28 @@ struct OptionSlotTrackerVersion slots_tracker_check_availability(const struct Re
  * This function must be called from the main thread only.
  */
 void slots_tracker_reset(void);
+
+/**
+ * Sets the local slot ranges this shard is responsible for.
+ *
+ * This function updates the "local slots" set to match the provided ranges.
+ * If the ranges differ from the current configuration:
+ * - Updates "local slots" to the new ranges
+ * - Removes any overlapping slots from "fully available slots" and "partially available slots"
+ * - Increments the version counter
+ *
+ * If the ranges are identical to the current configuration, no changes are made.
+ *
+ * Returns the current version after the operation.
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+ * The ranges array must contain `num_ranges` valid elements.
+ * All ranges must be sorted and have start <= end, with values in [0, 16383].
+ */
+uint32_t slots_tracker_set_local_slots(const struct RedisModuleSlotRangeArray *ranges);
 
 #ifdef __cplusplus
 }  // extern "C"

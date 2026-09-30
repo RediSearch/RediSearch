@@ -14,7 +14,8 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{QueryIterator, QueryNodeType};
+use ffi::QueryIterator;
+use query_types::QueryNodeType;
 
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
@@ -44,7 +45,8 @@ type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>
 /// `its` must have been allocated with `rm_malloc` / `RedisModule_Alloc`.
 unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
     // SAFETY: Redis allocator must be initialized before this is called.
-    let free_fn = unsafe { ffi::RedisModule_Free.expect("Redis allocator not initialized") };
+    let free_fn =
+        unsafe { redis_module::RedisModule_Free.expect("Redis allocator not initialized") };
     // SAFETY: `its` was allocated via the Redis allocator; the caller guarantees this.
     unsafe { free_fn(its.cast::<std::ffi::c_void>()) };
 }

@@ -244,21 +244,21 @@ fn test_seek_freqs_fields() {
 
     // Seek to 30 (skips first two records)
     let found = FreqsFields::seek(&mut cursor, 10, 30, &mut result).expect("seek");
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(result.doc_id, 30);
     assert_eq!(result.freq, 3);
     assert_eq!(result.field_mask, 3);
 
     // Seek to 40 from base 30 (should land on 55)
     let found = FreqsFields::seek(&mut cursor, 30, 40, &mut result).expect("seek");
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(result.doc_id, 55);
     assert_eq!(result.freq, 5);
     assert_eq!(result.field_mask, 9);
 
     // Seek past end
     let found = FreqsFields::seek(&mut cursor, 55, 70, &mut result).expect("seek");
-    assert!(!found);
+    assert!(found.is_none());
 }
 
 #[test]
@@ -276,19 +276,19 @@ fn test_seek_freqs_fields_wide() {
 
     // Seek to 30
     let found = FreqsFieldsWide::seek(&mut cursor, 10, 30, &mut result).expect("seek");
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(result.doc_id, 30);
     assert_eq!(result.freq, 3);
     assert_eq!(result.field_mask, 3);
 
     // Seek to 40 (lands on 55)
     let found = FreqsFieldsWide::seek(&mut cursor, 30, 40, &mut result).expect("seek");
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(result.doc_id, 55);
     assert_eq!(result.freq, 5);
     assert_eq!(result.field_mask, 9);
 
     // Seek past end
     let found = FreqsFieldsWide::seek(&mut cursor, 55, 70, &mut result).expect("seek");
-    assert!(!found);
+    assert!(found.is_none());
 }

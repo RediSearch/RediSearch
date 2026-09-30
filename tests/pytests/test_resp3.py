@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from math import nan
 import json
@@ -298,7 +305,8 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF')
+    env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
@@ -540,7 +548,8 @@ def test_info():
                       ],
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
-      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
+      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0,
+                       'index_total_internal': 0},
       'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0},
       'doc_table_size_mb': ANY,
       'gc_stats': ANY,
@@ -565,6 +574,7 @@ def test_info():
       'num_records': 3,
       'num_terms': ANY,
       'number_of_uses': ANY,
+      'number_of_admin_ops': ANY,
       'offset_bits_per_record_avg': ANY,
       'offset_vectors_sz_mb': ANY,
       'offsets_per_term_avg': ANY,
@@ -776,7 +786,7 @@ def test_profile_crash_mod5323():
        },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 def test_profile_child_itrerators_array():
     env = Env(protocol=3)
@@ -825,7 +835,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
     # test INTERSECT
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
@@ -863,7 +873,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(no_json=True)
 def testExpandErrorsResp3():
@@ -1375,10 +1385,12 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 8) = 8072 bytes
-      initial_doc_table_size_mb = 8072 / (1024 * 1024)
-      # Size of an empty TrieMap
-      key_table_sz_mb = 24 / (1024 * 1024)
+      #              = 64 + (1000 * 8) = 8064 bytes
+      # (DocTable lost its 8-byte DocIdMap trie pointer when the key trie was removed.)
+      initial_doc_table_size_mb = 8064 / (1024 * 1024)
+      # The key->docId mapping now lives in Redis key-metadata (not module-tracked
+      # memory), so key_table_size_mb is always 0.
+      key_table_sz_mb = 0
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
@@ -1418,7 +1430,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_internal': 0
         },
         'dialect_stats': {
           'dialect_1': 0,
@@ -1455,7 +1468,8 @@ def test_ft_info():
         'num_docs': 0.0,
         'num_records': 0.0,
         'num_terms': 0.0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,
@@ -1500,7 +1514,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_internal': 0
         },
         'dialect_stats': {'dialect_1': 0,
                           'dialect_2': 0,
@@ -1538,7 +1553,8 @@ def test_ft_info():
         'num_docs': 0,
         'num_records': 0,
         'num_terms': 0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,
@@ -1725,6 +1741,45 @@ def test_warning_maxprefixexpansions():
     if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+def test_warning_not_carried_across_cursor_reads():
+  """
+  A warning belongs to the reply of the cycle that raised it. The request's error
+  slot outlives a cursor read, so this pins that the next FT.CURSOR READ does not
+  re-emit (and re-count) the previous read's warning. Max prefix expansions is
+  raised once, while the iterator tree is built at cursor creation, so it is the
+  warning most likely to leak.
+  """
+  # RESP3 for the `warning` reply field; dialect 2 for the prefix query syntax.
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+  # Two matches for the single allowed expansion (`foo`), one more term (`fooo`)
+  # to push the expansion count over the limit. Same shard, so the limit is hit there.
+  conn.execute_command('HSET', 'doc1{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc2{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc3{3}', 't', 'fooo')
+  populated_shard_conn = env.getConnectionByKey('doc1{3}', 'HSET')
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Drain the cursor one row per read, recording each reply's warnings. Where the warning
+  # lands differs by mode (standalone: the creating reply; cluster: the read that consumes the
+  # shard reply carrying it), but it must land in exactly one reply.
+  warnings_per_read = []
+  rows = 0
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1') # codespell:ignore fo
+  while True:
+    warnings_per_read.append(res['warning'])
+    rows += len(res['results'])
+    if not cid:
+      break
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+  env.assertEqual(rows, 2, message=warnings_per_read)
+  env.assertGreaterEqual(len(warnings_per_read), 2, message=warnings_per_read)
+  env.assertEqual([w for w in warnings_per_read if w], [['Max prefix expansions limit was reached']],
+                  message=warnings_per_read)
+
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 def test_multiple_warnings():
   """

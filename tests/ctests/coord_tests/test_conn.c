@@ -102,7 +102,8 @@ static void testValidatedFanoutRotation(void) {
     MRClusterTopology topo = {.numShards = 1, .shards = &shard};
     IORuntimeCtx runtime = {.conn_mgr = mgr, .topo = &topo};
     const char *argv[] = {"PING"};
-    MRCommand cmd = MR_NewCommandArgv(1, argv);
+    const size_t lens[] = {4};
+    MRCommand cmd = MR_NewCommandArgvLen(1, argv, lens);
     for (uint32_t request = 0; request < size * 3; request++) {
       uint32_t expected = request % size;
       size_t before[6];
@@ -130,7 +131,8 @@ static void testFailedValidationDoesNotSendOrSelect(void) {
   MRClusterTopology topo = {.numShards = 2, .shards = shards};
   IORuntimeCtx runtime = {.conn_mgr = mgr, .topo = &topo};
   const char *argv[] = {"PING"};
-  MRCommand cmd = MR_NewCommandArgv(1, argv);
+  const size_t lens[] = {4};
+  MRCommand cmd = MR_NewCommandArgvLen(1, argv, lens);
   mu_assert_int_eq(0, MRCluster_FanoutCommand(&runtime, &cmd, NULL, NULL, true));
   mu_assert_int_eq(0, sdslen(context.c.obuf));
   mu_assert_int_eq(0, pool.rr);

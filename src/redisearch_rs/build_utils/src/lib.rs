@@ -61,16 +61,97 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
     rerun_if_changes(dir, &["c", "h"])
 }
 
+/// Include roots every Rust-side consumer of the RediSearch C headers needs.
+///
+/// Ordering is load-bearing: `src` must precede `src/redisearch_rs/headers`,
+/// which holds generated counterparts of `rlookup.h` and `ttl_table.h`. Swapping
+/// the two silently binds against the generated header instead of the C original.
+/// They are the only colliding header basenames across these roots.
+fn c_include_roots(root: &Path) -> Vec<PathBuf> {
+    vec![
+        root.join("src"),
+        root.join("deps"),
+        root.join("src").join("redisearch_rs").join("headers"),
+        root.join("deps").join("VectorSimilarity").join("src"),
+        root.join("src").join("buffer"),
+        root.join("src").join("ttl_table"),
+    ]
+}
+
+/// Compile a benchmark shim written in C against the RediSearch headers.
+///
+/// Bench crates use a small C shim to drive a production C iterator as the
+/// baseline for its Rust counterpart. Every such shim needs the same include
+/// roots, the same preprocessor defines, and the same warning suppressions, so
+/// they are centralised here: a shim that configures its own [`cc::Build`] from
+/// scratch silently drifts from how CMake compiles the very headers it includes.
+///
+/// `shim` is the path to the C file, relative to the calling crate's manifest
+/// directory. The compiled archive is named after the shim's file stem, and a
+/// `rerun-if-changed` is emitted for it.
+///
+/// # Defines
+///
+/// `_GNU_SOURCE` is required, for the same reason the bindgen path in
+/// `ffi/build.rs` passes it: shims are compiled without `REDIS_MODULE_TARGET`, so
+/// `deps/rmalloc/rmalloc.h` takes its non-module fallback and expands
+/// `rm_asprintf` to bare `asprintf` — which glibc's `<stdio.h>` only declares
+/// under `_GNU_SOURCE`, and the top-level `CMakeLists.txt` promotes implicit
+/// declarations to errors.
+///
+/// `REDIS_MODULE_TARGET` is deliberately *not* set. It would route `rm_malloc`
+/// through `RedisModule_Alloc`, but CMake defines it only when
+/// `USE_REDIS_ALLOCATOR` is on, so forcing it here could disagree with how
+/// `libredisearch_c_bundle.a` was actually built. No shim calls `rm_*` today —
+/// they use `RedisModule_Alloc` directly where the module owns the buffer.
+///
+/// # Panics
+///
+/// Panics if the repository root cannot be located, or if `shim` has no file stem.
+pub fn compile_c_bench_shim(shim: &str) {
+    let root = repository_root().expect("Could not find repository root");
+
+    // Beyond the shared roots, shims reach the iterator API, `rmalloc.h` and the
+    // trie headers directly. Appended, so they cannot shadow a shared root.
+    let mut includes = c_include_roots(&root);
+    includes.extend([
+        root.join("src").join("iterators"),
+        root.join("deps").join("rmalloc"),
+        root.join("src").join("trie"),
+    ]);
+
+    let lib_name = Path::new(shim)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_else(|| panic!("bench shim path has no file stem: {shim}"));
+
+    cc::Build::new()
+        .file(shim)
+        .define("_GNU_SOURCE", None)
+        // Silence warnings originating from transitively-included RediSearch
+        // headers (static helpers, sign-compare in inline funcs, etc.) — they
+        // are not actionable from a shim and the main CMake build already
+        // suppresses them.
+        .flag_if_supported("-Wno-unused-function")
+        .flag_if_supported("-Wno-unused-variable")
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-sign-compare")
+        .includes(includes)
+        .compile(lib_name);
+
+    println!("cargo:rerun-if-changed={shim}");
+}
+
 /// Link all the relevant C dependencies to allow Rust (testing and benchmarking) code to invoke
 /// RediSearch C symbols.
 ///
-/// This links a single combined static library (`libredisearch_all.a`) that bundles
+/// This links a single combined static library (`libredisearch_c_bundle.a`) that bundles
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
 pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
-    link_redisearch_all(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
     link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
@@ -120,12 +201,12 @@ fn bin_root() -> PathBuf {
     }
 }
 
-/// Link `libredisearch_all.a` using the `-bundle` modifier, returning an error if the
+/// Link `libredisearch_c_bundle.a` using the `-bundle` modifier, returning an error if the
 /// library is not found.
 ///
 /// The `-bundle` modifier prevents the (very large) C archive from being
 /// embedded into every Rust rlib in the dependency tree. Instead, the linker
-/// flag `-lredisearch_all` propagates to final binaries (tests, benchmarks)
+/// flag `-lredisearch_c_bundle` propagates to final binaries (tests, benchmarks)
 /// where the linker selectively pulls only the objects that are actually
 /// needed. This avoids two problems:
 ///
@@ -138,11 +219,11 @@ fn bin_root() -> PathBuf {
 /// Callers that need soft-fail behaviour (e.g. lint-only runs where the
 /// library has not been built) can inspect the returned `Err` and emit a
 /// `cargo::warning` instead of panicking.
-pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn link_redisearch_c_bundle(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let lib_dir = bin_root.join("src");
-    let lib = lib_dir.join("libredisearch_all.a");
+    let lib = lib_dir.join("libredisearch_c_bundle.a");
     if std::fs::exists(&lib).unwrap_or(false) {
-        println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
+        println!("cargo::rustc-link-lib=static:-bundle=redisearch_c_bundle");
         println!("cargo::rerun-if-changed={}", lib.display());
         println!("cargo::rustc-link-search=native={}", lib_dir.display());
         Ok(lib)
@@ -153,9 +234,9 @@ pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::erro
 
 /// Link Intel MKL separately if present.
 ///
-/// MKL is excluded from `libredisearch_all.a` because its ~42K object files
+/// MKL is excluded from `libredisearch_c_bundle.a` because its ~42K object files
 /// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
-/// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
+/// Like `redisearch_c_bundle`, we link with `-bundle` to avoid rlib bloat.
 ///
 /// `svs_lib_dir` is the directory that contains `libmkl_static_library.a`.
 /// Its location varies across build configurations, so callers are responsible
@@ -218,15 +299,7 @@ pub fn generate_c_bindings(
     let root =
         repository_root().expect("Could not find repository root for static library linking");
 
-    let includes = vec![
-        root.join("deps").join("RedisModulesSDK"),
-        root.join("src"),
-        root.join("deps"),
-        root.join("src").join("redisearch_rs").join("headers"),
-        root.join("deps").join("VectorSimilarity").join("src"),
-        root.join("src").join("buffer"),
-        root.join("src").join("ttl_table"),
-    ];
+    let includes = c_include_roots(&root);
 
     let headers = headers
         .into_iter()

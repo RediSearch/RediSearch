@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import redis
 import random
@@ -879,14 +884,14 @@ def testPartial(env):
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent')
     env.assertEqual([1, 'doc1'], res)
 
-    # Test updating of score and no fields
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    env.assertLess(float(res[2]), 1)
-    # env.assertEqual([1, 'doc1'], res)
+    # A partial write with no fields updates the document score independently of reindexing.
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertAlmostEqual(float(res[2]), 0.1, delta=1e-6, message=res)
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields'))
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    # We reindex though no new fields, just score is updated. this effects score
-    env.assertEqual(float(res[2]), 1)
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertEqual(float(res[2]), 1, message=res)
 
     # Test updating payloads
     res = env.cmd(
@@ -1966,7 +1971,9 @@ def testInfoCommand(env):
             env.assertEqual(int(d['num_records']), N * 2)
 
             env.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            env.assertGreater(float(d['key_table_size_mb']), 0)
+            # The key->docId mapping now lives in Redis key-metadata (not
+            # module-tracked memory), so key_table_size_mb is always 0.
+            env.assertEqual(float(d['key_table_size_mb']), 0)
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
@@ -4177,7 +4184,9 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    info = to_dict(env.cmd('ft.info', 'idx'))
+    env.assertEqual(info['number_of_uses'], 1, message=info)
+    env.assertEqual(info['number_of_admin_ops'], 2, message=info)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -4516,9 +4525,7 @@ def test_cluster_set_myself_excluded(env: Env):
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
-# TODO(MOD-15868): re-enable once https://redislabs.atlassian.net/browse/MOD-15868 is resolved
-@skip()
-#@skip(cluster=False) # this test is only relevant on cluster
+@skip(cluster=True) # only parsing errors are tested, no need for an actual cluster
 def test_cluster_set_errors(env: Env):
 
     # Check general values parsing
@@ -4530,12 +4537,23 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
     env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
 
-    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
+    # These 3-arg forms dispatch to the short form (`SEARCH.CLUSTERSET AUTH <pass>`) only
+    # when the `RedisModule_GetClusterNodeSlotRanges` module API is present — added by
+    # Redis #14953 (OSS 8.10; RE 8.4+ via a later patch). Our pinned enterprise Redis
+    # predates that patch, so the API is absent and these fall through to the long-form
+    # keyword parser ("Bad value for ...") rather than the short-form "Expected `AUTH`"
+    # error. TODO(MOD-17151): un-gate once the RoR pin advances past the patch.
+    if not RS_TEST_ENTERPRISE:
+        env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
+        env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
+        env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
+
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
 
     # Check shard values parsing
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',

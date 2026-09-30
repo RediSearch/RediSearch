@@ -1,13 +1,24 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import os
+import tempfile
 
 from RLTest import Env
 from includes import *
 from common import *
-# Must match MAX_WORKER_THREADS in src/config.h
-MAX_WORKER_THREADS = 16
+# Must match MAX_WORKER_THREADS in src/config.h (enterprise builds override it to 8192)
+MAX_WORKER_THREADS = 8192 if RS_TEST_ENTERPRISE else 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
-default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
+# The OSS Redis 8 build registers a built-in 'vectorset' module that shows in
+# MODULE LIST; the enterprise rl_8.6 RoR redis-server does not, so its baseline
+# MODULE LIST (no user modules loaded) is empty.
+default_module_list = [] if RS_TEST_ENTERPRISE else [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
@@ -97,6 +108,7 @@ def testGetConfigOptions(env):
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
+    check_config('OPTIMIZE_PARTIAL_UPDATE')
     check_config('_BG_INDEX_MEM_PCT_THR')
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
@@ -124,8 +136,6 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'MT_MODE', 1).error().contains(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).error().contains('Invalid ON_TIMEOUT value')
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'return-strict').error()\
-        .contains('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'GC_POLICY', 1).error().contains(not_modifiable)
@@ -134,6 +144,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', 'OPTIMIZE_PARTIAL_UPDATE', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
@@ -220,9 +231,10 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
+    env.assertEqual(res_dict['OPTIMIZE_PARTIAL_UPDATE'][0], 'true')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['ON_OOM'][0], 'return')
     env.assertEqual(res_dict['_MIN_TRIM_DELAY_MS'][0], '2000')
@@ -267,6 +279,7 @@ def testInitConfig():
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
     _test_config_str('ON_TIMEOUT', 'fail')
+    _test_config_str('ON_TIMEOUT', 'return-strict')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -284,6 +297,8 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
+    _test_config_str('OPTIMIZE_PARTIAL_UPDATE', 'true', 'true')
+    _test_config_str('OPTIMIZE_PARTIAL_UPDATE', 'false', 'false')
     _test_config_str('ON_OOM', 'return')
 
 @skip(cluster=True)
@@ -332,9 +347,9 @@ def testTrimDelayValidation(env):
     env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '3000']])
     env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '6000']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testImmutable(env):
-
+    # Enterprise: config_cmd() SET without value gives 'wrong number of args' not 'not modifiable'
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
@@ -373,9 +388,14 @@ def testDeprecatedMTConfig_operations():
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
-    # Check new config values
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    # Check new config values.
+    # Enterprise disables WORKERS by default; MIN_OPERATION_WORKERS follows WORKER_THREADS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
@@ -392,20 +412,35 @@ def testDeprecatedMTConfig_off():
 def testDeprecatedMTConfig_full_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise disables WORKERS when WORKER_THREADS=0 under MT_MODE_FULL.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise disables WORKERS when WORKER_THREADS=0 under MT_MODE_ONLY_ON_OPERATIONS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise disables WORKERS for MT_MODE_OFF regardless of WORKER_THREADS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
 @skip(cluster=True)
 def testExplicitWorkersOverridesDefault(env):
@@ -573,7 +608,7 @@ numericConfigs = [
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, UINT32_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
-    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, 16, False, False),
+    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, MAX_WORKER_THREADS, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, UINT32_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
@@ -584,11 +619,11 @@ numericConfigs = [
     ('search-timeout', 'TIMEOUT', 500, 0, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
-    ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
+    ('search-workers', 'WORKERS', (0 if RS_TEST_ENTERPRISE else min(MAX_WORKER_THREADS, os.cpu_count())), 0, MAX_WORKER_THREADS, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
-    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', (5 if RS_TEST_ENTERPRISE else 0), 0, UINT32_MAX, False, False),
     ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
     ('search-bg-index-sleep-duration-us', 'BG_INDEX_SLEEP_DURATION_US', 1, 1, 999999, False, False),
     ('search-_trimming-state-check-delay-ms', '_TRIMMING_STATE_CHECK_DELAY_MS', 100, 1, UINT32_MAX, False, False),
@@ -1210,9 +1245,11 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
 
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return-strict').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-timeout')\
+        .equal(['search-on-timeout', 'return-strict'])
+
     # Test search-on-timeout - invalid values
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return-strict').error()\
-            .contains('CONFIG SET failed')
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
@@ -1473,7 +1510,9 @@ def _registerModuleLoadexStringParamTests():
         testName = f'testModuleLoadexStringParams_{argName}'
 
         def _makeTest(configName, argName, testValueRel, testName):
-            @skip(cluster=True, redis_less_than='7.9.227')
+            # Enterprise rejects extension loading via MODULE LOADEX outright,
+            # so search-ext-load's LOADEX scenarios don't apply there.
+            @skip(cluster=True, redis_less_than='7.9.227', enterprise=True if configName == 'search-ext-load' else None)
             def _test():
                 _testModuleLoadexStringParam(configName, argName, testValueRel)
             _test.__name__ = testName
@@ -1485,7 +1524,7 @@ def _registerModuleLoadexStringParamTests():
 
 _registerModuleLoadexStringParamTests()
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='7.9.227', enterprise=True)
 def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
@@ -1521,7 +1560,7 @@ def testConfigFileStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', enterprise=True)
 def testConfigFileAndArgsStringParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
@@ -1570,7 +1609,7 @@ def testConfigFileAndArgsStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', enterprise=True)
 def testStringArgDeprecationMessage():
     '''Test deprecation message of module string arguments'''
 
@@ -1617,6 +1656,7 @@ booleanConfigs = [
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
+    ('search-optimize-partial-update', 'OPTIMIZE_PARTIAL_UPDATE', 'yes', False, False),
 ]
 
 # CONFIG-only boolean parameters (no corresponding FT.CONFIG parameter / module argument)
@@ -2108,8 +2148,21 @@ def testConfigIndependence_default():
         # Test max value. Skip for search-conn-per-shard because it may open too many connections
         checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
-        # Reset to default value
-        env.expect('CONFIG', 'SET', configName, default).ok()
+        # Reset to the captured baseline value. The numericConfigs `default`
+        # column encodes the OSS module's default, which can differ from the
+        # actual runtime default (e.g. enterprise defaults WORKERS to 0 while
+        # OSS defaults it to cpu_count). Resetting to the value captured at
+        # startup keeps this independence check self-consistent across builds;
+        # in OSS the captured value equals `default`, so behavior is unchanged.
+        resetValue = defaultConfigDict[argName][0]
+        if resetValue == 'unlimited':
+            # FT.CONFIG reports the result caps' "unlimited" default as the
+            # literal string; the raw CONFIG twin needs the numeric max, which
+            # GET then reports back as 'unlimited'.
+            resetValue = (MAX_AGGREGATE_REQUEST_RESULTS
+                          if argName == 'MAXAGGREGATERESULTS'
+                          else MAX_SEARCH_REQUEST_RESULTS)
+        env.expect('CONFIG', 'SET', configName, resetValue).ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, defaultConfigDict)
 
@@ -2266,19 +2319,226 @@ def testDefaultScorerConfig(env):
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
 
 @skip(cluster=True)
-def test_flex_search_disk_buffer_percentage(env):
-    """Test search-disk-buffer-percentage validation in Flex mode"""
-    # Valid values should be accepted
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '50'])
+def test_flex_disk_resource_configs(env):
+    configs = {
+        'search-disk-memory-limit-percentage': '60',
+        'search-disk-write-buffer-min-percentage': '20',
+        'search-disk-write-buffer-per-index-mb': '3',
+        'search-disk-max-open-files': '200',
+    }
+    wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
+    for name, default in configs.items():
+        env.expect('CONFIG', 'GET', name).equal([name, default])
+        env.assertNotIn(name, wildcard_result)
+        env.expect('CONFIG', 'SET', name, default).error()
+
+
+def _disk_resource_startup_config(directives):
+    log_dir = tempfile.mkdtemp(prefix='redisearch-disk-resource-')
+    config_path = os.path.join(log_dir, 'redis.conf')
+    with open(config_path, 'w') as config:
+        for name, value in directives:
+            config.write(f'{name} {value}\n')
+    return log_dir, config_path
+
+
+def _disk_resource_startup_log(log_dir):
+    contents = []
+    for name in os.listdir(log_dir):
+        if name.endswith('.log'):
+            with open(os.path.join(log_dir, name), encoding='utf-8', errors='replace') as log:
+                contents.append(log.read())
+    return '\n'.join(contents)
+
+
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False,
+      missing_redis_command='bigstore')
+def test_flex_disk_resource_config_startup_boundaries():
+    accepted = (
+        {
+            'search-disk-memory-limit-percentage': '1',
+            'search-disk-write-buffer-min-percentage': '1',
+            'search-disk-write-buffer-per-index-mb': '1',
+            'search-disk-max-open-files': '20',
+        },
+        {
+            'search-disk-memory-limit-percentage': '60',
+            'search-disk-write-buffer-min-percentage': '20',
+            'search-disk-write-buffer-per-index-mb': '2',
+            'search-disk-max-open-files': '21',
+        },
+        {
+            'search-disk-memory-limit-percentage': '99',
+            'search-disk-write-buffer-min-percentage': '99',
+            'search-disk-write-buffer-per-index-mb': '3',
+            'search-disk-max-open-files': '22',
+        },
+        {
+            'search-disk-memory-limit-percentage': '100',
+            'search-disk-write-buffer-min-percentage': '100',
+            'search-disk-write-buffer-per-index-mb': '4',
+            'search-disk-max-open-files': str(INT_MAX),
+        },
+    )
+    for expected in accepted:
+        log_dir, config_path = _disk_resource_startup_config(expected.items())
+        env = Env(
+            noDefaultModuleArgs=True,
+            redisConfigFile=config_path,
+            logDir=log_dir,
+            freshEnv=True,
+        )
+        try:
+            env.assertTrue(env.isUp())
+            env.expect('CONFIG', 'GET', 'bigredis-enabled').equal(
+                ['bigredis-enabled', 'yes']
+            )
+            for name, value in expected.items():
+                env.expect('CONFIG', 'GET', name).equal([name, value])
+        finally:
+            env.stop()
+
+
+def _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue=None):
+    log_dir, config_path = _disk_resource_startup_config(directives)
+    candidate = None
+    try:
+        candidate = Env(
+            noDefaultModuleArgs=True,
+            redisConfigFile=config_path,
+            logDir=log_dir,
+            freshEnv=True,
+        )
+    except Exception:
+        pass
+    else:
+        is_up = candidate.isUp()
+        candidate.stop()
+        configured = ', '.join(f'{name}={value}' for name, value in directives)
+        assert not is_up, f'Flex unexpectedly started with {configured}'
+
+    startup_log = _disk_resource_startup_log(log_dir)
+    if config_issue is not None:
+        assert f'Issue during loading of configuration {config_issue} :' in startup_log
+    assert diagnostic in startup_log
+
+
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False,
+      missing_redis_command='bigstore')
+def test_flex_disk_resource_config_startup_rejections():
+    invalid = (
+        (
+            (('search-disk-memory-limit-percentage', '0'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-memory-limit-percentage',
+        ),
+        (
+            (('search-disk-memory-limit-percentage', '101'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-memory-limit-percentage',
+        ),
+        (
+            (('search-disk-write-buffer-min-percentage', '0'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-write-buffer-min-percentage',
+        ),
+        (
+            (('search-disk-write-buffer-min-percentage', '101'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-write-buffer-min-percentage',
+        ),
+        (
+            (('search-disk-write-buffer-per-index-mb', '0'),),
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
+            'search-disk-write-buffer-per-index-mb',
+        ),
+        (
+            (('search-disk-write-buffer-per-index-mb',
+              str(UINT64_MAX // (1024 * 1024) + 1)),),
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
+            'search-disk-write-buffer-per-index-mb',
+        ),
+        (
+            (('search-disk-max-open-files', '19'),),
+            f'argument must be between 20 and {INT_MAX} inclusive',
+            'search-disk-max-open-files',
+        ),
+        (
+            (
+                ('search-disk-write-buffer-min-percentage', '21'),
+                ('search-disk-memory-limit-percentage', '20'),
+            ),
+            'search-disk-write-buffer-min-percentage must not exceed '
+            'search-disk-memory-limit-percentage',
+            None,
+        ),
+    )
+    for directives, diagnostic, config_issue in invalid:
+        _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue)
+
+@skip(cluster=True)
+def test_flex_search_disk_async_read_pool_size(env):
+    """Test search-_disk-async-read-pool-size validation in Flex mode"""
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-pool-size')\
+        .equal(['search-_disk-async-read-pool-size', '16'])
+
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '64').ok()
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-pool-size')\
+        .equal(['search-_disk-async-read-pool-size', '64'])
 
     # Boundary values
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '0').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '0'])
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '1').ok()
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '1024').ok()
 
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '100').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '100'])
+    # A pool of zero would stall the async path outright, so it is rejected
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '0').error()\
+        .contains('argument must be between 1 and 1024')
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '1025').error()\
+        .contains('argument must be between 1 and 1024')
 
-    # Values above 100 should be rejected
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '101').error()\
-        .contains('argument must be between 0 and 100')
+    # RLTest reuses the server across tests, so hand it back at the default
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '16').ok()
+
+@skip(cluster=True)
+def test_flex_search_disk_async_read_queue_factor(env):
+    """Test search-_disk-async-read-queue-factor validation in Flex mode"""
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-queue-factor')\
+        .equal(['search-_disk-async-read-queue-factor', '1'])
+
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '4').ok()
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-queue-factor')\
+        .equal(['search-_disk-async-read-queue-factor', '4'])
+
+    # Boundary values
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '1').ok()
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '16').ok()
+
+    # A factor below 1 would leave the queue shallower than the pool, so it is rejected
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '0').error()\
+        .contains('argument must be between 1 and 16')
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '17').error()\
+        .contains('argument must be between 1 and 16')
+
+    # RLTest reuses the server across tests, so hand it back at the default
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '1').ok()
+
+@skip(cluster=True)
+def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
+    """The pool size and the queue factor can be set in one command, in either order"""
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '64',
+               'search-_disk-async-read-queue-factor', '2').ok()
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-pool-size')\
+        .equal(['search-_disk-async-read-pool-size', '64'])
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-queue-factor')\
+        .equal(['search-_disk-async-read-queue-factor', '2'])
+
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-queue-factor', '4',
+               'search-_disk-async-read-pool-size', '1024').ok()
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-pool-size')\
+        .equal(['search-_disk-async-read-pool-size', '1024'])
+    env.expect('CONFIG', 'GET', 'search-_disk-async-read-queue-factor')\
+        .equal(['search-_disk-async-read-queue-factor', '4'])
+
+    # RLTest reuses the server across tests, so hand it back at the defaults
+    env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '16',
+               'search-_disk-async-read-queue-factor', '1').ok()

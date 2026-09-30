@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import threading
 
@@ -24,32 +31,23 @@ def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False)
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_max_index_limit(env):
-    """Test that creating more than 10 indices fails when search-_simulate-in-flex is true"""
-    # Create 10 indices successfully (the maximum allowed)
-    for i in range(10):
-        index_name = f'idx{i}'
-        env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
+def test_flex_no_fixed_index_limit(env):
+    """Flex has no fixed index count cap; creation is bounded by disk resources instead."""
+    n_indexes = 20
+    for i in range(n_indexes):
+        env.expect('FT.CREATE', f'idx{i}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
+    env.assertEqual(len(env.cmd('FT._LIST')), n_indexes)
 
-    # Verify all 10 indices were created
-    info_result = env.cmd('FT._LIST')
-    env.assertEqual(len(info_result), 10)
-
-    # Try to create the 11th index - this should fail
-    env.expect('FT.CREATE', 'idx10', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Max number of indexes reached for Flex indexes: 10')
+    env.dumpAndReload()
+    env.assertEqual(len(env.cmd('FT._LIST')), n_indexes)
 
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_invalid_field_type(env):
     """Test that creating an index with an invalid field type fails when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEO') \
-        .error().contains('GEO fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \
         .error().contains('GEOSHAPE fields are not supported in Flex indexes')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'NUMERIC') \
-        .error().contains('NUMERIC fields are not supported in Flex indexes')
 
 
 @skip(cluster=True)
@@ -155,11 +153,6 @@ def test_unsupported_schema_options(env):
     # Test NOINDEX is not supported
     env.expect('FT.CREATE', 'idx2', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'NOINDEX') \
         .error().contains('Disk index does not support NOINDEX fields')
-
-    # Test INDEXMISSING is not supported
-    env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
-        .error().contains('Disk index does not support INDEXMISSING fields')
-
 
 
 @skip(cluster=True)
@@ -378,6 +371,27 @@ def test_flex_blocks_dict_commands(env):
         .error().contains('FT.DICTDEL is not supported in Redis Flex')
     env.expect('FT.DICTDUMP', 'dict') \
         .error().contains('FT.DICTDUMP is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rejects_compression_and_training(env):
+    """Reject in-memory SQ8 options before creating a disk-backed vector field."""
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        base = ['TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'L2',
+                'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+        for extra, error in (
+            (['COMPRESSION', 'SQ8'], 'COMPRESSION is not supported for disk-based vector indexes'),
+            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 0],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 4, 'COMPRESSION', 'SQ8'],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 0],
+             'TRAINING_THRESHOLD is irrelevant when compression was not requested'),
+        ):
+            params = [*base, *extra]
+            env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                       'v', 'VECTOR', 'HNSW', len(params), *params).error().contains(error)
 
 
 @skip(cluster=True)

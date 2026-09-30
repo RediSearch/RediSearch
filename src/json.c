@@ -8,13 +8,27 @@
 */
 
 #include "json.h"
+
+#include <math.h>
+#include <string.h>
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+
 #include "value_ffi.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "VecSim/vec_sim_common.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
 
-#include <math.h>
-#include <string.h>
+struct RedisModuleCtx;
 
 // REJSON APIs
 RedisJSONAPI *japi = NULL;

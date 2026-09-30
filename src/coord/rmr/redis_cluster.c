@@ -6,11 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "../config.h"
-#include "cluster.h"
 #include "redismodule.h"
 #include "rmr.h"
-#include "module.h"
+#include "rmr/cluster_topology.h"
+#include "rmutil/rm_assert.h"
 
 void UpdateTopology(RedisModuleCtx *ctx) {
   uint32_t my_shard_idx = UINT32_MAX;
@@ -42,28 +46,30 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   }
 }
 
-#define REFRESH_PERIOD 1000 // 1 second
-RedisModuleTimerID topologyRefreshTimer = 0;
+// True while the topology updater is active: refreshing the topology on every cluster topology
+// change event. Only set on an OSS cluster; may be cleared temporarily by the debug commands.
+static bool topologyUpdaterRunning = false;
 
-static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
-  REDISMODULE_NOT_USED(p);
-  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+void RedisTopologyUpdater_OnTopologyChanged(RedisModuleCtx *ctx) {
+  if (!topologyUpdaterRunning) return;  // Paused, or not an OSS cluster
   UpdateTopology(ctx);
 }
 
-void RedisTopologyUpdater_StopAndRescheduleImmediately(RedisModuleCtx *ctx) {
-  RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
-  topologyRefreshTimer = RedisModule_CreateTimer(ctx, 0, UpdateTopology_Periodic, NULL);
-}
-
 int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  if (topologyRefreshTimer || clusterConfig.type != ClusterType_RedisOSS) return REDISMODULE_ERR;
-  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  if (topologyUpdaterRunning || clusterConfig.type != ClusterType_RedisOSS) return REDISMODULE_ERR;
+  topologyUpdaterRunning = true;
+  // The topology change event only fires on changes, so fetch the current topology ourselves.
+  // This may fail if the cluster is not ready yet (e.g. at server startup); the events fired
+  // while the cluster forms will trigger the next refresh.
+  UpdateTopology(ctx);
   return REDISMODULE_OK;
 }
 
 int StopRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  int rc = RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
-  topologyRefreshTimer = 0;
-  return rc; // OK if we stopped the timer, ERR if it was already stopped (or never started - enterprise)
+  REDISMODULE_NOT_USED(ctx);
+  if (!topologyUpdaterRunning) {
+    return REDISMODULE_ERR;  // Already stopped (or never started - enterprise)
+  }
+  topologyUpdaterRunning = false;
+  return REDISMODULE_OK;
 }

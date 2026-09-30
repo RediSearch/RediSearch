@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Safe wrapper around arrays allocated with [`ffi::RedisModule_Alloc`].
+//! Safe wrapper around arrays allocated with [`redis_module::RedisModule_Alloc`].
 
 use std::ffi::c_void;
 use std::fmt;
@@ -30,7 +30,7 @@ impl<T> Drop for RmArray<T> {
         }
 
         // Safety: the redis module is always initialized at this point
-        let free = unsafe { ffi::RedisModule_Free.unwrap() };
+        let free = unsafe { redis_module::RedisModule_Free.unwrap() };
 
         // Safety: ptr is known to be non-null and well aligned and correctly allocated by us below.
         unsafe {
@@ -45,7 +45,7 @@ impl<T> RmArray<T> {
         T: Copy,
     {
         // Safety: the redis module is always initialized at this point
-        let alloc = unsafe { ffi::RedisModule_Alloc.unwrap() };
+        let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
 
         // Safety: the size is non-zero, and doesn't overflow isize or any other common allocator invariants
         let ptr = NonNull::new(unsafe { alloc(size_of::<T>().strict_mul(src.len())) })

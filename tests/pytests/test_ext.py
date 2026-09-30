@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import subprocess
 import os
 import os.path
@@ -5,7 +12,7 @@ import sys
 from RLTest import Env
 from includes import *
 from test_info_modules import info_modules_to_dict
-from common import config_cmd
+from common import config_cmd, skip
 
 
 if 'EXT_TEST_PATH' in os.environ:
@@ -14,6 +21,7 @@ else:
     EXTPATH = 'tests/ctests/ext-example/libexample_extension.so'
 
 
+@skip(enterprise=True)
 def testExt(env):
     if env.env == 'existing-env' or NO_LIBEXT:
         env.skip()
@@ -47,3 +55,28 @@ def testExt(env):
     if not env.isCluster():
         res = env.cmd(config_cmd(), 'get', 'EXTLOAD')[0][1]
         env.assertContains('libexample_extension', res)
+
+
+@skip(enterprise=True, cluster=True)
+def testExplainScoreWithScorerThatDoesNotExplain(env):
+    """EXPLAINSCORE with an extension scorer that returns a score but never writes an
+    explanation (example_scorer) replies with an empty explanation."""
+    if env.env == 'existing-env' or NO_LIBEXT:
+        env.skip()
+
+    if os.path.isabs(EXTPATH):
+        ext_path = EXTPATH
+    else:
+        ext_path = os.path.abspath(os.path.join(os.path.dirname(env.module[0]), EXTPATH))
+
+    env = Env(moduleArgs=f'EXTLOAD {ext_path}')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f', 'TEXT').ok()
+    env.getConnection().execute_command('HSET', 'doc1', 'f', 'hello world')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE',
+                  'SCORER', 'example_scorer', 'NOCONTENT')
+    if env.protocol == 3:
+        env.assertEqual(res['results'][0]['score'], [3.141, ''], message=res)
+    else:
+        env.assertEqual(res, [1, 'doc1', ['3.141', '']])
+    env.expect('PING').equal(True)

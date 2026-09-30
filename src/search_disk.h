@@ -17,11 +17,15 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 __attribute__((weak))
 bool SearchDisk_HasAPI();
 
 __attribute__((weak))
- RedisSearchDiskAPI *SearchDisk_GetAPI();
+RedisSearchDiskAPI *SearchDisk_GetAPI();
 
 __attribute__((weak))
 void SearchDisk_SetAPI();
@@ -67,6 +71,25 @@ void SearchDisk_UpdateLogObfuscation();
 // Basic API wrappers
 
 /**
+ * @brief Return whether one more disk index fits the configured write-buffer budget and the
+ * search-disk-max-open-files cap.
+ *
+ * Applies only to new index creation. On success, charges the FD cap immediately; call
+ * SearchDisk_ReleaseCreateFailure if the index does not end up opening. Restore paths always
+ * proceed and let the disk backend clamp shared write-buffer capacity and FD usage instead of
+ * rejecting the index.
+ *
+ * @param status Receives the reason creation was rejected.
+ */
+bool SearchDisk_CanCreateIndex(QueryError *status);
+
+/**
+ * @brief Undo the FD charge SearchDisk_CanCreateIndex applied, after a create attempt that it
+ * admitted subsequently failed to open.
+ */
+void SearchDisk_ReleaseCreateFailure(void);
+
+/**
  * @brief Open an index, **Important** must be called once and only once for every index
  * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
@@ -78,7 +101,9 @@ void SearchDisk_UpdateLogObfuscation();
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
+    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
+    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -193,6 +218,16 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           RLookup *lk, const RLookupKey **keys,
                                                           size_t nkeys, uint32_t *outStateFlags);
 
+/**
+ * @brief Hand the disk async-loader result processor its request sync context, so it can run
+ * the same RETURN_STRICT GIL handshake as RP_SAFE_LOADER (see aggregate.h). Called from
+ * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
+ *
+ * @param rp  The disk async-loader ResultProcessor, from SearchDisk_NewAsyncLoaderResultProcessor
+ * @param request `QueryRequest *`, or NULL to clear
+ */
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request);
+
 // Index API wrappers
 
 /**
@@ -223,6 +258,19 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+
+bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+
+/** Stage absent INDEXMISSING fields in the document batch; false requires aborting it.
+ * The field-index array is borrowed only for the call. See IndexDiskAPI.indexMissingFields. */
+bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                   SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                                   size_t numFields, t_docId docId);
+
+/** Open missing postings using sctx's query snapshot. See IndexDiskAPI.newMissingIterator. */
+QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
+                                             const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                             QueryError *status);
 
 /**
  * @brief Stage a numeric value for a document on a write batch.
@@ -389,24 +437,6 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
-/**
- * @brief Create a numeric range IndexIterator over the disk-backed index
- *
- * Wraps the disk API's per-bucket readers in a union iterator that yields
- * doc-ids matching `filter`'s range. The disk snapshot is taken from
- * `sctx->diskSnapshot` (which must be non-NULL) so the buckets are read at
- * the same point in time as sibling iterators in the same query.
- *
- * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view. The
- *             `diskSnapshot` field is required to be non-NULL.
- * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
- * @param fieldIndex Field index for the numeric field
- * @param status QueryError to populate with the cause when creation fails (may be NULL)
- * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
- */
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
-
 // DocTable API wrappers
 
 /**
@@ -485,6 +515,14 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
+ * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
+ *
+ * @return sds JSON string (release with sdsfree), or NULL when the field has
+ *         no numeric index on this handle.
+ */
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID
@@ -746,19 +784,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Get vector index memory for a disk index
- *
- * Returns disk-side vector index memory in bytes from the latest collected snapshot.
- * Does not include RAM-only accounting from non-disk paths.
- * Call SearchDisk_CollectIndexMetrics(index) before this getter.
- * Requires initialized SearchDisk and non-null index (RS_ASSERT).
- *
- * @param index Pointer to the disk index spec
- * @return Vector index memory in bytes
- */
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
-
-/**
  * @brief Get the disk-owned total number of records for a disk index
  *
  * Returns the disk-side num_records counter used by FT.INFO.
@@ -913,66 +938,35 @@ void SearchDisk_ContinueBackgroundWork(RedisSearchDiskIndexSpec* index);
 bool SearchDisk_IsBackgroundWorkPaused(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
+ * @brief Open the consistency window on a single index.
  *
- * Acquires the IndexSpec read lock (blocks writes, allows queries) and
- * dispatches to the disk-side preCheckpoint hook.
- *
- * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
- */
-void SearchDisk_PreCheckpoint(IndexSpec *sp);
-
-/**
- * @brief Master-side SST replication PRE_FORK hook for a single index.
- *
- * Dispatches to the disk-side preFork hook.
+ * Disables and cancels manual compactions and closes the numeric consistency gate; does not
+ * flush - the caller does that under the vector consistency lock. Idempotent within a cycle.
+ * Takes no IndexSpec lock: running on the main thread is what keeps writes out.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
-void SearchDisk_PreFork(IndexSpec *sp);
+void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 
 /**
- * @brief Master-side SST replication POST_FORK hook for a single index.
+ * @brief Close the consistency window on a single index, re-enabling compactions.
  *
- * Dispatches to the disk-side postFork hook.
+ * Replaces the former PostFork/ReplicationAbort/HotRestartSaveEnded trio. Tolerates a
+ * window that was never opened, so the abort paths need no special case. Pass
+ * reopenNumericGate=false on a successful hot restart, where the gate must stay closed
+ * through process exit.
  *
  * @param sp Pointer to the IndexSpec
+ * @param reopenNumericGate Whether to reopen the numeric consistency gate
  */
-void SearchDisk_PostFork(IndexSpec *sp);
+void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
- * @brief Master-side SST replication ABORT hook for a single index.
+ * @brief Update the memory limit used to derive Search disk resource limits.
  *
- * Dispatches to the disk-side replicationAbort hook, then releases whichever
- * subset of locks (fork lock, read lock) is currently held for this cycle.
- *
- * @param sp Pointer to the IndexSpec
+ * @param memoryLimitBytes Current bigredis-max-ram value in bytes
  */
-void SearchDisk_ReplicationAbort(IndexSpec *sp);
-
-/**
- * @brief Update the buffer budget and WBM in response to RAM configuration changes
- *
- * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
- * and updates the WriteBufferManager with the new size. Should be called in response
- * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
- *
- * @param ctx Redis module context
- * @param percentage Percentage of available memory to request (0-100)
- */
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
-
-/**
- * @brief Reapply the max_open_files cap to all live disk databases.
- *
- * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
- * the configured value on the shared disk context (so newly created indexes use it)
- * and applies the resolved per-DB cap to every existing index's database at runtime.
- *
- * @param ctx Redis module context
- * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
- */
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
@@ -985,7 +979,17 @@ void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
-  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // The cycle's first index_spec_open_consistency_window, before
+  // disable_compactions() (main thread); cross-wake source for releasing a
+  // compaction the window is about to block on.
+  SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN = 2,
+  // A numeric split between its Step B scan and its Step C+D commit (GC
+  // thread) — the mid-flight, nothing-committed point.
+  SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT = 3,
+  // index_spec_open_consistency_window right after the consistency gate of the
+  // numeric index closes (main thread); cross-wake source for
+  // deterministically deferring a held split.
+  SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
 } SearchDiskCompactionSite;
 
 /**
@@ -1001,8 +1005,8 @@ void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
  * @brief Configures a cross-wake: reaching `trigger` releases `target`.
  *
  * This is what breaks the replication-vs-compaction deadlock — a main-thread
- * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
- * to block on. A `target` of -1 clears the link.
+ * site (e.g. CONSISTENCY_WINDOW_OPEN) can release a background compaction it is
+ * about to block on. A `target` of -1 clears the link.
  */
 void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 
@@ -1019,6 +1023,7 @@ void SearchDisk_DebugCoordinatorRelease(int site);
  */
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
 
+
 /**
  * @brief Resets the coordinator.
  *
@@ -1026,3 +1031,7 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  * Intended for test teardown so a stuck pause can't poison the next test.
  */
 void SearchDisk_DebugResetCompactionController(void);
+
+#ifdef __cplusplus
+}
+#endif

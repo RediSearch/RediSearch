@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn single_child_union_delegates_to_child_iter() {
-        use crate::{RSAggregateResult, RSIndexResult, RSOffsetSlice};
+        use crate::{RSIndexResult, RSOffsetSlice, RSOwnedAggregateResult, RawAggregateResult};
         use std::ptr;
 
         // delta bytes [2, 3, 5] → cumulative positions [2, 5, 10]
@@ -481,7 +481,7 @@ mod tests {
             .borrowed_record(None, RSOffsetSlice::from_slice(&OFFSETS))
             .build();
 
-        let mut agg = RSAggregateResult::owned_with_capacity(1);
+        let mut agg = RSOwnedAggregateResult::with_capacity(1);
         agg.push_boxed(Box::new(term));
 
         // Construct the Union directly; `data` is private to `core` but
@@ -491,9 +491,10 @@ mod tests {
             dmd: ptr::null(),
             field_mask: 0,
             freq: 0,
-            data: RawResultData::Union(agg),
+            data: RawResultData::Union(RawAggregateResult::Owned(agg)),
             metrics: crate::MetricsVec::new(),
             weight: 0.0,
+            has_field_expiration: false,
         };
 
         // With n == 1, iterate_offsets delegates directly to the child,

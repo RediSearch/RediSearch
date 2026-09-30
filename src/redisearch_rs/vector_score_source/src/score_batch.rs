@@ -14,6 +14,10 @@ use top_k::ScoreBatch;
 use vecsim::ReplyResults;
 
 /// Adapts [`ReplyResults`] to the [`ScoreBatch`] interface.
+///
+/// The batch yields every reply entry, expired documents included; expiration
+/// is checked at yield time by the wrapping iterator (see
+/// [`VectorScoreSource::is_expired`](crate::VectorScoreSource)).
 pub struct VecSimScoreBatch {
     results: ReplyResults,
 }
@@ -26,7 +30,7 @@ impl VecSimScoreBatch {
 
 impl ScoreBatch for VecSimScoreBatch {
     fn next(&mut self) -> Option<(DocId, f64)> {
-        Iterator::next(&mut self.results)
+        self.results.next()
     }
 
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {

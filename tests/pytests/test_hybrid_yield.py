@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from RLTest import Env
 from includes import *
 from common import *
@@ -250,9 +257,7 @@ def test_hybrid_combine_yield_score_as_both_forms():
     produce the same results."""
     env = Env()
     setup_basic_index(env)
-    # Use a non-tied vector so cluster result ordering does not depend on
-    # arbitrary tie-breaking between equally distant documents.
-    query_vector = np.array([0.0, 0.25]).astype(np.float32).tobytes()
+    query_vector = np.array([1.2, 0.3]).astype(np.float32).tobytes()
 
     # Counted form: count 4 covers CONSTANT 60 YIELD_SCORE_AS search_score
     counted, _ = get_results_from_hybrid_response(env.cmd(

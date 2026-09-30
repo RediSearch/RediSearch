@@ -7,10 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_command.h"
-#include "resp3.h"
+
+#include <stdbool.h>
+#include <string.h>
+
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
+#include "info/index_error.h"
 #include "module.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "reply.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmr/rmr.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
+
+struct MRCtx;
 
 // Type of field returned in INFO
 typedef enum {
@@ -50,6 +65,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
     {.name = "number_of_uses", .type = InfoField_Max},
+    {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec gcSpecs[] = {
@@ -66,6 +82,7 @@ static InfoFieldSpec cursorSpecs[] = {
     {.name = "global_total", .type = InfoField_WholeSum},
     {.name = "index_capacity", .type = InfoField_WholeSum},
     {.name = "index_total", .type = InfoField_WholeSum},
+    {.name = "index_total_internal", .type = InfoField_WholeSum},
 };
 
 static InfoFieldSpec dialectSpecs[] = {

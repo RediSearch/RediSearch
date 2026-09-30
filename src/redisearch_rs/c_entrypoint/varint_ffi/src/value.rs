@@ -8,7 +8,6 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
-use std::ptr::NonNull;
 use varint::VarintEncode;
 
 #[unsafe(no_mangle)]
@@ -22,10 +21,9 @@ use varint::VarintEncode;
 /// The following invariants must be upheld when calling this function:
 /// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
-pub extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
-    let mut buffer_reader = b.unwrap();
+pub unsafe extern "C" fn ReadVarint(b: *mut BufferReader) -> u32 {
     // Safety: Safe thanks to invariants 1. and 2.
-    let buffer_reader = unsafe { buffer_reader.as_mut() };
+    let buffer_reader = unsafe { b.as_mut() }.expect("b must not be NULL");
     varint::read(buffer_reader).unwrap()
 }
 
@@ -43,10 +41,9 @@ pub extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
 /// 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer writer.
 #[unsafe(no_mangle)]
-pub extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>) -> usize {
-    let mut writer = writer.unwrap();
+pub unsafe extern "C" fn WriteVarint(value: u32, writer: *mut BufferWriter) -> usize {
     // Safety: Safe thanks to invariants 1. and 2.
-    let writer = unsafe { writer.as_mut() };
+    let writer = unsafe { writer.as_mut() }.expect("writer must not be NULL");
     let cap = writer.buffer().capacity();
     value.write_as_varint(&mut *writer).unwrap();
     writer.buffer().capacity() - cap

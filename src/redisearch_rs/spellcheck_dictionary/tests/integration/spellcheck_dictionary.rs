@@ -13,7 +13,7 @@ mod fuzz {
     use std::collections::BTreeSet;
 
     use spellcheck_dictionary::SpellCheckDictionary;
-    use string_utils::unicode_tolower;
+    use string_utils::unicode;
 
     fn build_dict(stored: &[String]) -> SpellCheckDictionary {
         let mut sut = SpellCheckDictionary::new();
@@ -54,8 +54,8 @@ mod fuzz {
             let sut = build_dict(&stored);
 
             // contains(q) iff some stored term lowercases to the same form as q.
-            let lowered_query = unicode_tolower(&query);
-            let expected = stored.iter().any(|t| unicode_tolower(t) == lowered_query);
+            let lowered_query = unicode::tolower(&query);
+            let expected = stored.iter().any(|t| unicode::tolower(t) == lowered_query);
 
             prop_assert_eq!(sut.contains(&query), expected);
         }
@@ -71,10 +71,10 @@ mod fuzz {
             // Brute-force oracle: a stored term matches iff its lowercased form
             // is within `max_dist` of the lowercased query, measured by the
             // independent `distance` above.
-            let lowered_query = unicode_tolower(&query);
+            let lowered_query = unicode::tolower(&query);
             let expected: BTreeSet<String> = stored
                 .iter()
-                .filter(|t| distance(&unicode_tolower(t), &lowered_query) <= max_dist)
+                .filter(|t| distance(&unicode::tolower(t), &lowered_query) <= max_dist)
                 .cloned()
                 .collect();
 

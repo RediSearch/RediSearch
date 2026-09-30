@@ -20,7 +20,7 @@
 #include "config.h"
 #include "defines.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -120,6 +120,15 @@ ssize_t nu_strbytelen(const char *encoded, nu_read_iterator_t it);
 
 /**
  * @ingroup strings
+ * @param encoded encoded string
+ * @param max_len maximum encoded string length in bytes
+ * @param it decoding function
+ * @return string length or negative error
+ *
+ * @note This function exits as soon as the limit is reached.
+ * However, because encoded Unicode codepoints are often longer than a single byte,
+ * reading a codepoint near the boundary may cause the function to read past the `max_len` limit.
+ *
  * @see nu_strlen
  */
 NU_EXPORT
@@ -127,15 +136,23 @@ ssize_t nu_strnlen(const char *encoded, size_t max_len, nu_read_iterator_t it);
 
 /**
  * @ingroup strings
+ * @param unicode unicode codepoints
+ * @param max_len maximum unicode codepoints count
+ * @param it encoding function
+ * @return byte length or negative error
+ *
  * @see nu_bytelen
  */
 NU_EXPORT
-ssize_t nu_bytenlen(const uint32_t *unicode, size_t max_len,
-	nu_write_iterator_t it);
+ssize_t nu_bytenlen(const uint32_t *unicode, size_t max_len, nu_write_iterator_t it);
+
+/* there is no point in nu_strbytenlen(encoded, max_len, it)
+ * because `max_len` is the string's bytes length already,
+ * so nu_strbytelen() without a limit should be used instead */
 
 #endif /* NU_WITH_N_STRINGS */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

@@ -24,8 +24,9 @@
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator, QueryNodeType};
+use ffi::QueryIterator;
 use index_result::RSIndexResult;
+use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, SharedPtr};
 use rqe_core::DocId;
 
@@ -44,17 +45,17 @@ use index_spec::IndexSpecReadGuard;
 /// Enum holding all possible union iterator variants, parameterised over a
 /// [`Ref`] mode. See [`UnionVariant`] for the [`Active`] instantiation.
 #[repr(C)]
-pub enum RawUnionVariant<Rf: Ref, I> {
-    FlatFull(RawUnionFlat<Rf, I, false>),
-    FlatQuick(RawUnionFlat<Rf, I, true>),
-    HeapFull(RawUnionHeap<Rf, I, false>),
-    HeapQuick(RawUnionHeap<Rf, I, true>),
-    Trimmed(RawUnionTrimmed<Rf, I>),
+pub enum RawUnionVariant<'query, Rf: Ref, I> {
+    FlatFull(RawUnionFlat<'query, Rf, I, false>),
+    FlatQuick(RawUnionFlat<'query, Rf, I, true>),
+    HeapFull(RawUnionHeap<'query, Rf, I, false>),
+    HeapQuick(RawUnionHeap<'query, Rf, I, true>),
+    Trimmed(RawUnionTrimmed<'query, Rf, I>),
 }
 
 /// Alias for an [`Active`] [`RawUnionVariant`] — the only instantiation
 /// with a callable surface today.
-pub type UnionVariant<'index, I> = RawUnionVariant<Active<'index>, I>;
+pub type UnionVariant<'index, I> = RawUnionVariant<'index, Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> UnionVariant<'index, I> {
     /// Converts this variant in place to [`UnionVariant::Trimmed`], switching
@@ -116,8 +117,8 @@ macro_rules! delegate_variant_ref_mut {
 /// Parameterised over a [`Ref`] mode — see [`UnionOpaque`] for the
 /// [`Active`] instantiation that implements [`RQEIterator`].
 #[repr(C)]
-pub struct RawUnionOpaque<Rf: Ref, I> {
-    pub variant: RawUnionVariant<Rf, I>,
+pub struct RawUnionOpaque<'query, Rf: Ref, I> {
+    pub variant: RawUnionVariant<'query, Rf, I>,
     pub query_node_type: QueryNodeType,
     /// Borrowed C string describing the query (e.g. the search term), or
     /// [`None`] when the union has no associated query string.
@@ -132,7 +133,7 @@ pub struct RawUnionOpaque<Rf: Ref, I> {
 
 /// Alias for an [`Active`] [`RawUnionOpaque`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type UnionOpaque<'index, I> = RawUnionOpaque<Active<'index>, I>;
+pub type UnionOpaque<'index, I> = RawUnionOpaque<'index, Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Set the weight on the union's aggregate result.
@@ -234,26 +235,22 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
-        // Union, Geo, and LexRange always print full children even in
-        // limited mode — these types have few enough children that
-        // collapsing them would lose useful information.
-        let print_full = !ctx.limited
-            || matches!(
-                node_type,
-                ffi::QueryNodeType::Union | ffi::QueryNodeType::Geo | ffi::QueryNodeType::LexRange
-            );
+        // Union and Geo always print full children even in limited mode —
+        // these types have few enough children that collapsing them would lose
+        // useful information.
+        let print_full =
+            !ctx.limited || matches!(node_type, QueryNodeType::Union | QueryNodeType::Geo);
 
         map.kv_simple_string(c"Type", c"UNION");
 
         let type_str = match node_type {
-            ffi::QueryNodeType::Geo => "GEO",
-            ffi::QueryNodeType::Tag => "TAG",
-            ffi::QueryNodeType::Union => "UNION",
-            ffi::QueryNodeType::Fuzzy => "FUZZY",
-            ffi::QueryNodeType::Prefix => "PREFIX",
-            ffi::QueryNodeType::Numeric => "NUMERIC",
-            ffi::QueryNodeType::LexRange => "LEXRANGE",
-            ffi::QueryNodeType::WildcardQuery => "WILDCARD",
+            QueryNodeType::Geo => "GEO",
+            QueryNodeType::Tag => "TAG",
+            QueryNodeType::Union => "UNION",
+            QueryNodeType::Fuzzy => "FUZZY",
+            QueryNodeType::Prefix => "PREFIX",
+            QueryNodeType::Numeric => "NUMERIC",
+            QueryNodeType::WildcardQuery => "WILDCARD",
             _ => unreachable!("Invalid type for union"),
         };
 

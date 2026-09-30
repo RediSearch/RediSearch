@@ -17,4 +17,6 @@ struct RedisModuleCtx;
 void UpdateTopology(struct RedisModuleCtx *ctx);
 int InitRedisTopologyUpdater(struct RedisModuleCtx *ctx);
 int StopRedisTopologyUpdater(RedisModuleCtx *ctx);
-void RedisTopologyUpdater_StopAndRescheduleImmediately(struct RedisModuleCtx *ctx);
+// Called on a cluster topology change event. Refreshes the topology unless the updater
+// is paused (or was never started).
+void RedisTopologyUpdater_OnTopologyChanged(struct RedisModuleCtx *ctx);

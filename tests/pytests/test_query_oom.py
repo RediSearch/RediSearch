@@ -1,8 +1,18 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import threading
 import psutil
 import numpy as np
 from redis.exceptions import ResponseError
+from test_info_modules import (
+    COORD_WARN_ERR_SECTION, OOM_WARNING_COORD_METRIC, info_modules_to_dict,
+)
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
@@ -287,6 +297,28 @@ class testOomHybridStandaloneBehavior:
         self.env.assertEqual(res[1], 0)
 
 @skip(cluster=False)
+@env_spec(shardsCount=3, protocol=3,
+          moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN-STRICT')
+def test_deferred_hybrid_oom_warning(env):
+    """Deferred HYBRID replies retain OOM warnings and count them once."""
+    for shard_id in range(env.shardsCount):
+        verify_shard_init(env.getConnection(shard_id))
+    allShards_change_oom_policy(env, 'return')
+    _common_hybrid_cluster_test_scenario(env)
+    allShards_change_maxmemory_low(env)
+    set_unlimited_maxmemory_for_oom(env)
+
+    before = int(info_modules_to_dict(env)[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                       '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000',
+                       'PARAMS', '2', 'BLOB', query_vector)
+    env.assertContains(COORD_OOM_WARNING, response['warnings'])
+    after = int(info_modules_to_dict(env)[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    env.assertEqual(after, before + 1)
+
+
+@skip(cluster=False)
 @env_spec(shardsCount=3)
 class testOomHybridClusterBehavior:
     def __init__(self, env):
@@ -391,3 +423,44 @@ def test_oom_verbosity_cluster_return(env):
     # Index 13 is Warning array (after adding Workers queue time field at indices 6-7)
     n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[13])
     env.assertEqual(n_warnings, 2, message=f"res: {res}")
+
+@skip(cluster=False)
+@env_spec(shardsCount=3, protocol=3)
+def test_oom_shards_return_hybrid_profile(env):
+    """Profiled hybrid whose non-coordinator shards are the only ones OOM.
+
+    An OOM shard answers the internal fan-out from
+    common_hybrid_query_reply_empty, which under profiling used to wrap the
+    cursor-mapping map inside "Results" alongside a sibling "Profile" key.
+    The internal reply is now bare either way; this covers the profiled
+    early-bail mapping path end to end.
+
+    The coordinator itself must stay under its memory limit: if it is OOM too,
+    its own guard replies before the command ever fans out, which is the case
+    test_oom_verbosity_cluster_hybrid_profile already covers.
+    """
+    for i in range(env.shardsCount):
+        verify_shard_init(env.getConnection(i))
+
+    allShards_change_oom_policy(env, 'return')
+    n_docs = _common_hybrid_cluster_test_scenario(env)
+    allShards_change_maxmemory_low(env)
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*',
+                  'VSIM', '@embedding', '$BLOB',
+                  'COMBINE', 'RRF', '2', 'WINDOW', '1000',
+                  'PARAMS', '2', 'BLOB', query_vector)
+
+    # Unlike FT.PROFILE SEARCH, a coordinator hybrid profile reply is flat --
+    # the "Results" envelope only appears when the coordinator itself bails.
+    env.assertContains('Profile', res)
+    # Proves the OOM shards really took the empty-reply path, i.e. that the
+    # coordinator parsed their profile-wrapped cursor mappings.
+    env.assertContains(COORD_OOM_WARNING, res['warnings'])
+    # Those shards published no cursors, so only the healthy coordinator shard
+    # contributes rows: partial, not empty, and not the whole cluster.
+    env.assertGreater(res['total_results'], 0, message=f"res: {res}")
+    env.assertLess(res['total_results'], n_docs, message=f"res: {res}")
+    env.expect('PING').true()

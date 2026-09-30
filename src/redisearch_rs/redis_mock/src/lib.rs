@@ -29,6 +29,16 @@ pub mod string_to_number;
 use std::ffi::{CString, c_char};
 
 use call::*;
+
+// C variadic shims from `variadic_shims.c` (see build.rs).
+unsafe extern "C" {
+    /// Mock of `RedisModule_HashGet`; forwards to [`key::RedisMock_HashGetFixed`].
+    fn RedisMock_HashGet(
+        key: *mut redis_module::raw::RedisModuleKey,
+        flags: ::std::ffi::c_int,
+        ...
+    ) -> ::std::ffi::c_int;
+}
 use context::*;
 pub use ffi;
 use key::*;
@@ -156,6 +166,7 @@ pub fn init_redis_module_mock() {
         redis_module::raw::RedisModule_ScanCursorDestroy = Some(RedisModule_ScanCursorDestroy)
     };
     unsafe { redis_module::raw::RedisModule_ScanKey = Some(RedisModule_ScanKey) };
+    unsafe { redis_module::raw::RedisModule_HashGet = Some(RedisMock_HashGet) };
 
     // Register call reply functions
     unsafe { redis_module::raw::RedisModule_CallReplyType = Some(RedisModule_CallReplyType) };
@@ -277,12 +288,12 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
     () => {
         #[unsafe(no_mangle)]
         unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut std::ffi::c_void {
-            redis_mock::allocator::alloc_shim(size)
+            $crate::allocator::alloc_shim(size)
         }
 
         #[unsafe(no_mangle)]
         unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut std::ffi::c_void {
-            redis_mock::allocator::calloc_shim(nmemb, size)
+            $crate::allocator::calloc_shim(nmemb, size)
         }
 
         #[unsafe(no_mangle)]
@@ -290,12 +301,12 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             ptr: *mut std::ffi::c_void,
             size: usize,
         ) -> *mut std::ffi::c_void {
-            redis_mock::allocator::realloc_shim(ptr, size)
+            $crate::allocator::realloc_shim(ptr, size)
         }
 
         #[unsafe(no_mangle)]
         unsafe extern "C" fn rm_free_impl(ptr: *mut std::ffi::c_void) {
-            redis_mock::allocator::free_shim(ptr)
+            $crate::allocator::free_shim(ptr)
         }
 
         #[unsafe(no_mangle)]
@@ -324,7 +335,7 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
         // Those C symbols are required for the C code to link correctly, but they are never invoked in
         // our tests or benchmarks.
         // They are all SSL-related symbols provided by OpenSSL.
-        ::redis_mock::stub_c_fn! {
+        $crate::stub_c_fn! {
             ERR_clear_error,
             ERR_peek_last_error,
             ERR_reason_error_string,
@@ -349,11 +360,14 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             SSL_set_fd,
             SSL_write,
             TLS_client_method,
-            // DocIdMeta symbols used by RediSearch C code
+            // DocIdMeta symbols used by RediSearch C code. Every non-static symbol of
+            // `doc_id_meta.c` must be listed: leaving one out lets the linker pull the real
+            // object out of `libredisearch_c_bundle.a`, which then collides with these stubs.
             DocIdMeta_Get,
             DocIdMeta_Set,
             DocIdMeta_Delete,
             DocIdMeta_Init,
+            DocIdMeta_PruneDeletedSpecs,
             DocIdMeta_SetForgetDocIdMetadata,
             DocIdMeta_GetWithOpenKey,
             DocIdMeta_SetWithOpenKey,

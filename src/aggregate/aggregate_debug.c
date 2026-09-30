@@ -7,9 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_debug.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "debug_commands.h"
 #include "module.h"
 #include "result_processor.h"
+#include "aggregate/aggregate.h"
+#include "config.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "search_ctx.h"
+#include "shard_window_ratio.h"
+
+static const char timeoutAfterNBlockedClientError[] =
+    "TIMEOUT_AFTER_N is not supported with blocked-client timeout handling";
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -26,7 +41,8 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
     return NULL;
   }
 
-  AREQ_Debug *debug_req = rm_realloc(AREQ_New(), sizeof(*debug_req));
+  AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
+  debug_req->requestedTimeoutPolicy = debug_req->r.reqConfig.timeoutPolicy;
 
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
@@ -42,6 +58,9 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   debug_req->debug_params = debug_params;
 
   AREQ *r = &debug_req->r;
+  // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
+  // before it.
+  r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;
@@ -152,22 +171,32 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N count");
       return REDISMODULE_ERR;
     }
+    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
+        debug_req->requestedTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
+      return REDISMODULE_ERR;
+    }
     if (!isClusterCoord(debug_req)) {
       // Shard/SA: debug timeout is only supported with RETURN or FAIL (without background workers)
-      if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
-      if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0");
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && IsCursor(&debug_req->r)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL");
+        return REDISMODULE_ERR;
+      }
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the shard/SA pipeline
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
-      AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
+      PipelineAddTimeoutAfterCountClock(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
 
     } else if (internal_only) {
       // Coordinator with INTERNAL_ONLY: timeout applies only in the shard query pipeline, not the coordinator
@@ -179,27 +208,22 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                             "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                             "to avoid infinite loop (RESP2 only)");
             debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-            SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
-            // The original TIMEOUT 0 caused skipTimeoutChecks=true. Now that we've
-            // forced a real timeout, we must re-enable timeout checking so RPNet
-            // actually respects the forced timeout.
-            AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
+            // This late TIMEOUT change must rearm the coordinator deadline.
+            QueryRequestTimeout_UpdateConfig(&debug_req->r.base.timeout,
+                                             debug_req->r.reqConfig.timeoutPolicy,
+                                             debug_req->r.reqConfig.queryTimeoutMS);
+            QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout,
+                                           QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
           }
       }
     } else {
       // Coordinator without INTERNAL_ONLY: debug timeout only supported with RETURN policy
-      if (debug_req->r.reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN");
+      if (debug_req->requestedTimeoutPolicy != TimeoutPolicy_Return) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the coordinator pipeline
-      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
-      // RPTimeoutAfterCount simulates a timeout by setting sctx->time.timeout to "now".
-      // RPNet checks skipTimeoutChecks before checking TimedOut, so we must ensure
-      // timeout checking is enabled for the simulation to be respected.
-      // This is needed when queryTimeoutMS==0 (disabled), which causes
-      // shouldCheckInPipelineTimeout to return false and skipTimeoutChecks to be true.
-      AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
+      PipelineAddTimeoutAfterCountClock(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
     }
     return REDISMODULE_OK;
   }

@@ -30,13 +30,10 @@ typedef struct SuffixCtx {
     Trie *trie;
     rune *rune;
     size_t runelen;
-    const char *cstr;
-    size_t cstrlen;
     SuffixType type;
     TrieSuffixCallback *callback;
     void *cbCtx;
-    struct timespec *timeout;
-    bool skipTimeoutChecks;  // flag to skip timeout checks in trie iteration
+    QueryRequestTimeout *timeout;
 } SuffixCtx;
 
 typedef struct suffixData {

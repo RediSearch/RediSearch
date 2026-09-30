@@ -95,7 +95,7 @@ typedef struct {
 } PLN_MapFilterStep;
 
 /** ARRANGE covers sort, limit, and so on */
-typedef struct {
+typedef struct PLN_ArrangeStep {
   PLN_BaseStep base;
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*

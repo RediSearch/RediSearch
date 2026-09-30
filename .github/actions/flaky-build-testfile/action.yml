@@ -1,11 +1,11 @@
 name: Build TESTFILE excluding flaky tests
 description: |
-  Fetch active flaky marks for the current branch, enumerate tests with
-  `LIST=1 make pytest`, filter out marks (prefix match), and emit the path to
-  a TESTFILE the runner can consume.
+  Enumerate tests with `LIST=1 make pytest` (product-specific) and filter out
+  active flaky marks via the shared redisearch-ci-common `flaky-filter` action,
+  emitting the path to a TESTFILE the runner can consume.
 
-  Outputs an empty `testfile` if there are no active marks, or if any step
-  fails — callers should treat that as "run the full suite".
+  Outputs an empty `testfile` when there are no active marks, no enumerable
+  tests, or any step fails — callers treat that as "run the full suite".
 
 inputs:
   redis-url:
@@ -15,7 +15,7 @@ inputs:
     description: "Label for filenames, e.g. 'standalone' or 'coordinator'"
     required: true
   redis-standalone:
-    description: "1 or 0 — propagated to runtests.sh as REDIS_STANDALONE"
+    description: "1 or 0 — propagated to the test enumeration as REDIS_STANDALONE"
     required: true
   test-config:
     description: "Test config string forwarded to make (e.g. 'QUICK=1')"
@@ -32,64 +32,14 @@ inputs:
 
 outputs:
   testfile:
-    description: "Filtered TESTFILE path; empty if no marks or any step failed"
-    value: ${{ steps.build.outputs.testfile }}
+    description: "Filtered TESTFILE path; empty if no marks/tests or any step failed"
+    value: ${{ steps.filter.outputs.testfile }}
 
 runs:
   using: composite
   steps:
-    - name: Resolve target branch
-      # Merge-queue runs have empty github.base_ref and a synthetic ref_name
-      # (gh-readonly-queue/<target>/pr-...). The real target lives at
-      # github.event.merge_group.base_ref as `refs/heads/<branch>`.
-      # GH Actions expressions can't slice strings, so we strip the prefix in bash.
-      shell: bash -l -eo pipefail {0}
-      env:
-        MERGE_GROUP_BASE: ${{ github.event.merge_group.base_ref }}
-        BASE_REF: ${{ github.base_ref }}
-        REF_NAME: ${{ github.ref_name }}
-      run: |
-        if [ -n "$MERGE_GROUP_BASE" ]; then
-          branch="${MERGE_GROUP_BASE#refs/heads/}"
-        elif [ -n "$BASE_REF" ]; then
-          branch="$BASE_REF"
-        else
-          branch="$REF_NAME"
-        fi
-        echo "Resolved flaky target branch: $branch"
-        echo "FLAKY_BRANCH=$branch" >> "$GITHUB_ENV"
-
-    - uses: actions/setup-python@v6
-      with:
-        python-version: "3.x"
-
-    - shell: bash -l -eo pipefail {0}
-      # Install via `python3 -m pip` (not bare `pip`): on the macOS runners the
-      # `bash -l` login shell re-runs path_helper/Homebrew profile setup, which
-      # can leave bare `pip` and bare `python3` resolving to different
-      # interpreters. `redis` would then land in one interpreter's site-packages
-      # while `python3 flaky_db.py` runs under another, failing with
-      # `ModuleNotFoundError: redis`. Pinning the interpreter keeps them in sync.
-      run: python3 -m pip install 'redis>=6,<7'
-
-    - name: Fetch flaky skip list
-      shell: bash -l -eo pipefail {0}
-      env:
-        REDIS_URL: ${{ inputs.redis-url }}
-        REPO: ${{ github.repository }}
-        BRANCH: ${{ env.FLAKY_BRANCH }}
-      run: |
-        # Use a workspace-relative path: `${{ github.action_path }}` expands to
-        # the runner host path, which doesn't exist when the step runs inside a
-        # Docker container (workspace is mounted at /__w/...). The composite
-        # action's working directory is $GITHUB_WORKSPACE, which is mapped
-        # correctly in both runner and container jobs.
-        python3 .github/scripts/flaky_db.py fetch \
-          --output-json .flaky_skip.json \
-          --output-list .flaky_skip.txt
-
-    - name: Build TESTFILE
-      id: build
+    - name: Enumerate tests
+      id: enumerate
       shell: bash -l -eo pipefail {0}
       env:
         SAN: ${{ inputs.san }}
@@ -98,30 +48,26 @@ runs:
         REJSON_BRANCH: ${{ inputs.rejson-branch }}
         TEST_CONFIG: ${{ inputs.test-config }}
         VARIANT: ${{ inputs.variant }}
-        # Don't wipe tests/pytests/logs while listing — the coordinator
-        # listing runs after standalone tests, and otherwise the prior
-        # variant's failure logs would be deleted before artifact upload.
+        # Don't wipe tests/pytests/logs while listing — the coordinator listing
+        # runs after standalone tests, and otherwise the prior variant's failure
+        # logs would be deleted before artifact upload.
         CLEAR_LOGS: "0"
       run: |
-        if [ ! -s .flaky_skip.txt ]; then
-          echo "No active flaky marks — running the full suite"
-          exit 0
-        fi
         mkdir -p /tmp/flaky
         LIST_OUT="/tmp/flaky/list_${VARIANT}.raw"
-        TESTFILE_OUT="/tmp/flaky/run_${VARIANT}.txt"
-        LIST=1 make pytest $TEST_CONFIG > "$LIST_OUT" 2>&1 || {
-          echo "::warning::LIST=1 enumeration failed — running full suite as fallback"
-          exit 0
-        }
-        python3 .github/scripts/flaky_db.py filter \
-          --tests "$LIST_OUT" \
-          --marks .flaky_skip.txt \
-          --output "$TESTFILE_OUT"
-        if [ -s "$TESTFILE_OUT" ]; then
-          # The path is workspace-relative so runtests.sh's ROOT-prepend
-          # produces a valid absolute path.
-          echo "testfile=$TESTFILE_OUT" >> "$GITHUB_OUTPUT"
+        if LIST=1 make pytest $TEST_CONFIG > "$LIST_OUT" 2>&1; then
+          :
         else
-          echo "::warning::Filtered TESTFILE is empty — running full suite as fallback"
+          echo "::warning::LIST=1 enumeration failed — running the full suite as fallback"
+          : > "$LIST_OUT"
         fi
+        echo "list=$LIST_OUT" >> "$GITHUB_OUTPUT"
+
+    - name: Filter out flaky marks
+      id: filter
+      uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@v1
+      with:
+        redis-url: ${{ inputs.redis-url }}
+        tests: ${{ steps.enumerate.outputs.list }}
+        output: /tmp/flaky/run_${{ inputs.variant }}.txt
+        ci-common-ref: v1

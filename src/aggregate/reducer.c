@@ -7,8 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reducer.h"
-#include "aggregate/aggregate.h"
+
+#include <assert.h>
+#include <strings.h>
+
 #include "util/misc.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "util/arr/arr.h"
 
 typedef struct {
   const char *name;

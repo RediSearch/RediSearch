@@ -44,7 +44,9 @@ typedef uint64_t t_uniqueId;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 #define REDISEARCH_UNINITIALIZED -1
-#define BAD_POINTER ((void *)0xBAAAAAAD)
+// Integer form of BAD_POINTER, exposed so Rust can recognize the sentinel.
+#define BAD_POINTER_ADDR 0xBAAAAAAD
+#define BAD_POINTER ((void *)BAD_POINTER_ADDR)
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
@@ -78,9 +80,14 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
-  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
-                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
+  Document_HasExpiration =
+      0x10,  // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen =
+      0x20,  // Document was failed to opened by a loader (might expired) but not yet marked as
+             // deleted. This is an optimization to avoid attempting opening the document for
+             // loading. May be used UN-ATOMICALLY
+  Document_HasPayloadSlot =
+      0x40,  // RAM allocation includes the trailing pointer, even without a payload.
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)

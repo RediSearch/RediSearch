@@ -37,7 +37,7 @@ rqe_wildcard = { path = ".", features = ["unittest"] }
 wildcard_cloudflare.workspace = true
 
 # FFI crates whose #[no_mangle] symbols are referenced by objects in
-# libredisearch_all.a. They must be listed here (and force-linked via
+# libredisearch_c_bundle.a. They must be listed here (and force-linked via
 # `extern crate` in tests/integration/main.rs) so the linker can
 # resolve those symbols when building the test binary.
 fnv_ffi = { path = "../c_entrypoint/fnv_ffi" }

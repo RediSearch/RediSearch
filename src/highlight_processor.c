@@ -6,13 +6,29 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <ctype.h>
+#include <string.h>
+#include <sys/uio.h>
+
 #include "result_processor.h"
 #include "fragmenter.h"
 #include "rlookup.h"
 #include "value_ffi.h"
 #include "util/minmax.h"
 #include "toksep.h"
-#include <ctype.h>
+#include "byte_offsets.h"
+#include "field_spec.h"
+#include "iterators/iterator_api.h"
+#include "language.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "search_options.h"
+#include "search_result.h"
+#include "search_result_rs.h"
+#include "util/array.h"
 
 typedef struct {
   ResultProcessor base;

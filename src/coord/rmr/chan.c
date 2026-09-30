@@ -29,8 +29,9 @@ struct MRChannel {
 #include "chan.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "search_ctx.h"
 #include "util/timeout.h"
+
+struct timespec;
 
 // Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
 // The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it
@@ -86,7 +87,8 @@ void MRChannel_Push(MRChannel *chan, void *ptr) {
     chan->head = chan->tail = item;
   }
   chan->size++;
-  pthread_cond_broadcast(&chan->cond);
+  // Each channel has a single consumer, so a push wakes at most one waiter.
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
 
@@ -186,7 +188,8 @@ aborted:
 
 void MRChannel_WakeAbort(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
-  pthread_cond_broadcast(&chan->cond);
+  // Only the channel's single consumer can be waiting to observe the abort.
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
 

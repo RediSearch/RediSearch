@@ -7,14 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "pipe.h"
 #include "triemap_ffi.h"
 #include "inverted_index_ffi.h"
 #include "redis_index.h"
 #include "tag_index.h"
-#include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
+#include "field_spec.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "inverted_index.h"
+#include "redismodule.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 typedef struct {
   const char *field;
@@ -138,7 +149,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    RedisSearchCtx_LockSpecWrite(sctx);
+    IndexSpec_LockWrite(sctx->spec);
 
     fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
     RS_LOG_ASSERT_FMT(fs, "tag field '%.*s' not found in index during GC", (int)fieldNameLen, fieldName);
@@ -177,7 +188,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
   loop_cleanup:
-    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpec_Unlock(sctx->spec);
     IndexSpecRef_Release(spec_ref);
     InvertedIndex_GcDelta_Free(delta);
 

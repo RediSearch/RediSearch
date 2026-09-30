@@ -10,8 +10,9 @@
 #pragma once
 
 #include <stdlib.h>
-#include "query_node_type.h"
+#include "query_types.h"
 #include "redisearch.h"
+#include "redismodule.h"
 #include "hiredis/sds.h"
 #include "param.h"
 
@@ -41,7 +42,9 @@ typedef struct {
 } QueryNullNode;
 
 typedef struct {
-  const struct FieldSpec *fs;
+  t_fieldIndex fieldIndex;      // stable index of the tag field into IndexSpec.fields; re-derive
+                                 // the FieldSpec* from this at evaluation time - a pointer captured
+                                 // at parse time may already be freed by then
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -78,25 +81,22 @@ typedef struct {
 } QueryVectorNode;
 
 typedef struct {
-  const sds *keys;
+  /* The key names: a borrowed window into the request's held argv (see
+   * QueryRequestArgs.argv), which outlives the AST. Not owned. */
+  RedisModuleString **keys;
   // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
   t_docId *docIds;
   size_t len;
 } QueryIdFilterNode;
 
 typedef struct {
-  char *begin;
-  bool includeBegin;
-  char *end;
-  bool includeEnd;
-} QueryLexRangeNode;
-
-typedef struct {
   RSToken tok;
 } QueryVerbatimNode;
 
 typedef struct {
-  const struct FieldSpec *field;
+  t_fieldIndex fieldIndex;  // stable index of the field being tested into IndexSpec.fields;
+                            // re-derive the FieldSpec* from this at evaluation time - a
+                            // pointer captured at parse time may already be freed by then
 } QueryMissingNode;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -137,7 +137,6 @@ typedef struct RSQueryNode {
     QueryPrefixNode pfx;
     QueryTagNode tag;
     QueryFuzzyNode fz;
-    QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
   };

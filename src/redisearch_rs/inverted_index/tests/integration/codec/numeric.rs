@@ -10,10 +10,213 @@
 use index_result::RSIndexResult;
 use inverted_index::{
     Decoder, Encoder, IdDelta,
-    numeric::{Numeric, NumericDelta, NumericFloatCompression},
+    numeric::{Numeric, NumericDelta, NumericEncoder, NumericFloatCompression},
 };
 use pretty_assertions::assert_eq;
 use std::io::Cursor;
+
+/// Encode `value` with `E` and decode it again, returning what a reader sees.
+fn round_trip<E: Encoder<Delta = NumericDelta> + Decoder>(value: f64) -> f64 {
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::build_numeric(value).doc_id(1).build();
+    E::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record).expect("to encode");
+
+    let buf = buf.into_inner();
+    let mut buf = Cursor::new(buf.as_ref());
+    let decoded = E::decode_new(&mut buf, 1).expect("to decode");
+
+    decoded.as_numeric().expect("a numeric record")
+}
+
+/// `stored_value` must predict exactly what an encode/decode round trip produces, and
+/// the two are separate code paths — see `Value::to_f64`.
+fn assert_stored_value_matches_round_trip(value: f64) {
+    for (name, predicted, actual) in [
+        (
+            "Numeric",
+            Numeric::stored_value(value),
+            round_trip::<Numeric>(value),
+        ),
+        (
+            "NumericFloatCompression",
+            NumericFloatCompression::stored_value(value),
+            round_trip::<NumericFloatCompression>(value),
+        ),
+    ] {
+        assert_eq!(
+            predicted.to_bits(),
+            actual.to_bits(),
+            "{name}: stored_value({value}) predicted {predicted} but a round trip yields {actual}"
+        );
+        // Storing a stored value must be a no-op, or repeated preparation could keep
+        // shifting statistics.
+        let twice = match name {
+            "Numeric" => Numeric::stored_value(predicted),
+            _ => NumericFloatCompression::stored_value(predicted),
+        };
+        assert_eq!(
+            twice.to_bits(),
+            predicted.to_bits(),
+            "{name}: stored_value is not idempotent for {value}"
+        );
+    }
+}
+
+#[test]
+fn stored_value_matches_encode_decode_for_edge_cases() {
+    for value in [
+        0.0,
+        -0.0, // stored as a tiny int, so it comes back as +0.0
+        1.0,
+        7.0,
+        8.0,
+        -1.0,
+        -8.0,
+        0.5,
+        -0.5,
+        3.124,                   // compressible: within the 0.01 threshold
+        100.500001,              // collapses onto 100.5 as an f32
+        1e-9, // NOT compressible: relative error is tiny, absolute is smaller still
+        9_007_199_254_740_993.0, // 2^53 + 1
+        4_503_599_627_370_496.0, // a 52-bit geohash-shaped value
+        f64::MAX,
+        f64::MIN,
+        f64::MIN_POSITIVE,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ] {
+        assert_stored_value_matches_round_trip(value);
+    }
+}
+
+/// The two write entry points must be interchangeable down to the bytes, or an index
+/// written through the prepared path would decode differently.
+fn assert_encode_prepared_matches_encode(value: f64, delta: u64) {
+    fn compare<E: Encoder<Delta = NumericDelta> + NumericEncoder>(value: f64, delta: u64) {
+        let record = RSIndexResult::build_numeric(value).doc_id(1).build();
+
+        let mut from_record = Cursor::new(Vec::new());
+        let record_bytes = E::encode(
+            &mut from_record,
+            NumericDelta::from_u64(delta).unwrap(),
+            &record,
+        )
+        .expect("to encode");
+
+        let mut from_prepared = Cursor::new(Vec::new());
+        let prepared_bytes = E::encode_prepared(
+            &mut from_prepared,
+            NumericDelta::from_u64(delta).unwrap(),
+            E::prepare(value),
+        )
+        .expect("to encode");
+
+        assert_eq!(
+            from_record.into_inner(),
+            from_prepared.into_inner(),
+            "encode and encode_prepared disagree for value {value}, delta {delta}"
+        );
+        assert_eq!(record_bytes, prepared_bytes);
+    }
+
+    compare::<Numeric>(value, delta);
+    compare::<NumericFloatCompression>(value, delta);
+}
+
+#[test]
+fn encode_prepared_matches_encode_for_edge_cases() {
+    for value in [
+        0.0,
+        -0.0,
+        7.0,
+        -8.0,
+        3.124,
+        100.500001,
+        1e-9,
+        9_007_199_254_740_993.0,
+        f64::MAX,
+        f64::MIN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ] {
+        for delta in [0, 1, 255, 72_057_594_037_927_935] {
+            assert_encode_prepared_matches_encode(value, delta);
+        }
+    }
+}
+
+#[test]
+fn stored_value_maps_negative_zero_to_positive_zero() {
+    // Both encoders take the tiny-integer path for zero, so the sign is dropped.
+    for stored in [
+        Numeric::stored_value(-0.0),
+        NumericFloatCompression::stored_value(-0.0),
+    ] {
+        assert!(
+            stored.is_sign_positive() && stored == 0.0,
+            "-0.0 should be stored as +0.0, got {stored}"
+        );
+    }
+}
+
+/// Magnitudes that round to zero collapse onto the *canonical* zero, whatever their
+/// sign.
+///
+/// Compression stores an f32 whenever the loss is under its threshold, and for a
+/// subnormal magnitude that f32 is zero. Keeping the sign flag there would produce a
+/// `-0.0` stored value: numerically equal to `+0.0`, so no filter could separate the
+/// two, yet distinct enough to fool a consumer that keys values by bit pattern.
+#[test]
+fn compression_collapse_to_zero_is_canonical() {
+    for input in [
+        5e-324,
+        -5e-324,
+        f64::MIN_POSITIVE,
+        -f64::MIN_POSITIVE,
+        1e-60,
+        -1e-60,
+    ] {
+        let stored = NumericFloatCompression::stored_value(input);
+        assert_eq!(stored, 0.0, "{input} should collapse onto zero");
+        assert!(
+            stored.is_sign_positive(),
+            "{input} collapsed onto a negative zero"
+        );
+
+        // Without compression such a magnitude is kept exactly, so no collapse and no
+        // canonicalization question.
+        assert_eq!(Numeric::stored_value(input).to_bits(), input.to_bits());
+    }
+}
+
+#[test]
+fn stored_value_of_nan_stays_nan() {
+    // NaN survives as NaN (the payload may differ), so it can never move a bound:
+    // every comparison against it is false.
+    assert!(Numeric::stored_value(f64::NAN).is_nan());
+    assert!(NumericFloatCompression::stored_value(f64::NAN).is_nan());
+}
+
+#[test]
+fn compression_collapses_neighbouring_values_to_one_stored_value() {
+    // The MOD-16877 shape: distinct f64s inside one f32 bucket collapse to a single
+    // stored value under compression.
+    let values: Vec<f64> = (0..8).map(|i| 100.5 + i as f64 * 1e-7).collect();
+    let stored: Vec<f64> = values
+        .iter()
+        .map(|&v| NumericFloatCompression::stored_value(v))
+        .collect();
+
+    assert!(
+        stored.windows(2).all(|w| w[0] == w[1]),
+        "expected one stored value, got {stored:?}"
+    );
+    assert_eq!(stored[0], 100.5);
+
+    // Without compression they stay distinct.
+    let exact: Vec<f64> = values.iter().map(|&v| Numeric::stored_value(v)).collect();
+    assert_eq!(exact, values);
+}
 
 /// Tests for integer values between 0 and 7 which should use the [TINY header](super#tiny-type) format.
 #[test]
@@ -638,6 +841,36 @@ mod property_based {
                 .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
+        }
+
+        /// Keeps `Value::to_f64` (which backs `stored_value`) in agreement with
+        /// `decode`, which reconstructs values from the bytes independently.
+        #[test]
+        fn numeric_stored_value_matches_encode_decode(value in f64::MIN..f64::MAX) {
+            assert_stored_value_matches_round_trip(value);
+        }
+
+        /// The prepared path must be byte-identical to the record path.
+        #[test]
+        fn numeric_encode_prepared_matches_encode(
+            value in f64::MIN..f64::MAX,
+            delta in 0u64..72_057_594_037_927_935u64,
+        ) {
+            assert_encode_prepared_matches_encode(value, delta);
+        }
+
+        /// Re-preparing a stored value must be a no-op: the tree prepares on the way
+        /// in, and split redistribution prepares values it read back out again.
+        #[test]
+        fn numeric_stored_value_is_idempotent(value in f64::MIN..f64::MAX) {
+            let once = Numeric::stored_value(value);
+            assert_eq!(Numeric::stored_value(once).to_bits(), once.to_bits());
+
+            let once = NumericFloatCompression::stored_value(value);
+            assert_eq!(
+                NumericFloatCompression::stored_value(once).to_bits(),
+                once.to_bits(),
+            );
         }
     }
 }

@@ -2,6 +2,10 @@ name: Build on Platforms
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   workflow_call:
     inputs:
@@ -81,9 +85,9 @@ on:
         type: string
         default: ''
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable", or a commit sha)'
+        description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: '8.10.0'
+        default: '8.10.2'
       rejson-branch:
         type: string
         default: master
@@ -119,6 +123,7 @@ on:
 
 jobs:
   generate-matrix:
+    permissions: {} # generate-matrix.yml only computes a matrix
     uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: ${{ inputs.platform }}

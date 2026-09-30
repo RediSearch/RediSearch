@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import numpy as np
 import threading
 from RLTest import Env
@@ -111,7 +118,9 @@ def test_hybrid_depleter_lock_failure_replies_error():
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
 
-    sync_point = 'BeforeHybridResultsClaim'
+    # Parks the query after it took its read lock but before the depleters are
+    # launched — the window in which a writer can queue behind it.
+    sync_point = 'BeforeHybridDepletion'
     env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     outcome = []

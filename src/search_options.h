@@ -98,7 +98,8 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  const sds *inkeys;
+  /* Borrowed from the request's held argv (see QueryRequestArgs.argv) */
+  RedisModuleString **inkeys;
   size_t ninkeys;
 
   const StopWordList *stopwords;
@@ -108,7 +109,8 @@ typedef struct {
   struct {
     LegacyNumericFilter **filters;
     LegacyGeoFilter **geo_filters;
-    const char **infields;
+    /* Borrowed from the request's held argv (see QueryRequestArgs.argv) */
+    RedisModuleString **infields;
     size_t ninfields;
   } legacy;
 } RSSearchOptions;

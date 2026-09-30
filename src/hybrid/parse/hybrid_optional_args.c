@@ -7,11 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid/parse/hybrid_optional_args.h"
+
+#include <string.h>
+#include <assert.h>
+
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "config.h"
 #include "util/arg_parser.h"
 #include "coord/rmr/command.h"
-#include <string.h>
+#include "pipeline/pipeline_construction.h"
+#include "query_error_ffi.h"
+#include "slot_ranges.h"
+#include "spec.h"
 
 /**
  * Applies optimization to skip collecting rich results when they are not needed.
@@ -82,15 +89,18 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // TIMEOUT timeout - query timeout in milliseconds
     // Parsed already in the main thread to support blocked client timeout.
     // We still register it here since it is a valid argument for the command.
+    // Defaults for absent arguments must come from the request's own config
+    // (the construction-time snapshot), not from RSGlobalConfig: parsing may
+    // run on a background thread, after the snapshot was taken.
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
+                      ARG_OPT_DEFAULT_INT, ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    unsigned int defaultDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+    unsigned int defaultDialect = ctx->reqConfig->dialectVersion;
     if (defaultDialect < MIN_HYBRID_DIALECT) {
         defaultDialect = MIN_HYBRID_DIALECT;
     }

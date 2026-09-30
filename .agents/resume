@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Handles Amp orb resumes; RediSearch has no services or authentication to restore.
+# See https://ampcode.com/manual/orbs for the orb lifecycle.
+set -euo pipefail
+
+exit 0

@@ -63,18 +63,7 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
 // Per-index-kind child collectors and parent handlers
 //------------------------------------------------------------------------------
 
-void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx);
-FGCError FGC_parentHandleTerms(ForkGC *gc);
-
-void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
-FGCError FGC_parentHandleNumeric(ForkGC *gc);
-
 void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx);
 FGCError FGC_parentHandleTags(ForkGC *gc);
-
-void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
-FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
-
-FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 
 #endif /* FORK_GC_PIPE_H_ */

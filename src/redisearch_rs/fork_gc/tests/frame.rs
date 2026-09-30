@@ -10,6 +10,11 @@
 use fork_gc::Frame;
 use std::io::{self, Cursor};
 
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Provide Redis allocator shims so the C dict functions can allocate memory.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 #[test]
 fn read_returns_data_frame_for_length_prefixed_payload() {
     let mut bytes = Vec::new();
@@ -94,4 +99,19 @@ fn empty_frame_roundtrips() {
     Frame::Empty.encode(&mut sink).unwrap();
     let frame = Frame::decode(&mut Cursor::new(sink)).unwrap();
     assert!(matches!(frame, Frame::Empty));
+}
+
+#[test]
+fn decode_nul_terminated_data_frame_appends_single_nul() {
+    let mut sink: Vec<u8> = Vec::new();
+    Frame::data(b"field_name").encode(&mut sink).unwrap();
+    let Frame::Data(data) = Frame::decode_nul_terminated(&mut Cursor::new(sink)).unwrap() else {
+        panic!("expected Data frame");
+    };
+
+    let buf = data.into_inner();
+
+    assert_eq!(buf.len(), b"field_name".len());
+    assert_eq!(buf.as_bytes(), b"field_name");
+    assert_eq!(buf.as_bytes_with_nul(), b"field_name\0");
 }

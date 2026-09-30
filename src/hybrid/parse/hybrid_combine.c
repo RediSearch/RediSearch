@@ -6,11 +6,21 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <string.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <strings.h>
+
 #include "hybrid_callbacks.h"
 #include "hybrid/hybrid_scoring.h"
 #include "query_error_ffi.h"
 #include "util/arg_parser.h"
-#include <string.h>
+#include "hybrid/parse/hybrid_optional_args.h"
+#include "query_error.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "search_options.h"
 
 static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const char *clause, QueryError* status) {
   unsigned int count = 0;

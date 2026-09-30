@@ -8,8 +8,11 @@
 */
 
 #include "hash.h"
+
 #include <boost/version.hpp>
 #include <boost/uuid/detail/sha1.hpp>
+#include <stdint.h>
+#include <stdio.h>
 #include <cstring>
 
 void Sha1_Compute(const char *value, size_t len, Sha1* output) {

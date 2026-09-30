@@ -197,6 +197,25 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateStringPrintf(
     unsafe { RedisModule_CreateString(ctx, fmt, c_str.count_bytes()) }
 }
 
+/// Create a mock `RedisModuleString` holding a copy of `s`. Convenience for
+/// tests that need to hand real string objects to code under test; release
+/// with [`free_string`].
+pub fn create_string(s: &str) -> *mut redis_module::raw::RedisModuleString {
+    // SAFETY: `s` covers `s.len()` initialized bytes.
+    unsafe { RedisModule_CreateString(std::ptr::null_mut(), s.as_ptr().cast(), s.len()) }
+}
+
+/// Release a string created by [`create_string`] (or by the mocked module
+/// API).
+///
+/// # Safety
+/// `s` must come from the mock `RedisModule_CreateString` family and must not
+/// have been released already.
+pub unsafe fn free_string(s: *mut redis_module::raw::RedisModuleString) {
+    // SAFETY: forwarded preconditions.
+    unsafe { RedisModule_FreeString(std::ptr::null_mut(), s) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

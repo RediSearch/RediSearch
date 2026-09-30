@@ -123,24 +123,26 @@ pub trait Decoder {
     /// document ID first and skipping ahead if the ID does not match the target, saving decoding
     /// the rest of the record.
     ///
-    /// Returns `false` if end of the cursor was reached before finding a document equal, or bigger,
-    /// than the target.
+    /// Returns `Ok(None)` if the end of the cursor was reached before finding a document equal to,
+    /// or bigger than, the target. On success returns the number of entries skipped before the
+    /// landed entry, so the reader can align its per-block entry cursor with the result.
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         loop {
             match Self::decode(cursor, base, result) {
-                Ok(_) if result.doc_id >= target => {
-                    return Ok(true);
-                }
                 Ok(_) => {
+                    if result.doc_id >= target {
+                        return Ok(Some(skipped));
+                    }
+                    skipped += 1;
                     base = result.doc_id;
-                    continue;
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
                 Err(err) => return Err(err),
             }
         }

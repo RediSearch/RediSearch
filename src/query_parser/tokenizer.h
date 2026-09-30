@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "../tokenize.h"
-#include "query_node_type.h"
+#include "query_types.h"
 #include "VecSim/vec_sim_common.h"
 #include "spec.h"
 

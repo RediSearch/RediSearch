@@ -67,6 +67,9 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       QueryIterator **its = (QueryIterator **)rm_calloc(percent, sizeof(QueryIterator *));
       FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
       MockQueryEvalCtx mockQctx(n, n);
+      QueryRequestTimeout timeout = {};
+      QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+      mockQctx.sctx.timeout = &timeout;
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
@@ -83,7 +86,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
       FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
       FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-      HybridIteratorParams hParams = {.sctx = NULL,
+      HybridIteratorParams hParams = {.sctx = &mockQctx.sctx,
                                       .index = index,
                                       .dim = d,
                                       .elementType = VecSimType_FLOAT32,

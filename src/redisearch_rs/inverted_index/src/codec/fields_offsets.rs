@@ -89,12 +89,13 @@ impl Decoder for FieldsOffsets {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, field_mask, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
@@ -104,6 +105,7 @@ impl Decoder for FieldsOffsets {
             if base >= target {
                 break (field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip the offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -118,7 +120,7 @@ impl Decoder for FieldsOffsets {
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 
@@ -188,12 +190,13 @@ impl Decoder for FieldsOffsetsWide {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, offsets_sz] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
@@ -204,6 +207,7 @@ impl Decoder for FieldsOffsetsWide {
             if base >= target {
                 break (field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip the offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -218,7 +222,7 @@ impl Decoder for FieldsOffsetsWide {
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

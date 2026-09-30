@@ -42,6 +42,7 @@ struct timespec;
 typedef struct TriePayload TriePayload;
 typedef struct TrieNode TrieNode;
 typedef struct TrieIterator TrieIterator;
+typedef struct QueryRequestTimeout QueryRequestTimeout;
 
 /* Opaque accessors over TrieNode struct internals. These are the only
  * supported way to read TrieNode fields from outside src/trie/. */
@@ -120,27 +121,8 @@ void TrieIterator_Free(TrieIterator *it);
 int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
                       size_t *numDocs, void *matchCtx);
 
-TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
-
 typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *, size_t);
 typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
-
-/**
- * Iterate all nodes within range.
- * @param n the node to iterateo
- * @param min the minimum lexical string to check from
- * @param minlen the length of min
- * @param includeMin is min included
- * @param max the maximum lexical string to check until
- * @param maxlen the maximum length of the max
- * @param includeMax is max included
- * @param callback the callback to invoke
- * @param ctx data to be passed to the callback
- */
-
-void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
-                           const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
-                           void *ctx);
 
 /**
  * Iterate all nodes within range.
@@ -153,12 +135,12 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includ
  * @param ctx data to be passed to the callback
  */
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks);
+                              TrieRangeCallback callback, void *ctx,
+                              QueryRequestTimeout *timeout);
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks);
+                              TrieRangeCallback callback, void *ctx,
+                              QueryRequestTimeout *timeout);
 
 #ifdef __cplusplus
 }

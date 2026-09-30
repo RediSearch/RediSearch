@@ -41,7 +41,13 @@ typedef rune (*runeTransform)(rune r);
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
 
-/* Convert a rune string to utf-8 characters */
+/* Convert a rune string to utf-8 characters. The caller owns the returned
+ * buffer. Returns NULL for an input longer than MAX_RUNE_STR_LEN runes.
+ * Parameters:
+ * - in: The input runes.
+ * - len: The number of runes in `in`.
+ * - utflen: A pointer to a size_t where the byte length of the result is
+ *   written. Must be non-NULL; it is set to 0 when NULL is returned. */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
 /* Convert a string to runes, lowercase them and return the transformed runes.
@@ -67,11 +73,11 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
  *   May be NULL. */
 rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len);
 
-/* Convert a utf-8 string to constant width runes */
-rune *strToRunes(const char *str, size_t *len);
-
-/* Decode a string to a rune in-place */
-size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
+/* Decode `slen` bytes of UTF-8 from `src` into the caller-supplied `out`,
+ * writing at most `outcap` runes and never NUL-terminating. Decoding stops
+ * early at an embedded NUL. Returns the input's full rune count, which exceeds
+ * `outcap` when the output was truncated. */
+size_t strToRunes(const char *src, size_t slen, rune *out, size_t outcap);
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**
@@ -86,7 +92,7 @@ static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *l
     buf->isDynamic = 0;
     target = buf->u.s;
   }
-  *len = strToRunesN(s, n, target);
+  *len = strToRunes(s, n, target, n);
   target[*len] = 0;
   return target;
 }

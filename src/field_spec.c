@@ -7,17 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "field_spec.h"
-#include "indexer.h"
+
+#include <sys/param.h>
+
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
 #include "geometry/geometry_api.h"
 #include "tag_index.h"
-#include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
+#include "inverted_index.h"
+#include "reply.h"
+#include "search_disk_api.h"
+#include "spec.h"
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
@@ -87,6 +92,24 @@ const char *FieldSpec_GetTypeNames(int idx) {
   default:
     RS_ABORT_ALWAYS("oops");
   }
+}
+
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ * */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields) {
+  if (!changedFields) {
+    return false;
+  }
+  for (size_t i = 0; i < numChangedFields; ++i) {
+    size_t length = 0;
+    const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+    if (FieldSpec_PathEquals(fs, field, length)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void FieldSpec_AddError(FieldSpec *fs, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {

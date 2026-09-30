@@ -13,16 +13,16 @@ pub mod iter;
 mod node;
 mod utils;
 
+use crate::automaton::{Automaton, wildcard::WildcardNfa};
 use crate::trie_map::{
     iter::{
-        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter,
-        RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter,
-        WildcardNfa, filter::VisitAll,
+        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter,
+        RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
 };
-use rqe_wildcard::{Token, WildcardPattern};
+use rqe_wildcard::WildcardPattern;
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -67,7 +67,6 @@ impl<Data> TrieMap<Data> {
     ///
     /// Returns the value associated with the key if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<Data> {
-        // If there's no root, there's nothing to remove.
         let root = self.root.as_mut()?;
 
         // The key is not in the trie if the root's label is not a
@@ -92,7 +91,6 @@ impl<Data> TrieMap<Data> {
         } else {
             // The node we need to remove is deeper in the trie.
             let data = root.remove_descendant(suffix, &mut self.memory_usage);
-            // After removing the child, we attempt to merge the child into the root.
             root.merge_child_if_possible(&mut self.memory_usage);
             data
         };
@@ -127,7 +125,10 @@ impl<Data> TrieMap<Data> {
     /// The value is obtained by calling the provided callback function.
     /// If the key already exists, the existing value is passed to the callback,
     /// otherwise `f(None)` is inserted.
-    pub fn insert_with<F>(&mut self, key: &[u8], f: F)
+    ///
+    /// Returns `true` if the key was newly inserted, `false` if it was
+    /// already present.
+    pub fn insert_with<F>(&mut self, key: &[u8], f: F) -> bool
     where
         F: FnOnce(Option<Data>) -> Data,
     {
@@ -151,6 +152,7 @@ impl<Data> TrieMap<Data> {
         if has_cardinality_increased {
             self.n_unique_keys += 1;
         }
+        has_cardinality_increased
     }
 
     #[cfg(feature = "test_utils")]
@@ -234,39 +236,34 @@ impl<Data> TrieMap<Data> {
         // while the NFA arms simply drop it on return.
         match WildcardBackend::for_pattern(&pattern) {
             WildcardBackend::U64 => {
-                let nfa = WildcardNfa::<u64>::compile(&pattern);
-                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
-                WildcardIter::U64(iter)
+                WildcardIter::U64(self.automaton_iter(WildcardNfa::<u64>::compile(&pattern)))
             }
             WildcardBackend::U128 => {
-                let nfa = WildcardNfa::<u128>::compile(&pattern);
-                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
-                WildcardIter::U128(iter)
+                WildcardIter::U128(self.automaton_iter(WildcardNfa::<u128>::compile(&pattern)))
             }
             WildcardBackend::Filter => WildcardIter::Filter(self.wildcard_filter_iter(pattern)),
         }
     }
 
-    fn automaton_iter_with_prefix_shortcut<A: Automaton>(
-        &self,
-        tokens: &[Token<'_>],
-        automaton: A,
-    ) -> AutomatonIter<'_, Data, A> {
+    /// Iterate over the entries accepted by `automaton`, in lexicographical
+    /// key order. See [`Automaton`] for the state-machine contract and
+    /// [`AutomatonIter`] for the traversal it drives.
+    ///
+    /// If the automaton reports a [literal prefix](Automaton::literal_prefix),
+    /// the traversal jumps straight to the subtree containing every key with
+    /// that prefix instead of descending from the root.
+    pub fn automaton_iter<A: Automaton>(&self, automaton: A) -> AutomatonIter<'_, Data, A> {
         let Some(root) = self.root.as_ref() else {
             return AutomatonIter::empty(automaton);
         };
-        // If the pattern starts with a literal, jump straight to the subtree
-        // containing every key with that prefix and let the iterator pick up
-        // from there.
-        if let Some(Token::Literal(lit)) = tokens.first() {
-            match root.find_root_for_prefix(lit) {
+        match automaton.literal_prefix() {
+            Some(prefix) => match root.find_root_for_prefix(prefix) {
                 Some((subroot, subroot_prefix)) => {
                     AutomatonIter::new(Some(subroot), subroot_prefix, automaton)
                 }
                 None => AutomatonIter::empty(automaton),
-            }
-        } else {
-            AutomatonIter::new(Some(root), Vec::new(), automaton)
+            },
+            None => AutomatonIter::new(Some(root), Vec::new(), automaton),
         }
     }
 
@@ -289,6 +286,9 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
+    ///
+    /// The iterator borrows `target`; call
+    /// [`ContainsIter::into_owned`] to detach it from that borrow.
     pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }

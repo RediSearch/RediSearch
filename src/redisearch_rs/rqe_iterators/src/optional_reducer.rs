@@ -12,8 +12,9 @@
 
 use std::ptr::NonNull;
 
-use ffi::IteratorType;
 use rqe_core::DocId;
+
+use crate::IteratorType;
 
 use crate::{
     NewWildcardIterator, RQEIterator,

@@ -11,6 +11,7 @@
 //!
 //! Check [`TrieMap`]'s documentation for more details.
 
+pub mod automaton;
 pub mod str_trie_map;
 mod trie_count;
 mod trie_map;

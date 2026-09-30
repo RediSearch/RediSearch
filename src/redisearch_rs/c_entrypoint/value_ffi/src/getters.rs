@@ -9,8 +9,8 @@
 
 use crate::util::expect_value;
 use crate::{RSValue, util::as_rs_value};
-use ffi::RedisModuleString;
 use libc::size_t;
+use redis_module::RedisModuleString;
 use std::ffi::c_char;
 use std::ffi::c_double;
 use value::Value;

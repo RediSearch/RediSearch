@@ -8,7 +8,7 @@
 */
 
 use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref, SharedPtr};
+use ref_mode::{Active, Ref};
 
 use super::offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
 
@@ -16,7 +16,7 @@ use super::offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
 #[cheadergen::config(prefix_with_name)]
 #[derive(Debug)]
 #[repr(u8)]
-pub enum RawTermRecord<R: Ref> {
+pub enum RawTermRecord<'query, R: Ref> {
     Borrowed {
         /// The term that brought up this record.
         ///
@@ -37,9 +37,15 @@ pub enum RawTermRecord<R: Ref> {
         /// The term that brought up this record.
         ///
         /// It borrows the term from another record. `None` encodes "no
-        /// term"; thanks to `NonNull`'s niche, `Option<SharedPtr<R, RSQueryTerm>>`
+        /// term"; thanks to the `NonNull` niche of `&T`, `Option<&'query RSQueryTerm>`
         /// has the same C ABI as a nullable `*const RSQueryTerm`.
-        term: Option<SharedPtr<R, RSQueryTerm>>,
+        ///
+        /// The borrowed query term belongs to the query pipeline, so it lives
+        /// under the `'query` lifetime and is never weakened by the
+        /// `Active`/`Suspended` ref-mode transitions — it stays a genuine
+        /// `&'query` borrow, so it is modelled as a plain reference rather than
+        /// a ref-mode-parametrised `SharedPtr`.
+        term: Option<&'query RSQueryTerm>,
 
         /// The encoded offsets in which the term appeared in the document
         ///
@@ -65,7 +71,7 @@ pub enum RawTermRecord<R: Ref> {
 
 /// The [`Active`] instantiation of [`RawTermRecord`].
 #[cheadergen::config(export)]
-pub type RSTermRecord<'a> = RawTermRecord<Active<'a>>;
+pub type RSTermRecord<'a> = RawTermRecord<'a, Active<'a>>;
 
 // Compile-time proof that the `Active` and `Suspended` instantiations of
 // `RawTermRecord` are layout-identical. Only `size_of`/`align_of` are checked:
@@ -77,16 +83,15 @@ pub type RSTermRecord<'a> = RawTermRecord<Active<'a>>;
 const _: () = {
     use ref_mode::Suspended;
     use std::mem::{align_of, size_of};
-    type A = RawTermRecord<Active<'static>>;
-    type S = RawTermRecord<Suspended>;
+    type A = RawTermRecord<'static, Active<'static>>;
+    type S = RawTermRecord<'static, Suspended>;
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
 
-// Manual (rather than derived) because the `Owned` variant stores
-// `Option<SharedPtr<R, RSQueryTerm>>`, which only implements `PartialEq` in
-// `Active` mode. Compares the dereferenced query term and the byte view of
-// the offsets so equality is well-defined across variants.
+// Manual (rather than derived) so equality is well-defined across the three
+// variants (which store the term and offsets differently): compares the
+// dereferenced query term and the byte view of the offsets.
 impl<'a> PartialEq for RSTermRecord<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.query_term() == other.query_term() && self.offsets() == other.offsets()
@@ -95,7 +100,7 @@ impl<'a> PartialEq for RSTermRecord<'a> {
 
 impl<'a> Eq for RSTermRecord<'a> {}
 
-impl<R: Ref> RawTermRecord<R> {
+impl<'query, R: Ref> RawTermRecord<'query, R> {
     /// Create a new term record without term pointer and offsets.
     pub const fn new() -> Self {
         Self::Borrowed {
@@ -107,6 +112,15 @@ impl<R: Ref> RawTermRecord<R> {
     /// Is this term record borrowed or owned?
     pub const fn is_copy(&self) -> bool {
         matches!(self, Self::Owned { .. } | Self::FullyOwned { .. })
+    }
+
+    /// Get a reference to the query term of this term record, if one is set.
+    pub fn query_term(&self) -> Option<&RSQueryTerm> {
+        match self {
+            Self::Borrowed { term, .. } => term.as_deref(),
+            Self::Owned { term, .. } => *term,
+            Self::FullyOwned { term, .. } => term.as_deref(),
+        }
     }
 }
 
@@ -128,18 +142,9 @@ impl<'a> RSTermRecord<'a> {
         }
     }
 
-    /// Get a reference to the query term of this term record, if one is set.
-    pub fn query_term(&self) -> Option<&RSQueryTerm> {
-        match self {
-            Self::Borrowed { term, .. } => term.as_deref(),
-            Self::Owned { term, .. } => term.map(|p| p.get()),
-            Self::FullyOwned { term, .. } => term.as_deref(),
-        }
-    }
-
     /// Create an owned copy of this term record, allocating new memory for the offsets, but reusing the term.
     pub fn to_owned(&'a self) -> RSTermRecord<'a> {
-        let term = self.query_term().map(SharedPtr::from_ref);
+        let term = self.query_term();
         Self::Owned {
             term,
             offsets: match self {
@@ -204,7 +209,7 @@ impl<'a> RSTermRecord<'a> {
     }
 }
 
-impl<R: Ref> Default for RawTermRecord<R> {
+impl<'query, R: Ref> Default for RawTermRecord<'query, R> {
     fn default() -> Self {
         Self::new()
     }

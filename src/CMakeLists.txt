@@ -59,6 +59,7 @@ endif()
 #----------------------------------------------------------------------------------------------
 # Add subdirectories for src/ components
 add_subdirectory(geometry)
+add_subdirectory(vector_compare)
 add_subdirectory(buffer)
 add_subdirectory(iterators)
 add_subdirectory(index_result)
@@ -148,6 +149,7 @@ set_target_properties(redisearch_c PROPERTIES LINKER_LANGUAGE CXX)
 # Declare dependencies for transitive linking
 target_link_libraries(redisearch_c
     redisearch-geometry
+    redisearch-vector-compare
     redisearch-hash
     VectorSimilarity
     redisearch-coord
@@ -243,7 +245,7 @@ macro(collect_static_libs target out_libs out_targets)
     set(${out_targets} ${_COLLECT_TARGETS})
 endmacro()
 
-set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
+set(REDISEARCH_C_BUNDLE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_c_bundle.a")
 
 # Collect all static library dependencies from redisearch_c
 set(LIBS_TO_MERGE "")
@@ -270,7 +272,7 @@ endif()
 
 list(REMOVE_DUPLICATES LIBS_TO_MERGE)
 list(REMOVE_DUPLICATES VISITED_TARGETS)
-message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
+message(STATUS "Static libraries for libredisearch_c_bundle.a: ${LIBS_TO_MERGE}")
 
 # Combine targets and library paths for DEPENDS
 set(MERGE_DEPENDS ${VISITED_TARGETS} ${LIBS_TO_MERGE})
@@ -280,10 +282,10 @@ list(REMOVE_DUPLICATES MERGE_DEPENDS)
 if(APPLE)
     # macOS: use libtool to merge static libraries
     add_custom_command(
-        OUTPUT ${REDISEARCH_ALL_OUTPUT}
-        COMMAND libtool -static -no_warning_for_no_symbols -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
+        OUTPUT ${REDISEARCH_C_BUNDLE_OUTPUT}
+        COMMAND libtool -static -no_warning_for_no_symbols -o ${REDISEARCH_C_BUNDLE_OUTPUT} ${LIBS_TO_MERGE}
         DEPENDS ${MERGE_DEPENDS}
-        COMMENT "Creating unified libredisearch_all.a with libtool"
+        COMMENT "Creating unified libredisearch_c_bundle.a with libtool"
         VERBATIM
         COMMAND_EXPAND_LISTS
     )
@@ -292,19 +294,19 @@ else()
     set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
     string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
     file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
-"CREATE ${REDISEARCH_ALL_OUTPUT}
+"CREATE ${REDISEARCH_C_BUNDLE_OUTPUT}
 ADDLIB ${ADDLIB_COMMANDS}
 SAVE
 END
 ")
     add_custom_command(
-        OUTPUT ${REDISEARCH_ALL_OUTPUT}
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
+        OUTPUT ${REDISEARCH_C_BUNDLE_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_C_BUNDLE_OUTPUT}
         COMMAND ar -M < ${MRI_SCRIPT}
         DEPENDS ${MERGE_DEPENDS} ${MRI_SCRIPT}
-        COMMENT "Creating unified libredisearch_all.a with ar"
+        COMMENT "Creating unified libredisearch_c_bundle.a with ar"
         VERBATIM
     )
 endif()
 
-add_custom_target(redisearch_all ALL DEPENDS ${REDISEARCH_ALL_OUTPUT})
+add_custom_target(redisearch_c_bundle ALL DEPENDS ${REDISEARCH_C_BUNDLE_OUTPUT})

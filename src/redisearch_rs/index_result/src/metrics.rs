@@ -16,55 +16,36 @@
 //! `MetricsVec` is `repr(transparent)` and can be embedded directly in
 //! `repr(C)` structs like [`super::RSIndexResult`].
 use ffi::RLookupKey;
-use ref_mode::{Active, Ref, SharedPtr};
 use std::ptr;
 use thin_vec::ThinVec;
 
 /// A single metric: a borrowed key and a numeric value.
-///
-/// The `R: Ref` parameter controls how the key reference is stored:
-/// in [`Active<'a>`] mode it is a valid `&'a RLookupKey`, in
-/// [`ref_mode::Suspended`] mode it is an inert raw pointer.
-///
-/// `key` is `Option<SharedPtr<R, RLookupKey>>` so "no key" is encoded as
-/// `None`. `SharedPtr` wraps `NonNull` so the niche optimization keeps the C
-/// ABI as a nullable `RLookupKey *`.
 #[derive(Debug)]
 #[repr(C)]
-pub struct RawMetricEntry<R: Ref> {
+#[cheadergen::config(export)]
+pub struct MetricEntry<'query> {
     /// Borrowed reference to the lookup key that identifies this metric,
     /// or `None` when the metric has no associated key.
-    pub key: Option<SharedPtr<R, RLookupKey>>,
+    ///
+    /// The key always lives under the `'query` lifetime: it belongs to the
+    /// query pipeline (the `RLookupKey`), not to the inverted index, so it is
+    /// never weakened by the `Active`/`Suspended` ref-mode transitions —
+    /// unlike the index-backed pointers of a result, it stays a genuine
+    /// `&'query` borrow across the whole suspend/resume cycle. That is why it
+    /// is modelled as a plain reference rather than a ref-mode-parametrised
+    /// `SharedPtr`.
+    ///
+    /// Stored as `Option<&'query RLookupKey>` so "no key" is `None`; the
+    /// `NonNull` niche of `&T` keeps the C ABI as a nullable `RLookupKey *`.
+    pub key: Option<&'query RLookupKey>,
 
     /// The metric value (e.g. vector distance, score).
     pub value: f64,
 }
 
-/// The [`Active`] instantiation of [`RawMetricEntry`].
-#[cheadergen::config(export)]
-pub type MetricEntry<'a> = RawMetricEntry<Active<'a>>;
+impl Copy for MetricEntry<'_> {}
 
-// Compile-time proof that the `Active` and `Suspended` instantiations of
-// `RawMetricEntry` are layout-identical. `R` enters only through the
-// `#[repr(transparent)]` `SharedPtr<R, RLookupKey>` in `key`. Entries live
-// behind the `RawMetricsVec` allocation, so they are read as the `Suspended`
-// type through that pointer after an active/suspended `transmute` — hence they
-// need the same guarantee. Part of the recursive net backing the conversions
-// on `RawIndexResult` (see `core/mod.rs`).
-const _: () = {
-    use ref_mode::Suspended;
-    use std::mem::{align_of, offset_of, size_of};
-    type A = RawMetricEntry<Active<'static>>;
-    type S = RawMetricEntry<Suspended>;
-    assert!(offset_of!(A, key) == offset_of!(S, key));
-    assert!(offset_of!(A, value) == offset_of!(S, value));
-    assert!(size_of::<A>() == size_of::<S>());
-    assert!(align_of::<A>() == align_of::<S>());
-};
-
-impl<R: Ref> Copy for RawMetricEntry<R> {}
-
-impl<R: Ref> Clone for RawMetricEntry<R> {
+impl Clone for MetricEntry<'_> {
     fn clone(&self) -> Self {
         *self
     }
@@ -74,7 +55,7 @@ impl<'a> MetricEntry<'a> {
     /// Creates a metric entry with an associated key.
     pub const fn with_key(key: &'a RLookupKey, value: f64) -> Self {
         Self {
-            key: Some(SharedPtr::from_ref(key)),
+            key: Some(key),
             value,
         }
     }
@@ -86,14 +67,11 @@ impl<'a> MetricEntry<'a> {
 
     /// Returns the key reference, or `None` if the metric has no key.
     pub const fn key(&self) -> Option<&'a RLookupKey> {
-        match self.key {
-            Some(k) => Some(k.get()),
-            None => None,
-        }
+        self.key
     }
 }
 
-impl<R: Ref> RawMetricEntry<R> {
+impl MetricEntry<'_> {
     /// Returns the metric value.
     pub const fn value(&self) -> f64 {
         self.value
@@ -117,8 +95,8 @@ impl<'a> PartialEq for MetricEntry<'a> {
             key: o_key,
             value: o_value,
         } = other;
-        let lhs = key.map_or(ptr::null(), |p| p.as_raw());
-        let rhs = o_key.map_or(ptr::null(), |p| p.as_raw());
+        let lhs = key.map_or(ptr::null(), |k| k as *const RLookupKey);
+        let rhs = o_key.map_or(ptr::null(), |k| k as *const RLookupKey);
         ptr::eq(lhs, rhs) && value == o_value
     }
 }
@@ -132,30 +110,12 @@ impl<'a> PartialEq for MetricEntry<'a> {
 /// and can be embedded directly in `repr(C)` structs.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct RawMetricsVec<R: Ref> {
-    inner: ThinVec<RawMetricEntry<R>>,
+#[cheadergen::config(export)]
+pub struct MetricsVec<'query> {
+    inner: ThinVec<MetricEntry<'query>>,
 }
 
-/// The [`Active`] instantiation of [`RawMetricsVec`].
-pub type MetricsVec<'a> = RawMetricsVec<Active<'a>>;
-
-// Compile-time proof that the `Active` and `Suspended` instantiations of
-// `RawMetricsVec` are layout-identical. The type is `#[repr(transparent)]` over
-// a single `ThinVec` pointer, so `R` only affects the element type behind the
-// allocation (guarded by the `RawMetricEntry` block above); the inline layout
-// is a bare pointer either way. Part of the recursive net backing the
-// conversions on `RawIndexResult` (see `core/mod.rs`).
-const _: () = {
-    use ref_mode::Suspended;
-    use std::mem::{align_of, offset_of, size_of};
-    type A = RawMetricsVec<Active<'static>>;
-    type S = RawMetricsVec<Suspended>;
-    assert!(offset_of!(A, inner) == offset_of!(S, inner));
-    assert!(size_of::<A>() == size_of::<S>());
-    assert!(align_of::<A>() == align_of::<S>());
-};
-
-impl<R: Ref> Clone for RawMetricsVec<R> {
+impl Clone for MetricsVec<'_> {
     fn clone(&self) -> Self {
         let Self { inner } = self;
         Self {
@@ -178,19 +138,17 @@ impl<'a> PartialEq for MetricsVec<'a> {
 /// from C. The pointed-to data is valid as long as the originating
 /// [`MetricsVec`] is not mutated or dropped.
 #[repr(C)]
-pub struct RawMetricsSlice<R: Ref> {
+#[cheadergen::config(export)]
+pub struct MetricsSlice<'query> {
     /// Pointer to the first [`MetricEntry`].  May be dangling (but not null)
     /// when `len == 0`.
-    pub data: *const RawMetricEntry<R>,
+    pub data: *const MetricEntry<'query>,
 
     /// Number of entries.
     pub len: usize,
 }
 
-/// The [`Active`] instantiation of [`RawMetricsSlice`].
-pub type MetricsSlice<'a> = RawMetricsSlice<Active<'a>>;
-
-impl<R: Ref> RawMetricsVec<R> {
+impl<'query> MetricsVec<'query> {
     /// Creates an empty metrics collection. Does not allocate.
     pub const fn new() -> Self {
         Self {
@@ -219,9 +177,9 @@ impl<R: Ref> RawMetricsVec<R> {
     }
 
     /// Returns a C-compatible slice view for zero-copy iteration.
-    pub fn as_metrics_slice(&self) -> RawMetricsSlice<R> {
+    pub fn as_metrics_slice(&self) -> MetricsSlice<'query> {
         let slice = self.inner.as_slice();
-        RawMetricsSlice {
+        MetricsSlice {
             data: slice.as_ptr(),
             len: slice.len(),
         }
@@ -229,29 +187,29 @@ impl<R: Ref> RawMetricsVec<R> {
 
     /// Returns a reference to the entry at `index`, or `None` if out of
     /// bounds.
-    pub fn get(&self, index: usize) -> Option<&RawMetricEntry<R>> {
+    pub fn get(&self, index: usize) -> Option<&MetricEntry<'query>> {
         self.inner.as_slice().get(index)
     }
 
     /// Returns a mutable reference to the entry at `index`, or `None` if
     /// out of bounds.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut RawMetricEntry<R>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut MetricEntry<'query>> {
         self.inner.as_mut_slice().get_mut(index)
     }
 
     /// Returns an iterator over the entries.
-    pub fn iter(&self) -> impl Iterator<Item = &RawMetricEntry<R>> {
+    pub fn iter(&self) -> impl Iterator<Item = &MetricEntry<'query>> {
         self.inner.as_slice().iter()
     }
 
     /// Finds the first entry whose key matches `key` (pointer equality)
     /// and returns a mutable reference to it.
-    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut RawMetricEntry<R>> {
+    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut MetricEntry<'query>> {
         let needle = key as *const RLookupKey;
         self.inner
             .as_mut_slice()
             .iter_mut()
-            .find(|e| e.key.is_some_and(|p| ptr::eq(p.as_raw(), needle)))
+            .find(|e| e.key.is_some_and(|k| ptr::eq(k, needle)))
     }
 }
 
@@ -267,7 +225,7 @@ impl<'a> MetricsVec<'a> {
     }
 }
 
-impl<R: Ref> Default for RawMetricsVec<R> {
+impl Default for MetricsVec<'_> {
     fn default() -> Self {
         Self::new()
     }

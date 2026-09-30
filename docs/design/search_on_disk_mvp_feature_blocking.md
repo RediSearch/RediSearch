@@ -201,7 +201,6 @@ Since SLOP is blocked for Disk mode (see above), any scorer that relies on SLOP 
 
 | Feature | Should Block? | Actually Blocked? | Code Location |
 |---------|---------------|-------------------|---------------|
-| Max 10 indexes | ✅ Yes | ✅ BLOCKED | `search_disk_utils.c:13-18` - `FLEX_MAX_INDEX_COUNT` check |
 | WORKERS = 0 | ✅ Yes | ✅ BLOCKED | Corrected to 1 automatically |
 
 ---

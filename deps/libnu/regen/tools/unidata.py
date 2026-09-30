@@ -1,25 +1,22 @@
-#-*- coding: UTF-8
+def unidata_strip(string: str) -> str:
+	string = string.strip()
 
-
-def unidata_strip(s):
-	s = s.strip()
-
-	if unidata_comment(s):
+	if unidata_comment(string):
 		return ''
 
-	i = s.find('#')
+	i = string.find('#')
 	if i > 0:
-		s = s[:i]
+		string = string[:i]
 
-	s = s.strip()
+	string = string.strip()
 
-	return s
-
-
-def unidata_split(s):
-	s = unidata_strip(s)
-	return list(filter(bool, list(map(str.strip, s.split(' ')))))
+	return string
 
 
-def unidata_comment(line):
+def unidata_split(string: str) -> list[str]:
+	stripped = unidata_strip(string)
+	return [x for x in map(str.strip, stripped.split(' ')) if x]
+
+
+def unidata_comment(line: str) -> bool:
 	return (not line or not line.strip() or line[0] == '#' or line[0] == '@')

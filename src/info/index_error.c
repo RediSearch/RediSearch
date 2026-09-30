@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_error.h"
+
+#include <string.h>
+
 #include "rmalloc.h"
 #include "reply_macros.h"
 #include "util/timeout.h"
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error_ffi.h"
+#include "rmr/reply.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

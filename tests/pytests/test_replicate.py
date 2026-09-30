@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import signal
 from RLTest import Env
 import time
@@ -56,6 +63,93 @@ def initEnv():
   env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
 
   return env
+
+def _decode_slowlog_arg(arg):
+  if isinstance(arg, bytes):
+    return arg.decode()
+  return str(arg)
+
+def _slowlog_entry_id_and_args(entry):
+  if isinstance(entry, dict):
+    command = entry['command']
+    entry_id = entry['id']
+  else:
+    command = entry[3]
+    entry_id = entry[0]
+
+  if isinstance(command, (bytes, str)):
+    return entry_id, _decode_slowlog_arg(command).split()
+
+  return entry_id, [_decode_slowlog_arg(arg) for arg in command]
+
+def _slowlog_commands(conn):
+  entries = conn.execute_command('SLOWLOG', 'GET', 128)
+  commands = [_slowlog_entry_id_and_args(entry) for entry in entries]
+  return [args for _, args in sorted(commands, key=lambda entry: entry[0])]
+
+def _config_get_value(conn, name):
+  res = conn.execute_command('CONFIG', 'GET', name)
+  if isinstance(res, dict):
+    return res[name]
+  return res[1]
+
+def testAlterReplicateWithDifferentScanSchedules():
+  """Normal ALTERs preserve query membership with serial scans on both nodes or
+  overlapping scans only on the primary or only on the replica."""
+  env = initEnv()
+  primary = env.getConnection()
+  replica = env.getSlaveConnection()
+  nodes = [('primary', primary), ('replica', replica)]
+
+  def wait_for_scan(conn, idx):
+    checkSlaveSynced(env, conn, ('FT.INFO', idx), 0,
+                     mapping=lambda reply: int(to_dict(reply)['indexing']))
+
+  for schedule, paused in [('serial', None), ('overlap_primary', primary),
+                           ('overlap_replica', replica)]:
+    idx = schedule
+    prefix = f'{schedule}:'
+    env.expect('FT.CREATE', idx, 'PREFIX', '1', prefix, 'SCHEMA', 'title', 'TEXT').ok()
+    documents = {
+      f'{prefix}title': {'title': 'table'},
+      f'{prefix}a': {'title': 'table', 'a': 'alpha'},
+      f'{prefix}b': {'title': 'table', 'b': 'beta'},
+      f'{prefix}both': {'title': 'table', 'a': 'alpha', 'b': 'beta'},
+    }
+    for key, fields in documents.items():
+      primary.hset(key, mapping=fields)
+    env.expect('WAIT', '1', '10000').equal(1)
+    for _, conn in nodes:
+      wait_for_scan(conn, idx)
+
+    try:
+      if paused is not None:
+        env.assertOk(paused.execute_command(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true'))
+      for field in ('a', 'b'):
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', field, 'TAG').ok()
+        # WAIT acknowledges the replicated command, not completion of its scan.
+        env.expect('WAIT', '1', '10000').equal(1)
+        for role, conn in nodes:
+          if conn is paused:
+            env.assertEqual(conn.execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx),
+                            'NEW', message=f'{schedule}: {role} after adding {field}')
+          else:
+            wait_for_scan(conn, idx)
+    finally:
+      if paused is not None:
+        env.assertOk(paused.execute_command(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false'))
+        env.assertOk(paused.execute_command(bgScanCommand(), 'SET_BG_INDEX_RESUME'))
+
+    for role, conn in nodes:
+      wait_for_scan(conn, idx)
+      for query, keys in [
+        ('@title:table', list(documents)),
+        ('@a:{alpha}', [f'{prefix}a', f'{prefix}both']),
+        ('@b:{beta}', [f'{prefix}b', f'{prefix}both']),
+      ]:
+        result = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(result), toSortedFlatList([len(keys), *keys]),
+                        message=f'{schedule}: {role} {query}')
 
 def testDelReplicate():
   env = initEnv()
@@ -152,6 +246,53 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
+
+def testDropIndexDDReplicatesDropBeforeDocumentDeletes():
+  '''
+  DROPINDEX DD must replicate the internal index drop before document key deletion,
+  otherwise replicas deindex each deleted document while the index still exists.
+  '''
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  master.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
+                         't', 'TEXT')
+  for i in range(3):
+    master.execute_command('HSET', 'doc:%d' % i, 't', 'hello')
+
+  waitForIndex(env, 'idx')
+  env.assertEqual(master.execute_command('WAIT', '1', '10000'), 1)
+  checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', 'hello'), 3, time_out=20,
+                   mapping=lambda res: res[0])
+
+  old_slowlog_threshold = _config_get_value(slave, 'slowlog-log-slower-than')
+  try:
+    slave.execute_command('CONFIG', 'SET', 'slowlog-log-slower-than', '0')
+    slave.execute_command('SLOWLOG', 'RESET')
+
+    master.execute_command('FT.DROPINDEX', 'idx', 'DD')
+    env.assertEqual(master.execute_command('WAIT', '1', '10000'), 1)
+
+    commands = _slowlog_commands(slave)
+    drop_pos = next((i for i, args in enumerate(commands)
+                     if args and args[0].upper().endswith('FT._DROPINDEXIFX')), None)
+    delete_positions = [i for i, args in enumerate(commands)
+                        if args and args[0].upper() in ('DEL', 'UNLINK')
+                        and any(arg.startswith('doc:') for arg in args[1:])]
+
+    env.assertTrue(drop_pos is not None, message='Replica did not execute _DROPINDEXIFX')
+    env.assertTrue(delete_positions, message='Replica did not execute document deletes')
+    first_delete_pos = delete_positions[0]
+    env.assertTrue(drop_pos < first_delete_pos,
+                   message='Replica deleted documents before dropping the index: %s' % commands)
+    env.assertTrue(all(commands[pos][0].upper() == 'UNLINK' for pos in delete_positions))
+    deleted_keys = {arg for pos in delete_positions for arg in commands[pos][1:]
+                    if arg.startswith('doc:')}
+    env.assertEqual(deleted_keys, {'doc:0', 'doc:1', 'doc:2'})
+  finally:
+    slave.execute_command('CONFIG', 'SET', 'slowlog-log-slower-than', old_slowlog_threshold)
+    slave.execute_command('SLOWLOG', 'RESET')
 
 def testDropTempReplicate():
   env = initEnv()

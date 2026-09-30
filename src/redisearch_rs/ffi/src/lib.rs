@@ -34,19 +34,20 @@
 
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
+use redis_module::raw::*;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Access to the RediSearch Module context
 pub mod context;
 
-/// Use the Rust definitions directly
-pub use document::DocumentType;
-pub use query_node_type::{
-    QASTValidationFlagsSet, QueryNodeFlags, QueryNodeOptions, QueryNodeType,
-};
-
-pub use query_term::{RSQueryTerm, RSTokenFlags};
-pub use rqe_iterator_type::IteratorType;
+// Brought into scope (privately) so the bindgen-generated bindings below can
+// name these Rust-defined types. Consumers import them from their owning crate
+// directly rather than through this crate.
+use document::DocumentType;
+use query_term::{RSQueryTerm, RSTokenFlags};
+use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
+use rqe_iterator_type::IteratorType;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -70,10 +71,9 @@ pub struct QueryProcessingCtx {
     /// re-indexed between buffering and load. The reported total is
     /// `totalResults - skippedResults`.
     ///
-    /// Tracked separately rather than decrementing `totalResults` so the live
-    /// match count stays stable for the length prediction (`calc_results_len`),
-    /// and so a post-header re-accumulation cannot "resurrect" a row whose
-    /// decrement already shipped in the RESP2 header.
+    /// Tracked separately rather than decrementing `totalResults` so that a
+    /// post-header re-accumulation cannot "resurrect" a row whose decrement
+    /// already shipped in the RESP2 header.
     pub skippedResults: u32,
     /// The number of results we requested to return at the current chunk.
     /// This value is meant to be used by the RP to limit the number of results

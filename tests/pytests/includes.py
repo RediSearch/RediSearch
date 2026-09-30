@@ -1,3 +1,9 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import sys
 import os
@@ -21,6 +27,7 @@ TEST_DEBUG = os.getenv('TEST_DEBUG', '0') == '1'
 REJSON = os.getenv('REJSON', '0') == '1'
 BUILD_INTEL_SVS_OPT = os.getenv('BUILD_INTEL_SVS_OPT', '0') in ('1', 'yes')
 EXTENDED_PYTESTS = not os.getenv('QUICK', '0') == '1'
+RS_TEST_ENTERPRISE = os.getenv('RS_TEST_ENTERPRISE', '0') == '1'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system
