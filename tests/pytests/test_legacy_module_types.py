@@ -12,8 +12,12 @@ import redis
 from includes import *
 from common import *
 from RLTest import Env
-from test_config import _grep_file_count
 from test_short_read import ShardMock
+
+
+def _grep_file_count(filename, pattern):
+    with open(filename, 'r') as f:
+        return sum(1 for line in f if pattern in line)
 
 LEGACY_ENC_VER = 1
 

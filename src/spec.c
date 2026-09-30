@@ -3144,14 +3144,13 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 #endif
     g_isLoading = false;
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
-  }
+  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
 #ifdef MT_BUILD
-  else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
     workersThreadPool_OnEventEnd(true);
+#endif
     g_isLoading = false;
   }
-#endif
 }
 
 #ifdef MT_BUILD
