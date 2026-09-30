@@ -123,9 +123,6 @@ def _exercise_cleanup(stage, debug_query=False, protocol=3):
                 if stage == 'queued':
                     env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
                     coord_paused = False
-                elif stage == 'reduce' and cancellation == 'disconnect':
-                    # These branches do not cancel coordinator work on disconnect.
-                    setCoordReduceResume(env)
                 elif point:
                     env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
                 wait_for_condition(
