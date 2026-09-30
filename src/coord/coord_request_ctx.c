@@ -114,18 +114,11 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
 
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
-  // Publish cancellation before waking readers. Wake does not wait for worker
-  // completion, so callers can hold setReqLock during this operation.
+  // Also propagate to the underlying request if set
   if (ctx->type == COMMAND_HYBRID) {
-    if (ctx->hreq) {
-      HybridRequest_SetTimedOut(ctx->hreq);
-      HybridRequest_WakeAbortChannels(ctx->hreq);
-    }
+    if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
-    if (ctx->areq) {
-      AREQ_SetTimedOut(ctx->areq);
-      RequestSyncCtx_WakeAbortChannel(&ctx->areq->syncCtx);
-    }
+    if (ctx->areq) AREQ_SetTimedOut(ctx->areq);
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
@@ -139,7 +132,16 @@ void CoordRequestCtx_Disconnect(RedisModuleCtx *redisCtx, RedisModuleBlockedClie
   // Serialize with request publication, including cursor read state resets.
   CoordRequestCtx_LockSetRequest(ctx);
   CoordRequestCtx_SetTimedOut(ctx);
+  AREQ *req = ctx->type == COMMAND_AGGREGATE ? ctx->areq : NULL;
+  HybridRequest *hreq = ctx->type == COMMAND_HYBRID ? ctx->hreq : NULL;
   CoordRequestCtx_UnlockSetRequest(ctx);
+
+  // The blocked client retains the request until worker completion. A timeout
+  // flag alone cannot wake a reader already sleeping on the shard channel.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
+  HybridRequest_WakeAbortChannels(hreq);
 }
 
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback) {

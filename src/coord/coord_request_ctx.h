@@ -101,8 +101,7 @@ static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
 
 /**
  * Set the timeout flag on the coordinator request context.
- * Also propagates to the underlying request and wakes its blocked network readers.
- * Synchronize with request publication through setReqLock while workers are active.
+ * Also propagates to the underlying request if set.
  */
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
