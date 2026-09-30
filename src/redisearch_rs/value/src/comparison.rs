@@ -194,14 +194,14 @@ pub fn compare(
         }
 
         // A number compared against a trio attempts numeric conversion of the trio's left
-        // element (following the same recursion as C's `RSValue_ToNumber`). On success,
+        // element (see [`Value::to_number`]). On success,
         // compare numerically; if conversion fails, the trio as a whole is treated as an
         // empty string — identical to the Array/Map/Undefined arms above.
-        (Value::Number(n1), Value::Trio(t2)) => match try_value_as_number(t2.left()) {
+        (Value::Number(n1), Value::Trio(t2)) => match t2.left().to_number() {
             Some(n2) => n1.partial_cmp(&n2).ok_or(CompareError::NaNFloat),
             None => number_type_vs_unconvertible(num_to_str_cmp_fallback),
         },
-        (Value::Trio(t1), Value::Number(n2)) => match try_value_as_number(t1.left()) {
+        (Value::Trio(t1), Value::Number(n2)) => match t1.left().to_number() {
             Some(n1) => n1.partial_cmp(n2).ok_or(CompareError::NaNFloat),
             None => number_type_vs_unconvertible(num_to_str_cmp_fallback).map(Ordering::reverse),
         },
@@ -286,21 +286,5 @@ const fn number_type_vs_unconvertible(
         Ok(Ordering::Greater)
     } else {
         Err(CompareError::NoNumberToStringFallback)
-    }
-}
-
-/// Try to extract a numeric value from a [`Value`], mirroring C's `RSValue_ToNumber`.
-///
-/// Numbers are returned directly, strings are parsed with [`str_to_float`], trios
-/// recurse into their left element, and references are transparently followed.
-/// All other types (null, array, map, undefined) yield `None`.
-fn try_value_as_number(v: &Value) -> Option<f64> {
-    match v {
-        Value::Ref(r) => try_value_as_number(r),
-        Value::Number(n) => Some(*n),
-        Value::String(s) => str_to_float(s.as_bytes()),
-        Value::RedisString(s) => str_to_float(s.as_bytes()),
-        Value::Trio(t) => try_value_as_number(t.left()),
-        _ => None,
     }
 }
