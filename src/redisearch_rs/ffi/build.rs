@@ -276,7 +276,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/redisearch.h",
         fns: &[],
         types: &["RSToken"],
-        vars: &[],
+        vars: &["BAD_POINTER_ADDR"],
     },
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
@@ -359,6 +359,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "IndexSpec_AcquireWriteLock",
             "IndexSpec_AddTerm",
+            "IndexSpec_CreateField",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",

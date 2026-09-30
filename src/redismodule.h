@@ -1800,6 +1800,7 @@ typedef void (*RedisModuleSwapPrefetchCB)(RedisModuleCtx *ctx, RedisModuleString
 REDISMODULE_API int (*RedisModule_SwapPrefetchKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleSwapPrefetchCB fn, void *user_data, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeyInRam)(RedisModuleCtx *ctx, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BigModuleRegister)(RedisModuleCtx *ctx, RedisModuleBigCallbacks *callbacks) REDISMODULE_ATTR;
+REDISMODULE_API ssize_t (*RedisModule_SetOpenFilesReservation)(RedisModuleCtx *ctx, size_t reservation) REDISMODULE_ATTR;
 REDISMODULE_API ssize_t (*RedisModule_BigWriteBufferBudgetInit)(RedisModuleCtx *ctx, int percentage) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_BigWriteBufferBudgetRelease)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API char* (*RedisModule_BigGetDbPath)(RedisModuleCtx *ctx, const char *index_name) REDISMODULE_ATTR;
@@ -2259,6 +2260,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsKeyInRam);
     REDISMODULE_GET_API(SwapPrefetchKey);
     REDISMODULE_GET_API(BigModuleRegister);
+    REDISMODULE_GET_API(SetOpenFilesReservation);
     REDISMODULE_GET_API(BigWriteBufferBudgetInit);
     REDISMODULE_GET_API(BigWriteBufferBudgetRelease);
     REDISMODULE_GET_API(BigGetDbPath);

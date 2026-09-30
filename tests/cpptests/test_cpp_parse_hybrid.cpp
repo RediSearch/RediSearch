@@ -746,7 +746,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(vq->scoreField != NULL);
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
@@ -782,7 +782,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(vq->scoreField != NULL);
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
@@ -828,7 +828,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(vq->scoreField != NULL);
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
@@ -865,7 +865,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
   ASSERT_EQ(vq->knn.k, 8);
@@ -902,7 +902,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(vq->scoreField != NULL);
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
@@ -941,7 +941,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(vq->scoreField != NULL);
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
@@ -999,7 +999,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithFilter) {
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
-  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_NE(vq->fieldIndex, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(vq->scoreField != NULL);
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);

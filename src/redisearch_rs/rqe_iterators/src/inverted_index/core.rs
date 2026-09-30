@@ -780,7 +780,7 @@ where
     ///
     /// The liveness check is deliberately **not** performed here: it is
     /// leaf-specific (each leaf locates its index differently — `Term` via
-    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missingFieldDict`,
+    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missing.indexes`,
     /// `Wildcard` via `existingDocs`), so it cannot be expressed generically at
     /// this layer. Consequently, resuming the *bare* core iterator directly —
     /// i.e. an [`InvIndIterator`] not wrapped by one of those leaves — after the

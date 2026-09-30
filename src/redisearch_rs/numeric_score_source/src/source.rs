@@ -89,15 +89,14 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 /// improve the result, so [`batch_strategy`](ScoreSource::batch_strategy) can
 /// `Stop` early — the value-ordering is what makes that sound.
 ///
-/// # Filtered retry
+/// # Window retry
 ///
-/// With a filter child, the initial window may be too small to fill the heap.
-/// When a window is drained with `heap_count < k`,
+/// The initial window may be too small to fill the heap. When a window is
+/// drained with `heap_count < k`,
 /// [`batch_strategy`](ScoreSource::batch_strategy) advances the window to the
 /// next disjoint one and returns [`BatchStrategy::ExpandWindow`]. The
 /// windows are disjoint in value space, so the heap keeps accumulating the
-/// global top `k` across them. The unfiltered path reads an unbounded window and
-/// never retries.
+/// global top `k` across them.
 ///
 /// [`BatchStrategy::ExpandWindow`]: top_k::BatchStrategy::ExpandWindow
 ///
@@ -173,10 +172,10 @@ pub struct NumericScoreSource<
 }
 
 impl<'index> NumericScoreSource<'index> {
-    /// Build a source for the unfiltered case (no filter child): every range, in
-    /// value order, with no retry. `filter` is the numeric range over the sort
-    /// field that picks which ranges to read; there is no window to size, since
-    /// `LIMIT k` is served by the heap plus the early `Stop`.
+    /// Build a source for the unfiltered case (no filter child), with no retry.
+    /// `filter` is the numeric range over the sort field that picks which ranges
+    /// to read; its `offset`/`limit` window is ignored here and sized from `k`
+    /// instead, by [`narrow_window_to_top_k`](Self::narrow_window_to_top_k).
     pub fn unfiltered(
         tree: &'index NumericRangeTree,
         filter: NumericFilter,
@@ -358,6 +357,28 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     /// Sort direction the source reads in, for the heap comparator.
     pub fn ascending(&self) -> bool {
         self.ascending
+    }
+
+    /// Bound the initial window to the documents a top-`k` heap needs, and arm
+    /// the retry path in case that window under-delivers.
+    ///
+    /// Only for a source with no filter child: every document read reaches the
+    /// heap, so `k` of them fill it and the tree need only resolve the
+    /// best-scored ranges covering `k` documents instead of the whole field.
+    /// A validity or expiration drop can still leave the heap short, which the
+    /// retry expansion then covers — with no child, the whole field is the
+    /// candidate set, so that is also the selectivity denominator.
+    pub fn narrow_window_to_top_k(&mut self, k: usize) {
+        self.window = RangeWindow {
+            offset: 0,
+            limit: k,
+        };
+        self.initial_window = self.window;
+        self.last_limit_estimate = k;
+        self.num_docs = self.num_estimated;
+        self.child_estimate = self.num_estimated;
+        self.retry_enabled = true;
+        self.ranges.refind(&self.filter, self.window);
     }
 
     /// Hit ratio of the window just consumed: results collected from it over the

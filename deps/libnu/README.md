@@ -4,9 +4,9 @@ The files in this folder are taken from the (excellent) **nunicode** library by 
 
 See [https://bitbucket.org/alekseyt/nunicode](https://bitbucket.org/alekseyt/nunicode)
 
-Vendored snapshot: upstream commit `5d3279b` (post-1.11.1, Unicode 17.0
-tables). `NU_VERSION` reads `"custom"` because upstream only stamps a
-version number on release tags.
+Vendored snapshot: upstream tag `1.12` (commit `5d3279b`, Unicode 17.0
+tables). `NU_VERSION` reads `"custom"` verbatim from upstream, which
+carries that placeholder in-tree on tagged releases too.
 
 Local deltas from upstream:
 

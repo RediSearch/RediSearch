@@ -36,14 +36,17 @@ pub struct NumericRangeIterator<'index> {
     pos: usize,
     /// Value predicate applied to each record as a batch is materialized.
     filter: NumericFilter,
-    /// Doc ids already handed out by an earlier batch or window.
+    /// Doc ids already handed out by an earlier batch or window, or `None` when
+    /// no document in the tree carries more than one value.
     ///
     /// A multivalue field indexes one entry per value, so a doc's values can
     /// fall in different range chunks and be split across `next_n` batches — or
     /// even across expanded windows. Ranges are strictly value-ordered and
     /// disjoint, so a doc's first emission is on its best value; later, worse
-    /// occurrences are dropped to keep it scored exactly once.
-    emitted: HashSet<DocId>,
+    /// occurrences are dropped to keep it scored exactly once. A single-valued
+    /// field occupies one range per doc and needs no such tracking, so it skips
+    /// the per-record set lookup entirely.
+    emitted: Option<HashSet<DocId>>,
 }
 
 impl<'index> NumericRangeIterator<'index> {
@@ -59,7 +62,7 @@ impl<'index> NumericRangeIterator<'index> {
             ranges: tree.find_windowed(filter, window),
             pos: 0,
             filter: *filter,
-            emitted: HashSet::new(),
+            emitted: tree.has_multivalued_docs().then(HashSet::new),
         }
     }
 
@@ -79,7 +82,9 @@ impl<'index> NumericRangeIterator<'index> {
     /// Drop the record of already-emitted doc ids, so a full rewind can score
     /// every doc afresh.
     pub fn forget_emitted(&mut self) {
-        self.emitted.clear();
+        if let Some(emitted) = &mut self.emitted {
+            emitted.clear();
+        }
     }
 
     /// Sum of `num_docs` across every range in the current window.
@@ -114,7 +119,7 @@ impl<'index> NumericRangeIterator<'index> {
         let batch = merge_ranges(
             &self.ranges[self.pos..end],
             self.filter,
-            &mut self.emitted,
+            self.emitted.as_mut(),
             timeout,
         )?;
         self.pos = end;
@@ -137,6 +142,11 @@ impl<'index> NumericRangeIterator<'index> {
 /// direction; occurrences already handed out by an earlier batch (tracked in
 /// `emitted`) are dropped, since their better value was scored there.
 ///
+/// `emitted` is the single statement of whether the field is multivalued at all:
+/// `None` says no document carries more than one value, so a doc id cannot
+/// repeat — within a batch or across batches — and both de-duplication steps are
+/// skipped.
+///
 /// `timeout` is polled once per record and once more before the sort, so a
 /// large batch stays deadline-aware across its ordering pass. The amortized
 /// counter accumulates across records and ranges, so the real clock check
@@ -144,7 +154,7 @@ impl<'index> NumericRangeIterator<'index> {
 fn merge_ranges(
     ranges: &[&NumericRange],
     filter: NumericFilter,
-    emitted: &mut HashSet<DocId>,
+    emitted: Option<&mut HashSet<DocId>>,
     timeout: &mut impl TimeoutContext,
 ) -> Result<NumericScoreBatch, RQEIteratorError> {
     let mut items: Vec<(DocId, f64)> = Vec::new();
@@ -153,7 +163,10 @@ fn merge_ranges(
         let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record)? {
             timeout.check_timeout()?;
-            if emitted.contains(&record.doc_id) {
+            if emitted
+                .as_ref()
+                .is_some_and(|emitted| emitted.contains(&record.doc_id))
+            {
                 continue;
             }
             let score = record
@@ -164,8 +177,14 @@ fn merge_ranges(
     }
     timeout.check_timeout()?;
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
-    coalesce_by_doc_id(&mut items, filter.ascending);
-    emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
+    if let Some(emitted) = emitted {
+        coalesce_by_doc_id(&mut items, filter.ascending);
+        emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
+    }
+    debug_assert!(
+        items.windows(2).all(|w| w[0].0 < w[1].0),
+        "a batch must hold one strictly-increasing entry per doc id"
+    );
     Ok(NumericScoreBatch::new(items))
 }
 

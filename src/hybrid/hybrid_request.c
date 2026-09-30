@@ -230,6 +230,17 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
         req->requests[i]->pipeline.qctx.skipIndexResultDeepCopy = false;
       }
     }
+    if (rc == REDISMODULE_OK) {
+      // The tail is final: at execution time the merger and loaders may only
+      // append keys to its lookups; changing an existing key panics in the
+      // Rust core. Seal both ends of the tail plan (they differ when the tail
+      // has its own GROUP BY).
+      RLookup_Seal(tailLookup);
+      RLookup *lastLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_LAST);
+      if (lastLookup && lastLookup != tailLookup) {
+        RLookup_Seal(lastLookup);
+      }
+    }
     return rc;
 }
 
@@ -309,8 +320,8 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy,
+                        &hybridReq->base.reply.err);
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -408,9 +419,6 @@ void HybridRequest_Free(HybridRequest *req) {
       req->tailPipeline = NULL;
     }
 
-    // Clean up the tail pipeline error
-    QueryError_ClearError(&req->tailPipelineError);
-
     rm_free(req->debugParams);
 
     QueryRequest_Destroy(&req->base);
@@ -423,43 +431,34 @@ static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
 }
 
-/**
- * Get error information from a HybridRequest.
- * This function checks for errors in priority order:
- * 1. Tail pipeline errors (soft codes skipped — emitted as warnings instead)
- * 2. Individual AREQ errors (sub-query failures)
- *
- * @param hreq The HybridRequest to check for errors
- * @param status QueryError pointer to store error information on failure
- * @return REDISMODULE_OK if no errors found, REDISMODULE_ERR if error found
- */
+/* Borrow the first fatal error. Soft tail errors stay in the request for warning serialization. */
+QueryError *HybridRequest_GetFatalError(HybridRequest *hreq) {
+  if (!hreq) return NULL;
+
+  QueryError *tailErr = &hreq->base.reply.err;
+  if (QueryError_HasError(tailErr) && !isSoftTailPipelineErrorCode(QueryError_GetCode(tailErr))) {
+    return tailErr;
+  }
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    QueryError *subErr = &hreq->requests[i]->base.reply.err;
+    if (QueryError_HasError(subErr)) return subErr;
+  }
+
+  return NULL;
+}
+
+/* Copy the selected error for callers that outlive or clear the request. */
 int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
-    if (!hreq || !status) {
-        return REDISMODULE_ERR;
-    }
-
-    // Skip soft codes so the reply path can render them as warnings.
-    if (QueryError_HasError(&hreq->tailPipelineError) &&
-        !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
-        QueryError_CloneFrom(&hreq->tailPipelineError, status);
-        return REDISMODULE_ERR;
-    }
-
-    // Priority 2: Individual AREQ errors (sub-query failures)
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        QueryError *subErr = &hreq->requests[i]->base.reply.err;
-        if (QueryError_HasError(subErr)) {
-            QueryError_CloneFrom(subErr, status);
-            return REDISMODULE_ERR;
-        }
-    }
-
-    // No errors found
-    return REDISMODULE_OK;
+  if (!hreq || !status) return REDISMODULE_ERR;
+  QueryError *err = HybridRequest_GetFatalError(hreq);
+  if (!err) return REDISMODULE_OK;
+  QueryError_CloneFrom(err, status);
+  return REDISMODULE_ERR;
 }
 
 void HybridRequest_ClearErrors(HybridRequest *req) {
-  QueryError_ClearError(&req->tailPipelineError);
+  QueryError_ClearError(&req->base.reply.err);
   for (size_t i = 0; i < req->nrequests; i++) {
     QueryError_ClearError(&req->requests[i]->base.reply.err);
   }
@@ -522,6 +521,18 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
       QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
+    }
+  }
+}
+
+void HybridRequest_WakeAbortChannels(HybridRequest *req) {
+  if (!req) {
+    return;
+  }
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      QueryRequestAsyncState_WakeAbortChannel(&req->requests[i]->base.async);
     }
   }
 }

@@ -39,6 +39,7 @@
 #include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+#define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
@@ -116,6 +117,7 @@ configPair_t __configPairs[] = {
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
+  {"OPTIMIZE_PARTIAL_UPDATE",         "search-optimize-partial-update"},
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
@@ -258,7 +260,14 @@ static int set_max_aggregate_results_config(const char *name, long long val, voi
   return REDISMODULE_OK;
 }
 
-// Signed-int getter, for fields that use a negative sentinel (e.g. -1 = "unlimited").
+static int set_int_numeric_config(const char *name, long long val, void *privdata,
+                                  RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(int *)privdata = (int)val;
+  return REDISMODULE_OK;
+}
+
 static long long get_int_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(int *)privdata);
@@ -304,44 +313,10 @@ static int set_uint8_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-static int set_search_disk_buffer_percentage_config(const char *name, long long val,
-  void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *(uint8_t *)privdata = (uint8_t) val;
-  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
-    SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
-  }
-  return REDISMODULE_OK;
-}
-
-static int set_search_disk_max_open_files_config(const char *name, long long val,
-  void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  // -1 means unlimited. A positive cap becomes the disk backend's open-file cache size,
-  // which is (cap - 10) after reserving ~10 descriptors for non-data files; caps of 0..10
-  // would underflow that to an effectively unbounded cache and silently disable the limit,
-  // so require -1 or >= DISK_MAX_OPEN_FILES_MIN. Validated here (rather than via the config
-  // min bound) because -1 must stay valid while 0..10 must not.
-  if (val != -1 && val < DISK_MAX_OPEN_FILES_MIN) {
-    RS_ASSERT(err);
-    *err = RedisModule_CreateStringPrintf(NULL,
-      "search-disk-max-open-files must be -1 (unlimited) or >= %d", DISK_MAX_OPEN_FILES_MIN);
-    return REDISMODULE_ERR;
-  }
-  *(int *)privdata = (int)val;
-  // Reapply the new cap to every live disk database (mirrors buffer-percentage).
-  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
-    SearchDisk_UpdateMaxOpenFiles(RSDummyContext, (int)val);
-  }
-  return REDISMODULE_OK;
-}
-
 static long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
 }
-
 
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
@@ -1399,6 +1374,10 @@ CONFIG_GETTER(getIndexCursorLimit) {
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 
+// OPTIMIZE_PARTIAL_UPDATE
+CONFIG_BOOLEAN_SETTER(set_OptimizePartialUpdate, optimizePartialUpdate)
+CONFIG_BOOLEAN_GETTER(get_OptimizePartialUpdate, optimizePartialUpdate, 0)
+
 // INDEXER_YIELD_EVERY_OPS
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
@@ -1886,6 +1865,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable unstable features.",
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
+        {.name = "OPTIMIZE_PARTIAL_UPDATE",
+         .helpText = "When enabled (default), an update that leaves a VECTOR field's value"
+                     " unchanged moves the field's existing index entry onto the document's new"
+                     " doc-id instead of deleting and re-adding it.",
+         .setValue = set_OptimizePartialUpdate,
+         .getValue = get_OptimizePartialUpdate},
         {.name = "_BG_INDEX_MEM_PCT_THR",
          .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. The default is 100 percent.",
          .setValue = setIndexingMemoryLimit,
@@ -2110,7 +2095,7 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
 
 void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
                         RedisModule_Reply *reply, bool isHelp) {
-  RedisModule_Reply_Map(reply);
+  RedisModule_Reply_MapOrArray(reply); // RESP2: one [name, value...] array per option
     if (!strcmp("*", name)) {
       for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
         for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
@@ -2123,7 +2108,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
         dumpConfigOption(config, v, reply, isHelp);
       }
     }
-  RedisModule_Reply_MapEnd(reply);
+  RedisModule_Reply_MapOrArrayEnd(reply);
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
@@ -2675,6 +2660,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
+      ctx, "search-optimize-partial-update", DEFAULT_OPTIMIZE_PARTIAL_UPDATE,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.optimizePartialUpdate)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
       ctx, "search-_simulate-in-flex", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
@@ -2702,18 +2696,40 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
-      100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
-      (void *)&(RSGlobalConfig.diskBufferPercentage)
+      ctx, "search-disk-memory-limit-percentage", DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      DISK_MAX_MEMORY_PERCENTAGE_MIN, DISK_MAX_MEMORY_PERCENTAGE_MAX, get_uint8_numeric_config,
+      set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskMaxMemoryPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-write-buffer-min-percentage",
+      DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN, DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX,
+      get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskMinMemoryBudgetPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-write-buffer-per-index-mb", DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      1, DISK_WBM_BUDGET_PER_INDEX_MAX_MB, get_size_t_numeric_config,
+      set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskWbmBudgetPerIndexMB)
     )
   )
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-max-open-files", DEFAULT_DISK_MAX_OPEN_FILES,
-      REDISMODULE_CONFIG_UNPREFIXED, -1,
-      INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      DISK_MAX_OPEN_FILES_MIN, INT_MAX, get_int_numeric_config, set_int_numeric_config, NULL,
       (void *)&(RSGlobalConfig.diskMaxOpenFiles)
     )
   )

@@ -24,7 +24,6 @@ env:
       {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
       {"Key": "PR",           "Value": "${{ github.event.number }}"},
       {"Key": "Container",    "Value": "${{ inputs.container }}"},
-      {"Key": "Owner",        "Value": "${{ github.actor }}"},
       {"Key": "Project",      "Value": "${{ github.repository }}"}
     ]
 
@@ -51,6 +50,30 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
+      - name: Prepare EC2 ownership tags
+        id: ec2-tags
+        # Keep the original workflow actor as owner, including on reruns.
+        env:
+          OWNER_HANDLE: ${{ github.actor }}
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+
+          owner = os.environ["OWNER_HANDLE"].lower()
+          owner = re.sub(r"[^a-z0-9_]", "_", owner)
+          owner = re.sub(r"_+", "_", owner)[:63].strip("_")
+          if not owner:
+              raise SystemExit("Cannot derive an EC2 owner tag from github.actor")
+
+          tags = json.loads(os.environ["TAGS"])
+          tags.extend([
+              {"Key": "owner", "Value": owner},
+              {"Key": "team", "Value": "rqe"},
+          ])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"tags={json.dumps(tags)}\n")
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@v2
@@ -61,7 +84,7 @@ jobs:
           ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
           subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
           security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
-          aws-resource-tags: ${{ env.TAGS }}
+          aws-resource-tags: ${{ steps.ec2-tags.outputs.tags }}
 
   run:
     needs: start-runner # required to start the main job when the runner is ready

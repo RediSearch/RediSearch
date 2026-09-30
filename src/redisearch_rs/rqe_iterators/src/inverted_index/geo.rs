@@ -58,12 +58,12 @@ pub enum GeoRangeError {
 ///
 /// # Safety
 ///
-/// 1. `gf.fieldSpec` must be a valid non-null pointer to a [`ffi::FieldSpec`], valid for `'index`.
-/// 2. `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
-///    to `*gf` and must be released by `GeoFilter_Free` (which frees it through
-///    [`free_geo_numeric_filters`]).
+/// `gf.numericFilters` must be NULL on entry; ownership of the allocated array is transferred
+/// to `*gf` and must be released by `GeoFilter_Free` (which frees it through
+/// [`free_geo_numeric_filters`]).
 pub unsafe fn build_geo_numeric_filters<'index>(
     gf: &'index mut GeoFilter,
+    field_index: ffi::t_fieldIndex,
 ) -> Result<Vec<&'index NumericFilter>, InvalidGeoInput> {
     if gf.radius <= 0.0 {
         return Err(InvalidGeoInput::InvalidRadius(gf.radius));
@@ -81,7 +81,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     let numeric_filters = Box::into_raw(Box::new(
         [std::ptr::null_mut::<NumericFilter>(); geo::GEO_RANGE_COUNT],
     ));
-    // SAFETY: 2. guarantees gf.numericFilters is NULL and writable.
+    // SAFETY: per this function's safety contract, gf.numericFilters is NULL and writable.
     gf.numericFilters = numeric_filters.cast();
 
     let mut filters: Vec<&'index NumericFilter> = Vec::new();
@@ -89,7 +89,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
         if range.min == range.max {
             continue;
         }
-        // SAFETY: gf.fieldSpec is valid per the caller's safety contract.
+        // SAFETY: FFI call; `gf` is a valid `GeoFilter` for the duration of this call.
         let filt_ptr = unsafe {
             ffi::NewNumericFilter(
                 range.min as f64,
@@ -97,7 +97,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
                 true, // inclusiveMin
                 true, // inclusiveMax
                 true, // ascending
-                gf.fieldSpec,
+                field_index,
                 (gf as *const GeoFilter).cast(),
             )
         } as *mut NumericFilter;
@@ -171,8 +171,7 @@ type GeoFilterAndRangeIterator<'index> =
 ///
 /// 1. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is also valid,
 ///    both remaining so for `'index`.
-/// 2. `gf.fieldSpec` must be a valid non-null pointer to a [`ffi::FieldSpec`] for a geo field,
-///    remaining valid for `'index`.
+/// 2. `gf.fieldIndex` must be within `sctx.spec`'s current field count, for a geo field.
 /// 3. `gf.numericFilters` must be NULL on entry; it is populated here and must be freed by
 ///    `GeoFilter_Free`.
 /// 4. `field_ctx` must contain a field index (not a field mask).
@@ -182,18 +181,25 @@ pub unsafe fn new_geo_range_iterator<'index>(
     field_ctx: &FieldFilterContext,
     numeric_compress: bool,
 ) -> Result<GeoFilterAndRangeIterator<'index>, GeoRangeError> {
-    // Read fieldSpec before the mutable borrow in build_geo_numeric_filters.
-    // SAFETY: 2. guarantees gf.fieldSpec is valid and non-null.
-    let fs = unsafe { &mut *(gf.fieldSpec as *mut ffi::FieldSpec) };
-
-    // SAFETY: 2–3. are forwarded from this function's safety contract.
-    let filters = unsafe { build_geo_numeric_filters(gf)? };
-
-    // Open the numeric/geo index once for all ranges.
     // SAFETY: 1. guarantees sctx is valid and non-null.
     let sctx_ref = unsafe { sctx.as_ref() };
     // SAFETY: 1. guarantees sctx.spec is valid and non-null.
     let spec = unsafe { &mut *sctx_ref.spec };
+    let field_index = gf.fieldIndex;
+    debug_assert!(
+        field_index < spec.numFields,
+        "field_index must be within the spec's current field count"
+    );
+    // SAFETY: 3. is forwarded from this function's safety contract.
+    let filters = unsafe { build_geo_numeric_filters(gf, field_index)? };
+
+    // Re-derive the field's current pointer from the spec's field array via the stable
+    // index captured at parse time, to open the numeric/geo index below.
+    // SAFETY: `field_index` is within `spec.numFields` (checked above), so this stays
+    // within the bounds of the `numFields`-sized array `spec.fields` points to.
+    let fs_ptr = unsafe { spec.fields.add(field_index as usize) };
+    // SAFETY: `fs_ptr` is valid per the derivation above.
+    let fs = unsafe { &mut *fs_ptr };
     // SAFETY: 1–2.
     let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress) })
     else {
@@ -242,8 +248,8 @@ pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
 /// 1. `sctx` must be a valid non-null [`RedisSearchCtx`] whose `spec` is valid
 ///    and non-null; both must remain valid for the lifetime of the returned
 ///    iterator.
-/// 2. `gf.fieldSpec` must be a valid non-null [`FieldSpec`](ffi::FieldSpec) for
-///    a geo field, remaining valid for the lifetime of the returned iterator.
+/// 2. `gf.fieldIndex` must be within `sctx.spec`'s current field count, for a
+///    geo field.
 /// 3. `gf.numericFilters` must be NULL on entry; it is populated here and must
 ///    be freed by `GeoFilter_Free`.
 pub unsafe fn build_geo_range_iterator(
@@ -252,10 +258,7 @@ pub unsafe fn build_geo_range_iterator(
     min_union_iter_heap: usize,
     compress: bool,
 ) -> Option<NonNull<QueryIterator>> {
-    debug_assert!(!gf.fieldSpec.is_null(), "geo filter must have a field spec");
-    // Read fieldSpec.index before the mutable borrow in `new_geo_range_iterator`.
-    // SAFETY: precondition (2) — `gf.fieldSpec` is valid and non-null.
-    let field_index = unsafe { (*gf.fieldSpec).index };
+    let field_index = gf.fieldIndex;
     let field_ctx = FieldFilterContext {
         field: FieldMaskOrIndex::Index(field_index),
         predicate: FieldExpirationPredicate::Default,

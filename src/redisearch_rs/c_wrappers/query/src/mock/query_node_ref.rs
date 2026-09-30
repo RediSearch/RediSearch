@@ -51,17 +51,6 @@ impl Drop for AuxAlloc {
     }
 }
 
-/// Allocate a zeroed instance of `T` on the heap and return a raw pointer.
-///
-/// The returned [`AuxAlloc`] must be stored to keep the allocation alive.
-fn alloc_zeroed_aux<T>() -> (*mut T, AuxAlloc) {
-    let layout = Layout::new::<T>();
-    // SAFETY: layout is non-zero-sized for any struct with fields.
-    let ptr = unsafe { alloc_zeroed(layout) };
-    assert!(!ptr.is_null());
-    (ptr.cast::<T>(), AuxAlloc { ptr, layout })
-}
-
 /// Allocate a writable, NUL-terminated copy of `content` on the heap.
 ///
 /// The allocation spans one byte more than `content`: the copy, then the
@@ -154,29 +143,9 @@ impl MockQueryNode {
             assert!(!node.is_null());
             (*node).type_ = type_;
 
-            let mut aux = Vec::new();
-
-            // Some node types contain pointers that `as_enum` dereferences
-            // unconditionally.  Set them to valid zeroed allocations so the
-            // mock can be used without extra setup.
-            let union_ptr = &raw mut (*node).__bindgen_anon_1;
-            match type_ {
-                QueryNodeType::Tag => {
-                    let (fs, alloc) = alloc_zeroed_aux::<ffi::FieldSpec>();
-                    aux.push(alloc);
-                    (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs;
-                }
-                QueryNodeType::Missing => {
-                    let (fs, alloc) = alloc_zeroed_aux::<ffi::FieldSpec>();
-                    aux.push(alloc);
-                    (*union_ptr.cast::<ffi::QueryMissingNode>()).field = fs;
-                }
-                _ => {}
-            }
-
             Self {
                 node,
-                _aux: aux,
+                _aux: Vec::new(),
                 redis_allocated_token: false,
             }
         }
@@ -426,30 +395,27 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the `field` pointer of the missing-node union variant.
-    ///
-    /// `field` must outlive this `MockQueryNode`.
-    pub fn set_missing_field(&mut self, field: *const ffi::FieldSpec) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Missing so the `miss` variant is active.
+    /// Set the missing-node union variant's `fieldIndex`, mirroring
+    /// `NewMissingNode` (`query.c`).
+    pub fn set_missing_field_index(&mut self, field_index: rqe_core::FieldIndex) {
+        self.debug_assert_type(QueryNodeType::Missing);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Missing, per the assertion above, so the `miss` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            (*union_ptr.cast::<ffi::QueryMissingNode>()).field = field.cast_mut();
+            (*union_ptr.cast::<ffi::QueryMissingNode>()).fieldIndex = field_index;
         }
     }
 
-    /// Set the `fs` field of the tag-node union variant, replacing the zeroed
-    /// placeholder [`new`](MockQueryNode::new) leaves there.
-    ///
-    /// `fs` must outlive this `MockQueryNode`: evaluating the node opens the
-    /// field's tag index and reads its case-sensitivity flag out of it.
-    pub fn set_tag_field_spec(&mut self, fs: *const ffi::FieldSpec) {
+    /// Set the tag-node union variant's `fieldIndex`, mirroring `NewTagNode`
+    /// (`query.c`).
+    pub fn set_tag_field_index(&mut self, field_index: rqe_core::FieldIndex) {
         self.debug_assert_type(QueryNodeType::Tag);
         // SAFETY: `self.node` is valid and exclusively owned; the node type is
         // Tag, per the assertion above, so the `tag` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs.cast_mut();
+            (*union_ptr.cast::<ffi::QueryTagNode>()).fieldIndex = field_index;
         }
     }
 }
