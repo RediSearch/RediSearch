@@ -235,3 +235,28 @@ def test_restore_schema(env: Env):
 
     # Test that synonyms were also restored correctly
     env.expect('FT.SYNDUMP', 'idx').equal(['cat', ['meow'], 'dog', ['bark']])
+
+@skip(cluster=True)
+def test_restore_schema_rejects_truncated_payload(env: Env):
+    """A schema payload that fails partway through loading must be rejected
+    without crashing and without leaving a half-loaded index behind."""
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+    # Every proper prefix of the payload fails at a different point of the loader.
+    for cut in range(len(dump)):
+        env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump[:cut]).error() \
+           .contains('Failed to deserialize schema')
+
+    env.assertEqual(env.cmd('FT._LIST'), [])
+    # A write under the prefix must not reach a freed spec.
+    env.expect('HSET', 'doc:1', 't', 'hello', 'n', 1).equal(2)
+    env.assertTrue(env.cmd('PING'))
+
+    # The intact payload still restores, and writes under the prefix are indexed.
+    # (A restored schema does not scan existing keys, so only doc:2 is expected.)
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.expect('HSET', 'doc:2', 't', 'hello', 'n', 2).equal(2)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:2'])
