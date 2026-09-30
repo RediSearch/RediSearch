@@ -11,8 +11,9 @@ search_disk_metrics_cache readiness, age and error fields before interpreting
 zero or old values. Samples are not atomic across column families or indexes.
 
 V2 rejection selects the legacy synchronous path. After successful V2
-negotiation, worker failure leaves cached degraded mode; cron retries startup
-and never collects native metrics. Resume schedules target rebuilding on cron
+negotiation, failed or delayed collection retains cached values. Redis owns
+scheduling through its dedicated Flex metrics BIO worker; RediSearch cron never
+collects native metrics. Resume schedules target rebuilding on cron
 after the callback stack has unwound. Drop/shutdown retire targets before native
 handle destruction.
 
@@ -23,3 +24,9 @@ callbacks through actual INFO,
 FT.INFO, drop/recreate, failed/successful fork and reopen operations. Run them with
 the matching Flex Redis and RediSearch Enterprise artifacts; a standalone
 RAM-only RediSearch test does not exercise the disk API.
+
+BigModule V2 now registers a single `metrics(event)` callback. Redis invokes
+COLLECT on BIO and lifecycle events on the main thread after draining the worker.
+RediSearch forwards to a separately allocated RSE collector context and retains
+main-thread target rebuilding. Both sides must use the matching unmerged V2
+layout. RSE and Flex no longer create private metrics threads.

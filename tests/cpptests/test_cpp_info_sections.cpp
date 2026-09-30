@@ -154,9 +154,8 @@ class InfoSectionsTest : public ::testing::Test {
     };
     api.metrics.getCachedBlockCount = [](RedisSearchDisk *,
                                          RedisSearchDiskIndexSpec *) -> uint64_t { return 9; };
-    api.metrics.control = [](RedisSearchDisk *, unsigned int action) {
-      controls.push_back(action);
-    };
+    api.metrics.getCollector = [](RedisSearchDisk *context) -> void * { return context; };
+    api.metrics.control = [](void *, unsigned int action) { controls.push_back(action); };
     api.metrics.registerTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *, bool retire) {
       EXPECT_FALSE(retire);
       ++targetRegistrations;
@@ -264,15 +263,15 @@ TEST_F(InfoSectionsTest, V2CallbacksUseCachedInfoMetrics) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_EQ(registeredVersions, std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION});
   ASSERT_NE(callbacks.getCachedDiskUsage, nullptr);
-  ASSERT_NE(callbacks.pauseMetrics, nullptr);
-  ASSERT_NE(callbacks.resumeMetrics, nullptr);
-  ASSERT_NE(callbacks.forkChildMetrics, nullptr);
+  ASSERT_NE(callbacks.metrics, nullptr);
   EXPECT_TRUE(SearchDisk_InfoCacheEnabled());
   EXPECT_EQ(controls, std::vector<unsigned int>{2});
   ASSERT_NE(cronCallback, nullptr);
 
   spec->diskRegistered = true;
   cronCallback(nullptr, RedisModuleEvent_CronLoop, 0, nullptr);
+  EXPECT_EQ(controls, (std::vector<unsigned int>{2}));
+  callbacks.metrics(REDISMODULE_METRICS_COLLECT);
   EXPECT_EQ(controls, (std::vector<unsigned int>{2, 0}));
   EXPECT_EQ(targetRegistrations, 1);
 
@@ -283,9 +282,9 @@ TEST_F(InfoSectionsTest, V2CallbacksUseCachedInfoMetrics) {
   EXPECT_EQ(diskOutputs, 1);
   EXPECT_EQ(callbacks.getCachedDiskUsage(), 55);
 
-  callbacks.pauseMetrics();
-  callbacks.resumeMetrics();
-  callbacks.forkChildMetrics();
+  callbacks.metrics(REDISMODULE_METRICS_PAUSE);
+  callbacks.metrics(REDISMODULE_METRICS_RESUME);
+  callbacks.metrics(REDISMODULE_METRICS_FORK_CHILD);
   EXPECT_EQ(controls, (std::vector<unsigned int>{2, 0, 1, 2, 3}));
 }
 

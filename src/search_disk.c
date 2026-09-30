@@ -217,16 +217,17 @@ static size_t getCachedDiskUsageCallback(void) {
 }
 
 static bool infoCacheEnabled;
+static void *metricsCollector;
 static bool metricsResumePending;
 
 void SearchDisk_PauseMetrics(void) {
   metricsResumePending = false;
-  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(disk_db, 1);
+  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(metricsCollector, 1);
 }
 
 static void resumeMetrics(void) {
   if (!disk || !disk_db || !infoCacheEnabled) return;
-  disk->metrics.control(disk_db, 2);
+  disk->metrics.control(metricsCollector, 2);
   // SST abort can resume us while CF creation holds an index map's write lock.
   // Rebuild targets only after that callback stack has unwound.
   metricsResumePending = true;
@@ -246,15 +247,32 @@ static void rebuildMetricsTargets(void) {
 
 static void forkChildMetrics(void) {
   metricsResumePending = false;
-  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(disk_db, 3);
+  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(metricsCollector, 3);
 }
 
 static void metricsCron(RedisModuleCtx *ctx, RedisModuleEvent event, uint64_t subevent,
                         void *data) {
-  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(disk_db, 0);
   if (metricsResumePending) {
     metricsResumePending = false;
     rebuildMetricsTargets();
+  }
+}
+
+/* Redis serializes collection on BIO and drains it before lifecycle events. */
+static void metricsCallback(int event) {
+  switch (event) {
+    case REDISMODULE_METRICS_COLLECT:
+      disk->metrics.control(metricsCollector, REDISMODULE_METRICS_COLLECT);
+      break;
+    case REDISMODULE_METRICS_PAUSE:
+      SearchDisk_PauseMetrics();
+      break;
+    case REDISMODULE_METRICS_RESUME:
+      resumeMetrics();
+      break;
+    case REDISMODULE_METRICS_FORK_CHILD:
+      forkChildMetrics();
+      break;
   }
 }
 
@@ -268,12 +286,11 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
       .version = REDISMODULE_BIG_CALLBACKS_VERSION,
       .getDiskUsage = getDiskUsageCallback,
       .getCachedDiskUsage = getCachedDiskUsageCallback,
-      .pauseMetrics = SearchDisk_PauseMetrics,
-      .resumeMetrics = resumeMetrics,
-      .forkChildMetrics = forkChildMetrics,
+      .metrics = metricsCallback,
   };
 
   infoCacheEnabled = false;
+  metricsCollector = disk->metrics.getCollector(disk_db);
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
     RedisModuleBigCallbacksV1 legacy = {.version = 1, .getDiskUsage = getDiskUsageCallback};
     if (RedisModule_BigModuleRegister(ctx, (RedisModuleBigCallbacks *)&legacy) != REDISMODULE_OK) {
@@ -299,6 +316,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
     disk_db = NULL;
     diskMemoryLimitBytes = 0;
     infoCacheEnabled = false;
+    metricsCollector = NULL;
   }
 }
 

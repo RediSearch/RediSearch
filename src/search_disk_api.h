@@ -995,7 +995,10 @@ typedef struct PerFieldCfDiskMetrics {
 
 typedef struct MetricsDiskAPI {
   /* Main-thread lifecycle operations. Pause drains native reads before returning. */
-  void (*control)(RedisSearchDisk *disk, unsigned int action);
+  /* Borrowed collector context remains valid until basic.close, which requires
+   * background collection to be drained. It is separate from mutable disk state. */
+  void *(*getCollector)(RedisSearchDisk *disk);
+  void (*control)(void *collector, unsigned int action);
   void (*registerTarget)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index, bool retire);
   uint64_t (*collectCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedDiskUsage)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
