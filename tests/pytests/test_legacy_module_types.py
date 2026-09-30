@@ -192,6 +192,7 @@ def testLegacyIndexSpecRestoreIsRefused(env):
 
 
 RDB_MODULE_OPCODE_FLOAT = 3
+RDB_MODULE_OPCODE_DOUBLE = 4
 RDB_MODULE_OPCODE_STRING = 5
 RDB_OPCODE_SELECTDB = 0xFE
 RDB_OPCODE_EOF = 0xFF
@@ -204,7 +205,12 @@ LEGACY_SPEC_EXPIRE_ENC_VER = 13
 LEGACY_SPEC_ALIAS_ENC_VER = 15
 DOCUMENT_DELETED = 0x01
 DOCUMENT_HAS_PAYLOAD = 0x02
+DOCUMENT_HAS_SORT_VECTOR = 0x04
 DOCUMENT_HAS_OFFSET_VECTOR = 0x08
+# Sorting vector element tags, as the 1.x SortingVector_RdbSave wrote them.
+LEGACY_SORTABLE_NUM = 1
+LEGACY_SORTABLE_STR = 3
+LEGACY_SORTABLE_NIL = 4
 
 
 def _module_string(value):
@@ -213,6 +219,10 @@ def _module_string(value):
 
 def _module_float(value):
     return _save_len(RDB_MODULE_OPCODE_FLOAT) + struct.pack('<f', value)
+
+
+def _module_double(value):
+    return _save_len(RDB_MODULE_OPCODE_DOUBLE) + struct.pack('<d', value)
 
 
 def _byte_offsets(fields, data, data_len=None):
@@ -311,6 +321,22 @@ def testLegacySpecWithTruncatedByteOffsetsFailsToLoad():
     # Redis writes a bug report for both a signal and a failed assertion.
     env.assertNotContains('REDIS BUG REPORT', log, message=log[-4000:])
     env.assertContains('truncated byte offsets for doc id 1', log)
+
+
+@skip(cluster=True, asan=True)
+def testLegacySpecWithSortVectorLoads():
+    """A doc's sorting vector holding a number, a string and a null loads, and the load goes on to
+    upgrade the index. The string must be read in full for the rest of the RDB to line up."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    sort_vector = (_module_uint(3)  # length
+                   + _module_uint(LEGACY_SORTABLE_NUM) + _module_double(1.5)
+                   + _module_uint(LEGACY_SORTABLE_STR) + _module_string(b'abc\0')
+                   + _module_uint(LEGACY_SORTABLE_NIL))
+    _write_legacy_spec_rdb(env, _legacy_doc(DOCUMENT_HAS_SORT_VECTOR, sort_vector))
+    env.start()
+    env.assertTrue(env.isUp())
+    env.assertEqual(index_info(env, 'idx')['index_name'], 'idx')
 
 
 @skip(cluster=True)

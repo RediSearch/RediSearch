@@ -26,6 +26,8 @@ extern "C" {
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
+#include "sorting_vector_ffi.h"
+#include "value_ffi.h"
 
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
@@ -1370,6 +1372,114 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
     EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
     DMD_Return(dmd);
   }
+  DocTable_Free(&table);
+  RMCK_FreeRdbIO(io);
+}
+
+// Pre-2.0 doc tables embed each document's sorting vector in the 1.x format:
+// tag 1 is a number, tag 3 a NUL-terminated string, and any other tag (4 is the null
+// tag) a null with no payload. Decoding it must leave the stream positioned at the next
+// document.
+TEST_F(RdbMockTest, testLegacyDocTableLoadsSortVector) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  DocTable table = NewDocTable(4, 4);
+  RMCK_SaveUnsigned(io, 3);  // Table size includes the unused document ID zero.
+  RMCK_SaveUnsigned(io, 2);
+  RMCK_SaveUnsigned(io, 4);
+
+  RMCK_SaveStringBuffer(io, "doc1", 4);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, Document_HasSortVector);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 1.0);
+  RMCK_SaveUnsigned(io, 6);  // Sorting vector length
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 1.5);
+  RMCK_SaveUnsigned(io, 3);
+  RMCK_SaveStringBuffer(io, "abc", 4);  // Includes the terminator
+  RMCK_SaveUnsigned(io, 4);
+  RMCK_SaveUnsigned(io, 2);
+  RMCK_SaveUnsigned(io, 5);
+  RMCK_SaveUnsigned(io, 3);
+  RMCK_SaveStringBuffer(io, "", 0);  // Malformed: not even a terminator
+
+  RMCK_SaveStringBuffer(io, "doc2", 4);
+  RMCK_SaveUnsigned(io, 2);
+  RMCK_SaveUnsigned(io, Document_DefaultFlags);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 1.0);
+  io->read_pos = 0;
+
+  // The mock stores numeric values as doubles.
+  auto originalLoadFloat = RedisModule_LoadFloat;
+  RedisModule_LoadFloat = [](RedisModuleIO *rdb) {
+    return static_cast<float>(RMCK_LoadDouble(rdb));
+  };
+  int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+  RedisModule_LoadFloat = originalLoadFloat;
+  EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_EQ(io->buffer.size(), io->read_pos);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  const RSDocumentMetadata *doc1 = DocTable_Borrow(&table, 1);
+  ASSERT_NE(doc1, nullptr);
+  const RSSortingVector *sv = &doc1->sortVector;
+  ASSERT_EQ(RSSortingVector_Length(sv), 6);
+  ASSERT_TRUE(RSValue_IsNumber(RSSortingVector_Get(sv, 0)));
+  EXPECT_EQ(RSValue_Number_Get(RSSortingVector_Get(sv, 0)), 1.5);
+  size_t len = 0;
+  ASSERT_TRUE(RSValue_IsString(RSSortingVector_Get(sv, 1)));
+  const char *str = RSValue_StringPtrLen(RSSortingVector_Get(sv, 1), &len);
+  EXPECT_EQ(std::string(str, len), "abc");
+  for (size_t i = 2; i < 5; ++i) {
+    EXPECT_TRUE(RSValue_IsNull(RSSortingVector_Get(sv, i))) << "element " << i;
+  }
+  ASSERT_TRUE(RSValue_IsString(RSSortingVector_Get(sv, 5)));
+  RSValue_StringPtrLen(RSSortingVector_Get(sv, 5), &len);
+  EXPECT_EQ(len, 0);
+  DMD_Return(doc1);
+
+  const RSDocumentMetadata *doc2 = DocTable_Borrow(&table, 2);
+  ASSERT_NE(doc2, nullptr);
+  EXPECT_EQ(std::string(doc2->keyPtr, sdslen(doc2->keyPtr)), "doc2");
+  DMD_Return(doc2);
+
+  DocTable_Free(&table);
+  RMCK_FreeRdbIO(io);
+}
+
+// A read that fails inside a sorting vector string must not crash the loader; the IO
+// error stays recorded for the caller.
+TEST_F(RdbMockTest, testLegacyDocTableTruncatedSortVector) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  DocTable table = NewDocTable(4, 4);
+  RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 4);
+
+  RMCK_SaveStringBuffer(io, "doc1", 4);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, Document_HasSortVector);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 1.0);
+  RMCK_SaveUnsigned(io, 1);  // Sorting vector length
+  RMCK_SaveUnsigned(io, 3);  // A string element, whose buffer is missing
+  io->read_pos = 0;
+
+  // The mock stores numeric values as doubles.
+  auto originalLoadFloat = RedisModule_LoadFloat;
+  RedisModule_LoadFloat = [](RedisModuleIO *rdb) {
+    return static_cast<float>(RMCK_LoadDouble(rdb));
+  };
+  DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+  RedisModule_LoadFloat = originalLoadFloat;
+  EXPECT_EQ(1, RMCK_IsIOError(io));
+
   DocTable_Free(&table);
   RMCK_FreeRdbIO(io);
 }
