@@ -203,6 +203,9 @@ def test_rdb_load_trained_svs_vamana():
 @skip(cluster=True)
 def test_svs_vector_survives_repeated_numeric_updates():
     """Repeated numeric-only updates must preserve every backend-resident SVS vector."""
+    if BUILD_INTEL_SVS_OPT:
+        raise SkipTest('the pre-built SVS library has no replace_external_id support')
+
     env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
     conn = getConnectionByEnv(env)
 
