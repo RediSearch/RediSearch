@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV` and `FIRST_VALUE`, driven
-//! through [`AccumulatorReducer`] the way the grouper drives them.
+//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE` and the exact
+//! `COUNT_DISTINCT`, driven through [`AccumulatorReducer`] the way the grouper
+//! drives them.
 
 extern crate redisearch_rs;
 
@@ -16,6 +17,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
+use reducers::count_distinct::CountDistinct;
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::std_dev::StdDev;
@@ -346,6 +348,31 @@ fn first_value_by_orders_string_sort_values_bytewise() {
     assert_eq!(first_value_by(false, &rows).as_str_bytes(), Some(&b"c"[..]));
 }
 
+/// Missing properties and the static null are not counted.
+#[test]
+fn count_distinct_counts_distinct_values() {
+    let key = key();
+    let rows = [
+        num(1.0),
+        num(1.0),
+        num(2.0),
+        string("a"),
+        string("a"),
+        None,
+        Some(SharedValue::null_static()),
+    ];
+    assert_eq!(reduce(CountDistinct::new(&key), &key, &rows), 3.0);
+    assert_eq!(reduce(CountDistinct::new(&key), &key, &[]), 0.0);
+}
+
+/// Only the static null is skipped; any other null value is counted.
+#[test]
+fn count_distinct_counts_a_non_static_null() {
+    let key = key();
+    let rows = [Some(SharedValue::new(Value::Null))];
+    assert_eq!(reduce(CountDistinct::new(&key), &key, &rows), 1.0);
+}
+
 /// Runs `accumulator` over two groups the way the grouper does: a state per
 /// group, rows interleaved between them, then finalize and drop. Returns each
 /// group's result.
@@ -389,13 +416,16 @@ fn interleaved_groups_are_kept_apart() {
     };
     let first = FirstValue::new(&key, Some(sort_by));
     assert_eq!(reduce_interleaved(first, &key, rows), [3.0, 20.0]);
+    let distinct = CountDistinct::new(&key);
+    assert_eq!(reduce_interleaved(distinct, &key, rows), [2.0, 2.0]);
 }
 
 /// Only the reducers whose group states own something free them per group.
 #[test]
 fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
-        FirstValueReducer_Create, StdDevReducer_Create, SumReducer_Create,
+        CountDistinctReducer_Create, FirstValueReducer_Create, StdDevReducer_Create,
+        SumReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -419,4 +449,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let first = unsafe { FirstValueReducer_Create(key_ptr, std::ptr::null(), true) };
     assert!(frees_states(first));
+    // SAFETY: as above.
+    let distinct = unsafe { CountDistinctReducer_Create(key_ptr) };
+    assert!(frees_states(distinct));
 }
