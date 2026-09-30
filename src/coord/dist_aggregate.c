@@ -1032,8 +1032,14 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // Wake a worker already blocked on a shard reply so it observes the timeout.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1089,6 +1095,10 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
+
+  // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
+  // Wake it so it observes the Timeout and exits the pipeline promptly.
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
 
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1195,6 +1205,10 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }
+
+  // BG has taken the cursor. Wake the abort channel — unblocks BG from
+  // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
 
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);
