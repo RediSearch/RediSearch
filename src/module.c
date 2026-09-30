@@ -3955,10 +3955,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
+    // FAIL replies are serialized on coordinator workers.
     handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, false);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
