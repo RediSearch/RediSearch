@@ -14,7 +14,7 @@
 
 #include "rmalloc.h"
 #include "rmutil/args.h"
-#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
 #include "config.h"
 #include "hiredis/read.h"
 #include "rmr/endpoint.h"

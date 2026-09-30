@@ -34,6 +34,76 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Returns a copy of `src`, which the caller must free with `rm_free`.
+ *
+ * # Panics
+ *
+ * Panics if `num_ranges` is negative.
+ *
+ * # Safety
+ *
+ * 1. `src` must be a [valid] pointer to a `RedisModuleSlotRangeArray` whose
+ *    flexible array holds `num_ranges` initialized ranges.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RedisModuleSlotRangeArray *SlotRangeArray_Clone(const struct RedisModuleSlotRangeArray *src);
+
+/**
+ * Returns whether `slot` lies in one of the ranges of `slot_ranges`.
+ *
+ * # Panics
+ *
+ * Panics if `num_ranges` is negative.
+ *
+ * # Safety
+ *
+ * 1. `slot_ranges` must be a [valid] pointer to a `RedisModuleSlotRangeArray`
+ *    whose flexible array holds `num_ranges` initialized ranges.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool SlotRangeArray_ContainsSlot(const struct RedisModuleSlotRangeArray *slot_ranges, uint16_t slot);
+
+/**
+ * Returns the size in bytes of a `RedisModuleSlotRangeArray` holding
+ * `num_ranges` ranges, which is also the size of its serialized form.
+ */
+size_t SlotRangeArray_SizeOf(uint32_t num_ranges);
+
+/**
+ * Deserializes a buffer written by [`SlotRangesArray_Serialize`] into a newly
+ * allocated array, which the caller must free with `rm_free`.
+ *
+ * Returns NULL if `buf` is NULL or is not a well-formed serialization.
+ *
+ * # Safety
+ *
+ * 1. If non-null, `buf` must be [valid] for reads of `buf_len` initialized bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RedisModuleSlotRangeArray *SlotRangesArray_Deserialize(const char *buf, size_t buf_len);
+
+/**
+ * Serializes `slot_ranges` into a newly allocated buffer of
+ * [`SlotRangeArray_SizeOf`] bytes, which the caller must free with `rm_free`.
+ * See [`serialization`] for the format.
+ *
+ * # Panics
+ *
+ * Panics if `num_ranges` is negative.
+ *
+ * # Safety
+ *
+ * 1. `slot_ranges` must be a [valid] pointer to a `RedisModuleSlotRangeArray`
+ *    whose flexible array holds `num_ranges` initialized ranges.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+char *SlotRangesArray_Serialize(const struct RedisModuleSlotRangeArray *slot_ranges);
+
+/**
  * Checks if all requested slots are available and returns version information.
  *
  * Return values (via OptionSlotTrackerVersion):
@@ -52,9 +122,8 @@ struct OptionSlotTrackerVersion slots_tracker_check_availability(const struct Re
 /**
  * Returns the current local slot ranges as a newly allocated array.
  *
- * The returned array is allocated with the Rust global allocator, which in the
- * RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
- * returned pointer and must free it with `RedisModule_Free` (`rm_free`).
+ * The caller owns the returned pointer and must free it with `RedisModule_Free`
+ * (`rm_free`).
  *
  * # Safety
  *

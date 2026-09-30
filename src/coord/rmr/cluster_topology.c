@@ -14,7 +14,7 @@
 
 #include "endpoint.h"
 #include "rmalloc.h"
-#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "rmr/node.h"
 
