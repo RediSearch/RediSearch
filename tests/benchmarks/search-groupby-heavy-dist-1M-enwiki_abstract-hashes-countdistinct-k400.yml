@@ -7,12 +7,10 @@ description: "
              - Type (read/write/mixed): read
              - Query type: FT.AGGREGATE high-cardinality GROUPBY with COUNT_DISTINCT
 
-             This case targets the coordinator, not the shards. A high-cardinality GROUPBY
-             cannot be reduced away on a shard: each shard ships one partial row per group it
-             saw and the coordinator merges them, so shard-to-coordinator reply volume and
-             per-row reply materialization at the coordinator dominate. Existing aggregate
-             benchmarks do not cover this regime - the SORTBY/LIMIT variants return few rows
-             per shard, and the groupby-collect family runs on 10K documents.
+             This case measures raw-row fan-in and grouping at the coordinator.
+             COUNT_DISTINCT has no distributed reducer, so shards send loaded title/url
+             rows and the coordinator performs the GROUPBY and distinct counting.
+             Its per-group hash membership set produces a count rather than an array.
 
              The term filter is deliberate and is what keeps this benchmark honest. Over the
              whole keyspace this aggregation cannot finish inside the shipped search-timeout
@@ -24,12 +22,15 @@ description: "
              silently truncated. That was verified by sampling the returned group count under
              sustained load and confirming it stayed at 32,308.
 
-             This is the COUNT_DISTINCT sibling of the -collect- benchmark: same dataset,
-             filter and group count, a different reducer over the same shipped values.
-             COUNT_DISTINCT keeps a per-group membership set rather than a per-group list, so
-             it exercises the coordinator's per-group set-building instead of its list-building
-             while holding fan-in constant. Measured p50 208ms and p99 279ms, so it carries
-             more headroom under the timeout than the TOLIST variant.
+             The -collect- sibling uses the same dataset and filter, but distributes
+             TOLIST grouping to shards. The two cases therefore have different execution
+             plans and wire payloads: equal final group counts do not imply equal fan-in.
+             Compare each case against its own baseline rather than attributing differences
+             between cases solely to array materialization versus counting.
+
+             The configuration probes record the timeout and row-block setting.
+             An empty row-block CONFIG GET result means that build does not support the
+             setting; it is not a disabled value. Supporting builds report yes or no.
 
              Group count is a property of the fixed dataset rather than of a tuning knob, so
              it does not drift if the benchmark is re-run. Cluster setups only, deliberately:
