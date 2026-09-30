@@ -20,6 +20,10 @@
 #include "rmalloc.h"
 #include "hiredis/sds.h"
 
+int RedisModule_Reply_StringBuffer_FFI(RedisModule_Reply *reply, const char *val, size_t len) {
+  return RedisModule_Reply_StringBuffer(reply, val, len);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifdef ENABLE_ASSERT

@@ -27,6 +27,7 @@ members = [
     "redis_reply",
     "result_processor",
     "rlookup",
+    "row_block",
     "query_types",
     "reducers",
     "ref_mode",
@@ -151,6 +152,7 @@ reducers = { path = "./reducers" }
 ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
+row_block = { path = "./row_block" }
 rm_array = { path = "./c_wrappers/rm_array" }
 rs_token = { path = "./c_wrappers/rs_token" }
 query_types = { path = "./query_types" }

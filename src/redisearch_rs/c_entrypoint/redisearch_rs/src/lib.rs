@@ -32,6 +32,7 @@ pub use query_term_ffi as query_term;
 pub use reducers_ffi as reducers;
 pub use result_processor_ffi as result_processor;
 pub use rlookup_ffi as rlookup;
+pub use row_block_ffi as row_block;
 pub use search_result_ffi as search_result;
 pub use slots_tracker_ffi as slots_tracker;
 pub use sorting_vector_ffi as sorting_vector;
