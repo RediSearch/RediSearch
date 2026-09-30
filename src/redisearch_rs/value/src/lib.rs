@@ -106,6 +106,20 @@ impl Value {
         }
     }
 
+    /// Converts the value to a number, following references and trios.
+    ///
+    /// A number converts as is and a string as parsed by [`util::str_to_float`];
+    /// no other type has a numeric value.
+    #[inline]
+    pub fn to_number(&self) -> Option<f64> {
+        match self.fully_dereferenced_ref_and_trio() {
+            Value::Number(num) => Some(*num),
+            Value::String(string) => util::str_to_float(string.as_bytes()),
+            Value::RedisString(string) => util::str_to_float(string.as_bytes()),
+            _ => None,
+        }
+    }
+
     pub const fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
         debug::DebugFormatter {
             value: self,
