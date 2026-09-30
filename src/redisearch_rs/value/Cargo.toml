@@ -8,6 +8,14 @@ publish.workspace = true
 [lib]
 test = false
 
+[features]
+# feature enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
 [dependencies]
 c_ffi_utils = { workspace = true }
 cheadergen.workspace = true
@@ -27,6 +35,7 @@ tracing_assert.workspace = true
 [dev-dependencies]
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 redis_mock.workspace = true
+value = { path = ".", features = ["unittest"] }
 
 [lints]
 workspace = true
