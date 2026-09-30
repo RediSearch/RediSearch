@@ -1617,6 +1617,22 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
+// Disconnect only publishes cancellation. The blocked node keeps the request alive until
+// the worker unblocks the client and the free-data callback releases its reference.
+static void QueryDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  BlockedQueryNode *node = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(node && node->privdata);
+  AREQ_SetTimedOut(node->privdata);
+}
+
+static void CursorReadDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  BlockedCursorNode *node = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(node && node->privdata);
+  AREQ_SetTimedOut(node->privdata);
+}
+
 // Timeout callback for AREQ execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (for FAIL policy only).
 // Simply sets the timeout flag and replies with error - no synchronization needed
@@ -1980,6 +1996,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
     // Determine timeout and reply callbacks based on policy.
     if (policy != TimeoutPolicy_Return) {
+      blockClientCtx.disconnectCallback = QueryDisconnectCallback;
       if (policy == TimeoutPolicy_Fail) {
         blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
       } else {
@@ -2501,6 +2518,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         !IsCoordinator(cursor->execState);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
+      blockClientCtx.disconnectCallback = CursorReadDisconnectCallback;
       AREQ *req = cursor->execState;
       // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);

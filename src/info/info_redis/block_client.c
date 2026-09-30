@@ -55,6 +55,9 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // found in buildRequest.
   RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback, blockClientCtx->timeoutCallback, FreeQueryNode, blockClientCtx->timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  if (blockClientCtx->disconnectCallback) {
+    RedisModule_SetDisconnectCallback(blockedClient, blockClientCtx->disconnectCallback);
+  }
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
   return blockedClient;
@@ -83,6 +86,9 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback,
       blockClientCtx->timeoutCallback, FreeCursorNode, blockClientCtx->timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  if (blockClientCtx->disconnectCallback) {
+    RedisModule_SetDisconnectCallback(blockedClient, blockClientCtx->disconnectCallback);
+  }
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
   return blockedClient;
