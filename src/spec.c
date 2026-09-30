@@ -3500,6 +3500,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+  // IndexSpec_Free clears it, so it must be valid before the first failed read below.
+  sp->stats.indexError = IndexError_Init();
 
   sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);

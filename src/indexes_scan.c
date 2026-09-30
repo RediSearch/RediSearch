@@ -562,6 +562,7 @@ void Indexes_UpgradeLegacyIndexes() {
     sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
     // clear index stats
+    IndexError_Clear(sp->stats.indexError);
     memset(&sp->stats, 0, sizeof(sp->stats));
     // Init the index error
     sp->stats.indexError = IndexError_Init();
