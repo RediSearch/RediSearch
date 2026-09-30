@@ -12,7 +12,6 @@
 #include <string.h>
 
 #include "redismodule.h"
-#include "sortable.h"
 #include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
@@ -532,11 +531,11 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     dmd->sortVector = RSSortingVector_Empty();
     if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb);
+      dmd->sortVector = RSSortingVector_LegacyRdbLoad(rdb);
+      // A failed read leaves the stream unusable; the reads below would consume garbage.
       if (RedisModule_IsIOError(rdb)) {
         RedisModule_LogIOError(rdb, "warning",
-                               "DocTable_LegacyRdbLoad: truncated sorting vector for doc id %llu",
-                               (unsigned long long)dmd->id);
+                               "DocTable_LegacyRdbLoad: IO error while loading document %zu", i);
         DMD_Free(dmd);
         return REDISMODULE_ERR;
       }
