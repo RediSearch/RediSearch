@@ -105,6 +105,13 @@ const HEADERS: &[HeaderAllowlist] = &[
         ],
         vars: &["QEXEC_S_HAS_LOAD"],
     },
+    // `aggregate_functions_ffi`: the `RSFunction` callbacks of the expression evaluator.
+    HeaderAllowlist {
+        path: "src/aggregate/expr/expression.h",
+        fns: &[],
+        types: &["ExprEval"],
+        vars: &["EXPR_EVAL_OK"],
+    },
     HeaderAllowlist {
         path: "src/aggregate/reducer.h",
         fns: &[],

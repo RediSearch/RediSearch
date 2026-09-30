@@ -219,6 +219,18 @@ TEST_F(ExprTest, testArithmetics) {
   TEST_ARITHMETIC("sqrt(1) / sqrt(0)", INFINITY);
   TEST_ARITHMETIC("sqrt(1) % sqrt(0)", NAN);
 
+  // Each math function, on a number, on a numeric string, and on an argument
+  // with no numeric value, which yields NaN.
+  TEST_ARITHMETIC("log(1)", 0);
+  TEST_ARITHMETIC("log2(8)", 3);
+  TEST_ARITHMETIC("exp(0)", 1);
+  TEST_ARITHMETIC("sqrt(2.25)", 1.5);
+  TEST_ARITHMETIC("abs(-2.5)", 2.5);
+  TEST_ARITHMETIC("floor(-1.5)", -2);
+  TEST_ARITHMETIC("ceil(-1.5)", -1);
+  TEST_ARITHMETIC("log2('0.25')", -2);
+  TEST_ARITHMETIC("abs('nope')", NAN);
+  TEST_ARITHMETIC("log(-1)", NAN);
 }
 
 TEST_F(ExprTest, testParser) {

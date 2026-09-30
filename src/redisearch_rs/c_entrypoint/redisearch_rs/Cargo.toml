@@ -32,6 +32,7 @@ toml.workspace = true
 walkdir.workspace = true
 
 [dependencies]
+aggregate_functions_ffi = { path = "../aggregate_functions_ffi" }
 buffer = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }
 fork_gc_ffi = { path = "../fork_gc_ffi" }
