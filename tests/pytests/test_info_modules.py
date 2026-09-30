@@ -2956,7 +2956,8 @@ def test_vecsim_hnsw_tiered_info_metrics():
                   message="FT.INFO direct insertions should be preserved after draining")
 
   # --- Test 8: Direct insertions when WORKERS=0 (no tiered buffering) ---
-  # Change workers to 0 at runtime - this disables tiered indexing
+  # Change workers to 0 at runtime with no maintenance workers - this disables tiered indexing
+  env.expect(config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', '0').ok()
   env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
   # Create a new HNSW index after workers are disabled

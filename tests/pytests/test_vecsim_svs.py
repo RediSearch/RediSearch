@@ -33,6 +33,7 @@ from common import (
     wait_for_condition,
     skipIfNoEnableAssert,
     paused_workers,
+    drain_workers,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -176,10 +177,11 @@ def test_rdb_load_trained_svs_vamana():
 
     # Insert more vectors to trigger training
     populate_with_vectors(env, num_docs=num_docs - (training_threshold - 1), dim=dim, datatype=data_type, initial_doc_id=training_threshold)
+    drain_workers(env)
 
     for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
         shard_keys = con.execute_command('DBSIZE')
-        # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
+        # Once the index is trained, all vectors are transferred to the backend index.
         env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
@@ -661,6 +663,7 @@ def test_drop_index_memory():
     # create index and measure memory. Expect it to increase by at least the size in bytes of vectors
     create_vector_index(env, dim, alg='SVS-vamana')
     waitForIndex(env, DEFAULT_INDEX_NAME)
+    drain_workers(env)
     env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], num_docs)
     env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0)
 
@@ -844,15 +847,24 @@ def test_gc():
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
+    # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
+
+@skip(cluster=True)
+def test_gc_maintenance_worker():
+    # At the default WORKERS 0 GC jobs go to the single maintenance worker.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 0'
+                         ' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, 1, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
 def test_gc_no_workers_compressed():
     num_workers = 0
+    # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)
