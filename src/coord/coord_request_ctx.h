@@ -101,12 +101,13 @@ static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
 
 /**
  * Set the timeout flag on the coordinator request context.
- * Also propagates to the underlying request if set.
+ * Also propagates to the underlying request and wakes its blocked network readers.
+ * Synchronize with request publication through setReqLock while workers are active.
  */
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
 /**
- * Cancel a disconnected blocked client and wake its coordinator reader.
+ * Cancel coordinator AGGREGATE (including CURSOR READ) and HYBRID requests.
  * The worker retains responsibility for unblocking and releasing the request.
  */
 void CoordRequestCtx_Disconnect(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);

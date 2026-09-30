@@ -1084,8 +1084,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if(CoordRequestCtx_TimedOut(reqCtx)) {
-      // Query timed out or disconnected before request creation.
-      WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
+      // Query timed out before request creation
       return;
     }
 
@@ -1176,7 +1175,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if(CoordRequestCtx_TimedOut(reqCtx)) {
-      WeakRef_Release(ConcurrentCmdCtx_TakeWeakRef(cmdCtx));
       return;
     }
 
@@ -1285,11 +1283,6 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
-  // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
-  // exits, even though this callback replies the error itself.
-  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
-  HybridRequest_WakeAbortChannels(hreq);
-
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -1317,8 +1310,6 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
-
-  HybridRequest_WakeAbortChannels(hreq);
 
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
     // Either the request is NULL or we were able to claim the aggregation results.
