@@ -1,38 +1,10 @@
 name: "search-groupby-heavy-dist-1M-enwiki_abstract-hashes-collect-k400"
-description: "
-             - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
-               English-language Wikipedia:Database page abstracts.
-             - total docs: 1 million
-             - fields per doc: 3 TEXT sortable fields
-             - Type (read/write/mixed): read
-             - Query type: FT.AGGREGATE high-cardinality GROUPBY with TOLIST
-
-             This case measures distributed GROUPBY with TOLIST. Shards send partial
-             groups, and the coordinator merges their distinct values into result arrays.
-             TOLIST deduplicates values; it is not a duplicate-preserving list reducer.
-             This exercises partial-group fan-in and coordinator reply materialization.
-
-             The term filter is deliberate and is what keeps this benchmark honest. Over the
-             whole keyspace this aggregation cannot finish inside the shipped search-timeout
-             of 500ms, and the default RETURN policy then answers with a partial reply
-             carrying the count and zero groups - the fan-in being measured never happens and
-             the run reports a meaningless number. The five-term union yields 32,308 groups,
-             which measured p50 266ms and p99 365ms on a 4-primary cluster: enough fan-in for
-             the coordinator to dominate, with headroom under the timeout so no reply is
-             silently truncated. That was verified by sampling the returned group count under
-             sustained load and confirming it stayed at 32,308.
-
-             The configuration probes record the timeout and row-block setting.
-             An empty row-block CONFIG GET result means that build does not support the
-             setting; it is not a disabled value. Supporting builds report yes or no.
-
-             Group count is a property of the fixed dataset rather than of a tuning knob, so
-             it does not drift if the benchmark is re-run. Cluster setups only, deliberately:
-             on a single shard the fan-in effect being measured does not exist.
-             oss-cluster-02-primaries is excluded on purpose - it requests 2 CPUs for 2 shards
-             plus the coordinator and I/O threads, so it saturates CPU before the coordinator
-             becomes the bottleneck.
-             "
+description: >-
+  This filtered 1M-document enwiki workload measures TOLIST partial-group fan-in:
+  shards deduplicate values and the coordinator merges them into distinct-value arrays.
+  COUNT_DISTINCT uses a different plan with raw-row fan-in, so compare each workload
+  against its own baseline. The default query timeout requires completion validation
+  for each run. An empty row-block configuration probe means unsupported, not disabled.
 
 metadata:
   component: "search"
