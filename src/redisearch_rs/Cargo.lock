@@ -1904,7 +1904,6 @@ dependencies = [
  "ffi",
  "global_config",
  "query_eval",
- "query_types",
  "rqe_iterators",
  "workspace_hack",
 ]
