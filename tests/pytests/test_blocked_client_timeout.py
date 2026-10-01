@@ -22,6 +22,21 @@ TIMEOUT_WARNING = TIMEOUT_ERROR
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
+def run_cmd_expect_disconnect(env, query_args, unexpected):
+    client = env.getConnection()
+    connection = client.connection_pool.get_connection()
+    try:
+        connection.send_command(*query_args)
+        connection.read_response()
+        unexpected.append(AssertionError('query returned after its client was killed'))
+    except redis_exceptions.ConnectionError:
+        pass
+    except Exception as exc:
+        unexpected.append(exc)
+    finally:
+        client.connection_pool.release(connection)
+
+
 def _coord_cursor_total(env, idx='idx'):
     """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
     info = env.cmd('FT.INFO', idx)
@@ -281,6 +296,98 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
             if client_id:
                 return client_id
             time.sleep(0.1)
+
+
+def _areq_disconnect_cursor_total(env):
+    info_command = '_FT.INFO' if env.isCluster() else 'FT.INFO'
+    info = to_dict(env.cmd(info_command, 'idx'))
+    return int(to_dict(info['cursor_stats'])['global_total'])
+
+
+def _disconnect_areq(env, query, sync_point, kill, baseline_cursors, queued=False):
+    """Require worker completion without releasing its cancellation-aware pause."""
+    client = env.getConnection()
+    connection = client.connection_pool.get_connection()
+    wait_for_condition(
+        lambda: (getWorkersThpoolStats(env)['numJobsInProgress'] == 0 and
+                 getWorkersThpoolStats(env)['totalPendingJobs'] == 0, {}),
+        'Previous worker job did not finish', timeout=5)
+    before = getWorkersThpoolStats(env)['totalJobsDone']
+    workers_paused = queued
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    if queued:
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+    try:
+        connection.send_command('CLIENT', 'ID')
+        client_id = connection.read_response()
+        if env.isCluster():
+            connection.send_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            env.assertEqual(connection.read_response(), 'OK')
+        connection.send_command(*query)
+        if queued:
+            wait_for_client_blocked(client, client_id, timeout=5)
+        else:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Query did not reach {sync_point}', timeout=5)
+
+        if kill:
+            env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+        else:
+            connection.disconnect()
+            wait_for_client_unblocked(client, client_id, timeout=5)
+        if workers_paused:
+            env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+            workers_paused = False
+        wait_for_condition(
+            lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > before, {}),
+            'Disconnect did not stop the worker', timeout=5)
+        wait_for_condition(
+            lambda: (_areq_disconnect_cursor_total(env) == baseline_cursors,
+                     {'cursors': _areq_disconnect_cursor_total(env)}),
+            'Disconnected request retained a cursor', timeout=5)
+    finally:
+        # Always release debug hooks, including when testing an unfixed module.
+        env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        if workers_paused:
+            env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+        connection.disconnect()
+        client.connection_pool.release(connection)
+
+
+def _test_areq_disconnect(env, kind, queued=False):
+    """Additional 8.10 cursor, queued, policy, TCP-close, and direct-shard coverage."""
+    skipIfNoEnableAssert(env)
+    prefix = '_FT.' if env.isCluster() else 'FT.'
+    if env.isCluster():
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+        _, slots = get_shard_slot_ranges(env)[0]
+    prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        for policy in ('fail', 'return-strict'):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+            for kill in (False, True):
+                # The master regression below already covers standalone FAIL+KILL aggregate.
+                if (not env.isCluster() and kind == 'aggregate' and not queued and
+                        policy == 'fail' and kill):
+                    continue
+                baseline_cursors = _areq_disconnect_cursor_total(env)
+                command = 'SEARCH' if kind == 'search' else 'AGGREGATE'
+                query = [prefix + command, 'idx', '*', 'TIMEOUT', '0']
+                sync_point = 'BeforeAggregateResultsClaim'
+                if kind in ('initial_cursor', 'cursor_read'):
+                    query += ['WITHCURSOR', 'COUNT', '1']
+                    sync_point = 'BeforeCursorReadSendChunk'
+                if env.isCluster():
+                    query += ['_SLOTS_INFO', slots]
+                if kind == 'cursor_read':
+                    _, cursor_id = env.cmd(*query)
+                    env.assertNotEqual(cursor_id, 0)
+                    query = [prefix + 'CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '1']
+                _disconnect_areq(env, query, sync_point, kill, baseline_cursors, queued)
+    finally:
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
 
 def _wait_pinned_shard_with_blocked_cmd(shard_conn, sync_point, cmd_name, timeout=30):
@@ -1575,6 +1682,24 @@ class TestCoordinatorTimeout:
             except Exception:
                 pass
             target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_search_disconnect(self):
+        _test_areq_disconnect(self.env, 'search')
+
+    def test_aggregate_disconnect(self):
+        _test_areq_disconnect(self.env, 'aggregate')
+
+    def test_initial_cursor_disconnect(self):
+        _test_areq_disconnect(self.env, 'initial_cursor')
+
+    def test_cursor_read_disconnect(self):
+        _test_areq_disconnect(self.env, 'cursor_read')
+
+    def test_queued_query_disconnect(self):
+        _test_areq_disconnect(self.env, 'aggregate', queued=True)
+
+    def test_queued_cursor_read_disconnect(self):
+        _test_areq_disconnect(self.env, 'cursor_read', queued=True)
 
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
@@ -5853,6 +5978,62 @@ class TestShardTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ).noError()
 
+    def test_disconnect_marks_blocked_client_timeout(self):
+        """A disconnect releases workers waiting on the blocked-client atomic."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        unexpected = []
+        query = ['FT.AGGREGATE', 'idx', '*']
+        # 8.10 FAIL encodes replies on the worker and bypasses StoreResults.
+        # Pause its AggregateResults loop instead; it observes the same timeout atomic.
+        setPauseAfterAggregateResult(env, 1)
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, query, unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, query[0])
+            wait_for_condition(
+                lambda: (getIsAggregateResultsPaused(env) == 1,
+                         {'paused': getIsAggregateResultsPaused(env)}),
+                'Timeout waiting for query to pause during aggregation',
+            )
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            wait_for_condition(
+                lambda: (getIsAggregateResultsPaused(env) == 0,
+                         {'paused': getIsAggregateResultsPaused(env)}),
+                'Disconnect did not trigger the blocked-client timeout atomic',
+            )
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message='Disconnected FT.AGGREGATE should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+        finally:
+            resetAggregateResultsDebug(env)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_search_disconnect(self):
+        _test_areq_disconnect(self.env, 'search')
+
+    def test_aggregate_disconnect(self):
+        _test_areq_disconnect(self.env, 'aggregate')
+
+    def test_initial_cursor_disconnect(self):
+        _test_areq_disconnect(self.env, 'initial_cursor')
+
+    def test_cursor_read_disconnect(self):
+        _test_areq_disconnect(self.env, 'cursor_read')
+
+    def test_queued_query_disconnect(self):
+        _test_areq_disconnect(self.env, 'aggregate', queued=True)
+
+    def test_queued_cursor_read_disconnect(self):
+        _test_areq_disconnect(self.env, 'cursor_read', queued=True)
+
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
         env = self.env
@@ -7890,6 +8071,22 @@ class TestShardTimeoutResp2:
         self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc', 'SCHEMA', 'name', 'TEXT').ok()
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+    def test_areq_disconnect_callbacks_normal_resp2(self):
+        """Installing disconnect callbacks preserves normal RESP2/profile replies."""
+        env = self.env
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[1]
+        try:
+            for policy in ('fail', 'return-strict'):
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+                env.expect('FT.SEARCH', 'idx', 'hello0', 'NOCONTENT').equal([1, 'doc0'])
+                for command in ('SEARCH', 'AGGREGATE'):
+                    reply = env.cmd('FT.PROFILE', 'idx', command, 'QUERY', '*',
+                                    'LIMIT', '0', str(self.n_docs))
+                    env.assertEqual(reply[0][0], self.n_docs)
+                    env.assertTrue(len(reply[1]) > 0)
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_remaining_timeout_exhausted_before_shard_execution_resp2(self):
         """Test RESP2 pre-execution timeout with return-strict and fail policies."""
