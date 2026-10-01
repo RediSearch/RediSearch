@@ -19,7 +19,7 @@
 #![cfg(not(miri))]
 
 use ffi::IndexFlags_Index_StoreFreqs;
-use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate};
+use query_eval::{Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -77,10 +77,10 @@ fn eval_missing_no_values_returns_none() {
 }
 
 #[test]
-fn qast_iterate_substitutes_empty_for_none() {
+fn iterator_tree_substitutes_empty_for_none() {
     let _guard = GlobalGuard::default();
     // Term context: the field has no entry in `missing.indexes`, so a
-    // QN_MISSING node makes `eval_node` return `None`. `qast_iterate` must
+    // QN_MISSING node makes `eval_node` return `None`. `QueryIteratorTree::new` must
     // substitute an `Empty` iterator instead of propagating that `None`.
     let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
 
@@ -90,7 +90,8 @@ fn qast_iterate_substitutes_empty_for_none() {
     mock_node.set_missing_field_index(context.field_spec().index);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = ContractChecker::new(qast_iterate(&mut ctx, node, Config::default()).into_boxed());
+    let mut it =
+        ContractChecker::new(QueryIteratorTree::new(&mut ctx, node, Config::default()).into_root());
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());

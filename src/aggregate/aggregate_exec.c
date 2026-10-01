@@ -1293,7 +1293,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // Setting the timeout context should be done in the same thread that executes the query.
   SearchCtx_UpdateCurrentTime(sctx);
 
-  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
+  req->iteratorTree = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
@@ -1317,7 +1317,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
-    Profile_AddIters(&req->rootiter);
+    QueryIteratorTree_Profile(req->iteratorTree);
   }
 
   rs_wall_clock parseClock;
