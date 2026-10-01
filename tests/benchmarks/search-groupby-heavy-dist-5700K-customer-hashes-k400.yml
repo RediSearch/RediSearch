@@ -22,7 +22,7 @@ dbconfig:
   - dataset_name: "customer-5_7M-v1"
   - dataset_load_timeout_secs: 3000
   - configuration-parameters:
-    - search-io-threads: 1
+    - search-io-threads: "1"
   - module-configuration-parameters:
       redisearch: &search_settings
         WORKERS: 4
