@@ -2,8 +2,10 @@ name: "search-groupby-heavy-dist-5700K-customer-hashes-k400"
 description: >-
   Frozen synthetic Customer workload with 5.7M hashes and the original weighted
   prefix query, scoring expressions, and five reducers. Eight primaries exercise
-  partial-group fan-in for the top 400 groups. Validate complete results before
-  comparing runs; the command has a 120-second timeout.
+  partial-group fan-in for the top 400 groups. Memtier cluster mode permits one
+  outstanding query per primary (eight total), unlike the serial local repro.
+  Compare against the same setup and validate complete results before comparing
+  runs; the command has a 120-second timeout.
 
 metadata:
   component: "search"
@@ -71,4 +73,4 @@ clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
   arguments: >-
-    --test-time 180 --clients 1 --threads 1 --pipeline 1 --hide-histogram --command '"FT.AGGREGATE" "idx:bench" "(((term00*|term01*)) ((@post_type:{timeline}=>{$weight:0}) (@type:{post|product}=>{$weight:0})) ((@type:{post|product}=>{$weight:0}) | ((@type:{post}=>{$weight:1}))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:0.750000}))" "SCORER" "BM25STD.TANH" "ADDSCORES" "LOAD" "8" "type" "__key" "post_id" "AS" "parent_id" "product_id" "AS" "children_id" "TIMEOUT" "120000" "APPLY" "(case(exists(@iscore), @iscore, 1.0) + 0.000000) * @__score" "AS" "the_score" "APPLY" "0" "AS" "vector_distance" "APPLY" "format(\"%s::%s\", case(exists(@children_id), @children_id, '"'"''"'"') , @the_score)" "AS" "children_scores" "GROUPBY" "2" "@parent_id" "@profile_id" "REDUCE" "SUM" "1" "the_score" "AS" "the_score" "REDUCE" "SUM" "1" "__score" "AS" "bm25_score" "REDUCE" "TOLIST" "1" "children_scores" "AS" "children_scores" "REDUCE" "MIN" "1" "vector_distance" "AS" "vector_distance" "REDUCE" "MAX" "1" "created_at" "AS" "created_at" "SORTBY" "2" "@the_score" "DESC" "LIMIT" "0" "400" "DIALECT" "2"'
+    --test-time 180 --clients 1 --threads 1 --pipeline 1 --hide-histogram --command 'FT.AGGREGATE "idx:bench" "(((term00*|term01*)) ((@post_type:{timeline}=>{$weight:0}) (@type:{post|product}=>{$weight:0})) ((@type:{post|product}=>{$weight:0}) | ((@type:{post}=>{$weight:1}))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:0.750000}))" "SCORER" "BM25STD.TANH" "ADDSCORES" "LOAD" "8" "type" "__key" "post_id" "AS" "parent_id" "product_id" "AS" "children_id" "TIMEOUT" "120000" "APPLY" "(case(exists(@iscore), @iscore, 1.0) + 0.000000) * @__score" "AS" "the_score" "APPLY" "0" "AS" "vector_distance" "APPLY" "format(\"%s::%s\", case(exists(@children_id), @children_id, '"'"''"'"') , @the_score)" "AS" "children_scores" "GROUPBY" "2" "@parent_id" "@profile_id" "REDUCE" "SUM" "1" "the_score" "AS" "the_score" "REDUCE" "SUM" "1" "__score" "AS" "bm25_score" "REDUCE" "TOLIST" "1" "children_scores" "AS" "children_scores" "REDUCE" "MIN" "1" "vector_distance" "AS" "vector_distance" "REDUCE" "MAX" "1" "created_at" "AS" "created_at" "SORTBY" "2" "@the_score" "DESC" "LIMIT" "0" "400" "DIALECT" "2"'
