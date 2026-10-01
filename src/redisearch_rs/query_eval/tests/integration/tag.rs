@@ -153,11 +153,6 @@ enum TagField {
 enum Child {
     /// A plain `@tag:{value}` term.
     Token(&'static [u8]),
-    /// The same, with the token buffer owned by the Redis allocator rather
-    /// than the Rust one, so `tag_strtolower` may free and replace it. Used
-    /// only by the lengthening-multibyte row; see
-    /// [`MockQueryNode::with_redis_token`].
-    RedisToken(&'static [u8]),
     /// A `@tag:{pat*}` expansion. `prefix`/`suffix` are the anchoring flags the
     /// parser sets from where the `*`s sit: `suffix` off is `TAG_PREFIX_MODE`
     /// (`pat*`), `suffix` alone is `TAG_SUFFIX_MODE` (`*pat`), and both is
@@ -414,27 +409,29 @@ fn index_value_raw(
 /// Build the [`MockQueryNode`] for one [`Child`], pushing any nested nodes it
 /// must keep alive (a [`Child::Phrase`]'s own token children) onto
 /// `grandchildren`.
+///
+/// Every token comes from [`MockQueryNode::with_redis_token`], as invariant (5)
+/// of [`QueryNodeMut::new`] requires.
 fn build_child(child: &Child, grandchildren: &mut Vec<MockQueryNode>) -> MockQueryNode {
     match *child {
-        Child::Token(value) => MockQueryNode::with_token(TokenNodeType::Token, value),
-        Child::RedisToken(value) => MockQueryNode::with_redis_token(TokenNodeType::Token, value),
+        Child::Token(value) => MockQueryNode::with_redis_token(TokenNodeType::Token, value),
         Child::Prefix {
             pattern,
             prefix,
             suffix,
         } => {
-            let mut node = MockQueryNode::with_token(TokenNodeType::Prefix, pattern);
+            let mut node = MockQueryNode::with_redis_token(TokenNodeType::Prefix, pattern);
             node.set_prefix_mode(prefix, suffix);
             node
         }
         Child::WildcardQuery(pattern) => {
-            MockQueryNode::with_token(TokenNodeType::WildcardQuery, pattern)
+            MockQueryNode::with_redis_token(TokenNodeType::WildcardQuery, pattern)
         }
         Child::Phrase(tokens) => {
             let mut node = MockQueryNode::new(QueryNodeType::Phrase);
             let mut ptrs = Vec::new();
             for &token in tokens {
-                let child = MockQueryNode::with_token(TokenNodeType::Token, token);
+                let child = MockQueryNode::with_redis_token(TokenNodeType::Token, token);
                 ptrs.push(child.as_ptr());
                 grandchildren.push(child);
             }
@@ -676,7 +673,9 @@ impl TagFixture {
     /// the iterator, frees it on drop, and borrows the fixture for as long as
     /// it lives -- so a test reading the query status must drop it first.
     fn eval(&mut self) -> Option<ContractChecker<EvalResult<'_>>> {
-        // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
+        // SAFETY: `self.node` is a valid, live `RSQueryNode`, exclusively borrowed
+        // for the call. Its children come from `build_child`, which satisfies
+        // invariants (3)-(5).
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
         let evaluated = eval_node(&mut self.ctx, node_ref, Config::default())?;
         Some(ContractChecker::new(evaluated.into_boxed()))
@@ -1086,7 +1085,9 @@ fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
     // `TagFixture::eval` inlined by hand: it takes `&mut self` wholesale,
     // which would conflict with `spec`'s borrow of `fixture._context` above,
     // even though the two never touch the same field.
-    // SAFETY: `fixture.node` is a valid, live `RSQueryNode` for the call.
+    // SAFETY: `fixture.node` is a valid, live `RSQueryNode`, exclusively borrowed
+    // for the call. Its only child comes from `build_child`, which satisfies
+    // invariants (3)-(5).
     let node_ref = unsafe { QueryNodeMut::new(fixture.node.as_non_null()) };
     let evaluated =
         eval_node(&mut fixture.ctx, node_ref, Config::default()).expect("apple matches");
@@ -1526,7 +1527,7 @@ fn eval_tag_multibyte_query_lowered_into_a_longer_buffer() {
     values.push((TAG_DOTTED.to_vec(), vec![16]));
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        children: vec![Child::RedisToken("İSTANBUL".as_bytes())],
+        children: vec![Child::Token("İSTANBUL".as_bytes())],
         ..TagOptions::default()
     });
     let mut it = fixture
