@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! FFI layer for the [`Accumulator`] reducers: `COUNT`, `SUM`, `AVG`, `MIN` and
-//! `MAX`.
+//! FFI layer for the [`Accumulator`] reducers: `COUNT`, `SUM`, `AVG`, `MIN`,
+//! `MAX` and `STDDEV`.
 //!
 //! C parses the reducer arguments and calls one of the constructors below; the
 //! rest of the vtable is one set of callbacks, generic over the accumulator.
@@ -19,6 +19,7 @@ use std::ptr;
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
 use reducers::min_max::{Extreme, MinMax};
+use reducers::std_dev::StdDev;
 use reducers::sum::Sum;
 use rlookup::{RLookupKey, RLookupRow};
 
@@ -66,6 +67,22 @@ pub unsafe extern "C" fn MinMaxReducer_Create(
     let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
     let extreme = if max { Extreme::Max } else { Extreme::Min };
     into_c_reducer(MinMax::new(key, extreme))
+}
+
+/// Creates a `STDDEV` reducer of `srckey` and returns its base [`ffi::Reducer`],
+/// which the caller frees through its `Free` callback.
+///
+/// # Safety
+///
+/// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn StdDevReducer_Create(srckey: *const ffi::RLookupKey) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
+    into_c_reducer(StdDev::new(key))
 }
 
 /// Boxes an [`AccumulatorReducer`] running `accumulator` and wires its vtable.
