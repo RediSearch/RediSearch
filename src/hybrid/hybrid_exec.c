@@ -1217,14 +1217,14 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 }
 
 // The worker has finished before Redis frees the blocked client's private data.
-// If disconnect skipped the reply callback, park unreturned shard cursors for
-// normal MAXIDLE expiry. No cursorMutex is needed after worker completion.
+// If disconnect skipped the reply callback, free unreturned shard cursors.
+// No cursorMutex is needed after worker completion.
 static void HybridQueryFreePrivData(void *privdata) {
   HybridRequest *hreq = privdata;
   if (hreq->cursors) {
     arrayof(Cursor *) cursors = hreq->cursors;
     hreq->cursors = NULL;
-    array_free_ex(cursors, Cursor_Pause(*(Cursor **)ptr));
+    array_free_ex(cursors, Cursor_Free(*(Cursor **)ptr));
   }
   HybridRequest_DecrRef(hreq);
 }

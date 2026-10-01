@@ -2289,7 +2289,7 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_disconnect_internal_hybrid_cursor_publication(self):
-        """Disconnect stops workers; any published cursors expire through MAXIDLE."""
+        """Disconnect frees unreturned cursors after the worker finishes, before MAXIDLE."""
         env = self.env
         skipIfNoEnableAssert(env)
         shard = env.getConnection(1)
@@ -2298,7 +2298,7 @@ class TestCoordinatorTimeout:
         query = ['_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
                  'VSIM', '@embedding', '$BLOB',
                  'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', '0',
-                 'WITHCURSOR', 'COUNT', '1', 'MAXIDLE', '100', '_SLOTS_INFO', slots,
+                 'WITHCURSOR', 'COUNT', '1', 'MAXIDLE', '60000', '_SLOTS_INFO', slots,
                  '_COORD_DISPATCH_TIME', '1000000']
 
         def cursor_total():
@@ -2323,14 +2323,16 @@ class TestCoordinatorTimeout:
                         wait_for_condition(
                             lambda: (getIsHybridStoreCursorsPaused(env) == 1, {}),
                             f'Internal HYBRID did not pause {phase.lower()} cursor publication')
+                        env.assertEqual(cursor_total(), baseline + (2 if phase == 'AFTER' else 0))
                         client_id = wait_for_blocked_query_client(shard, '_FT.HYBRID')
                         env.assertEqual(shard.execute_command('CLIENT', 'KILL', 'ID', client_id), 1)
                         thread.join(timeout=10)
                         env.assertFalse(thread.is_alive())
                         env.assertEqual(unexpected, [])
                         _wait_for_background_fail_workers(env)
+                        # MAXIDLE is 60 seconds: cleanup must not rely on cursor expiry.
                         wait_for_condition(lambda: (cursor_total() == baseline, {}),
-                                           'Disconnected HYBRID cursors did not expire', timeout=10)
+                                           'Disconnected HYBRID cursors were not freed', timeout=5)
                     finally:
                         shard.execute_command(debug_cmd(), 'QUERY_CONTROLLER', pause_cmd, 'false')
                         thread.join(timeout=10)
