@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import math
+import redis
 import unittest
 from includes import *
 from common import *
