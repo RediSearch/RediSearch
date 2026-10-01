@@ -172,6 +172,24 @@ impl<'a> RLookupRow<'a> {
         }
     }
 
+    /// Moves dynamic fields into the same slots in `dst`, replacing present values.
+    /// Missing source slots leave destination values intact. Both sorting vectors
+    /// remain unchanged. Unlike [`Self::move_fields_from`], this needs no lookup;
+    /// callers must ensure both rows use the same slot mapping.
+    pub fn move_dynamic_fields_to(&mut self, dst: &mut Self) {
+        if dst.dyn_values.len() < self.dyn_values.len() {
+            dst.set_dyn_capacity(self.dyn_values.len());
+        }
+        for (src, dst_slot) in self.dyn_values.iter_mut().zip(dst.dyn_values.iter_mut()) {
+            if let Some(value) = src.take()
+                && dst_slot.replace(value).is_none()
+            {
+                dst.num_dyn_values += 1;
+            }
+        }
+        self.num_dyn_values = 0;
+    }
+
     /// Write a value to the lookup table *by-name*. This is useful for 'dynamic' keys
     /// for which it is not necessary to use the boilerplate of getting an explicit
     /// key.
