@@ -2660,6 +2660,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
+      ctx, "search-internal-row-block-format", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.internalRowBlockFormat)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
       ctx, "search-optimize-partial-update", DEFAULT_OPTIMIZE_PARTIAL_UPDATE,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,

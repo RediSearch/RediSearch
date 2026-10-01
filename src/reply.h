@@ -172,6 +172,8 @@ static inline int RedisModule_Reply_MapWithLen(RedisModule_Reply *reply, size_t 
  * sort keys), without a per-value allocation for typical sizes: small values are assembled
  * in a bounded reply-owned scratch buffer reused across rows and freed by
  * RedisModule_EndReply; larger values use an exact-sized temporary freed before returning. */
+// External entry point for Rust FFI, which cannot bind the inline reply helper.
+int RedisModule_Reply_StringBuffer_FFI(RedisModule_Reply *reply, const char *val, size_t len);
 int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s, size_t n);
 int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, ...);
