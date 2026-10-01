@@ -38,7 +38,7 @@ def run_cmd_expect_disconnect(env, query_args, unexpected):
 
 
 def _coord_cursor_total(env, idx='idx'):
-    """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
+    """Return FT.INFO's global cursor count, summed across shards in a cluster."""
     info = env.cmd('FT.INFO', idx)
     try:
         stats = to_dict(to_dict(info)['cursor_stats'])
@@ -716,7 +716,12 @@ class TestCoordinatorTimeout:
                     wait_for_condition(
                         lambda: (_get_coord_req_ctx_free_count(env) > free_count_before, {}),
                         'Disconnect did not release the coordinator cursor request', timeout=10)
-                    env.assertEqual(_coord_cursor_total(env), baseline)
+                    # FT.INFO includes shard cursors, whose asynchronous DELs can
+                    # finish after the coordinator request context is freed.
+                    wait_for_condition(
+                        lambda: ((total := _coord_cursor_total(env)) == baseline,
+                                 {'total': total, 'baseline': baseline, 'policy': policy}),
+                        'Disconnect did not release all cursor resources', timeout=10)
                 finally:
                     env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
                     env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
