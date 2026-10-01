@@ -647,6 +647,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
+name = "fat_array"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "fat_array",
+ "ffi",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "ffi"
 version = "0.0.1"
 dependencies = [
@@ -1852,6 +1864,7 @@ dependencies = [
  "build_utils",
  "c_trie",
  "dict",
+ "fat_array",
  "ffi",
  "field",
  "geo",
@@ -1859,6 +1872,7 @@ dependencies = [
  "index_result",
  "inverted_index",
  "inverted_index_ffi",
+ "lending-iterator",
  "proptest",
  "query",
  "query_error",
@@ -1877,6 +1891,7 @@ dependencies = [
  "search_disk",
  "string_utils",
  "thiserror",
+ "trie_rs",
  "workspace_hack",
 ]
 
@@ -3437,7 +3452,6 @@ dependencies = [
  "libc",
  "redis-module",
  "redis_mock",
- "rqe_wildcard",
  "thin_vec",
  "trie_rs",
  "workspace_hack",
