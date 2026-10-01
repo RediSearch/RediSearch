@@ -2617,7 +2617,9 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  f->fieldName = NewHiddenString(name, len, true);
+  f->fieldName = NewHiddenString(name, len, false);
+  // These encodings predate field paths; a field without one uses its name, as elsewhere.
+  f->fieldPath = f->fieldName;
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -3323,26 +3325,25 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  sp = rm_calloc(1, sizeof(IndexSpec));
-  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
-  sp->own_ref = spec_ref;
-
-  // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
-  // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
+  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup_name);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
-  numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup_name);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
                            "RDB Load: Schema is limited to %d fields",
                            SPEC_MAX_FIELDS);
-    goto cleanup;
+    goto cleanup_name;
   }
 
+  // Allocate only once the spec can be fully initialised: IndexSpec_Free relies
+  // on the IndexError members that initializeIndexSpec sets up.
+  sp = rm_calloc(1, sizeof(IndexSpec));
+  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
   initializeIndexSpec(sp, specName, flags, numFields_u64);
 
   IndexSpec_MakeKeyless(sp);
@@ -3437,11 +3438,20 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   return sp;
 
 cleanup:
-  if (sp && sp->diskSpec) {
+  if (sp->diskSpec) {
     // Idempotent — no-op if the open never registered on this path.
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
   StrongRef_Release(spec_ref);
+  goto cleanup_no_index;
+cleanup_name:
+  // specName is handed to the spec only in initializeIndexSpec.
+  HiddenString_Free(specName, true);
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
   return NULL;
@@ -3477,12 +3487,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
-  // Upgrading a legacy spec only makes sense while an RDB load is in progress. Both the UPGRADE_INDEX
-  // rules and the registry of legacy specs are built for the duration of a load and released at the end
-  // of it, so outside one - a RESTORE of a legacy payload on a running server, say - they are NULL and
-  // the lookups below would dereference NULL. Refuse instead: the caller sees a load failure, which for
-  // RESTORE surfaces as a command error.
-  if (legacySpecRules == NULL || legacySpecDict == NULL) {
+  // Upgrading a legacy spec only makes sense while an RDB load is in progress: the upgrade sweep that
+  // publishes it runs when the load ends. Outside one - a RESTORE of a legacy payload on a running
+  // server, say - refuse, so the caller sees a load failure, which for RESTORE is a command error.
+  // The globals alone are not enough: a failed load leaves both allocated.
+  if (!g_isLoading || legacySpecRules == NULL || legacySpecDict == NULL) {
     RedisModule_LogIOError(rdb, "warning",
                            "Refusing to load a legacy index outside of an RDB load");
     return NULL;
@@ -3501,6 +3510,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+  // IndexSpec_Free clears it, so it must be valid before the first failed read below.
+  sp->stats.indexError = IndexError_Init();
 
   sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);

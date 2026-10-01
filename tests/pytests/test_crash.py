@@ -212,8 +212,8 @@ def _test_query_thread_crash(env):
     # A C crash stashes no Rust panic, so the bug report must not carry
     # Rust-panic fields.
     report_lines = bug_report_span(read_log_lines(log_path))
-    for field in ("search_panic_payload", "search_panic_location",
-                  "search_panic_recorded_at"):
+    for field in ("search_rust_backtrace", "search_panic_payload",
+                  "search_panic_location", "search_panic_recorded_at"):
         env.assertFalse(
             any(field in line for line in report_lines),
             message=f"{field} found in the bug report of a C crash",
@@ -247,6 +247,7 @@ def test_query_thread_crash_with_rust_panic():
             "search_index_properties_in_mb:",
             # The backtrace
             "# search_rust_backtrace",
+            "search_backtrace:",
         ],
         crash_in_rust=True,
         crash_report_only=True,
@@ -311,6 +312,10 @@ def test_query_thread_crash_with_rust_panic():
 
     # Verify Rust backtrace section is present
     env.assertIn("search_rust_backtrace", results["# search_rust_backtrace"])
+    env.assertTrue(
+        re.search(r"\d+:", results["search_backtrace:"]),
+        message="Rust panic backtrace is empty",
+    )
 
 
 def crash_main_thread(conn):

@@ -53,7 +53,10 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   // executes it), so no other client can take it before the cycle fully ended.
   RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
-  QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
+  request->replyDeferred = reply_cb != NULL;
+#ifdef ENABLE_ASSERT
+  request->inlineReplyCount = 0;
+#endif
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
   request->registryInfo.cycle_start = time(NULL);
   dllist_prepend(list, &request->registryInfo.node);
@@ -89,6 +92,10 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   struct Cursor *cursor = request->cursorInfo.cursor;
   CursorDisposition disposition = request->cursorInfo.disposition;
   request->blockedClientCycleActive = false;
+  request->replyDeferred = false;
+#ifdef ENABLE_ASSERT
+  request->inlineReplyCount = 0;
+#endif
   request->cursorInfo.cursor = NULL;
   request->cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
 
@@ -109,6 +116,13 @@ void QueryRequest_EndCycle(QueryRequest *request) {
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   QueryRequest *request = privdata;
 #ifdef ENABLE_ASSERT
+  RS_ASSERT(request->blockedClientCycleActive);
+  if (QueryRequest_UsesReplyCallback(request)) {
+    RS_ASSERT(request->inlineReplyCount == 0);
+  } else {
+    RS_ASSERT(request->inlineReplyCount == 1);
+    RS_ASSERT(!request->reply.hasStoredResults && request->reply.results == NULL);
+  }
   // Debug-only counter so tests can deterministically observe that
   // free_privdata fired without blocking the main thread in the callback.
   QueryRequestOnFreeDebug_Increment();

@@ -3993,7 +3993,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     timeout_cb = (policy == TimeoutPolicy_Fail) ? DistAggregateTimeoutFailCallback
                                                 : DistAggregateTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
-    QueryRequest_SetUseReplyCallback(&r->base, true);
     if (policy == TimeoutPolicy_ReturnStrict) {
       r->base.async.requiresAggregateResultsSync = true;
     }
@@ -4129,7 +4128,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     timeout_cb = (policy == TimeoutPolicy_Fail) ? DistHybridTimeoutFailCallback
                                                 : DistHybridTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
-    QueryRequest_SetUseReplyCallback(&hreq->base, true);
   }
 
   DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);

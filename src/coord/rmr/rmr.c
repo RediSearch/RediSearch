@@ -998,6 +998,10 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
   return &it->ctx;
 }
 
+MRReply *MRIterator_TryNext(MRIterator *it) {
+  return MRChannel_TryPop(it->ctx.chan);
+}
+
 MRReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
