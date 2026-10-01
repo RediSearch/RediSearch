@@ -2868,7 +2868,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     if (encver >= INDEX_GEOMETRY_VERSION) {
-      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+      uint64_t coords = LoadUnsigned_IOError(rdb, goto fail);
+      if (coords >= GEOMETRY_COORDS__NUM) {
+        RedisModule_LogIOError(rdb, "warning", "Invalid geometry coordinate system %llu",
+                               (unsigned long long)coords);
+        goto fail;
+      }
+      f->geometryOpts.geometryCoords = (GEOMETRY_COORDS)coords;
     } else {
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
       f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
