@@ -639,7 +639,9 @@ typedef struct RedisModuleBigCallbacksV2 {
   size_t (*getCachedDiskUsage)(void);
   /* Runs on BIO and completes all work before returning, without waiting for
    * main-thread execution or retaining native resources between calls.
-   * Redis drains collection before unregister, unload, database close and fork. */
+   * Bound work to a small unit or time budget; retain unfinished numeric state
+   * for the next call. Redis cancels queued collection and waits for the active
+   * call before unregister, unload, database close and fork. */
   void (*collectMetrics)(void);
 } RedisModuleBigCallbacksV2;
 

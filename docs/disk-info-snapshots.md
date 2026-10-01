@@ -25,12 +25,14 @@ the matching Flex Redis and RediSearch Enterprise artifacts; a standalone
 RAM-only RediSearch test does not exercise the disk API.
 
 BigModule V2 registers a single `collectMetrics(void)` callback. Redis invokes it
-on BIO, stops submissions and drains the worker before lifecycle changes.
+on BIO, stops submissions, cancels queued collection jobs and waits only for
+an active bounded collection job before lifecycle changes. Physical scans
+on the same worker do not delay this wait.
 RediSearch forwards to a separately allocated RSE collector context; it does not
 handle pause/resume/fork actions or rebuild targets on cron. Both sides must use
 the matching unmerged V2 layout. RSE and Flex have no private metrics threads.
 
 The BigModule cached-usage getter reads one module-wide total published by RSE's
-background pass. It is O(1), without index iteration or native property reads.
+background collection. It is O(1), without index iteration or native property reads.
 The broader Search INFO sections still aggregate per-index snapshots and RAM
 statistics. Live quota/admission usage remains separate.
