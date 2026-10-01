@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, mem::ManuallyDrop, num::NonZeroUsize};
+use std::{cmp::Ordering, marker::PhantomData, mem::ManuallyDrop, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -24,7 +24,7 @@ use rqe_iterators::{
 use crate::{
     heap::{HeapResult, ScoredResult, TopKHeap},
     order::{Ascending, ScoreOrdering},
-    traits::{BatchStrategy, ScoreBatch, ScoreSource},
+    traits::{BatchStrategy, ChildBatch, ChildCursor, ScoreBatch, ScoreSource},
 };
 
 /// Determines which collection algorithm [`TopKIterator`] uses.
@@ -130,7 +130,9 @@ pub struct TopKIterator<
     child: Option<C>,
     last_doc_id: DocId,
     at_eof: bool,
-    /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
+    /// Diagnostic counters for the current evaluation. Cleared by
+    /// [`rewind`](Self::rewind), but preserved when collection aborts on
+    /// timeout so a timed-out profile still reports the work done.
     pub metrics: TopKMetrics,
 }
 
@@ -282,27 +284,45 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     /// Collect results by intersecting score-ordered batches with the child filter.
     fn collect_batches(&mut self) -> Result<(), RQEIteratorError> {
         loop {
-            let Some(mut batch) = self.source.next_batch()? else {
+            // Offer the child to the source, which may intersect the batch with
+            // it and feed the heap itself. `source`, `child` and `heap` are
+            // distinct fields, so the borrows do not overlap.
+            let can_trim_deep_results = self.can_trim_deep_results;
+            let batch = match &mut self.child {
+                Some(child) => {
+                    let mut cursor = SeekingChildCursor {
+                        child,
+                        heap: &mut self.heap,
+                        can_trim_deep_results,
+                        _index: PhantomData,
+                    };
+                    self.source.next_batch_with_child(&mut cursor)?
+                }
+                None => self.source.next_batch()?.map(ChildBatch::Unmatched),
+            };
+            let Some(batch) = batch else {
                 break;
             };
             self.metrics.num_batches += 1;
 
-            // Borrow-checker split: we can't hold `&mut self.child` and call
-            // `self.heap.push` at the same time.  Pass fields explicitly.
-            let can_trim_deep_results = self.can_trim_deep_results;
-            if let Some(child) = &mut self.child {
-                intersect_batch_with_child(
-                    child,
-                    &mut batch,
-                    &mut self.heap,
-                    &mut self.metrics,
-                    can_trim_deep_results,
-                )?;
-            } else {
-                // No filter child: every source batch record is a candidate, so feed
-                // the whole batch through the heap, which retains the top k.
-                while let Some((doc_id, score)) = batch.next() {
-                    self.heap.push(doc_id, score);
+            // A `Matched` batch was already fed to the heap by the source.
+            if let ChildBatch::Unmatched(mut batch) = batch {
+                // Borrow-checker split: we can't hold `&mut self.child` and call
+                // `self.heap.push` at the same time.  Pass fields explicitly.
+                if let Some(child) = &mut self.child {
+                    intersect_batch_with_child(
+                        child,
+                        &mut batch,
+                        &mut self.heap,
+                        &mut self.metrics,
+                        can_trim_deep_results,
+                    )?;
+                } else {
+                    // No filter child: every source batch record is a candidate, so
+                    // feed the whole batch through the heap, which retains the top k.
+                    while let Some((doc_id, score)) = batch.next() {
+                        self.heap.push(doc_id, score);
+                    }
                 }
             }
             // Batch consumption is unpolled; check once at the boundary.
@@ -607,6 +627,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         *self.heap = TopKHeap::new(self.k, self.order);
         self.results.clear();
         *self.current = None;
+        self.metrics = TopKMetrics::default();
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();
@@ -691,6 +712,50 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
         .build();
     owned.metrics = record.metrics.clone();
     owned
+}
+
+/// The iterator's child, seen through the narrow [`ChildCursor`] view a source
+/// gets during [`ScoreSource::next_batch_with_child`].
+struct SeekingChildCursor<'a, 'index, C: RQEIterator<'index> + 'index, O: ScoreOrdering> {
+    child: &'a mut C,
+    /// Where [`accept`](ChildCursor::accept) pushes each match.
+    heap: &'a mut TopKHeap<'index, O>,
+    /// Keep only the child's yielded metrics rather than its full record, as
+    /// [`TopKIterator`]'s own intersection does.
+    can_trim_deep_results: bool,
+    _index: PhantomData<&'index ()>,
+}
+
+impl<'index, C: RQEIterator<'index> + 'index, O: ScoreOrdering> ChildCursor
+    for SeekingChildCursor<'_, 'index, C, O>
+{
+    fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
+        Ok(self.child.read()?.map(|r| r.doc_id))
+    }
+
+    fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError> {
+        Ok(self.child.skip_to(target)?.map(|outcome| match outcome {
+            SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r) => r.doc_id,
+        }))
+    }
+
+    fn rewind(&mut self) {
+        self.child.rewind();
+    }
+
+    fn accept(&mut self, doc_id: DocId, score: f64) {
+        let child = &mut *self.child;
+        let can_trim_deep_results = self.can_trim_deep_results;
+        self.heap.push_with_record_lazy(doc_id, score, || {
+            child.current().map(|r| {
+                if can_trim_deep_results {
+                    capture_child_metrics(r)
+                } else {
+                    capture_child_record(r)
+                }
+            })
+        });
+    }
 }
 
 /// Intersect one score-ordered batch with a child filter iterator,
@@ -798,10 +863,14 @@ pub trait TopKSourceProfile {
     /// [`TopKIterator`] passes its own (already profile-wrapped) child here so
     /// the source renders the same iterator it read through — and thus the
     /// child's real read counts — rather than an unprofiled side handle.
+    ///
+    /// Prefer `metrics` over any source-local equivalent: it spans the whole
+    /// evaluation, whereas a source counter is cleared by every mid-evaluation
+    /// source reset, including the one on the timeout path.
     fn print_profile(
         &self,
         mode: TopKMode,
-        switches: usize,
+        metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
@@ -817,7 +886,7 @@ where
     fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let child = self.child.as_ref().map(|c| c as &dyn ProfilePrint);
         self.source
-            .print_profile(self.mode, self.metrics.strategy_switches, map, ctx, child);
+            .print_profile(self.mode, &self.metrics, map, ctx, child);
     }
 }
 
