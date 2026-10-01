@@ -14,6 +14,7 @@
 #include "rmalloc.h"
 #include "resp3.h"
 #include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
 #include "rs_wall_clock.h"
 #include "info/global_stats.h"
 #include "rmutil/rm_assert.h"

@@ -10,7 +10,7 @@
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
-#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
 
 #include "hiredis/hiredis.h"
 #include "rmutil/alloc.h"

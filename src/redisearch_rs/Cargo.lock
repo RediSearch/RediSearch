@@ -2875,6 +2875,7 @@ name = "slots_tracker"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "proptest",
  "workspace_hack",
 ]
 

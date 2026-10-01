@@ -7,9 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
+use slots_tracker::SlotRange;
 
-// The `RedisModuleSlotRangeArray` helpers are implemented in Rust and declared in
-// `slots_tracker_ffi.h`.
-
-#define SLOTS_STR "_SLOTS_INFO"
+#[test]
+fn contains_is_inclusive() {
+    let r = SlotRange {
+        start: 100,
+        end: 200,
+    };
+    assert!(r.contains(100) && r.contains(150) && r.contains(200));
+    assert!(!r.contains(99) && !r.contains(201));
+}

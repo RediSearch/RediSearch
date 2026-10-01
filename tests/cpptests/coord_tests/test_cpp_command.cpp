@@ -12,6 +12,7 @@
 #include "redismock/util.h"
 #include "rmr/command.h"
 #include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
 #include "rmalloc.h"
 
 #include <vector>

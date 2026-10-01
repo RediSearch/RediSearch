@@ -20,9 +20,14 @@
 //! **Version Tracking**: Functions that may modify the tracker return the current version number
 //! as a u32. These are currently wrapped in the C ASM API header
 //! for atomic management on the C side.
+//!
+//! It also exports the stateless [`SlotRangeArray`] (`RedisModuleSlotRangeArray`)
+//! helpers: size, slot membership, cloning, and the wire format of [`serialization`].
 
-use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker, Version};
+use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker, Version, serialization};
 use std::cell::RefCell;
+use std::ffi::c_char;
+use std::mem::MaybeUninit;
 use std::sync::OnceLock;
 use std::thread::ThreadId;
 
@@ -138,16 +143,19 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
     debug_assert!(!ranges.is_null(), "SlotRangeArray pointer is null");
 
     // SAFETY: Caller guarantees valid pointer
-    let ranges = unsafe { &*ranges };
-
+    let num_ranges = unsafe { (*ranges).num_ranges };
     assert!(
-        ranges.num_ranges >= 0,
-        "num_ranges must be at least 0, got {}",
-        ranges.num_ranges
+        num_ranges >= 0,
+        "num_ranges must be at least 0, got {num_ranges}"
     );
 
+    // The ranges are read through a pointer derived from `ranges` itself, not from a
+    // reference to the zero-length `ranges` field, which would not cover them.
+    // SAFETY: `&raw const` only computes the address of the flexible array; `ranges` is
+    // valid (caller).
+    let first = unsafe { &raw const (*ranges).ranges }.cast::<SlotRange>();
     // SAFETY: Caller guarantees the flexible array has num_ranges elements
-    unsafe { std::slice::from_raw_parts(ranges.ranges.as_ptr(), ranges.num_ranges as usize) }
+    unsafe { std::slice::from_raw_parts(first, num_ranges as usize) }
 }
 
 // ============================================================================
@@ -321,47 +329,66 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 
 /// Returns the current local slot ranges as a newly allocated array.
 ///
-/// The returned array is allocated with the Rust global allocator, which in the
-/// RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
-/// returned pointer and must free it with `RedisModule_Free` (`rm_free`).
+/// The caller owns the returned pointer and must free it with `RedisModule_Free`
+/// (`rm_free`).
 ///
 /// # Safety
 ///
 /// This function must be called from the main thread only.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_get_local_slots() -> *mut SlotRangeArray {
-    with_tracker(|tracker| {
-        let local = tracker.local_slot_ranges();
-        let num_ranges = local.len() as i32;
+    with_tracker(|tracker| new_slot_range_array(tracker.local_slot_ranges().iter().copied()))
+}
 
-        let layout = local_slots_array_layout(local.len());
-        // SAFETY: `layout` has a non-zero size (it includes the `num_ranges` header).
-        let array = unsafe { std::alloc::alloc(layout) }.cast::<SlotRangeArray>();
-        if array.is_null() {
-            std::alloc::handle_alloc_error(layout);
-        }
+/// Allocates a [`SlotRangeArray`] holding `ranges`.
+///
+/// The array is allocated with the Rust global allocator, which in the RediSearch
+/// module build forwards to `RedisModule_Alloc`, so C code frees it with
+/// `RedisModule_Free` (`rm_free`). Rust test binaries built with the
+/// `mock_allocator` feature break that pairing, so they must not `rm_free` it.
+///
+/// # Panics
+///
+/// Panics if `ranges` has more than [`i32::MAX`] elements or yields fewer
+/// elements than its length.
+fn new_slot_range_array(ranges: impl ExactSizeIterator<Item = SlotRange>) -> *mut SlotRangeArray {
+    let len = ranges.len();
+    let num_ranges = i32::try_from(len).expect("too many slot ranges");
 
-        // SAFETY: `array` is a fresh, properly-aligned allocation for a SlotRangeArray
-        // header (per `layout`), so writing its `num_ranges` field is in bounds.
-        unsafe {
-            (*array).num_ranges = num_ranges;
-        }
+    let layout = slot_range_array_layout(len);
+    // SAFETY: `layout` has a non-zero size (it includes the `num_ranges` header).
+    let array = unsafe { std::alloc::alloc(layout) }.cast::<SlotRangeArray>();
+    if array.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
 
-        // SAFETY: `&raw mut` only computes the address of the trailing flexible array; the
-        // deref of `array` is sound because it points to the live allocation above.
-        let ranges = unsafe { &raw mut (*array).ranges }.cast::<SlotRange>();
+    // SAFETY: `array` is a fresh, properly-aligned allocation for a SlotRangeArray
+    // header (per `layout`), so writing its `num_ranges` field is in bounds.
+    unsafe {
+        (*array).num_ranges = num_ranges;
+    }
 
-        // SAFETY: the allocation has room for `local.len()` ranges right after the header
-        // (per `layout`), and `local` cannot overlap the freshly allocated `array`.
-        unsafe {
-            std::ptr::copy_nonoverlapping(local.as_ptr(), ranges, local.len());
-        }
-        array
-    })
+    // SAFETY: `&raw mut` only computes the address of the trailing flexible array; the
+    // deref of `array` is sound because it points to the live allocation above.
+    let slots = unsafe { &raw mut (*array).ranges }.cast::<MaybeUninit<SlotRange>>();
+    // SAFETY: the allocation has room for `len` ranges right after the header (per
+    // `layout`), `MaybeUninit` admits their uninitialized state, and nothing else
+    // refers to the fresh allocation.
+    let slots = unsafe { std::slice::from_raw_parts_mut(slots, len) };
+    let mut written = 0;
+    for (slot, range) in slots.iter_mut().zip(ranges) {
+        slot.write(range);
+        written += 1;
+    }
+    assert_eq!(
+        written, len,
+        "slot range iterator is shorter than its length"
+    );
+    array
 }
 
 /// Computes the allocation layout of a `SlotRangeArray` holding `num_ranges` ranges.
-fn local_slots_array_layout(num_ranges: usize) -> std::alloc::Layout {
+fn slot_range_array_layout(num_ranges: usize) -> std::alloc::Layout {
     let (layout, _) = std::alloc::Layout::new::<SlotRangeArray>()
         .extend(std::alloc::Layout::array::<SlotRange>(num_ranges).expect("layout overflow"))
         .expect("layout overflow");
@@ -388,6 +415,117 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker(|tracker| tracker.check_availability(ranges).into())
+}
+
+// ============================================================================
+// Slot Range Arrays
+// ============================================================================
+
+/// Returns the size in bytes of a `RedisModuleSlotRangeArray` holding
+/// `num_ranges` ranges, which is also the size of its serialized form.
+#[unsafe(no_mangle)]
+pub const extern "C" fn SlotRangeArray_SizeOf(num_ranges: u32) -> usize {
+    SlotRangeArray::size_of(num_ranges as usize)
+}
+
+/// Returns whether `slot` lies in one of the ranges of `slot_ranges`.
+///
+/// # Panics
+///
+/// Panics if `num_ranges` is negative.
+///
+/// # Safety
+///
+/// 1. `slot_ranges` must be a [valid] pointer to a `RedisModuleSlotRangeArray`
+///    whose flexible array holds `num_ranges` initialized ranges.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SlotRangeArray_ContainsSlot(
+    slot_ranges: *const SlotRangeArray,
+    slot: u16,
+) -> bool {
+    // SAFETY: ensured by caller (1.)
+    let ranges = unsafe { parse_slot_ranges(slot_ranges) };
+    ranges.iter().any(|range| range.contains(slot))
+}
+
+/// Returns a copy of `src`, which the caller must free with `rm_free`.
+///
+/// # Panics
+///
+/// Panics if `num_ranges` is negative.
+///
+/// # Safety
+///
+/// 1. `src` must be a [valid] pointer to a `RedisModuleSlotRangeArray` whose
+///    flexible array holds `num_ranges` initialized ranges.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SlotRangeArray_Clone(src: *const SlotRangeArray) -> *mut SlotRangeArray {
+    // SAFETY: ensured by caller (1.)
+    let ranges = unsafe { parse_slot_ranges(src) };
+    new_slot_range_array(ranges.iter().copied())
+}
+
+/// Serializes `slot_ranges` into a newly allocated buffer of
+/// [`SlotRangeArray_SizeOf`] bytes, which the caller must free with `rm_free`.
+/// See [`serialization`] for the format.
+///
+/// # Panics
+///
+/// Panics if `num_ranges` is negative.
+///
+/// # Safety
+///
+/// 1. `slot_ranges` must be a [valid] pointer to a `RedisModuleSlotRangeArray`
+///    whose flexible array holds `num_ranges` initialized ranges.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SlotRangesArray_Serialize(
+    slot_ranges: *const SlotRangeArray,
+) -> *mut c_char {
+    // SAFETY: ensured by caller (1.)
+    let ranges = unsafe { parse_slot_ranges(slot_ranges) };
+
+    // Allocated like `new_slot_range_array`, so that C frees it with `rm_free`.
+    let layout = std::alloc::Layout::array::<u8>(SlotRangeArray::size_of(ranges.len()))
+        .expect("layout overflow");
+    // SAFETY: `layout` has a non-zero size (it includes the range count).
+    let buf = unsafe { std::alloc::alloc_zeroed(layout) };
+    if buf.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // SAFETY: `buf` is a fresh allocation of `layout.size()` zeroed bytes that nothing
+    // else refers to.
+    let out = unsafe { std::slice::from_raw_parts_mut(buf, layout.size()) };
+    serialization::serialize_into(ranges, out);
+    buf.cast()
+}
+
+/// Deserializes a buffer written by [`SlotRangesArray_Serialize`] into a newly
+/// allocated array, which the caller must free with `rm_free`.
+///
+/// Returns NULL if `buf` is NULL or is not a well-formed serialization.
+///
+/// # Safety
+///
+/// 1. If non-null, `buf` must be [valid] for reads of `buf_len` initialized bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SlotRangesArray_Deserialize(
+    buf: *const c_char,
+    buf_len: usize,
+) -> *mut SlotRangeArray {
+    if buf.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: ensured by caller (1.)
+    let buf = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), buf_len) };
+    serialization::deserialize(buf).map_or(std::ptr::null_mut(), new_slot_range_array)
 }
 
 // ============================================================================

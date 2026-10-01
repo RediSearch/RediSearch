@@ -10,6 +10,7 @@
 //! A slots tracker implementation.
 //! This module provides a way to track and manage slots in a system.
 
+pub mod serialization;
 mod slot_set;
 mod slots_tracker;
 
@@ -36,4 +37,11 @@ pub struct SlotRangeArray {
 pub struct SlotRange {
     pub start: u16,
     pub end: u16,
+}
+
+impl SlotRange {
+    /// Whether `slot` lies in this inclusive range.
+    pub const fn contains(&self, slot: u16) -> bool {
+        self.start <= slot && slot <= self.end
+    }
 }

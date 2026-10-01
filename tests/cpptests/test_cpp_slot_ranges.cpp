@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "rmalloc.h"
-#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
 #include "redismock/redismock.h"
 #include "redismock/internal.h"
 
@@ -103,7 +103,7 @@ TEST_F(SlotRangesTest, testBinaryDeserializationInvalidData) {
     struct {
         uint32_t num_ranges;
         RedisModuleSlotRange ranges[5]; // enough for 5 ranges for this test
-    } array_buf;
+    } array_buf = {};
     RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)&array_buf;
 
     // Test with corrupted/invalid serialized data
@@ -121,6 +121,9 @@ TEST_F(SlotRangesTest, testBinaryDeserializationInvalidData) {
     array->num_ranges = 2; // Declare 2 ranges
     result = SlotRangesArray_Deserialize((char*)array, SlotRangeArray_SizeOf(3)); // Buffer size for 3 ranges
     EXPECT_FALSE(result);
+
+    // Case 4: No buffer
+    EXPECT_EQ(SlotRangesArray_Deserialize(nullptr, SlotRangeArray_SizeOf(0)), nullptr);
 }
 
 // Test binary serialization with many ranges
