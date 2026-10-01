@@ -43,8 +43,10 @@ typedef struct QueryAST {
   const void *udata;
   size_t udatalen;
 
-  // array of additional metrics names in the AST.
-  MetricRequest *metricRequests;
+  // Additional metrics the query's nodes yield: an opaque Rust list, freed by
+  // `MetricRequests_Free`. NULL until a node reserves one, so non-NULL means
+  // non-empty.
+  struct MetricRequests *metricRequests;
 
   // Copied query and length, because it seems we modify the string
   // in the parser (FIXME). Thus, if the original query is const

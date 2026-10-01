@@ -197,30 +197,8 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
 }
 
 static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const QueryAST* ast, RLookup *rl, QueryError *status) {
-  MetricRequest *requests = ast->metricRequests;
-  for (size_t i = 0; i < array_len(requests); i++) {
-    const char *name = requests[i].metric_name;
-    size_t name_len = strlen(name);
-    if (IndexSpec_GetFieldWithLength(sctx->spec, name, name_len)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INDEX_EXISTS, "Property", " `%s` already exists in schema", name);
-      return NULL;
-    }
-    // Set HIDDEN flag for internal metrics
-    uint32_t flags = requests[i].isInternal ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
-
-    RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
-    if (!key) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", name);
-      return NULL;
-    }
-
-    // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
-    // that it has no results), but we still want the rest of the pipeline to know about the additional field name,
-    // because there is no syntax error and the sorter should be able to "sort" by this field.
-    // If there is a handle to the node's RLookupKey, write the address if the handle is still valid.
-    if (requests[i].key_handle && requests[i].key_handle->is_valid) {
-      *requests[i].key_handle->key_ptr = key;
-    }
+  if (MetricRequests_RegisterKeys(ast->metricRequests, sctx->spec, rl, status) != REDISMODULE_OK) {
+    return NULL;
   }
   return RPMetricsLoader_New();
 }

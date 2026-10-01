@@ -133,6 +133,22 @@ def test_hybrid_vsim_range_yield_score_as():
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
 
+@skip(cluster=True)
+def test_hybrid_vsim_score_field_named_after_schema_field():
+    """The VSIM subquery yields its distance as `__<field>_score`, hidden from the
+    reply, and pipeline construction rejects a schema field of that name with the
+    same error FT.SEARCH reports"""
+    env = Env()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'description', 'TEXT', '__embedding_score', 'TEXT',
+               'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector).error().equal(
+        'SEARCH_INDEX_EXISTS Property `__embedding_score` already exists in schema')
+
+
 def test_hybrid_search_yield_score_as():
     """Test SEARCH with YIELD_SCORE_AS parameter"""
     env = Env()

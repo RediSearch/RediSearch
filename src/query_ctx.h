@@ -10,13 +10,13 @@
 
 #include "search_options.h"
 
-struct MetricRequest;
+struct MetricRequests;
 
 typedef struct QueryEvalCtx {
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
   QueryError *status;
-  struct MetricRequest **metricRequestsP;
+  struct MetricRequests **metricRequestsP;
   uint32_t tokenId;
   DocTable *docTable;
   uint32_t reqFlags;

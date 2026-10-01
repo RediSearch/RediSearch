@@ -129,6 +129,11 @@ typedef uint32_t RLookup_Opt;
 typedef struct HashFieldNames HashFieldNames;
 
 /**
+ * The metric requests of one query, in the order its nodes reserved them.
+ */
+typedef struct MetricRequests MetricRequests;
+
+/**
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a list of [`RLookupKey`]s addressable by string name.
@@ -295,32 +300,6 @@ typedef struct LoadFieldProfile {
 } LoadFieldProfile;
 
 /**
- * A deferred binding between a metric name produced during query parsing
- * and the [`RLookupKey`] that will be resolved during
- * pipeline construction.
- */
-typedef struct MetricRequest {
-  /**
-   * The name of the metric field to register in the
-   * [`RLookup`] table (e.g. `"__vec_score"`).
-   */
-  const char *metric_name;
-  /**
-   * Optional handle back to the iterator's
-   * [`RLookupKey`] slot. `NULL` when the iterator
-   * that requested this metric was not created (e.g. an early
-   * empty-result short-circuit).
-   */
-  struct RLookupKeyHandle *key_handle;
-  /**
-   * When `true`, the metric is excluded from the query response
-   * (the corresponding [`RLookupKey`] is created
-   * with the `HIDDEN` flag).
-   */
-  bool isInternal;
-} MetricRequest;
-
-/**
  * Helper type to represent a set of [`RLookupKeyFlag`]s.
  */
 typedef BitFlags_RLookupKeyFlag__u32 RLookupKeyFlags;
@@ -358,23 +337,6 @@ typedef struct RLookupKey {
    */
   size_t name_len;
 } RLookupKey;
-
-/**
- * Smart pointer handle for [`RLookupKey`] that can be
- * invalidated when the iterator that owns the key is freed.
- */
-typedef struct RLookupKeyHandle {
-  /**
-   * Pointer to the [`RLookupKey`] pointer field inside
-   * the owning iterator.
-   */
-  RLookupKey * *key_ptr;
-  /**
-   * Whether the owning iterator is still alive. Set to `true` on
-   * creation and cleared to `false` when the iterator is freed.
-   */
-  bool is_valid;
-} RLookupKeyHandle;
 
 #ifndef SIZE_24_DEFINED
 #define SIZE_24_DEFINED
