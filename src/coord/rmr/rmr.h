@@ -208,6 +208,9 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+// Return the next queued reply, or NULL without waiting for more replies.
+MRReply *MRIterator_TryNext(MRIterator *it);
+
 /* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
  * abort flag (pair with MRChannel_WakeAbort). `timedOut` set if deadline expired.
  * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
