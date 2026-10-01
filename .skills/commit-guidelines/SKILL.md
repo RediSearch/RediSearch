@@ -131,7 +131,8 @@ Group by intent, not by file type.
 1. Ensure the target changeset contains only one intent.
 2. If it mixes multiple intents, split it before describing it.
 3. Verify the resulting changeset.
-4. Set a concise description describing the single intent.
+4. Set a concise description describing the single intent, with the same reference rules as
+   a git commit message (see *Git workflow*).
 
 ```bash
 jj diff -r <revset>
@@ -152,7 +153,8 @@ Use this only when `.jj/` is absent.
 1. Stage only the intended files or hunks.
 2. Inspect the staged result.
 3. Run verification.
-4. Commit with a concise message describing the single intent.
+4. Commit with a concise message describing the single intent. Avoid `#N` and Jira keys
+   that would link by accident (see [/open-pr](../open-pr/SKILL.md) § *Title and body*).
 
 ```bash
 git add <paths...>
