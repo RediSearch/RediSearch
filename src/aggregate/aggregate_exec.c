@@ -55,10 +55,17 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// Finalize pending FAIL cursors after the worker finishes, then release the
-// blocked client's AREQ reference. Callback-based paths already handle success.
+// Clean up pending cursors and the blocked client's AREQ reference after worker
+// and reply callback completion.
 static void BlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
+  if (req->deferCursorCleanup && req->storedReplyState.cursor) {
+    // The cursor still owns the AREQ. Drop the blocked-client ref first so a
+    // HYBRID parent's destruction tears down its iterators before its contexts.
+    AREQ_DecrRef(req);
+    AREQ_FinalizeStoredCursor(req);
+    return;
+  }
   AREQ_FinalizeStoredCursor(req);
   AREQ_DecrRef(req);
 }
@@ -1783,7 +1790,8 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Handle cursor lifecycle now that QEXEC_S_ITERDONE has been set by finishSendChunk.
   // runCursor stored the cursor handle here instead of pausing/freeing it immediately,
   // because finishSendChunk (which sets QEXEC_S_ITERDONE) runs in the reply_callback.
-  if (stored->cursor) {
+  // A blocked cursor READ may still be finishing its worker cleanup after timeout.
+  if (stored->cursor && !req->deferCursorCleanup) {
     if (req->stateflags & QEXEC_S_ITERDONE) {
       Cursor_Free(stored->cursor);
     } else {
@@ -2227,12 +2235,16 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   sendChunk(req, reply, num);
+#ifdef ENABLE_ASSERT
+  // Stored results are ready, but the cursor worker still needs its search context.
+  SyncPoint_Wait(SYNC_POINT_AFTER_CURSOR_READ_SEND_CHUNK);
+#endif
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
   // Below this point the cursor (and with it `req`) may be freed, paused, or
   // handed off, so the lock must be released here, on this worker thread.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
-  if (req->encodeReplyInBackground) {
+  if (req->encodeReplyInBackground || req->deferCursorCleanup) {
     // Free-data cleanup publishes the cursor only if the request did not time out.
     return;
   }
@@ -2534,6 +2546,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       blockClientCtx.privdata        = req;
       blockClientCtx.freePrivData    = BlockClient_FreeAREQ;
       req->useReplyCallback = !req->encodeReplyInBackground;
+      req->deferCursorCleanup = req->useReplyCallback;
       blockClientCtx.replyCallback = req->useReplyCallback ? CursorReadReplyCallback : NULL;
       blockClientCtx.timeoutCallback =
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
