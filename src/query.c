@@ -557,52 +557,6 @@ bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
   return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
-/**
- * Converts a given string to lowercase and handles escape sequences.
- *
- * This function processes the input string and converts it to lowercase
- * if `caseSensitive` is false.
- * If no memory allocation is needed for lowerconversion, the string is modified
- * in place.
- * If memory allocation is needed, the original string is freed and replaced
- * with the new lowercase string.
- * It also handles escape sequences by removing the backslash character if it
- * precedes a punctuation or whitespace character.
- *
- * @param pstr A pointer to the input string.
- * @param len A pointer to the length of the input string. The length is updated
- * to reflect any changes made to the string.
- * @param caseSensitive A flag indicating whether the conversion to lowercase
- * should be performed. If true, the string remains case-sensitive.
- */
-void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
-  size_t length = *len;
-  char *str = *pstr;
-  char *origStr = str;
-  char *p = str;
-
-  while (*p) {
-    if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
-      ++p;
-      --length;
-    }
-    *str++ = *p++;
-  }
-  *str = '\0';
-
-  if (!caseSensitive) {
-    char *dst = unicode_tolower(origStr, &length);
-    if (dst) {
-        rm_free(origStr);
-        *pstr = dst;
-    } else {
-      // No memory allocation, just ensure null termination
-      origStr[length] = '\0';
-    }
-  }
-  *len = length;
-}
-
 // Appends the words of `phrase` joined by single spaces, writing the `emptyWord` argument in
 // place of any zero-length word.
 static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *emptyWord) {

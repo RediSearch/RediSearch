@@ -227,7 +227,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &["QueryIterator_IsBlockedClientTimedOut", "tag_strtolower"],
+        fns: &["QueryIterator_IsBlockedClientTimedOut"],
         types: &["QueryAST"],
         vars: &[],
     },

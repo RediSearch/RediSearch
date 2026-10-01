@@ -68,7 +68,7 @@ const TAG_SULTANA: &[u8] = b"sultana";
 // buffer is rewritten in place rather than replaced.
 const TAG_CAFE: &[u8] = "café".as_bytes();
 // doc 16 -- `İ` (U+0130, 2 bytes) lowers to `i` + U+0307 (3 bytes), so the
-// result outgrows its buffer and `tag_strtolower` replaces it.
+// result outgrows its buffer and `normalize_tag` replaces it.
 const TAG_DOTTED: &[u8] = "i\u{307}stanbul".as_bytes();
 // doc 17 -- an ASCII control byte, not a letter, so a case-insensitive lookup
 // takes `unicode_tolower`'s in-place fast path rather than the reallocating
@@ -1156,7 +1156,7 @@ fn eval_tag_prefix_child_honours_a_raised_minimum() {
 
 #[test]
 fn eval_tag_prefix_child_checks_the_minimum_after_escape_removal() {
-    // `tag_strtolower`'s escape-removal loop runs before the length is
+    // `normalize_tag`'s escape removal runs before the length is
     // compared against `minTermPrefix`, so the two-byte raw pattern `\*`
     // normalizes to the one-byte literal `*` first. A port that compared the
     // raw (pre-escape) length instead would wrongly let this expand.
@@ -1412,7 +1412,7 @@ fn eval_tag_lowercases_the_query_on_a_case_insensitive_field() {
     assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
 }
 
-// `tag_strtolower` is called once per branch, not once ahead of the dispatch:
+// `normalize_tag` is called once per branch, not once ahead of the dispatch:
 // the prefix and wildcard expansions each call it on their own pattern, and
 // the phrase case calls it on each child before the join.
 // [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`] above only
@@ -1530,7 +1530,7 @@ fn eval_tag_multibyte_query_lowered_into_a_longer_buffer() {
     });
     let mut it = fixture
         .eval()
-        .expect("the lookup must use the replacement buffer tag_strtolower installs");
+        .expect("the lookup must use the replacement buffer normalize_tag installs");
     assert_eq!(drain_doc_ids(&mut it), vec![16]);
 }
 

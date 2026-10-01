@@ -1229,8 +1229,8 @@ def testTagInvalidUtf8LoweringOverflow(env):
     `nu_utf8_read` reads as a multi-byte UTF-8 lead must not overflow past
     its allocation during `unicode_tolower`'s lowering.
 
-    Covers the token, prefix, and wildcard branches, which each reach
-    `tag_strtolower` independently in `src/query.c`. See
+    Covers the token, prefix, and wildcard branches, which each normalize
+    their token independently during tag evaluation. See
     `_assertSurvivesInvalidUtf8TagToken` for the overflow mechanism.
     """
     conn = getConnectionByEnv(env)

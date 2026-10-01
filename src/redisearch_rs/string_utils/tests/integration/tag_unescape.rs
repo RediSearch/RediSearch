@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! [`string_utils::tag::unescape`], alone and followed by
-//! [`string_utils::unicode::tolower_bytes`].
+//! [`string_utils::tag::unescape`].
 
 use std::borrow::Cow;
 
@@ -57,72 +56,4 @@ fn borrows_the_input_when_there_is_nothing_to_remove() {
         assert_eq!(borrowed.len(), input.len(), "{input:?}");
     }
     assert!(matches!(unescape(br"a\,b"), Cow::Owned(_)));
-}
-
-// These tests call the C implementation, so they cannot run under miri.
-#[cfg(not(miri))]
-mod ffi_comparison {
-    use proptest::prelude::*;
-    use string_utils::{tag::unescape, unicode::tolower_bytes};
-
-    use crate::ffi_comparison;
-
-    /// What C `tag_strtolower` computes: escape removal, then lowercasing
-    /// unless `case_sensitive` is set.
-    fn normalize(bytes: &[u8], case_sensitive: bool) -> Vec<u8> {
-        let unescaped = unescape(bytes);
-        if case_sensitive {
-            unescaped.into_owned()
-        } else {
-            tolower_bytes(&unescaped).into_owned()
-        }
-    }
-
-    /// Whether C garbles `bytes`: a removable escape before an interior NUL.
-    fn c_garbles(bytes: &[u8]) -> bool {
-        let Some(nul) = bytes.iter().position(|&b| b == 0) else {
-            return false;
-        };
-        bytes[..nul].windows(2).any(|w| {
-            w[0] == b'\\' && (w[1].is_ascii_punctuation() || b" \t\n\r\x0B\x0C".contains(&w[1]))
-        })
-    }
-
-    #[test]
-    fn escape_removal_can_change_the_decoding() {
-        // Removing the `\` pairs `C8` with `:`, which reads as U+023A and
-        // lowercases to U+2C65. The escaped string would lowercase differently.
-        let input = b"\xC8\\:";
-        assert_eq!(normalize(input, false), "\u{2c65}".as_bytes());
-        assert_eq!(
-            ffi_comparison::tag_strtolower(input, false),
-            normalize(input, false)
-        );
-    }
-
-    #[test]
-    fn diverges_from_c_only_where_c_garbles() {
-        // C shortens the length by the escapes it removed before the NUL
-        // without moving the bytes after it.
-        let input = b"\\,a\0\\,B";
-        assert!(c_garbles(input));
-        assert_ne!(
-            ffi_comparison::tag_strtolower(input, true),
-            normalize(input, true)
-        );
-    }
-
-    proptest! {
-        #[test]
-        fn matches_c(bytes in ffi_comparison::tag_bytes(), case_sensitive: bool) {
-            // Skipped rather than rejected: the generator produces escapes and
-            // NULs often enough that rejecting would exhaust proptest's budget.
-            if !c_garbles(&bytes) {
-                prop_assert_eq!(
-                    normalize(&bytes, case_sensitive),
-                    ffi_comparison::tag_strtolower(&bytes, case_sensitive)
-                );
-            }
-        }
-    }
 }
