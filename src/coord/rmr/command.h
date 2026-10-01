@@ -40,6 +40,19 @@ typedef struct {
   /* Dispatch time arg offset - 0 if not set */
   uint32_t dispatchTimeArgIndex;
 
+  /* Position at which to insert the internal `_ROW_BLOCK` token, if a per-shard fill
+   * point (see rmr.c's maybeAskRowBlock) decides to ask this shard for the row-block
+   * reply format - 0 if not set (first argument is always the command, so 0 never a
+   * real position). Unlike slotsInfoArgIndex/dispatchTimeArgIndex, no space is
+   * reserved here: the token is optional per shard, so filling it (or not) is a plain
+   * MRCommand_Insert at this position rather than replacing a placeholder. Set once
+   * when the command is built (buildMRCommand in dist_aggregate.c) and, like the other
+   * two index fields, kept in sync by MRCommand_Insert/MRCommand_Copy so that anything
+   * inserted or appended afterward - notably FT.DEBUG's DEBUG_PARAMS_COUNT block,
+   * which the shard parses by reading fixed positions from the *end* of the command -
+   * is never displaced by a later row-block insertion. */
+  uint32_t rowBlockArgIndex;
+
   /* if not NULL, this value indicate to which shard the command should be sent.*/
   char *targetShard;
 
