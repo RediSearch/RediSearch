@@ -86,7 +86,19 @@ static bool SearchDisk_HasMemoryForIndexCount(size_t count, bool restoring, Quer
 
 bool SearchDisk_CanRestoreIndex(QueryError *status) {
   RS_ASSERT(status);
-  return SearchDisk_HasMemoryForIndexCount(SearchDisk_CountDiskIndexes(true) + 1, true, status);
+  const size_t total = SearchDisk_CountDiskIndexes(true) + 1;
+  if (!SearchDisk_HasMemoryForIndexCount(total, true, status)) {
+    return false;
+  }
+  RS_ASSERT(disk && disk_db && disk->basic.reserveRestoreOpenFiles);
+  const size_t unopened = total - SearchDisk_RegisteredIndexCount();
+  if (!disk->basic.reserveRestoreOpenFiles(disk_db, unopened)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Cannot restore disk index: not enough file descriptors available; "
+                        "lower search-disk-max-open-files or reduce the number of indexes");
+    return false;
+  }
+  return true;
 }
 
 bool SearchDisk_CanCreateIndex(QueryError *status) {
