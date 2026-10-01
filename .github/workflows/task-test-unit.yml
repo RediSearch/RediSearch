@@ -169,6 +169,10 @@ jobs:
           github-token: ${{ github.token }}
           sanitizer-setup: 'true'
 
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
+
       - name: Download build artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -336,7 +340,7 @@ jobs:
         if: inputs.coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/unit.info,bin/rust_cov.info
+          files: bin/unit.info,bin/rust_cov.xml
           disable_search: true
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

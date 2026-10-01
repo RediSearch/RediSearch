@@ -12,3 +12,11 @@ retries = 1
 # `miri` is a _lot_ slower.
 slow-timeout = { period = "10s", terminate-after = 4 }
 fail-fast = false
+
+[profile.coverage]
+# Branch instrumentation slows the largest property tests enough to exceed the
+# default hang detector while they are still making progress.
+slow-timeout = { period = "5s", terminate-after = 12 }
+leak-timeout = "500ms"
+fail-fast = false
+retries = 1
