@@ -56,11 +56,6 @@ typedef struct {
   // finishSendChunk.
   bool withCount;
 
-  // Drain-only mode: rpnetNext pops already-queued replies without blocking
-  // and maps timeouts to EOF. Set by the RETURN-STRICT timeout callback after
-  // BG has exited the pipeline, so no concurrent reader - plain bool is safe.
-  bool drainOnly;
-
   // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.
   // Populated by buildDistRPChain from the parsed VectorQuery on the main thread,
   // then used to initialize the iterator-owned AggregateKnnContext if needed.

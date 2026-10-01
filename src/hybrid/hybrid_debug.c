@@ -128,12 +128,6 @@ int parseHybridDebugParams(HybridDebugParams *params, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                        "FT.HYBRID debug timeout is not supported with ON_TIMEOUT RETURN-STRICT");
-    return REDISMODULE_ERR;
-  }
-
   return REDISMODULE_OK;
 }
 

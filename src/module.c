@@ -2616,8 +2616,6 @@ static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc
     return NULL;
   }
 
-  req->base.async.requiresAggregateResultsSync =
-      requestConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
   return req;
 }
 
@@ -3856,7 +3854,6 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString **argv, int argc,
@@ -3996,16 +3993,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
   handlerCtx.bcCtx.request = &r->base;
-  if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
+  if (policy == TimeoutPolicy_Fail) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistAggregateTimeoutFailCallback
-        : DistAggregateTimeoutReturnStrictCallback;
+    handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     QueryRequest_SetUseReplyCallback(&r->base, true);
-    if (policy == TimeoutPolicy_ReturnStrict) {
-      r->base.async.requiresAggregateResultsSync = true;
-    }
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4120,7 +4112,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
-  hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -4133,9 +4124,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistHybridTimeoutFailCallback
-        : DistHybridTimeoutReturnStrictCallback;
+    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     QueryRequest_SetUseReplyCallback(&hreq->base, true);
   }
@@ -4318,7 +4307,7 @@ void sendRequiredFields(const searchRequestCtx *req, MRCommand *cmd) {
 // before the uv-thread has started fanout.
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
-  // RETURN-STRICT may own reduction on main; only the result owner can publish an error.
+  // Only the result owner can publish an error.
   if (QueryRequest_TryClaimResults(request)) {
     QueryError_CloneFrom(status, &request->reply.err);
     QueryRequest_SignalResultsComplete(request);
@@ -4581,67 +4570,6 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 
 }
 
-// Timeout callback for FT.SEARCH in coordinator mode.
-// Called on the main thread when the blocking client times out.
-// Used for RETURN-STRICT policy - returns partial results using the blocked client timeout mechanism instead of error
-static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!request) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
-  }
-
-  searchRequestCtx *req = QueryRequest_GetSearch(request);
-  struct MRCtx *mrctx = req->mrctx;
-
-  // Signal timeout to stop accepting new replies in searchFanoutCallback
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
-
-  recordSearchTimeoutStage(req, /*isError=*/false);
-
-  // Try to claim reducing - if we get it, run reducer on main thread
-  // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
-  if (QueryRequest_TryClaimResults(&req->base)) {
-    // We claimed reducing - run reducer on main thread with current replies
-    searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
-  } else {
-    // Reducer already running or bailout claimed it - wait for completion
-    QueryRequest_WaitForResultsComplete(&req->base);
-
-    // A background reducer may have claimed reducing, observed the timeout,
-    // and exited before initializing req->rctx. In that case adopt the
-    // timeout-owned reduction path now that the competing reducer has finished.
-    if (!QueryError_HasError(&request->reply.err) && req->rctx == NULL) {
-      searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
-    }
-  }
-
-  // Check if bailout set an error (e.g., index dropped before fanout)
-  // In this case, reply with the error instead of partial results
-  if (QueryError_HasError(&request->reply.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&request->reply.err), 1, COORD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, &request->reply.err);
-    return REDISMODULE_OK;
-  }
-
-  // Reply with results from reducer
-  searchReducerCtx *rCtx = req->rctx;
-  // rCtx must be set - either we ran the reducer or waited for it to complete
-  RS_ASSERT(rCtx);
-  req->timedOut = true;
-
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  if (req->profileArgs > 0) {
-    profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), &req->profileClock, rs_wall_clock_now_ns());
-  } else {
-    sendSearchResults(reply, rCtx);
-  }
-  RedisModule_EndReply(reply);
-
-  return REDISMODULE_OK;
-}
-
 // Block client with timeout callback.
 // Returns a blocked client with the appropriate timeout from query args or global config.
 // The timeout callback is selected based on the timeout policy.
@@ -4653,8 +4581,7 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
 
   if (request->timeout.policy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailCallback;
-  } else if (request->timeout.policy == TimeoutPolicy_ReturnStrict) {
-    timeoutCallback = DistSearchTimeoutPartialCallback;
+
   } else {
     queryTimeout = 0;
   }

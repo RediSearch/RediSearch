@@ -41,12 +41,3 @@ int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
 // Works for both SEARCH and AGGREGATE by compiling query for format detection.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode);
-
-// Empty cursor-shaped reply for FT.CURSOR READ on the RETURN_STRICT timeout
-// fast-path. Preserves `cid` so the client can retry, and bumps the timeout
-// warning stats counter for parity with `AREQ_ReplyWithStoredResults`.
-// Use `internal=true` for shard (_FT.CURSOR READ) calls, `false` for coord.
-// The thin wrappers below are kept for call sites that lack a live AREQ.
-int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal);
-int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);
-int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);

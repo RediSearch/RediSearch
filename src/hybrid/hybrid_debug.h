@@ -26,29 +26,34 @@ struct HybridRequest;
  * allowing simulation of timeouts during hybrid search execution for testing purposes.
  *
  * **Syntax:**
- *   _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <vector_args> [options] <DEBUG_PARAMS> DEBUG_PARAMS_COUNT <count>
+ *   _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <vector_args> [options] <DEBUG_PARAMS>
+ * DEBUG_PARAMS_COUNT <count>
  *
- * On a multi-shard coordinator, query debug requires `ON_TIMEOUT RETURN`. `ON_TIMEOUT FAIL` and
- * `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks and are rejected with
+ * On a multi-shard coordinator, query debug requires `ON_TIMEOUT RETURN`. `ON_TIMEOUT FAIL`
+ * uses blocked-client timeout callbacks and is rejected with
  * `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *
-  * **Parameters:**
+ * **Parameters:**
  *   - `TIMEOUT_AFTER_N_SEARCH <N>`: Timeout after N results from search component
  *   - `TIMEOUT_AFTER_N_VSIM <N>`: Timeout after N results from vector component
  *   - `TIMEOUT_AFTER_N_TAIL <N>`: Timeout after N results from tail pipeline (merger)
  *
  * **Usage Examples:**
  *   # Search component timeout only
- *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_SEARCH 5 DEBUG_PARAMS_COUNT 2
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_SEARCH 5
+ * DEBUG_PARAMS_COUNT 2
  *
  *   # Vector component timeout only
- *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_VSIM 8 DEBUG_PARAMS_COUNT 2
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_VSIM 8
+ * DEBUG_PARAMS_COUNT 2
  *
  *   # Both component timeouts
- *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_SEARCH 5 TIMEOUT_AFTER_N_VSIM 10 DEBUG_PARAMS_COUNT 4
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_SEARCH 5
+ * TIMEOUT_AFTER_N_VSIM 10 DEBUG_PARAMS_COUNT 4
  *
  *   # Tail pipeline timeout
- *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_TAIL 3 DEBUG_PARAMS_COUNT 2
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_TAIL 3
+ * DEBUG_PARAMS_COUNT 2
  *
  * Supports both single shard (standalone) and multi-shard (cluster) modes.
  */

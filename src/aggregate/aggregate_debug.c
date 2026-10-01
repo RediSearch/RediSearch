@@ -171,18 +171,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N count");
       return REDISMODULE_ERR;
     }
-    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
-        debug_req->requestedTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
-      return REDISMODULE_ERR;
-    }
     if (!isClusterCoord(debug_req)) {
       // Shard/SA: debug timeout is only supported with RETURN or FAIL (without background workers)
-      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                            timeoutAfterNBlockedClientError);
-        return REDISMODULE_ERR;
-      }
       if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && IsCursor(&debug_req->r)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
                             "TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL");

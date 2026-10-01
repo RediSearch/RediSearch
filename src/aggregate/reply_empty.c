@@ -223,26 +223,3 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     return empty_sendChunk_common(ctx, req);
 }
-
-int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal) {
-    // Transient AREQ with no blocked-client cycle (see single_shard_common_query_reply_empty).
-    AREQ *req = AREQ_New(NULL, 0);
-    QueryError *status = &req->base.reply.err;
-
-    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-    AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
-    if (internal) {
-        AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
-    }
-    req->base.cursorInfo.id = (uint64_t)cid;
-
-    return empty_sendChunk_common(ctx, req);
-}
-
-int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
-    return cursor_read_empty_reply_timeout(ctx, cid, false);
-}
-
-int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
-    return cursor_read_empty_reply_timeout(ctx, cid, true);
-}

@@ -36,7 +36,7 @@ typedef struct QueryError QueryError;
  *     - Currently supports:
  *       - On a multi-shard coordinator, `_FT.DEBUG` requires `ON_TIMEOUT RETURN` for direct
  *         search, aggregate, and hybrid queries and their `FT.PROFILE` variants. `ON_TIMEOUT FAIL`
- *         and `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks, which are
+ *         uses blocked-client timeout callbacks, which are
  *         incompatible with query debug execution. Rejected requests return
  *         `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *       - **`TIMEOUT_AFTER_N <N> [INTERNAL_ONLY]`**:
@@ -50,37 +50,45 @@ typedef struct QueryError QueryError;
  *             `TIMEOUT_AFTER_N is not supported with blocked-client timeout handling`.
  *           - **Shard/SA (not coordinator):** Requires `ON_TIMEOUT RETURN` policy, or
  *             `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
- *             `ON_TIMEOUT RETURN-STRICT` is never supported. With workers enabled,
+ *             With workers enabled,
  *             `ON_TIMEOUT FAIL` relies on blocked-client timeout handling and is also unsupported.
  *           - **Coordinator with `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` under the
  *             coordinator-wide query debug constraint. The debug timeout itself only affects
  *             the shard query pipeline. A special handling exists for `N == 0` with query
  *             timeout disabled to prevent infinite loops (see RESP2/RESP3 details below).
  *           - **Coordinator without `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` policy
- *             only. `ON_TIMEOUT FAIL` and `ON_TIMEOUT RETURN-STRICT` are not supported.
+ *             only. `ON_TIMEOUT FAIL` is not supported.
  *       - **`INTERNAL_ONLY` (optional)**:
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
  *           without affecting the coordinator pipeline.
  *       - **`PAUSE_AFTER_RP_N <RP_TYPE> <N> [INTERNAL_ONLY]`**:
- *         - Inserts a pause RP **after** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
- *           flow past that RP. Fails if `<RP_TYPE>` is invalid or not present or if it's the last RP in the stream.
+ *         - Inserts a pause RP **after** the first occurrence of `<RP_TYPE>`; pauses after `<N>`
+ results
+ *           flow past that RP. Fails if `<RP_TYPE>` is invalid or not present or if it's the last
+ RP in the stream.
  *         - `<RP_TYPE>` can be any valid RP type, except for `DEBUG_RP`.
  *         - The query can be resumed by calling `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
- *         - If timeout is specified and the query is paused for longer than the query timeout, the query will timeout **after** it is resumed.
+ *         - If timeout is specified and the query is paused for longer than the query timeout, the
+ query will timeout **after** it is resumed.
  *         - **`INTERNAL_ONLY` (optional)**:
  *           - Only applicable in FT.AGGREGATE cluster mode.
- *           - Controls whether the pause applies to the coordinator pipeline or shard-level processing.
+ *           - Controls whether the pause applies to the coordinator pipeline or shard-level
+ processing.
  *           - If specified, the pause applies only to shards, not the coordinator.
  *       - **`PAUSE_BEFORE_RP_N <RP_TYPE> <N> [INTERNAL_ONLY]`**:
- *         - Inserts a pause RP **before** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
- *           are produced upstream of that insertion point. Fails if `<RP_TYPE>` is invalid or not present.
+ *         - Inserts a pause RP **before** the first occurrence of `<RP_TYPE>`; pauses after `<N>`
+ results
+ *           are produced upstream of that insertion point. Fails if `<RP_TYPE>` is invalid or not
+ present.
  *         - `<RP_TYPE>` can be any valid RP type, except for `DEBUG_RP`.
  *         - The query can be resumed by calling `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
- *         - If timeout is specified and the query is paused for longer than the query timeout, the query will timeout **after** it is resumed.
+ *         - If timeout is specified and the query is paused for longer than the query timeout, the
+ query will timeout **after** it is resumed.
  *         - **`INTERNAL_ONLY` (optional)**:
  *           - Only applicable in FT.AGGREGATE cluster mode.
- *           - Controls whether the pause applies to the coordinator pipeline or shard-level processing.
+ *           - Controls whether the pause applies to the coordinator pipeline or shard-level
+ processing.
  *           - If specified, the pause applies only to the coordinator, not the shards.
  *
  *   - `<DEBUG_PARAMS_COUNT>`:
@@ -99,7 +107,7 @@ typedef struct QueryError QueryError;
  * - Pause debugging affects at most one query at a time (single debug pause RP at once).
  * - `TIMEOUT_AFTER_N` policy constraints:
  *   - Shard/SA: Requires `ON_TIMEOUT RETURN`, or `ON_TIMEOUT FAIL` without workers
- *     (WORKERS=0). `ON_TIMEOUT RETURN-STRICT` is never supported.
+ *     (WORKERS=0).
  *   - Coordinator without `INTERNAL_ONLY`: Requires `ON_TIMEOUT RETURN` only.
  *   - Coordinator with `INTERNAL_ONLY`: Requires `ON_TIMEOUT RETURN` under the coordinator-wide
  *     query debug constraint; the debug timeout itself remains shard-only.
@@ -182,7 +190,8 @@ typedef struct QueryError QueryError;
  *    - **Elapsed time before fetching a new reply:**
  *      If the current reply did not contain a timeout warning but was returned due to EOF, the
  *      coordinator must request another shard’s reply. Before making this request, it checks the
- *      elapsed time. Since the timeout time was already set when we reached N, this check will trigger a
+ *      elapsed time. Since the timeout time was already set when we reached N, this check will
+ trigger a
  *      timeout status.
  *
  *    *Example of timeout warning due to elapsed time:*
@@ -261,7 +270,6 @@ typedef struct QueryError QueryError;
  *    **In production, this infinite loop does not occur** because shards will eventually return EOF
  *    once they have finished iterating all documents in the dataset.
  */
-
 
 typedef struct {
   RedisModuleString **debug_argv;

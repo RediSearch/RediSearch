@@ -93,7 +93,7 @@ def testCursorDeadlineIsNotStaleOnResume():
     timeout for one the pipeline had just extended - and because the NOT iterator latches itself
     to EOF on timeout, the cursor then ended, dropping the documents it still owed.
 
-    Only the clock checker was affected. FAIL and RETURN_STRICT poll the blocked-client flag,
+    Only the clock checker was affected. FAIL polls the blocked-client flag,
     re-read on every probe, and those are exactly the policies for which `runCursor` skips the
     re-arm - so RETURN was both the only policy that re-armed and the only one that captured.
 

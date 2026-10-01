@@ -85,7 +85,7 @@ typedef struct {
 
 typedef struct {
   size_t timeout; // Number of timeout warnings
-  QueryTimeoutStageStats timeout_by_stage; // Blocked-client timeouts by stage (RETURN_STRICT policy)
+  QueryTimeoutStageStats timeout_by_stage;  // Blocked-client timeouts by stage (FAIL policy)
   size_t oom;
   size_t maxPrefixExpansion;
   size_t asm_inaccuracy;
@@ -199,7 +199,7 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
 
 // Record one blocked-client query timeout into the per-stage breakdown. Called
 // exactly once per blocked-client timeout callback, after the timedOut flag froze
-// the stage marker. `isError`: FAIL -> error, RETURN_STRICT -> warning; `coord`: side.
+// the stage marker. `isError`: error versus warning; `coord`: side.
 void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord);
 
 // Update the number of active io threads.

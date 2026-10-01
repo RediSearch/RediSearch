@@ -693,7 +693,6 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     }
   }
 
-  AREQ_SetCanYieldPartialResults(r);
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
@@ -1052,72 +1051,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   return REDISMODULE_OK;
 }
 
-// Drain any queued partial results into `base.reply.results` on the main
-// thread after the background pipeline has aborted. Flips RPNet to drainOnly
-// mode so the post-abort drain only pulls already-buffered shard replies, then
-// delegates the actual loop to the shared helper.
-static void drainPartialResultsAfterTimeout(AREQ *req) {
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->canYieldPartialResults) {
-    return;
-  }
-
-  RS_ASSERT(qctx->rootProc->type == RP_NETWORK);
-  ((RPNet *)qctx->rootProc)->drainOnly = true;
-
-  AREQ_DrainStoredResultsAfterTimeout(req);
-}
-
-// Timeout callback for Coordinator AREQ execution
-// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
-int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  // Installed by BeginCycle on the main thread before the command returned,
-  // so no callback can observe missing privdata.
-  RS_ASSERT(request != NULL);
-  AREQ *req = QueryRequest_GetAREQ(request);
-
-  // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
-
-  // Record the per-stage breakdown at the stage the deadline caught the request.
-  recordCoordAREQTimeoutStage(req, /*isError=*/false);
-
-  if (AREQ_TryClaimAggregateResults(req)) {
-    // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
-    // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
-    // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
-    // aggregation phase so it stores/signals the timed-out state for partial-result handling.
-    // Reply with empty results
-    coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
-    return REDISMODULE_OK;
-  }
-
-  // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
-  // Wake it so it observes the Timeout and exits the pipeline promptly.
-  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
-
-  // Sync with the background thread
-  AREQ_WaitForAggregateResultsComplete(req);
-
-  // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
-  if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
-  }
-
-  // Harvest any shard replies that landed in the channel before the deadline.
-  // No-op for already-complete runs.
-  drainPartialResultsAfterTimeout(req);
-
-  AREQ_ReplyWithStoredResults(ctx, req);
-
-  return REDISMODULE_OK;
-}
-
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// Main-thread reply callback for coord AREQ (FAIL). Reads results
 // stored by the BG thread in req->base.reply. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1139,69 +1073,8 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
   }
 
-  // Under RETURN-STRICT, a shard's TIMEDOUT warning does not abort the coord
-  // pipeline (see processWarningsAndCleanup in src/coord/rpnet.c): RPNet keeps
-  // draining the remaining shards and the warning is surfaced via the
-  // QEXEC_S_SHARD_TIMED_OUT_WARNING flag. The only RETURN-STRICT path that
-  // still produces rc=TIMEDOUT is the coord's own deadline firing, which
-  // routes through DistAggregateTimeoutReturnStrictCallback -- not this
-  // callback. Under FAIL, a shard timeout still bails the coord pipeline
-  // early; the BG thread stores the resulting error in base.reply.err
-  // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
-  return REDISMODULE_OK;
-}
-
-// Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
-// Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
-// RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
-// check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
-// bails are signaled via AREQ_ReplyErrorOrDefer. The timer waits and branches
-// on `hasStoredResults`.
-int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  RS_ASSERT(request != NULL);
-  AREQ *req = QueryRequest_GetAREQ(request);
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
-
-  // Record the per-stage breakdown at the stage the deadline caught the request
-  // (QUEUE while BG has not dequeued the read yet).
-  recordCoordAREQTimeoutStage(req, /*isError=*/false);
-
-  if (QueryRequest_TryOwnStrictRead(request, QUERY_REQUEST_READ_OWNER_TIMEOUT)) {
-    // The BG worker has not dequeued the read job yet. Waiting here would
-    // block the main thread on BG progress (deadlock if the pool is
-    // paused/saturated); reply with a depleted cursor instead. The worker
-    // observes the lost latch at its entry and frees the taken cursor without
-    // storing a reply.
-    return coord_cursor_read_empty_reply_timeout(ctx, 0);
-  }
-
-  // Wake the abort channel — unblocks BG from
-  // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
-  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
-
-  // BG owns the read: a started RETURN_STRICT read always stores a
-  // cursor-shaped reply, signals completion, and parks/frees the cursor.
-  AREQ_WaitForAggregateResultsComplete(req);
-
-  if (req->base.reply.hasStoredResults) {
-    // Drain anything queued before the deadline, then serialize and dispose
-    // the stashed cursor (Pause if more rows remain, Free on EOF) inside
-    // AREQ_ReplyWithStoredResults.
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
-    drainPartialResultsAfterTimeout(req);
-    AREQ_ReplyWithStoredResults(ctx, req);
-  } else {
-    // Pre-pipeline bail through AREQ_ReplyErrorOrDefer. Reachable on
-    // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
-    // cursorRead bails here when the index was dropped while the cursor idled.
-    QueryError *err = &req->base.reply.err;
-    RS_ASSERT(QueryError_HasError(err));
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, err);
-  }
   return REDISMODULE_OK;
 }
 

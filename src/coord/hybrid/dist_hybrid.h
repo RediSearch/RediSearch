@@ -37,7 +37,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                             struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 struct dict;  // forward decl (see util/dict/dict.h): the resolved PARAMS dict

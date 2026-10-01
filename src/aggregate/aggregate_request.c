@@ -1158,27 +1158,6 @@ AREQ_Debug *AREQ_New_AREQ_Debug(RedisModuleString **argv, uint32_t argc) {
   return debug_req;
 }
 
-bool AREQ_TryClaimAggregateResults(AREQ *req) {
-  return QueryRequest_TryClaimResults(&req->base);
-}
-
-bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictReadOwner owner) {
-  int expected = QUERY_REQUEST_READ_OWNER_NONE;
-  // acq_rel: the winner's subsequent actions (BG running the read / the timer
-  // replying depleted) must be ordered against the loser's observation.
-  return atomic_compare_exchange_strong_explicit(
-      &request->async.strictReadOwner, &expected, (int)owner, memory_order_acq_rel,
-      memory_order_acquire);
-}
-
-void AREQ_SignalAggregateResultsComplete(AREQ *req) {
-  QueryRequest_SignalResultsComplete(&req->base);
-}
-
-void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
-  QueryRequest_WaitForResultsComplete(&req->base);
-}
-
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
@@ -1214,21 +1193,6 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request) {
   holding = async->safeLoadersHoldingGIL > 0;
   pthread_mutex_unlock(&async->aggregateResultsLock);
   return holding;
-}
-
-void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, false);
-  req->base.async.aggregateResultsClaimLost = false;
-  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
-  req->base.async.aggregateResultsDone = false;
-  req->base.async.safeLoadersHoldingGIL = 0;
-  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
-  QueryRequestTimeout_BeginCycle(&req->base.timeout,
-                                 QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
-  if (root && root->type == RP_NETWORK) {
-    ((RPNet *)root)->drainOnly = false;
-  }
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
@@ -1360,13 +1324,6 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
       RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     goto error;
-  }
-
-  // Shard/standalone inline execution has no blocked-client timeout callback,
-  // which RETURN_STRICT requires. Quietly fall back to RETURN for this request.
-  if (!IsCoordinator(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
-      !RunInThread(ctx)) {
-    req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
   }
 
   // Verify we got slots requested if needed
@@ -1664,7 +1621,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // capture — it may run after the last strong spec reference was released.
   AREQ_QueryProcessingCtx(req)->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&index->scan_failed_OOM);
   // Borrow the request timeout onto the sctx so pipeline RPs can
-  // observe a RETURN-STRICT main-thread timeout without holding an AREQ
+  // observe a main-thread timeout without holding an AREQ
   // back-pointer used by query execution and result processors.
   sctx->timeout = &req->base.timeout;
 
@@ -1935,7 +1892,6 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
   }
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
-    AREQ_SetCanYieldPartialResults(req);
     // The pipeline is final: execution may only append keys to the reply
     // lookup (document loaders, the coordinator's RPNet); changing an existing
     // key panics in the Rust core.

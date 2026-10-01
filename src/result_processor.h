@@ -228,7 +228,7 @@ void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
 /* Link the request sync context into every RP_SAFE_LOADER and RP_DISK_ASYNC_LOADER in the
- * pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
+ * pipeline so they can perform the legacy timeout GIL deadlock-avoidance handshake (see
  * aggregate.h). No-op for pipelines without safe/disk loaders. */
 void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct QueryRequest *request);
 

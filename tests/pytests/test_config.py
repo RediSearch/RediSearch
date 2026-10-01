@@ -279,7 +279,7 @@ def testInitConfig():
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
     _test_config_str('ON_TIMEOUT', 'fail')
-    _test_config_str('ON_TIMEOUT', 'return-strict')
+    _test_config_str('ON_TIMEOUT', 'return')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -1245,9 +1245,6 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
 
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return-strict').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-on-timeout')\
-        .equal(['search-on-timeout', 'return-strict'])
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
@@ -1292,6 +1289,14 @@ def testModuleLoadexEnumParams():
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
+    for removed in ('return-strict', 'RETURN-STRICT', 'Return-Strict'):
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                   'CONFIG', configName, removed).error()
+        env.expect('MODULE', 'LIST').equal(default_module_list)
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                   'ARGS', argName, removed).error()
+        env.expect('MODULE', 'LIST').equal(default_module_list)
+
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, testValue
     )
@@ -2542,3 +2547,22 @@ def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
     # RLTest reuses the server across tests, so hand it back at the defaults
     env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '16',
                'search-_disk-async-read-queue-factor', '1').ok()
+
+
+@skip(cluster=True)
+def test_return_strict_timeout_policy_removed(env):
+    """Both runtime configuration interfaces reject the removed policy without changing it."""
+    previous = env.cmd(config_cmd(), 'GET', 'ON_TIMEOUT')[0][1]
+    try:
+        for policy in ('return', 'fail'):
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+            for removed in ('return-strict', 'RETURN-STRICT', 'Return-Strict'):
+                env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', removed).error().contains(
+                    'Invalid ON_TIMEOUT value')
+                env.expect(config_cmd(), 'GET', 'ON_TIMEOUT').equal([['ON_TIMEOUT', policy]])
+                env.expect('CONFIG', 'SET', 'search-on-timeout', removed).error().contains(
+                    'CONFIG SET failed')
+                env.expect('CONFIG', 'GET', 'search-on-timeout').equal(
+                    ['search-on-timeout', policy])
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', previous).ok()

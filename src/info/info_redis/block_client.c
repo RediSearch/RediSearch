@@ -166,12 +166,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   // disposition keeps its FREE default unless the cycle's reply exposes a
   // live cursor id and records PAUSE.
   request->cursorInfo.cursor = cursor;
-  // Cursor cycles reuse the request across reads: reset the per-read
-  // RETURN_STRICT claim/latch state so the new cycle starts from a clean
-  // slate.
-  if (request->async.requiresAggregateResultsSync) {
-    AREQ_ResetForCursorReadReturnStrict(QueryRequest_GetAREQ(request));
-  }
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;

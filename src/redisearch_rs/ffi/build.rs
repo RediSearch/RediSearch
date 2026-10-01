@@ -332,7 +332,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AsyncPollResult",
             "AsyncReadResult",
             "BasicDiskAPI",
-            // RETURN_STRICT GIL handshake context.
+            // legacy timeout GIL handshake context.
             "QueryRequest",
             "DocTableDiskAPI",
             "IndexDiskAPI",

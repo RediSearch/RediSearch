@@ -32,7 +32,7 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
     point = points.get(stage)
     cleanup_point = 'CoordSearchRequestFree'
     worker_done_point = 'CoordSearchWorkerDone'
-    policies = ('return',) if debug_query else ('return', 'fail', 'return-strict')
+    policies = ('return',) if debug_query else ('return', 'fail')
     if stage == 'claimed':
         policies = ('fail',)
     for policy in policies:
@@ -265,7 +265,7 @@ def test_search_uses_captured_timeout_policy():
     try:
         with vecsimMockTimeoutContext(env):
             for initial_policy, next_policy in (('fail', 'return'), ('return', 'fail'),
-                                                ('return-strict', 'fail')):
+                                                ('fail',)):
                 env.expect('CONFIG', 'SET', 'search-on-timeout', initial_policy).ok()
                 env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', prepare_point).ok()
                 env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', reducer_point).ok()
