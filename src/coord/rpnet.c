@@ -750,10 +750,6 @@ take_reply:
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred from the shard-summed total accumulated on the
       // IO thread; it is preserved across cursor reads by finishSendChunk.
-      if (!nc->withCount) {
-        // Without WITHCOUNT, count rows in batch for backward compatibility
-        nc->base.parent->totalResults += MRReply_Length(rows);
-      }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       nc->curIdx = 1;
@@ -763,17 +759,30 @@ take_reply:
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }
-      // A shard with the compact format on sends [total, <block>]; the legacy encoding is
-      // [total, row, row, ...]. The element's reply type tells them apart, so no capability
-      // exchange is needed on this path.
-      if (MRReply_Length(rows) == 2 &&
-          MRReply_Type(MRReply_ArrayElement(rows, 1)) == MR_REPLY_STRING) {
-        if (!blockBegin(nc, MRReply_ArrayElement(rows, 1))) {
-          QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC);
-          QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
-                               "Malformed row block in shard reply");
+    }
+    // RESP2 prefixes the rows with a count; RESP3 keeps metadata outside this array.
+    if (MRReply_Length(rows) == nc->curIdx + 1 &&
+        MRReply_Type(MRReply_ArrayElement(rows, nc->curIdx)) == MR_REPLY_STRING) {
+      if (!blockBegin(nc, MRReply_ArrayElement(rows, nc->curIdx))) {
+        QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC);
+        QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
+                             "Malformed row block in shard reply");
+        return RS_RESULT_ERROR;
+      }
+    }
+    if (resp3) {
+      size_t rowCount = MRReply_Length(rows);
+      if (nc->block.active) {
+        MRReply *count = MRReply_MapElement(nc->current.meta, "row_block_rows");
+        if (!count || MRReply_Type(count) != MR_REPLY_INTEGER || MRReply_Integer(count) < 0) {
+          QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC,
+                              "Invalid row count in shard row block reply");
           return RS_RESULT_ERROR;
         }
+        rowCount = MRReply_Integer(count);
+      }
+      if (!nc->withCount) {
+        nc->base.parent->totalResults += rowCount;
       }
     }
   }

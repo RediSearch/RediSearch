@@ -151,6 +151,15 @@ bool RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Rep
 void RowBlockWriter_Reset(struct RowBlockWriter *w);
 
 /**
+ * Returns the number of rows stored by this writer.
+ *
+ * # Safety
+ *
+ * Same contract as [`RowBlockWriter_Bytes`]'s `w`.
+ */
+size_t RowBlockWriter_RowCount(const struct RowBlockWriter *w);
+
+/**
  * Appends one row, reading values for the schema's columns out of `row`.
  *
  * Returns false when the row holds a value the format cannot represent, in which case

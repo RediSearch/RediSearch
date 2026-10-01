@@ -284,6 +284,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/reply.h",
         fns: &[
+            "RedisModule_Reply_Array",
+            "RedisModule_Reply_ArrayEnd",
             "RedisModule_Reply_Map",
             "RedisModule_Reply_MapEnd",
             "RedisModule_Reply_RSValue",

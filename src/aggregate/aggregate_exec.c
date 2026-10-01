@@ -486,6 +486,8 @@ typedef struct {
   SearchResult **results;   // Aggregated results (for ON_TIMEOUT FAIL policy)
   SearchResult *r;          // Current result being processed
   bool cursor_done;         // Whether the cursor is done
+  bool rowBlock;
+  size_t rowBlockRows;
 } ChunkSerializeState;
 
 /* Record this request's blocked-client timeout into the per-stage breakdown, at
@@ -648,13 +650,11 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
 //
 // When enabled, a chunk's rows travel as ONE binary bulk string instead of one RESP map per
 // row (see the `row_block` Rust crate). Restricted to internal (coordinator-dispatched)
-// aggregate requests on RESP2: that is the only path the coordinator's RPNet decodes, and
-// keeping client-facing replies on RESP is what makes this safe to enable without a protocol
-// version bump.
+// aggregate requests; client-facing replies retain their normal RESP2 or RESP3 shape.
 //
 // The reply shape is unchanged apart from the rows themselves: [total, <block>] instead of
-// [total, row, row, ...]. The coordinator distinguishes them by the element's reply type, so
-// the read side needs no negotiation.
+// [total, row, row, ...] in RESP2, or a single block in the RESP3 results array.
+// The coordinator distinguishes blocks from legacy rows by the element's reply type.
 //
 // A block carries a row's fields and nothing else, so any request asking for the per-row
 // extras `serializeResult` can prepend - id, score, payload, sortkey, required fields - stays
@@ -665,10 +665,11 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
    QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS |    \
    QEXEC_F_REQUIRED_FIELDS)
 
-static bool useRowBlock(const AREQ *req) {
+static bool useRowBlock(const AREQ *req, const RedisModule_Reply *reply) {
   // Driven by the coordinator's request, not by this shard's config: see
   // RequestConfig::internalRowBlock for why the sender owns the decision.
   if (!req->reqConfig.internalRowBlock) return false;
+  if (reply->resp3 && !req->reqConfig.internalRowBlockResp3) return false;
   if (!IsInternal(req)) return false;
   if (AREQ_RequestFlags(req) & ROW_BLOCK_UNSUPPORTED_FLAGS) return false;
   return true;
@@ -730,93 +731,100 @@ static int rowBlockReplayFailed(AREQ *req, QueryProcessingCtx *qctx,
   return RS_RESULT_ERROR;
 }
 
+// Both protocols use the same row payload; their wrappers retain counts, warnings and profile.
+static int serializeChunkRows(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
+                              QueryProcessingCtx *qctx, int rc, cachedVars *cv,
+                              ChunkSerializeState *state) {
+  const bool rowBlock = useRowBlock(req, reply);
+  RowBlockWriter *w = NULL;
+  bool inBlock = false;
+  uint32_t rbRequired = 0, rbExclude = 0;
+  if (rowBlock) rowBlockFlags(req, &rbRequired, &rbExclude);
+
+  if (rowBlock) {
+    w = rowBlockWriter_Get();
+    // No columns to emit (an aggregate with no LOAD, say) means rows of zero bytes, which
+    // a block cannot count: reply in RESP, where an empty row is still a row.
+    inBlock = RowBlockWriter_WriteSchema(w, cv->lastLookup, rbRequired, rbExclude) > 0;
+  }
+
+  if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
+    if (inBlock &&
+        !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
+                                 AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
+      if (!rowBlockFallback(req, reply, w)) {
+        rc = rowBlockReplayFailed(req, qctx, state);
+        return rc;
+      }
+      inBlock = false;
+    }
+    if (!inBlock) {
+      serializeResult(req, reply, state->r, cv);
+    }
+    SearchResult_Clear(state->r);
+  } else {
+    if (inBlock) goto emit_block;
+    return rc;
+  }
+
+  while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
+    if (inBlock &&
+        !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
+                                 AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
+      if (!rowBlockFallback(req, reply, w)) {
+        rc = rowBlockReplayFailed(req, qctx, state);
+        return rc;
+      }
+      inBlock = false;
+    }
+    if (!inBlock) {
+      serializeResult(req, reply, state->r, cv);
+    }
+    SearchResult_Clear(state->r);
+  }
+
+emit_block:
+  if (inBlock) {
+    size_t blockLen;
+    const char *block = RowBlockWriter_Bytes(w, &blockLen);
+    RedisModule_Reply_StringBuffer(reply, block, blockLen);
+    state->rowBlock = true;
+    state->rowBlockRows = RowBlockWriter_RowCount(w);
+  }
+
+  return rc;
+}
+
 static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
-  QueryProcessingCtx *qctx, int rc, size_t limit, cachedVars *cv, ChunkSerializeState *state) {
+                                          QueryProcessingCtx *qctx, int rc, size_t limit,
+                                          cachedVars *cv, ChunkSerializeState *state) {
 
-    // If an error occurred, or a timeout in strict mode - return a simple error
-    if (handleSendChunkError(req, reply, qctx, rc)) {
-      state->cursor_done = true;
-      return rc;
-    }
+  // If an error occurred, or a timeout in strict mode - return a simple error
+  if (handleSendChunkError(req, reply, qctx, rc)) {
+    state->cursor_done = true;
+    return rc;
+  }
 
-    // Declared before the first `goto done_2` below: jumping over an initialisation is a
-    // hard error under -Werror=jump-misses-init.
-    const bool rowBlock = useRowBlock(req);
-    RowBlockWriter *w = NULL;
-    // Tracks what the reply carries rather than what the request asked for: it is cleared
-    // by the first row the block format cannot represent, after which this chunk is a plain
-    // RESP reply. Declared here for the same reason as `rowBlock`.
-    bool inBlock = false;
-    uint32_t rbRequired = 0, rbExclude = 0;
-    if (rowBlock) rowBlockFlags(req, &rbRequired, &rbExclude);
+  prepareSendChunkReply_Resp2(req, reply, qctx);
 
-    prepareSendChunkReply_Resp2(req, reply, qctx);
+  // Once we get here, we want to return the results we got from the pipeline (with no error).
+  // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
+  // timeout so the harvested rows are not dropped.
+  const bool buffered_strict_2 =
+      state->results != NULL && req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
+  if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
+      (!buffered_strict_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    goto done_2;
+  }
 
-    // Once we get here, we want to return the results we got from the pipeline (with no error).
-    // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
-    // timeout so the harvested rows are not dropped.
-    const bool buffered_strict_2 = state->results != NULL &&
-                                   req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-        (!buffered_strict_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      goto done_2;
-    }
+  // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
+  if (state->results != NULL) {
+    populateReplyWithResults(reply, state->results, req, cv);
+    state->results = NULL;
+    goto done_2;
+  }
 
-    // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
-    if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv);
-      state->results = NULL;
-      goto done_2;
-    }
-
-    if (rowBlock) {
-      w = rowBlockWriter_Get();
-      // No columns to emit (an aggregate with no LOAD, say) means rows of zero bytes, which
-      // a block cannot count: reply in RESP, where an empty row is still a row.
-      inBlock = RowBlockWriter_WriteSchema(w, cv->lastLookup, rbRequired, rbExclude) > 0;
-    }
-
-    if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      if (inBlock &&
-          !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
-                                   AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
-        if (!rowBlockFallback(req, reply, w)) {
-          rc = rowBlockReplayFailed(req, qctx, state);
-          goto done_2;
-        }
-        inBlock = false;
-      }
-      if (!inBlock) {
-        serializeResult(req, reply, state->r, cv);
-      }
-      SearchResult_Clear(state->r);
-    } else {
-      if (inBlock) goto emit_block_2;
-      goto done_2;
-    }
-
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      if (inBlock &&
-          !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
-                                   AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
-        if (!rowBlockFallback(req, reply, w)) {
-          rc = rowBlockReplayFailed(req, qctx, state);
-          goto done_2;
-        }
-        inBlock = false;
-      }
-      if (!inBlock) {
-        serializeResult(req, reply, state->r, cv);
-      }
-      SearchResult_Clear(state->r);
-    }
-
-emit_block_2:
-    if (inBlock) {
-      size_t blockLen;
-      const char *block = RowBlockWriter_Bytes(w, &blockLen);
-      RedisModule_Reply_StringBuffer(reply, block, blockLen);
-    }
+  rc = serializeChunkRows(req, reply, rp, qctx, rc, cv, state);
 
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
@@ -967,8 +975,14 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
  * Finishes chunk reply by handling cursor ID and profile info for RESP3.
  */
 static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx, int rc, bool cursor_done) {
+                                       QueryProcessingCtx *qctx, int rc,
+                                       const ChunkSerializeState *state) {
+  const bool cursor_done = state->cursor_done;
   RedisModule_Reply_ArrayEnd(reply); // >results
+  if (state->rowBlock) {
+    // Preserve the legacy whole-chunk count even when the coordinator stops at LIMIT.
+    RedisModule_ReplyKV_LongLong(reply, "row_block_rows", state->rowBlockRows);
+  }
 
   // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_ReplyKV_LongLong(reply, "total_results",
@@ -1030,25 +1044,13 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
       populateReplyWithResults(reply, state->results, req, cv);
       state->results = NULL;
     } else {
-      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv);
-      }
-
-      SearchResult_Clear(state->r);
-      if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-        goto done_3;
-      }
-
-      while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv);
-        SearchResult_Clear(state->r);
-      }
+      rc = serializeChunkRows(req, reply, rp, qctx, rc, cv, state);
     }
 
 done_3:
     state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
-    finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
+    finishSendChunkReply_Resp3(req, reply, qctx, rc, state);
 
     return rc;
 }

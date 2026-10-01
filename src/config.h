@@ -112,6 +112,8 @@ typedef struct {
   // on its own. This mirrors `_SLOTS_INFO` and `_COORD_DISPATCH_TIME`, where the coordinator
   // opts in and the shard tolerates absence.
   bool internalRowBlock;
+  // A separate token prevents RESP3 blocks being sent to RESP2-only coordinators.
+  bool internalRowBlockResp3;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
   // OOM policy

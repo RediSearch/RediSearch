@@ -187,6 +187,17 @@ pub unsafe extern "C" fn RowBlockWriter_Bytes(
     bytes.as_ptr().cast()
 }
 
+/// Returns the number of rows stored by this writer.
+///
+/// # Safety
+///
+/// Same contract as [`RowBlockWriter_Bytes`]'s `w`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockWriter_RowCount(w: *const RowBlockWriter) -> usize {
+    // SAFETY: ensured by the caller.
+    unsafe { writer_ref(w) }.nrows()
+}
+
 /// Emits the rows appended so far as ordinary RESP rows, reporting whether it could.
 ///
 /// Returns `false`, having emitted nothing and leaving `nelem` untouched, when the block does
@@ -249,6 +260,8 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         }
     }
 
+    // SAFETY: ensured by caller (2.).
+    let resp3 = unsafe { (*reply).resp3 };
     let mut nrows = 0;
     for row in block.rows() {
         // Already proven decodable by the validation pass above.
@@ -256,6 +269,17 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
             unreachable!("row decoded during validation but not during replay")
         };
 
+        if resp3 {
+            // SAFETY: ensured by caller (2.); the key is a static C string.
+            unsafe {
+                ffi::RedisModule_Reply_Map(reply);
+                ffi::RedisModule_Reply_StringBuffer_FFI(
+                    reply,
+                    c"extra_attributes".as_ptr(),
+                    c"extra_attributes".count_bytes(),
+                );
+            }
+        }
         // SAFETY: ensured by caller (2.)
         unsafe { ffi::RedisModule_Reply_Map(reply) };
         for (name, value) in row.fields() {
@@ -269,6 +293,19 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         }
         // SAFETY: ensured by caller (2.)
         unsafe { ffi::RedisModule_Reply_MapEnd(reply) };
+        if resp3 {
+            // SAFETY: ensured by caller (2.); the key is a static C string.
+            unsafe {
+                ffi::RedisModule_Reply_StringBuffer_FFI(
+                    reply,
+                    c"values".as_ptr(),
+                    c"values".count_bytes(),
+                );
+                ffi::RedisModule_Reply_Array(reply);
+                ffi::RedisModule_Reply_ArrayEnd(reply);
+                ffi::RedisModule_Reply_MapEnd(reply);
+            }
+        }
         nrows += 1;
     }
 
