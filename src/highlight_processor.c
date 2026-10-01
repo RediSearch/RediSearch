@@ -307,7 +307,7 @@ static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
   return RSValue_Type(first) != RSValueType_String;
 }
 
-static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
+static void processField(const HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookupRow_Get(spec->lookupKey, docParams->row);
 
@@ -352,28 +352,17 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   return rc == ITERATOR_OK ? it->current : NULL;
 }
 
-static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
-  int rc = rbase->upstream->Next(rbase->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
-
-  HlpProcessor *hlp = (HlpProcessor *)rbase;
-
-  // Get the index result for the current document from the root iterator.
-  // The current result should not contain an index result
-  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
-
-  // we can't work without the index result, just return QUEUED
+// All mutable highlighting scratch belongs to this row, not the shared processor.
+static void hlpApply(const HlpProcessor *hlp, SearchResult *r, const RSIndexResult *ir) {
   if (!ir) {
-    return RS_RESULT_OK;
+    return;
   }
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   if (!dmd) {
-    return RS_RESULT_OK;
+    return;
   }
 
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
@@ -410,7 +399,26 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
     Array_Free(&docParams.iovsArr[ii]);
   }
   rm_free(docParams.iovsArr);
-  return RS_RESULT_OK;
+}
+
+static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
+  int rc = rbase->upstream->Next(rbase->upstream, r);
+  if (rc == RS_RESULT_OK) {
+    const RSIndexResult *ir = SearchResult_HasIndexResult(r)
+                                  ? SearchResult_GetIndexResult(r)
+                                  : getIndexResult(rbase, SearchResult_GetDocId(r));
+    hlpApply((const HlpProcessor *)rbase, r, ir);
+  }
+  return rc;
+}
+
+static RPDrainStatus hlpDrain(ResultProcessor *rbase, SearchResult *r) {
+  RPDrainStatus rc = rbase->upstream->Drain(rbase->upstream, r);
+  // The worker may still own the root iterator; only retained index data is usable here.
+  if (rc == RP_DRAIN_OK && SearchResult_HasIndexResult(r)) {
+    hlpApply((const HlpProcessor *)rbase, r, SearchResult_GetIndexResult(r));
+  }
+  return rc;
 }
 
 static void hlpFree(ResultProcessor *p) {
@@ -425,7 +433,7 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
   }
   hlp->base.Next = hlpNext;
   hlp->base.Free = hlpFree;
-  hlp->base.Drain = RPDrain_EOF;
+  hlp->base.Drain = hlpDrain;
   hlp->fields = fields;
   hlp->lookup = lookup;
   hlp->isJson = isJson;
