@@ -22,12 +22,16 @@ from pathlib import Path
 from typing import List, Tuple, Set, Dict, Any
 from urllib.parse import urlparse, urlunparse
 
-import requests
-from bs4 import BeautifulSoup
+# Only external-URL checks need these, so --local-only runs on a bare Python.
+try:
+    import requests
+    from bs4 import BeautifulSoup
+except ImportError:
+    requests = None
 
 
 class LinkChecker:
-    def __init__(self, config: Dict[str, Any] = None, verbose: bool = False):
+    def __init__(self, config: Dict[str, Any] = None, verbose: bool = False, local_only: bool = False):
         if config is None:
             config = {}
 
@@ -40,10 +44,14 @@ class LinkChecker:
             'bin', 'deps', 'tests', 'scripts', 'venv', '.github', '.git', '__pycache__', '.pytest_cache'
         ]))
         self.verbose = verbose
+        self.local_only = local_only
 
-        self.session = requests.Session()
-        user_agent = config.get('user_agent', 'Mozilla/5.0 (compatible; RediSearch-LinkChecker/1.0)')
-        self.session.headers.update({'User-Agent': user_agent})
+        if not local_only:
+            if requests is None:
+                sys.exit("Checking external URLs needs scripts/requirements-linkcheck.txt; pass --local-only to skip them")
+            self.session = requests.Session()
+            user_agent = config.get('user_agent', 'Mozilla/5.0 (compatible; RediSearch-LinkChecker/1.0)')
+            self.session.headers.update({'User-Agent': user_agent})
         self.checked_urls: Set[str] = set()
 
     def find_markdown_files(self, directory: str) -> List[Path]:
@@ -92,6 +100,8 @@ class LinkChecker:
 
                     # Determine link type and resolve if relative
                     if url.startswith(('http://', 'https://')):
+                        if self.local_only:
+                            continue
                         link_type = 'absolute'
                         resolved_url = url
                     else:
@@ -373,6 +383,8 @@ def main():
                        help='Delay between requests in seconds (overrides config)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Show all links (including successful ones)')
+    parser.add_argument('--local-only', action='store_true',
+                       help='Check only links to files in the repository, skipping external URLs')
 
     args = parser.parse_args()
 
@@ -387,7 +399,7 @@ def main():
     if args.delay is not None:
         config['delay'] = args.delay
 
-    checker = LinkChecker(config, verbose=args.verbose)
+    checker = LinkChecker(config, verbose=args.verbose, local_only=args.local_only)
     success = checker.check_all_files(args.directory)
 
     if success:
