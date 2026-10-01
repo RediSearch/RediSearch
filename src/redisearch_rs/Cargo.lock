@@ -2174,6 +2174,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "row_block_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -2405,6 +2406,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "row_block"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "pretty_assertions",
+ "proptest",
+ "redis_mock",
+ "redisearch_rs",
+ "rlookup",
+ "row_block",
+ "thiserror",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "row_block_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "query_flags",
+ "rlookup",
+ "row_block",
+ "tracing",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rqe_core"
 version = "0.0.1"
 dependencies = [
@@ -2546,6 +2578,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "row_block_ffi",
  "rqe_wildcard",
  "search_result_ffi",
  "slots_tracker_ffi",

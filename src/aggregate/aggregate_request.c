@@ -402,6 +402,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
+  } else if (AC_AdvanceIfMatch(ac, "_ROW_BLOCK")) {
+    // Recorded on the request rather than as a QEFlag: that bitfield is a full u32
+    // (QEFlag_Debug holds 0x80000000), so a new flag would mean widening it everywhere.
+    papCtx->reqConfig->internalRowBlock = true;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {

@@ -28,6 +28,7 @@ extern crate query_term_ffi as _;
 extern crate reducers_ffi as _;
 extern crate result_processor_ffi as _;
 extern crate rlookup_ffi as _;
+extern crate row_block_ffi as _;
 extern crate search_result_ffi as _;
 extern crate slots_tracker_ffi as _;
 extern crate sorting_vector_ffi as _;

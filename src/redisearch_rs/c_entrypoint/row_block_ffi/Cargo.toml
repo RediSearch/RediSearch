@@ -1,0 +1,25 @@
+[package]
+name = "row_block_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# This crate has no tests nor benches.
+# Compiling a no-op bench/test binary can cause linking issues with C.
+test = false
+bench = false
+
+[dependencies]
+cheadergen.workspace = true
+ffi.workspace = true
+query_flags.workspace = true
+rlookup.workspace = true
+row_block.workspace = true
+tracing.workspace = true
+value.workspace = true
+workspace_hack.workspace = true
+
+[lints]
+workspace = true
