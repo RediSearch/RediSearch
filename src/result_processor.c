@@ -652,19 +652,27 @@ typedef struct {
   ResultProcessor base;
 } RPMetrics;
 
-static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
-  int rc;
-
-  rc = base->upstream->Next(base->upstream, res);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
-
-  MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+// Drain inputs retain their metric payload; lookup keys remain immutable during execution.
+// Only the caller-owned row is changed, so Next and Drain need no shared scratch.
+static void rpMetricsApply(SearchResult *res) {
+  const RSIndexResult *indexResult = SearchResult_GetIndexResult(res);
+  if (!indexResult) return;
+  MetricsSlice slice = MetricsVec_AsSlice(&indexResult->metrics);
   for (size_t i = 0; i < slice.len; i++) {
-    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
+    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res),
+                        RSValue_NewNumber(slice.data[i].value));
   }
+}
 
+static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
+  int rc = base->upstream->Next(base->upstream, res);
+  if (rc == RS_RESULT_OK) rpMetricsApply(res);
+  return rc;
+}
+
+static RPDrainStatus rpMetricsDrain(ResultProcessor *base, SearchResult *res) {
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, res);
+  if (rc == RP_DRAIN_OK) rpMetricsApply(res);
   return rc;
 }
 
@@ -678,7 +686,7 @@ ResultProcessor *RPMetricsLoader_New() {
   RPMetrics *ret = rm_calloc(1, sizeof(*ret));
   ret->base.Next = rpMetricsNext;
   ret->base.Free = rpMetricsFree;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = rpMetricsDrain;
   ret->base.type = RP_METRICS;
   return &ret->base;
 }
