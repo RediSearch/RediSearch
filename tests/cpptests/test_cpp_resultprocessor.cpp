@@ -7,6 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
+extern "C" {
+#include "util/dict.h"
+}
+
 #include "result_processor.h"
 #include "query_request.h"
 #include "common.h"
@@ -193,20 +197,25 @@ TEST_F(ResultProcessorTest, drainPropagatesErrors) {
 
 TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
   IndexSpec spec = {0};
+  dictType keysType = {};
+  spec.keysDict = dictCreate(&keysType, nullptr);
+  ASSERT_EQ(0, pthread_rwlock_init(&spec.rwlock, nullptr));
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
   sctx.timeout = &timeout;
-  sctx.lock_state = SPEC_LOCK_READ_BORROWED;
 
   auto *iterator = new BlockingQueryIterator();
   ResultProcessor *rp = RPQueryIterator_New(&iterator->base, nullptr, 0, &sctx);
 
   int nextStatus = RS_RESULT_MAX;
   std::thread nextThread([&]() {
+    IndexSpec_LockRead(&spec);
     SearchResult nextResult = SearchResult_New();
     nextStatus = rp->Next(rp, &nextResult);
     SearchResult_Destroy(&nextResult);
+    IndexSpec_Unlock(&spec);
+    IndexSpec_AssertLockNotHeld();
   });
 
   const bool nextEntered =
@@ -229,10 +238,16 @@ TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
   ASSERT_EQ(RP_DRAIN_EOF, secondDrain);
   ASSERT_EQ(RS_RESULT_EOF, nextStatus);
   rp->Free(rp);
+  EXPECT_EQ(0, spec.keysDict->pauserehash);
+  EXPECT_EQ(0, pthread_rwlock_destroy(&spec.rwlock));
+  dictRelease(spec.keysDict);
 }
 
 TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext) {
   IndexSpec spec = {};
+  dictType keysType = {};
+  spec.keysDict = dictCreate(&keysType, nullptr);
+  ASSERT_EQ(0, pthread_rwlock_init(&spec.rwlock, nullptr));
   spec.docs = DocTable_New(1);
   auto *dmd =
       DocTable_Put(&spec.docs, "late", 4, 1, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
@@ -242,14 +257,18 @@ TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext)
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   sctx.timeout = &timeout;
-  sctx.lock_state = SPEC_LOCK_READ_BORROWED;
   QueryProcessingCtx qctx = {};
   auto *iterator = new BlockingQueryIterator(true);
   ResultProcessor *rp = RPQueryIterator_New(&iterator->base, nullptr, 0, &sctx);
   rp->parent = &qctx;
   SearchResult next = SearchResult_New(), drained = SearchResult_New();
   int status = RS_RESULT_MAX;
-  std::thread worker([&] { status = rp->Next(rp, &next); });
+  std::thread worker([&] {
+    IndexSpec_LockRead(&spec);
+    status = rp->Next(rp, &next);
+    IndexSpec_Unlock(&spec);
+    IndexSpec_AssertLockNotHeld();
+  });
   const bool entered =
       RS::WaitForCondition([&] { return iterator->entered.load(std::memory_order_acquire); }, 5);
   QueryRequestTimeout_MarkTimedOut(&timeout);
@@ -269,6 +288,9 @@ TEST_F(ResultProcessorTest, indexDrainLeavesSuccessfulInFlightResultOwnedByNext)
   SearchResult_Destroy(&drained);
   rp->Free(rp);
   DocTable_Free(&spec.docs);
+  EXPECT_EQ(0, spec.keysDict->pauserehash);
+  EXPECT_EQ(0, pthread_rwlock_destroy(&spec.rwlock));
+  dictRelease(spec.keysDict);
 }
 
 /*
