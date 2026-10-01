@@ -50,10 +50,6 @@ typedef struct HybridRequest {
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
 
-    // Thread pool ID used for coordinator depletion and tail continuation jobs.
-    // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
-    // and scheduleHybridTail.
-    int poolId;
     // Index of the K value argument in the MRCommand for SHARD_K_RATIO
     // optimization.
     // Set during command building, used by command modifier callback. -1 if
