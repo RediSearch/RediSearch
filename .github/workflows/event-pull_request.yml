@@ -149,9 +149,10 @@ jobs:
       packages: write
       id-token: write
       actions: write
-    uses: ./.github/workflows/task-miri.yml
+    uses: ./.github/workflows/task-rust-standalone-tests.yml
     secrets: inherit
     with:
+      tool: miri
       platform: ubuntu:latest
       architecture: x86_64
       partition: count:${{ matrix.shard }}/3

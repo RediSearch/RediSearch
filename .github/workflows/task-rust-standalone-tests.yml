@@ -1,15 +1,21 @@
-name: Common Flow for MIRI
+name: Common Flow for standalone Rust test runs
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 #
-# Reusable workflow that runs the Rust workspace's tests under MIRI.
-# MIRI compiles to MIR rather than native code, so the nextest-archive workflow
-# doesn't apply — every run is a fresh cargo compile. Decoupled from the
-# build/artifact pipeline entirely so it doesn't gate any other test job.
+# Reusable workflow that runs the Rust workspace's tests under a checking tool
+# that compiles the tests itself, so the nextest-archive workflow doesn't apply
+# — every run is a fresh cargo compile. Decoupled from the build/artifact
+# pipeline entirely so it doesn't gate any other test job.
+#
+# - miri: interprets the tests' MIR to catch undefined behavior.
 
 on:
   workflow_call:
     inputs:
+      tool:
+        description: 'Tool to run the Rust tests under (miri)'
+        type: string
+        required: true
       platform:
         description: 'Platform name (e.g., ubuntu:noble)'
         type: string
@@ -24,7 +30,7 @@ on:
       fail-fast:
         type: boolean
         default: false
-        description: "If true, the workflow will terminate as soon as the MIRI step fails."
+        description: "If true, the workflow will terminate as soon as the test step fails."
       partition:
         description: 'Optional nextest partition for sharding, e.g. "count:1/3". Empty runs all tests.'
         type: string
@@ -73,7 +79,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image]
-    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    name: ${{ inputs.tool == 'miri' && 'MIRI' || inputs.tool }}${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
     if: |
       !cancelled() &&
       needs.get-config.result == 'success'
@@ -104,6 +110,18 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      # The test and failure steps are gated on exact `tool` values, so an
+      # unknown one would otherwise skip them all and report success.
+      - name: Check the tool input
+        shell: sh -eu {0}
+        env:
+          TOOL: ${{ inputs.tool }}
+        run: |
+          case "$TOOL" in
+            miri) ;;
+            *) echo "::error::Unsupported tool: '$TOOL'"; exit 1 ;;
+          esac
+
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
@@ -156,7 +174,7 @@ jobs:
           sccache-s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
           install-script: 'true'
           rust-cache: 'true'
-          rust-cache-prefix-key: 'v2-rust-miri'
+          rust-cache-prefix-key: v2-rust-${{ inputs.tool }}
           rust-cache-key: ${{ inputs.platform }}-${{ inputs.architecture }}
           rust-test-deps: 'true'
           github-token: ${{ github.token }}
@@ -168,17 +186,19 @@ jobs:
         # sanitise invalid characters.
         id: log-artifact
         env:
+          TOOL: ${{ inputs.tool }}
           PLATFORM: ${{ inputs.platform }}
           ARCH: ${{ inputs.architecture }}
           PARTITION: ${{ inputs.partition }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          NAME="MIRI Logs ${PLATFORM} ${ARCH} ${PARTITION} ${RUN_ID}-${RUN_ATTEMPT}"
+          NAME="${TOOL} Logs ${PLATFORM} ${ARCH} ${PARTITION} ${RUN_ID}-${RUN_ATTEMPT}"
           NAME=$(echo "$NAME" | sed -e 's#[":/\\<>|*?]#_#g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Rust tests (MIRI)
+        if: inputs.tool == 'miri'
         # `make rust-tests` runs the full build.sh flow: build the C side
         # first (producing libredisearch_all.a, which miri's FFI test crates
         # link against), then cargo +nightly miri nextest run.
