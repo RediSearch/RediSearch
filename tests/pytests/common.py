@@ -1595,7 +1595,7 @@ def resetAggregateResultsDebug(target):
 
 # Store Results Pause helpers (only available when built with ENABLE_ASSERT)
 def setPauseBeforeStoreResults(env, enabled, internal):
-    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+    """Enable/disable pausing before a cycle publishes its results.
 
     internal: True restricts the pause to internal (coordinator-dispatched)
     requests; False restricts it to non-internal (user-facing) requests.
@@ -1605,7 +1605,7 @@ def setPauseBeforeStoreResults(env, enabled, internal):
                'true' if enabled else 'false', scope).ok()
 
 def setPauseAfterStoreResults(env, enabled, internal):
-    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+    """Enable/disable pausing after a cycle publishes its results.
 
     internal: True restricts the pause to internal (coordinator-dispatched)
     requests; False restricts it to non-internal (user-facing) requests.
