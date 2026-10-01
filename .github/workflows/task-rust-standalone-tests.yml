@@ -8,12 +8,15 @@ name: Common Flow for standalone Rust test runs
 # pipeline entirely so it doesn't gate any other test job.
 #
 # - miri: interprets the tests' MIR to catch undefined behavior.
+# - valgrind: runs the natively compiled tests, with build.sh's default
+#   `optimised_test` profile, to catch leaks and uninitialised reads that
+#   only exist in optimised code.
 
 on:
   workflow_call:
     inputs:
       tool:
-        description: 'Tool to run the Rust tests under (miri)'
+        description: 'Tool to run the Rust tests under (miri, valgrind)'
         type: string
         required: true
       platform:
@@ -32,7 +35,7 @@ on:
         default: false
         description: "If true, the workflow will terminate as soon as the test step fails."
       partition:
-        description: 'Optional nextest partition for sharding, e.g. "count:1/3". Empty runs all tests.'
+        description: 'Optional nextest partition for sharding, e.g. "count:1/3". Empty runs all tests. miri only.'
         type: string
         default: ''
 
@@ -118,7 +121,7 @@ jobs:
           TOOL: ${{ inputs.tool }}
         run: |
           case "$TOOL" in
-            miri) ;;
+            miri|valgrind) ;;
             *) echo "::error::Unsupported tool: '$TOOL'"; exit 1 ;;
           esac
 
@@ -157,10 +160,10 @@ jobs:
           fi
           echo "HOME=$h" >> "$GITHUB_ENV"
 
-      # MIRI runs `make rust-tests` which goes through build.sh's full flow,
-      # including the C build that produces libredisearch_all.a. Sccache keeps
-      # the C compile fast across runs, and cargo-nextest (rust-test-deps) is
-      # needed for `cargo miri nextest run`.
+      # Both tools go through build.sh's full flow, including the C build that
+      # produces libredisearch_all.a, so sccache keeps the C compile fast across
+      # runs. rust-test-deps provides cargo-nextest for `cargo miri nextest run`
+      # and cargo-valgrind for `cargo valgrind test`.
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -179,7 +182,15 @@ jobs:
           rust-test-deps: 'true'
           github-token: ${{ github.token }}
 
+      # valgrind is not part of the shared container image, since no other job
+      # needs it. Installing it needs apt and root, which the ubuntu container
+      # provides.
+      - name: Install valgrind
+        if: inputs.tool == 'valgrind'
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq valgrind') }}
+
       - name: Set log artifact name
+        if: inputs.tool == 'miri'
         # Artifact names can't contain : / etc. (platform is e.g. "ubuntu:latest")
         # and must be unique per shard, or actions/upload-artifact errors on
         # the second shard. Fold the partition (e.g. count:1/3) into the name and
@@ -216,16 +227,32 @@ jobs:
           RUST_PARTITION: ${{ inputs.partition }}
         run: make rust-tests
 
+      - name: Rust tests (valgrind)
+        if: inputs.tool == 'valgrind'
+        # build.sh builds the C side first, then runs `cargo valgrind test`,
+        # which reports to the job log only.
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: rust_unit_tests_valgrind
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          # Header freshness is enforced only in the lint job; don't regenerate here.
+          REDISEARCH_GENERATE_HEADERS: "0"
+        run: ./build.sh RUN_RUST_VALGRIND
+
       - name: Upload Test Logs (failure)
-        if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
+        if: inputs.tool == 'miri' && (failure() || steps.rust_unit_tests_miri.outcome == 'failure')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.log-artifact.outputs.name }}
           path: tests/**/logs/*.log*
           if-no-files-found: ignore
 
-      - name: Fail flow if MIRI failed
-        if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
+      - name: Fail flow if the tests failed
+        if: failure() || steps.rust_unit_tests_miri.outcome == 'failure' || steps.rust_unit_tests_valgrind.outcome == 'failure'
+        env:
+          TOOL: ${{ inputs.tool }}
+          MIRI_OUTCOME: ${{ steps.rust_unit_tests_miri.outcome }}
+          VALGRIND_OUTCOME: ${{ steps.rust_unit_tests_valgrind.outcome }}
         run: |
-          echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
+          echo "Rust tests ($TOOL): miri=$MIRI_OUTCOME valgrind=$VALGRIND_OUTCOME"
           exit 1

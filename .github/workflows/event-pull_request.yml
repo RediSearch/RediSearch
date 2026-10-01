@@ -157,6 +157,28 @@ jobs:
       architecture: x86_64
       partition: count:${{ matrix.shard }}/3
 
+  # ------------------------------------------------------------------
+  # Rust tests under valgrind run independently too: `cargo valgrind test`
+  # compiles its own optimised test binaries, so there is no build artifact
+  # to reuse. Not sharded: build.sh's valgrind run has no partition support.
+  # ------------------------------------------------------------------
+
+  rust-valgrind:
+    needs: [check-what-changed, spellcheck]
+    # Same gate as MIRI: both only exercise the Rust workspace.
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && (contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') || needs.check-what-changed.outputs.MIRI_RELEVANT == 'true') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/task-rust-standalone-tests.yml
+    secrets: inherit
+    with:
+      tool: valgrind
+      platform: ubuntu:latest
+      architecture: x86_64
+
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
     needs:
@@ -169,6 +191,7 @@ jobs:
       - coverage
       - sanitize
       - miri
+      - rust-valgrind
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
