@@ -343,8 +343,8 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
 static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Cursors should have been freed by the timeout callback or reply callback.
-    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
+    // The cursor array must be detached by the reply/timeout callback or the
+    // blocked-client finalizer before the last cursor releases this request.
     RS_ASSERT(req->cursors == NULL);
 
     // Free all individual AREQ requests and their pipelines.
@@ -543,6 +543,20 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
       AREQ_SetTimedOut(req->requests[i]);
+    }
+  }
+}
+
+// A parked MR pop may be blocked on the hybrid request's own channel (setup
+// phase) or a subquery's channel (read phase); wake all of them.
+void HybridRequest_WakeAbortChannels(HybridRequest *hreq) {
+  if (!hreq) {
+    return;
+  }
+  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
     }
   }
 }

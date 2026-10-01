@@ -1000,6 +1000,16 @@ done:
   return rc;
 }
 
+// Background standalone FT.HYBRID/FT.PROFILE and shard _FT.HYBRID/_FT.PROFILE,
+// including the shard's initial cursor creation. Internal cursor reads use
+// CursorReadDisconnectCallback; coordinator queries use CoordRequestCtx_Disconnect.
+static void HybridQueryDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  BlockedQueryNode *node = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(node && node->privdata);
+  HybridRequest_SetTimedOut(node->privdata);
+}
+
 // Timeout callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (FAIL policy only).
 // Acquires cursorMutex to synchronize with HybridRequest_StartCursors:
@@ -1206,9 +1216,17 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
 }
 
-// Wrapper for HybridRequest_DecrRef to match BlockedClientFreePrivDataCB signature
-static void HybridRequest_DecrRefWrapper(void *privdata) {
-  HybridRequest_DecrRef((HybridRequest *)privdata);
+// The worker has finished before Redis frees the blocked client's private data.
+// If disconnect skipped the reply callback, free unreturned shard cursors.
+// No cursorMutex is needed after worker completion.
+static void HybridQueryFreePrivData(void *privdata) {
+  HybridRequest *hreq = privdata;
+  if (hreq->cursors) {
+    arrayof(Cursor *) cursors = hreq->cursors;
+    hreq->cursors = NULL;
+    array_free_ex(cursors, Cursor_Free(*(Cursor **)ptr));
+  }
+  HybridRequest_DecrRef(hreq);
 }
 
 // Background execution functions implementation
@@ -1240,10 +1258,11 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     blockClientCtx.privdata = hreq;
     HybridRequest_IncrRef(hreq);
-    blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
+    blockClientCtx.freePrivData = HybridQueryFreePrivData;
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
 
     if (timeoutPolicy != TimeoutPolicy_Return) {
+      blockClientCtx.disconnectCallback = HybridQueryDisconnectCallback;
       // Standalone FAIL serializes on the worker while the deadline remains active.
       hreq->useReplyCallback = internal || timeoutPolicy == TimeoutPolicy_ReturnStrict;
       if (hreq->useReplyCallback) {

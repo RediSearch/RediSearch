@@ -4005,6 +4005,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
   if (policy != TimeoutPolicy_Return) {
+    handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
     const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
     handlerCtx.bcCtx.reply_callback = useReplyCallback ? DistHybridReplyCallback : NULL;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
