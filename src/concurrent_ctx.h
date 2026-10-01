@@ -55,6 +55,7 @@ struct CoordRequestCtx;  // Forward declaration
 typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
   RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
+  RedisModuleDisconnectFunc disconnect_callback;  // Cancellation when the client disconnects
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
   void *privdata;                         // Private data for the blocked client
   void (*free_privdata)(RedisModuleCtx*, void*);           // Callback to free private data

@@ -552,6 +552,165 @@ class TestCoordinatorTimeout:
         """Teardown: Print debug info about any remaining HYBRID clients."""
         debug_print_hybrid_clients(self.env, "TestCoordinatorTimeout teardown")
 
+    def _assert_disconnect_wakes_abort_channels(self, query_args, command_name, policy='fail'):
+        """Disconnect while every shard cursor read is parked and require cycle teardown."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+
+        sync_point = 'BeforeCursorReadSendChunk'
+        shard_connections = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        for connection in shard_connections:
+            connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            connection.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        # 8.10 releases coordinator cycles through CoordRequestCtx_Free.
+        free_count_before = _get_coord_req_ctx_free_count(env)
+        unexpected = []
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, query_args, unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            for connection in shard_connections:
+                wait_for_condition(
+                    lambda connection=connection: (
+                        connection.execute_command(
+                            debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1,
+                        {},
+                    ),
+                    f'Timeout waiting for shard to park at {sync_point}',
+                )
+
+            blocked_client_id = wait_for_blocked_query_client(env, command_name)
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message=f'Disconnected {command_name} client should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+
+            # The shard workers remain parked, so only the disconnect wakeup can
+            # let the coordinator readers finish and release the request cycle.
+            wait_for_condition(
+                lambda: (
+                    _get_coord_req_ctx_free_count(env) > free_count_before,
+                    {
+                        'before': free_count_before,
+                        'now': _get_coord_req_ctx_free_count(env),
+                    },
+                ),
+                f'Disconnect did not release the blocked {command_name} request',
+                timeout=10,
+            )
+            env.assertTrue(env.isUp())
+        finally:
+            for connection in shard_connections:
+                try:
+                    connection.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                    connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                except Exception:
+                    pass
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_disconnect_wakes_aggregate_abort_channel(self):
+        """A disconnected coordinator aggregate wakes its parked MR reader."""
+        self._assert_disconnect_wakes_abort_channels(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(self.n_docs)],
+            'FT.AGGREGATE',
+        )
+
+    def test_disconnect_wakes_aggregate_abort_channel_return_strict(self):
+        """8.10's RETURN_STRICT coordinator reader uses the same abort wakeup."""
+        self._assert_disconnect_wakes_abort_channels(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(self.n_docs)],
+            'FT.AGGREGATE', policy='return-strict',
+        )
+
+    def test_aggregate_disconnect_before_request_creation(self):
+        """A queued disconnect cancels the request before publishing an AREQ."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        try:
+            for policy in ('fail', 'return-strict'):
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+                free_count_before = _get_coord_req_ctx_free_count(env)
+                unexpected = []
+                t_query = threading.Thread(
+                    target=run_cmd_expect_disconnect,
+                    args=(env, ['FT.AGGREGATE', 'idx', '*'], unexpected),
+                    daemon=True,
+                )
+                env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+                try:
+                    t_query.start()
+                    client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+                    env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+                    t_query.join(timeout=10)
+                    env.assertFalse(t_query.is_alive())
+                    env.assertEqual(unexpected, [])
+                finally:
+                    env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+                wait_for_condition(
+                    lambda: (_get_coord_req_ctx_free_count(env) > free_count_before, {}),
+                    'Queued disconnect did not release the coordinator request', timeout=10)
+                env.expect('FT.AGGREGATE', 'idx', '*').noError()
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def _test_disconnect_cursor(self, read):
+        """Discard pending 8.10 cursor results when their client disconnects."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeCursorReadSendChunk'
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        try:
+            for policy in ('fail', 'return-strict'):
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+                baseline = _coord_cursor_total(env)
+                query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1']
+                command_name = 'FT.AGGREGATE'
+                if read:
+                    _, cursor_id = env.cmd(*query_args)
+                    env.assertNotEqual(cursor_id, 0)
+                    query_args = ['FT.CURSOR', 'READ', 'idx', str(cursor_id), 'COUNT', '1']
+                    command_name = 'FT.CURSOR|READ'
+                free_count_before = _get_coord_req_ctx_free_count(env)
+                unexpected = []
+                t_query = threading.Thread(
+                    target=run_cmd_expect_disconnect,
+                    args=(env, query_args, unexpected),
+                    daemon=True,
+                )
+                self._arm_cursor_read_sync_point(sync_point)
+                try:
+                    t_query.start()
+                    client_id = wait_for_blocked_query_client(env, command_name)
+                    self._wait_worker_pinned_at_sync_point(sync_point)
+                    env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
+                    t_query.join(timeout=10)
+                    env.assertFalse(t_query.is_alive())
+                    env.assertEqual(unexpected, [])
+                    wait_for_condition(
+                        lambda: (_get_coord_req_ctx_free_count(env) > free_count_before, {}),
+                        'Disconnect did not release the coordinator cursor request', timeout=10)
+                    env.assertEqual(_coord_cursor_total(env), baseline)
+                finally:
+                    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+                    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_disconnect_initial_cursor(self):
+        self._test_disconnect_cursor(read=False)
+
+    def test_disconnect_cursor_read(self):
+        self._test_disconnect_cursor(read=True)
+
     def _test_fail_timeout_impl(self, query_args, allow_timeout_warning=False):
         env = self.env
 
@@ -5548,6 +5707,38 @@ class TestCoordinatorReducePause:
     def _cleanup_pause_state(self):
         """Clean up the pause state after each test."""
         resetCoordReduceDebug(self.env)
+
+    def test_disconnect_during_reduce(self):
+        """A coordinator FT.SEARCH treats disconnect as cancellation."""
+        env = self.env
+        unexpected = []
+        setPauseBeforeReduce(env, 1)
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, ['FT.SEARCH', 'idx', '*'], unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
+            wait_for_condition(
+                lambda: (getIsCoordReducePaused(env) == 1,
+                         {'paused': getIsCoordReducePaused(env)}),
+                'Timeout waiting for coordinator reducer to pause',
+            )
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message='Disconnected coordinator query should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+            wait_for_condition(
+                lambda: (getIsCoordReducePaused(env) == 0,
+                         {'paused': getIsCoordReducePaused(env)}),
+                'Disconnect did not cancel the coordinator reducer',
+            )
+            env.assertTrue(env.isUp())
+        finally:
+            self._cleanup_pause_state()
 
     def test_timeout_fail_during_reduce_before_first(self):
         """Test timeout occurring during reduction before the first result is reduced."""
