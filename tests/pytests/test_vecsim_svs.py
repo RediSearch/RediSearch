@@ -9,6 +9,7 @@ from RLTest import Env
 import distro
 from includes import *
 import json
+import math
 import threading
 import random
 
@@ -33,6 +34,7 @@ from common import (
     wait_for_condition,
     skipIfNoEnableAssert,
     paused_workers,
+    verify_command_OK_on_all_shards,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -196,6 +198,93 @@ def test_rdb_load_trained_svs_vamana():
             # We passed the training threshold, so we always have at least training_threshold vectors in the backend index.
             env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
             env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
+
+
+@skip(cluster=True)
+def test_svs_vector_survives_repeated_numeric_updates():
+    """Repeated numeric-only updates must preserve every backend-resident SVS vector."""
+    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    conn = getConnectionByEnv(env)
+
+    num_docs = DEFAULT_BLOCK_SIZE
+    update_rounds = 5
+    price_round_stride = 10000
+    knn_k = 10
+    dim = 8
+    vector_params = [
+        'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+        'CONSTRUCTION_WINDOW_SIZE', num_docs, 'SEARCH_WINDOW_SIZE', num_docs,
+    ]
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'svsupd:', 'SCHEMA',
+               'vector', 'VECTOR', 'SVS-VAMANA', len(vector_params), *vector_params,
+               'price', 'NUMERIC').ok()
+    if not env.cmd(debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', 'idx', 'vector'):
+        raise SkipTest('the loaded SVS backend does not support vector relabeling')
+
+    # A full block triggers SVS training. Doc i has cosine distance i / num_docs from doc 0,
+    # making both the nearest-neighbour ordering and label ownership deterministic.
+    vectors = []
+    for i in range(num_docs):
+        cosine_similarity = 1.0 - i / num_docs
+        vector = [cosine_similarity,
+                  math.sqrt(1.0 - cosine_similarity * cosine_similarity)] + [0.0] * (dim - 2)
+        vectors.append(np.array(vector, dtype=np.float32).tobytes())
+
+    pipe = conn.pipeline(transaction=False)
+    for i, vector in enumerate(vectors):
+        pipe.execute_command('HSET', f'svsupd:{i}', 'vector', vector, 'price', i)
+    env.assertEqual(pipe.execute(), [2] * num_docs)
+
+    wait_for_background_indexing(env, 'idx', 'vector')
+    env.assertEqual(get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE'], 0)
+    env.assertEqual(get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE'], num_docs)
+
+    def vector_ops():
+        info = conn.execute_command('INFO', 'MODULES')
+        return (int(info['search_total_indexing_ops_vector_fields']),
+                int(info.get('search_total_relabel_ops_vector_fields', 0)))
+
+    indexing_before, relabel_before = vector_ops()
+    for round_num in range(1, update_rounds + 1):
+        pipe = conn.pipeline(transaction=False)
+        for i in range(num_docs):
+            pipe.execute_command('HSET', f'svsupd:{i}', 'price',
+                                 round_num * price_round_stride + i)
+        env.assertEqual(pipe.execute(), [0] * num_docs, message=f'price update round {round_num}')
+
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+    indexing_after, relabel_after = vector_ops()
+    env.assertEqual(indexing_after, indexing_before,
+                    message='numeric-only updates re-added SVS vectors')
+    env.assertEqual(relabel_after - relabel_before, num_docs * update_rounds)
+    backend_info = get_tiered_backend_debug_info(env, 'idx', 'vector')
+    env.assertEqual(backend_info['NUMBER_OF_MARKED_DELETED'], 0,
+                    message='numeric-only updates left tombstoned SVS vectors')
+
+    def knn_ids(blob, k):
+        res = env.cmd(
+            'FT.SEARCH', 'idx', f'*=>[KNN {k} @vector $blob AS distance]',
+            'PARAMS', '2', 'blob', blob, 'SORTBY', 'distance', 'ASC',
+            'LIMIT', '0', k, 'NOCONTENT', 'DIALECT', '2')
+        env.assertEqual(res['total_results'], k, message=res)
+        ids = [row['id'] for row in res['results']]
+        env.assertEqual(len(ids), len(set(ids)), message=f'duplicate vector results: {ids}')
+        return ids
+
+    env.assertEqual(knn_ids(vectors[0], knn_k),
+                    [f'svsupd:{i}' for i in range(knn_k)])
+    env.assertEqual(set(knn_ids(vectors[0], num_docs)),
+                    {f'svsupd:{i}' for i in range(num_docs)})
+    for i in (0, 1, 7, 42, 255, 512, 768, num_docs - 1):
+        env.assertEqual(knn_ids(vectors[i], 1), [f'svsupd:{i}'],
+                        message=f'svsupd:{i} no longer owns its original vector')
+
+    lower = update_rounds * price_round_stride
+    res = env.cmd('FT.SEARCH', 'idx', f'@price:[{lower} {lower + 49}]', 'NOCONTENT')
+    env.assertEqual(res['total_results'], 50,
+                    message='the numeric index does not contain the final update round')
+
 
 @skip(cluster=True)
 def test_svs_vamana_info():
