@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, IndexReader as _, InvertedIndex,
+    IndexBackend, IndexBlock, IndexReader as _, InvertedIndex, NumericIndexBackend,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
@@ -25,6 +25,96 @@ use pretty_assertions::assert_eq;
 use rqe_core::DocId;
 
 use super::Dummy;
+
+#[test]
+fn entries_tracking_index_backend_forwards_write_read_and_gc() {
+    let mut index = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+
+    exercise_backend_storage_path(&mut index);
+
+    assert_eq!(index.number_of_entries(), 2);
+    assert_eq!(IndexBackend::summary(&index).number_of_entries, 2);
+}
+
+#[test]
+fn field_mask_tracking_index_backend_forwards_write_read_and_gc() {
+    let mut index = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
+
+    exercise_backend_storage_path(&mut index);
+
+    assert_eq!(index.field_mask(), 0b111);
+    assert_eq!(IndexBackend::summary(&index).number_of_docs, 2);
+}
+
+#[test]
+fn numeric_index_backend_forwards_prepared_writes() {
+    use crate::numeric::{Numeric, NumericEncoder};
+
+    let mut index = EntriesTrackingIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+
+    NumericIndexBackend::add_prepared_record(&mut index, 10, Numeric::prepare(2.0), true).unwrap();
+    NumericIndexBackend::add_prepared_record(&mut index, 20, Numeric::prepare(4.0), false).unwrap();
+
+    assert_eq!(index.number_of_entries(), 2);
+    assert_eq!(IndexBackend::summary(&index).number_of_entries, 2);
+
+    let mut reader = IndexBackend::reader(&index);
+    let mut result = RSIndexResult::build_numeric(0.0).build();
+
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(
+        result,
+        RSIndexResult::build_numeric(2.0)
+            .doc_id(10)
+            .has_field_expiration(true)
+            .build()
+    );
+
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result, RSIndexResult::build_numeric(4.0).doc_id(20).build());
+
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
+fn exercise_backend_storage_path<B: IndexBackend>(index: &mut B) {
+    for (doc_id, field_mask) in [(10, 0b001), (11, 0b010), (12, 0b100)] {
+        let record = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .field_mask(field_mask)
+            .build();
+
+        IndexBackend::add_record(index, &record).unwrap();
+    }
+
+    assert_eq!(IndexBackend::unique_docs(index), 3);
+    assert_eq!(IndexBackend::last_doc_id(index), Some(12));
+    assert_eq!(read_doc_ids_through_backend(index), vec![10, 11, 12]);
+
+    let delta = IndexBackend::scan_gc(
+        index,
+        |doc_id| doc_id != 11,
+        None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
+    )
+    .unwrap()
+    .expect("removing doc 11 should produce a GC delta");
+    let info = IndexBackend::apply_gc(index, delta);
+
+    assert_eq!(info.entries_removed, 1);
+    assert_eq!(IndexBackend::unique_docs(index), 2);
+    assert_eq!(read_doc_ids_through_backend(index), vec![10, 12]);
+}
+
+fn read_doc_ids_through_backend<B: IndexBackend>(index: &B) -> Vec<DocId> {
+    let mut reader = IndexBackend::reader(index);
+    let mut result = RSIndexResult::build_virt().build();
+    let mut docs = Vec::new();
+
+    while reader.next_record(&mut result).unwrap() {
+        docs.push(result.doc_id);
+    }
+
+    docs
+}
 
 #[test]
 fn memory_usage() {
