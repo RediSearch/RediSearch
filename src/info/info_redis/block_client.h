@@ -77,8 +77,8 @@ void BlockedQueries_UnwindCycles(void);
 /* Block `ctx` for one query cycle of `request`. Registers the cycle in
  * BlockedQueries, calls RedisModule_BlockClient(reply_cb, timeout_cb,
  * QueryRequest_OnFree, timeout_ms) and BeginCycle. `reply_cb`/`timeout_cb`
- * may both be NULL (inline reply mode) but must be provided together with a
- * non-zero `timeout_ms`. */
+ * may both be NULL (inline reply mode). A non-zero `timeout_ms` requires
+ * `timeout_cb`; `reply_cb` may be NULL when the worker serializes the reply. */
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       struct QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,
