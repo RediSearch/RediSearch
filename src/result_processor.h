@@ -284,9 +284,24 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
+// Legacy completed-execution getters; do not use while Next may still run.
 rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
+
+typedef struct {
+  rs_wall_clock_ns_t nextTime;
+  uint64_t nextCount;
+  rs_wall_clock_ns_t drainTime;
+  uint64_t drainCount;
+} RPProfileSnapshot;
+
+/** Drain-thread-only snapshot of completed wrapper calls, safe alongside Next.
+ * Counts include terminal calls and explicit IncrementCount adjustments to Next.
+ * No live upstream/depleter timing or unfinished call is sampled. May be called
+ * before the first Drain, including for wrappers behind an accumulator boundary.
+ */
+RPProfileSnapshot RPProfile_GetDrainSnapshot(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
 
