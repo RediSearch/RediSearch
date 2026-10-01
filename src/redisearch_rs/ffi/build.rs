@@ -211,7 +211,6 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/obfuscation/hidden.h",
         fns: &[
-            "HiddenString_CompareC",
             "HiddenString_Free",
             "HiddenString_GetUnsafe",
             "NewHiddenString",
@@ -355,7 +354,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_GetFieldWithLength",
             "IndexSpec_ParseC",
             "IndexSpec_ReleaseWriteLock",
-            "IndexSpecCache_Decref",
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
         ],
@@ -590,6 +588,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 /// `ffi/src/lib.rs`). Blocklisted so bindgen doesn't emit a conflicting
 /// opaque stub when it sees a forward reference.
 const BLOCKLIST_TYPES: &[&str] = &[
+    "IndexSpecCache",
     "IteratorType",
     "QueryNodeType",
     "QASTValidationFlagsSet",

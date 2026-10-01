@@ -15,11 +15,12 @@ use crate::JsonDocumentFormat;
 use crate::LoadFieldError;
 use crate::{
     IndexSpec, RLookupRow,
-    bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions},
     load_document,
 };
 use document::DocumentType;
 use enumflags2::{BitFlags, bitflags};
+use index_spec_cache::{CachedField, IndexSpecCache};
 use key_list::KeyList;
 use redis_json_api::RedisJsonApi;
 use redis_module::RedisString;
@@ -28,6 +29,7 @@ use std::{
     ffi::{CStr, CString},
     pin::Pin,
     ptr::NonNull,
+    sync::Arc,
 };
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
@@ -76,7 +78,7 @@ pub struct RLookup<'a> {
 
     // If present, then GetKey will consult this list if the value is not found in
     // the existing list of keys.
-    index_spec_cache: Option<IndexSpecCache>,
+    index_spec_cache: Option<Arc<IndexSpecCache>>,
 }
 
 // ===== impl RLookup =====
@@ -133,7 +135,7 @@ impl<'a> RLookup<'a> {
     /// # Panics
     ///
     /// Panics if this lookup already has an index spec cache, or is sealed.
-    pub fn set_cache(&mut self, spcache: Option<IndexSpecCache>) {
+    pub fn set_cache(&mut self, spcache: Option<Arc<IndexSpecCache>>) {
         debug_assert!(
             self.index_spec_cache.is_none(),
             "cannot replace an existing index_spec_cache"
@@ -190,7 +192,7 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache.is_some()
     }
 
-    pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+    pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&CachedField> {
         self.index_spec_cache
             .as_ref()
             .and_then(|c| c.find_field(name))
@@ -730,8 +732,6 @@ pub mod opaque {
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
-    #[cfg_attr(miri, allow(unused))]
-    use crate::bindings::FieldSpecBuilder;
     use enumflags2::make_bitflags;
     use std::ffi::CString;
     use std::mem::MaybeUninit;
@@ -867,16 +867,12 @@ mod tests {
 
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn rlookup_get_key_load_override_no_field_in_cache() {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
 
-        let spcache = IndexSpecCache::from_fields([]);
+        let spcache = Arc::new(IndexSpecCache::new([], []));
 
         let mut rlookup = RLookup::new();
         rlookup.set_cache(Some(spcache));
@@ -898,11 +894,28 @@ mod tests {
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
 
+    /// A schema-sourced key owns its path, so a path cloned out of the key
+    /// stays readable after the lookup and its spec cache are dropped.
+    #[test]
+    fn schema_key_path_outlives_the_lookup() {
+        let path = {
+            let mut rlookup = RLookup::new();
+            rlookup.set_cache(Some(Arc::new(IndexSpecCache::new(
+                [CachedField::new(b"name")
+                    .with_path(b"$.path")
+                    .with_options(make_bitflags!(FieldSpecOption::{Sortable}).bits())],
+                [],
+            ))));
+            let key = rlookup
+                .get_key_read(c"name", RLookupKeyFlags::empty())
+                .expect("the field is in the spec cache");
+            key.path().clone()
+        };
+
+        assert_eq!(path.as_deref(), Some(c"$.path"));
+    }
+
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache() {
         // setup:
@@ -910,12 +923,12 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_sort_idx(12)
-            .with_options(make_bitflags!(FieldSpecOption::{
-                Sortable
-            }))
-            .finish()]);
+        let spcache = Arc::new(IndexSpecCache::new(
+            [CachedField::new(cache_field_name.to_bytes())
+                .with_sort_idx(12)
+                .with_options(make_bitflags!(FieldSpecOption::{Sortable}).bits())],
+            [],
+        ));
 
         let mut rlookup = RLookup::new();
         rlookup.set_cache(Some(spcache));
@@ -941,10 +954,6 @@ mod tests {
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
 
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe() {
         // setup:
@@ -952,12 +961,12 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_sort_idx(12)
-            .with_options(make_bitflags!(FieldSpecOption::{
-                Sortable | Unf
-            }))
-            .finish()]);
+        let spcache = Arc::new(IndexSpecCache::new(
+            [CachedField::new(cache_field_name.to_bytes())
+                .with_sort_idx(12)
+                .with_options(make_bitflags!(FieldSpecOption::{Sortable | Unf}).bits())],
+            [],
+        ));
 
         let mut rlookup = RLookup::new();
         rlookup.set_cache(Some(spcache));
@@ -976,10 +985,6 @@ mod tests {
         assert!(retrieved_key.is_none());
     }
 
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe_however_force_load() {
         // setup:
@@ -987,12 +992,12 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_sort_idx(12)
-            .with_options(make_bitflags!(FieldSpecOption::{
-                Sortable | Unf
-            }))
-            .finish()]);
+        let spcache = Arc::new(IndexSpecCache::new(
+            [CachedField::new(cache_field_name.to_bytes())
+                .with_sort_idx(12)
+                .with_options(make_bitflags!(FieldSpecOption::{Sortable | Unf}).bits())],
+            [],
+        ));
 
         let mut rlookup = RLookup::new();
         rlookup.set_cache(Some(spcache));
@@ -1020,10 +1025,6 @@ mod tests {
 
     // Assert the the cases in which None is returned also the key could be found
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn rlookup_get_key_load_returns_none_although_key_is_available() {
         // setup:
         let key_name = c"key_no_cache";
@@ -1035,7 +1036,7 @@ mod tests {
         ];
 
         for flag in key_flags {
-            let spcache = IndexSpecCache::from_fields([]);
+            let spcache = Arc::new(IndexSpecCache::new([], []));
 
             let mut rlookup = RLookup::new();
             rlookup.set_cache(Some(spcache));
@@ -1067,16 +1068,12 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn rlookup_get_load_key_on_empty_rlookup_and_cache() {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
 
-        let spcache = IndexSpecCache::from_fields([]);
+        let spcache = Arc::new(IndexSpecCache::new([], []));
 
         let mut rlookup = RLookup::new();
         rlookup.set_cache(Some(spcache));
@@ -1098,16 +1095,12 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn rlookup_get_load_key_name_equals_field_name() {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"key_no_cache";
 
-        let spcache = IndexSpecCache::from_fields([]);
+        let spcache = Arc::new(IndexSpecCache::new([], []));
 
         let mut rlookup = RLookup::new();
         rlookup.set_cache(Some(spcache));
@@ -1283,10 +1276,6 @@ mod tests {
     /// is attached, and at creation for keys made afterwards — so the reply path
     /// can filter them by flag alone, without reaching for the schema rule.
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn rule_special_fields_hidden_at_creation_and_retroactively() {
         let mut rlookup = RLookup::new();
         rlookup
@@ -1308,12 +1297,7 @@ mod tests {
         }
 
         // Attached after the keys exist: retro-marks `score` as hidden.
-        let spcache = crate::IndexSpecCache::from_fields_and_rule(
-            [],
-            Some(c"lang"),
-            Some(c"score"),
-            Some(c"payload"),
-        );
+        let spcache = Arc::new(IndexSpecCache::new([], [c"lang", c"score", c"payload"]));
         rlookup.set_cache(Some(spcache));
 
         let score = rlookup
@@ -1579,15 +1563,13 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let spcache = IndexSpecCache::from_fields([
-                 FieldSpecBuilder::new(&path)
-                 .with_field_name(&name)
-                 .with_sort_idx(sort_idx)
-                 .with_options(make_bitflags!(FieldSpecOption::{
-                     Sortable | Unf
-                 }))
-                 .finish()
-             ]);
+             let spcache = Arc::new(IndexSpecCache::new(
+                 [CachedField::new(name.to_bytes())
+                     .with_path(path.to_bytes())
+                     .with_sort_idx(sort_idx)
+                     .with_options(make_bitflags!(FieldSpecOption::{Sortable | Unf}).bits())],
+                 [],
+             ));
 
              rlookup.set_cache(Some(spcache));
 
@@ -1599,12 +1581,8 @@ mod tests {
              assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
 
              // the second call will load from the keylist
-             // to ensure this we zero out the cache
-             // NB: we need to keep the spec cache alive here for the scope of this test
-             // otherwise the underlying hidden strings that the keys borrow their names from are freed
-             // and we use-after-free. In production code this cannot happen as - once set - the spec cache
-             // will never be removed from the rlookup.
-             let _spec_cache = rlookup.index_spec_cache.take();
+             // to ensure this we drop the cache; the key owns its schema path, so it stays valid
+             drop(rlookup.index_spec_cache.take());
 
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty())
@@ -1633,9 +1611,7 @@ mod tests {
              rlookup.keys.push(key);
 
              // push a field spec to the cache
-             let spcache = IndexSpecCache::from_fields([
-                 FieldSpecBuilder::new(&name2).finish()
-             ]);
+             let spcache = Arc::new(IndexSpecCache::new([CachedField::new(name2.to_bytes())], []));
 
              // set the cache as the rlookup cache
              rlookup.set_cache(Some(spcache));
@@ -1664,9 +1640,7 @@ mod tests {
              rlookup.keys.push(key);
 
              // push a field spec to the cache
-             let spcache = IndexSpecCache::from_fields([
-                 FieldSpecBuilder::new(&name2).finish()
-             ]);
+             let spcache = Arc::new(IndexSpecCache::new([CachedField::new(name2.to_bytes())], []));
 
              // set the cache as the rlookup cache
              rlookup.set_cache(Some(spcache));
