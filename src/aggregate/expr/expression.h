@@ -221,6 +221,11 @@ ResultProcessor *RPEvaluator_NewProjector(RSExpr *ast, const RLookup *lookup, co
  */
 ResultProcessor *RPEvaluator_NewFilter(RSExpr *ast, const RLookup *lookup);
 
+/** Consume Drain's private diagnostic without replacing an existing caller error.
+ * Call only from the drain thread; Next's query error is not accessed.
+ */
+bool RPEvaluator_TakeDrainError(ResultProcessor *rp, QueryError *error);
+
 /**
  * Reply with a string which describes the result processor.
  */

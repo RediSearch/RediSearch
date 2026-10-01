@@ -13,6 +13,173 @@
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
 #include "value_ffi.h"
+#include "search_result.h"
+#include "search_result_ffi.h"
+#include "common.h"
+#include <atomic>
+#include <thread>
+#include <string_view>
+
+struct ProjectorSource : ResultProcessor {
+  const RLookupKey *key = nullptr;
+  int nextStatus = RS_RESULT_OK;
+  RPDrainStatus drainStatus = RP_DRAIN_OK;
+  size_t nextCalls = 0;
+
+  void populate(SearchResult *result, std::string_view text, t_docId id) const {
+    SearchResult_SetDocId(result, id);
+    RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(result),
+                        RSValue_NewCopiedString(text.data(), text.size()));
+  }
+  ProjectorSource() {
+    *static_cast<ResultProcessor *>(this) = {};
+    Next = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = static_cast<ProjectorSource *>(base);
+      ++self->nextCalls;
+      if (self->nextStatus == RS_RESULT_OK) self->populate(result, "next", 2);
+      return self->nextStatus;
+    };
+    Drain = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = static_cast<ProjectorSource *>(base);
+      if (self->drainStatus == RP_DRAIN_OK) self->populate(result, "drain", 1);
+      return self->drainStatus;
+    };
+  }
+};
+
+class ProjectorDrainTest : public ::testing::Test {
+ public:
+  QueryProcessingCtx qctx = {};
+  QueryError error = QueryError_Default();
+  RLookup lookup = RLookup_New();
+  const RLookupKey *input = RLookup_GetKey_Write(&lookup, "input", RLOOKUP_F_NOFLAGS);
+  const RLookupKey *output = RLookup_GetKey_Write(&lookup, "output", RLOOKUP_F_NOFLAGS);
+  ProjectorSource source;
+  RSExpr *ast = nullptr;
+  ResultProcessor *projector = nullptr;
+  SearchResult result = SearchResult_New();
+
+  static void SetUpTestSuite() {
+    RegisterAllFunctions();
+  }
+  void create(std::string_view expression) {
+    const HiddenString *text = NewHiddenString(expression.data(), expression.size(), false);
+    ast = ExprAST_Parse(text, &error);
+    HiddenString_Free(text, false);
+    ASSERT_NE(nullptr, ast);
+    ASSERT_EQ(EXPR_EVAL_OK, ExprAST_GetLookupKeys(ast, &lookup, &error));
+    RLookup_Seal(&lookup);
+    source.key = input;
+    projector = RPEvaluator_NewProjector(ast, &lookup, output);
+    projector->upstream = &source;
+    qctx.err = &error;
+    qctx.totalResults = 17;
+    projector->parent = &qctx;
+  }
+  void expectString(const SearchResult *row, const char *expected) const {
+    const RSValue *value = RLookupRow_Get(output, SearchResult_GetRowData(row));
+    ASSERT_NE(nullptr, value);
+    size_t len = 0;
+    const char *text = RSValue_StringPtrLen(value, &len);
+    ASSERT_NE(nullptr, text);
+    EXPECT_EQ(expected, std::string(text, len));
+  }
+  void TearDown() override {
+    SearchResult_Destroy(&result);
+    if (projector) projector->Free(projector);
+    if (ast) ExprAST_Free(ast);
+    RLookup_Cleanup(&lookup);
+    QueryError_ClearError(&error);
+  }
+};
+
+TEST_F(ProjectorDrainTest, functionsAndLiteralReferencesUseSeparatePersistentScratch) {
+  create("upper(format('%s!', @input))");
+  SearchResult next = SearchResult_New();
+  ASSERT_EQ(RS_RESULT_OK, projector->Next(projector, &next));
+  ASSERT_EQ(RP_DRAIN_OK, projector->Drain(projector, &result));
+  expectString(&next, "NEXT!");
+  expectString(&result, "DRAIN!");
+  SearchResult second = SearchResult_New();
+  ASSERT_EQ(RP_DRAIN_OK, projector->Drain(projector, &second));
+  expectString(&next, "NEXT!");
+  expectString(&result, "DRAIN!");
+  expectString(&second, "DRAIN!");
+  EXPECT_EQ(17, qctx.totalResults);
+  SearchResult_Destroy(&second);
+  SearchResult_Destroy(&next);
+}
+
+TEST_F(ProjectorDrainTest, arithmeticProjectionDoesNotNeedQueryContext) {
+  create("2 + strlen(@input)");
+  projector->parent = nullptr;
+  ASSERT_EQ(RP_DRAIN_OK, projector->Drain(projector, &result));
+  EXPECT_DOUBLE_EQ(7, RSValue_Number_Get(RLookupRow_Get(output, SearchResult_GetRowData(&result))));
+  EXPECT_EQ(0, source.nextCalls);
+}
+
+TEST_F(ProjectorDrainTest, errorsArePrivateAndCanBeTakenOnce) {
+  create("@input + 1");
+  ASSERT_EQ(RP_DRAIN_ERROR, projector->Drain(projector, &result));
+  EXPECT_TRUE(QueryError_IsOk(&error));
+  QueryError drainError = QueryError_Default();
+  EXPECT_TRUE(RPEvaluator_TakeDrainError(projector, &drainError));
+  EXPECT_FALSE(QueryError_IsOk(&drainError));
+  EXPECT_FALSE(RPEvaluator_TakeDrainError(projector, &drainError));
+  QueryError_ClearError(&drainError);
+  SearchResult_Clear(&result);
+  EXPECT_EQ(RP_DRAIN_ERROR, projector->Drain(projector, &result));
+  QueryError_SetError(&drainError, QUERY_ERROR_CODE_GENERIC, "earlier error");
+  std::string earlierError = QueryError_GetUserError(&drainError);
+  EXPECT_TRUE(RPEvaluator_TakeDrainError(projector, &drainError));
+  EXPECT_EQ(earlierError, QueryError_GetUserError(&drainError));
+  QueryError_ClearError(&drainError);
+}
+
+TEST_F(ProjectorDrainTest, terminalUpstreamDoesNotEvaluateOrTouchOutput) {
+  create("upper(@input)");
+  projector->parent = nullptr;
+  SearchResult_SetScore(&result, 42);
+  for (auto status : {RP_DRAIN_EOF, RP_DRAIN_ERROR}) {
+    source.drainStatus = status;
+    EXPECT_EQ(status, projector->Drain(projector, &result));
+    EXPECT_EQ(42, SearchResult_GetScore(&result));
+    EXPECT_FALSE(RPEvaluator_TakeDrainError(projector, &error));
+  }
+  EXPECT_EQ(0, source.nextCalls);
+}
+
+TEST_F(ProjectorDrainTest, drainsWhileNextIsInsideExpressionEvaluation) {
+  create("upper(@input)");
+  static RSFunction original;
+  static std::atomic entered{false};
+  static std::atomic release{false};
+  entered.store(false);
+  release.store(false);
+  original = ast->func.Call;
+  ast->func.Call = [](ExprEval *ctx, RSValue **args, size_t count, RSValue *out) {
+    if (SearchResult_GetDocId(ctx->res) == 2) {
+      entered.store(true);
+      while (!release.load()) std::this_thread::yield();
+    }
+    return original(ctx, args, count, out);
+  };
+  SearchResult next = SearchResult_New();
+  int status = RS_RESULT_MAX;
+  std::jthread worker([this, &status, &next] { status = projector->Next(projector, &next); });
+  bool paused = RS::WaitForCondition([] { return entered.load(); }, 5);
+  if (paused) {
+    EXPECT_EQ(RP_DRAIN_OK, projector->Drain(projector, &result));
+    expectString(&result, "DRAIN");
+  }
+  release.store(true);
+  worker.join();
+  EXPECT_TRUE(paused);
+  EXPECT_EQ(RS_RESULT_OK, status);
+  expectString(&next, "NEXT");
+  expectString(&result, "DRAIN");
+  SearchResult_Destroy(&next);
+}
 
 class ExprTest : public ::testing::Test {
  public:
