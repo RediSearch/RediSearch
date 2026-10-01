@@ -346,8 +346,9 @@ protected:
         cmd.vector = hreq->requests[1];
         cmd.tailPlan = &hreq->tailPipeline->ap;
         cmd.hybridParams = &hybridParams;
-        cmd.reqConfig = &hreq->reqConfig;
-        cmd.cursorConfig = &hreq->cursorConfig;
+        cmd.reqConfig = &hreq->base.reqConfig;
+        cmd.timeoutConfig = &hreq->base.timeout.config;
+        cmd.cursorConfig = &hreq->base.cursorConfig;
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
@@ -443,8 +444,9 @@ protected:
         cmd.vector = hreq->requests[1];
         cmd.tailPlan = &hreq->tailPipeline->ap;
         cmd.hybridParams = &hybridParams;
-        cmd.reqConfig = &hreq->reqConfig;
-        cmd.cursorConfig = &hreq->cursorConfig;
+        cmd.reqConfig = &hreq->base.reqConfig;
+        cmd.timeoutConfig = &hreq->base.timeout.config;
+        cmd.cursorConfig = &hreq->base.cursorConfig;
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};

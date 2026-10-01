@@ -202,8 +202,8 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
-        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
+    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorConfigParams.maxIdle) {
+        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorConfigParams.maxIdle;
     }
 }
 
