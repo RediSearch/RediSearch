@@ -13,6 +13,10 @@ on:
         description: 'Git ref or SHA to compare advisory findings against when compare-advisories-to-base is true.'
         type: string
         default: ''
+      check-local-links:
+        description: 'Fail on Markdown links to repository files that do not exist (external URLs are not checked).'
+        type: boolean
+        default: false
 
 jobs:
   build-image:
@@ -167,6 +171,11 @@ jobs:
             echo "    cargo hakari generate && cargo hakari manage-deps"
             exit 1
           fi
+      - name: Local doc links
+        id: local-links
+        if: ${{ inputs.check-local-links }}
+        continue-on-error: true
+        run: python3 scripts/check_links.py . --local-only
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Fail if any step failed
@@ -177,7 +186,8 @@ jobs:
           steps.fmt.outcome == 'failure' ||
           steps.advisories.outcome == 'failure' ||
           steps.dep-licenses.outcome == 'failure' ||
-          steps.workspace_hack.outcome == 'failure'
+          steps.workspace_hack.outcome == 'failure' ||
+          steps.local-links.outcome == 'failure'
         run: |
           echo "Lint: ${{ steps.lint.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
@@ -186,4 +196,5 @@ jobs:
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
           echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
+          echo "Local doc links: ${{ steps.local-links.outcome }}"
           exit 1
