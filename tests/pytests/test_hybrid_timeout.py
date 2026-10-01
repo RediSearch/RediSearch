@@ -188,7 +188,7 @@ def test_hybrid_debug_coordinator_timeout_policy():
     setup_basic_index(env)
     error = '_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN'
     try:
-        for policy in ('FAIL', 'RETURN-STRICT'):
+        for policy in ('FAIL',):
             env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
             env.expect(
                 *_base_hybrid_debug_cmd(),
@@ -475,7 +475,7 @@ def test_tail_property_not_loaded_warning_coordinator():
 @skip(cluster=False)
 def test_deferred_hybrid_postprocessing_warning():
     """The deferred reply must read the tail pipeline's soft error, without asserting."""
-    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN-STRICT')
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL')
     setup_basic_index(env)
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
@@ -486,16 +486,6 @@ def test_deferred_hybrid_postprocessing_warning():
     env.expect('PING').true()
 
 
-@skip(cluster=True)
-def test_debug_timeout_return_strict_rejected():
-    """Test that _FT.DEBUG FT.HYBRID rejects ON_TIMEOUT RETURN-STRICT policy."""
-    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN-STRICT')
-    setup_basic_index(env)
-    env.expect(
-        '_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running',
-        'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
-        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2'
-    ).error().contains('not supported with ON_TIMEOUT RETURN-STRICT')
 
 
 @skip(cluster=False)

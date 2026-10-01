@@ -842,7 +842,6 @@ class TestQueryDebugCommands(object):
         Test TIMEOUT_AFTER_N policy constraints for shard-level queries:
         - ON_TIMEOUT RETURN: always supported
         - ON_TIMEOUT FAIL: only supported without workers (WORKERS=0)
-        - ON_TIMEOUT RETURN-STRICT: never supported
         """
         env = self.env
         conn = getConnectionByEnv(env)
@@ -883,12 +882,6 @@ class TestQueryDebugCommands(object):
                     'TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL'
                 )
 
-        # Test ON_TIMEOUT RETURN-STRICT (never supported)
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(
-            contained="TIMEOUT_AFTER_N is not supported with blocked-client timeout handling"
-        ):
-            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
@@ -897,7 +890,7 @@ class TestQueryDebugCommands(object):
         """
         Test query debug policy constraints for coordinator-level queries:
         - ON_TIMEOUT RETURN: supported
-        - ON_TIMEOUT FAIL/RETURN-STRICT: unsupported because they use a blocked-client timeout
+        - ON_TIMEOUT FAIL: unsupported because they use a blocked-client timeout
         """
         env = self.env
 
@@ -907,7 +900,7 @@ class TestQueryDebugCommands(object):
 
         error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
         try:
-            for policy in ('FAIL', 'RETURN-STRICT'):
+            for policy in ('FAIL',):
                 env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
                 with env.assertResponseError(contained=error):
                     runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
@@ -1024,26 +1017,6 @@ class TestQueryDebugCommands(object):
         self.AggregateDebug()
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
-    def testAggregateTimeoutDebugRejectsReturnStrict(self):
-        """Standalone rejects only timeout-related aggregate debug hooks with RETURN-STRICT."""
-        skipTest(cluster=True)
-        env = self.env
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        try:
-            env.expect(
-                debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3,
-            ).error().contains(
-                'TIMEOUT_AFTER_N is not supported with blocked-client timeout handling'
-            )
-            env.expect(
-                debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                'CRASH', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2,
-            ).error().contains(
-                'INTERNAL_ONLY is not supported with CRASH'
-            )
-        finally:
-            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     # compare results of regular query and debug query
     def Sanity(self, cmd, query_params):
@@ -1750,7 +1723,7 @@ class ProfileDebugCluster:
         """Coordinator debug profile rejects policies that use blocked-client timeouts."""
         error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
         try:
-            for policy in ('FAIL', 'RETURN-STRICT'):
+            for policy in ('FAIL',):
                 env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
                 for command_type in ('SEARCH', 'AGGREGATE'):
                     with env.assertResponseError(contained=error):
