@@ -3822,11 +3822,13 @@ int CompareVersions(Version v1, Version v2) {
 /**
  * Mark each VECTOR field whose value this update may not have touched, so the
  * indexer moves its existing entry onto the new doc-id instead of deleting and
- * re-adding the blob.
+ * re-adding the blob. `alterAddedFieldsStart` is `RS_INVALID_FIELD_INDEX` except for
+ * `IndexSpec_UpdateDocForAlter`.
  */
 static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
-                                           RedisModuleString **changedFields,
-                                           size_t numChangedFields) {
+                                          RedisModuleString **changedFields,
+                                          size_t numChangedFields,
+                                          t_fieldIndex alterAddedFieldsStart) {
   if (!RSGlobalConfig.optimizePartialUpdate) {
     return;
   }
@@ -3842,7 +3844,11 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
       continue;
     }
     ChangedFieldInd mark = ChangedFieldInd_Unverified;
-    if (changedFields) {
+    if (alterAddedFieldsStart != RS_INVALID_FIELD_INDEX && fs->index >= alterAddedFieldsStart) {
+      // Added by the ALTER, so the old doc-id normally holds no entry to compare or move: insert
+      // directly. A write during the scan may have left one there; it is deleted and re-added.
+      mark = ChangedFieldInd_VerifiedYes;
+    } else if (changedFields) {
       mark = FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)
                  ? ChangedFieldInd_VerifiedYes  // named in the change set: the value was written
                  : ChangedFieldInd_VerifiedNo;
@@ -3857,9 +3863,10 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
   }
 }
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey,
-                        RedisModuleString **changedFields, size_t numChangedFields) {
+static int indexSpecUpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                              DocumentType type, RedisModuleKey *openKey,
+                              RedisModuleString **changedFields, size_t numChangedFields,
+                              t_fieldIndex alterAddedFieldsStart) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3919,7 +3926,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   // Reuse the caller's open key handle for the DocIdMeta update, if provided.
   aCtx->disk.openKey = openKey;
-  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields);
+  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields, alterAddedFieldsStart);
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
@@ -3928,6 +3935,19 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(sctx.spec);
   return REDISMODULE_OK;
+}
+
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields) {
+  return indexSpecUpdateDoc(spec, ctx, key, type, openKey, changedFields, numChangedFields,
+                            RS_INVALID_FIELD_INDEX);
+}
+
+int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                DocumentType type, t_fieldIndex addedFieldsStart) {
+  RS_LOG_ASSERT(addedFieldsStart < spec->numFields, "an ALTER adds at least one field");
+  return indexSpecUpdateDoc(spec, ctx, key, type, NULL, NULL, 0, addedFieldsStart);
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
