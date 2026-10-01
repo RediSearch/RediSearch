@@ -20,7 +20,7 @@ use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIteratorError,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{BatchStrategy, ChildCursor, ScoreSource};
+use top_k::{BatchStrategy, ChildBatch, ChildCursor, ScoreSource};
 
 use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
@@ -488,14 +488,33 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     fn next_batch_with_child(
         &mut self,
         child: &mut dyn ChildCursor,
-    ) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        let Some(batch) =
-            self.ranges
-                .next_n_filtered(self.range_batch_size, child, &mut self.timeout)?
-        else {
-            return Ok(None);
-        };
-        self.drop_stale(batch).map(Some)
+    ) -> Result<Option<ChildBatch<Self::Batch>>, RQEIteratorError> {
+        // Only a full read can coalesce a multivalue doc onto its best value.
+        if self.ranges.is_multivalued() {
+            return Ok(self.next_batch()?.map(ChildBatch::Unmatched));
+        }
+        let validity = &self.validity;
+        let expiration = &self.expiration;
+        let filter_validity = validity.may_filter();
+        let filter_expiration = expiration.has_expiration();
+        let more = self.ranges.next_n_matched(
+            self.range_batch_size,
+            child,
+            |doc_id, score| {
+                if filter_validity && !validity.is_valid(doc_id) {
+                    return false;
+                }
+                if filter_expiration {
+                    let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
+                    if expiration.is_expired(&record) {
+                        return false;
+                    }
+                }
+                true
+            },
+            &mut self.timeout,
+        )?;
+        Ok(more.then_some(ChildBatch::Matched))
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
