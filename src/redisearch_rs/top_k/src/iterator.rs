@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, mem::ManuallyDrop, num::NonZeroUsize};
+use std::{cmp::Ordering, marker::PhantomData, mem::ManuallyDrop, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -24,7 +24,7 @@ use rqe_iterators::{
 use crate::{
     heap::{HeapResult, ScoredResult, TopKHeap},
     order::{Ascending, ScoreOrdering},
-    traits::{BatchStrategy, ScoreBatch, ScoreSource},
+    traits::{BatchStrategy, ChildCursor, ScoreBatch, ScoreSource},
 };
 
 /// Determines which collection algorithm [`TopKIterator`] uses.
@@ -282,7 +282,20 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     /// Collect results by intersecting score-ordered batches with the child filter.
     fn collect_batches(&mut self) -> Result<(), RQEIteratorError> {
         loop {
-            let Some(mut batch) = self.source.next_batch()? else {
+            // Offer the child to the source, which may use it to skip records
+            // this loop would discard anyway. `source` and `child` are distinct
+            // fields, so the two borrows do not overlap.
+            let batch = match &mut self.child {
+                Some(child) => {
+                    let mut cursor = SeekingChildCursor {
+                        child,
+                        _index: PhantomData,
+                    };
+                    self.source.next_batch_with_child(&mut cursor)?
+                }
+                None => self.source.next_batch()?,
+            };
+            let Some(mut batch) = batch else {
                 break;
             };
             self.metrics.num_batches += 1;
@@ -691,6 +704,29 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
         .build();
     owned.metrics = record.metrics.clone();
     owned
+}
+
+/// The iterator's child, seen through the narrow [`ChildCursor`] view a source
+/// gets during [`ScoreSource::next_batch_with_child`].
+struct SeekingChildCursor<'a, 'index, C: RQEIterator<'index> + 'index> {
+    child: &'a mut C,
+    _index: PhantomData<&'index ()>,
+}
+
+impl<'index, C: RQEIterator<'index> + 'index> ChildCursor for SeekingChildCursor<'_, 'index, C> {
+    fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
+        Ok(self.child.read()?.map(|r| r.doc_id))
+    }
+
+    fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError> {
+        Ok(self.child.skip_to(target)?.map(|outcome| match outcome {
+            SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r) => r.doc_id,
+        }))
+    }
+
+    fn rewind(&mut self) {
+        self.child.rewind();
+    }
 }
 
 /// Intersect one score-ordered batch with a child filter iterator,
