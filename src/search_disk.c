@@ -239,20 +239,43 @@ static size_t getDiskUsageCallback(void) {
   return total;
 }
 
+static bool infoCacheEnabled;
+static void *metricsCollector;
+
+static size_t getCachedDiskUsageCallback(void) {
+  return disk->metrics.getCachedTotalDiskUsage(metricsCollector);
+}
+
+/* Redis owns scheduling and drains this callback before lifecycle changes. */
+static void collectMetricsCallback(void) {
+  disk->metrics.collect(metricsCollector);
+}
+
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   if (!RedisModule_BigModuleRegister) {
     RedisModule_Log(ctx, "notice", "BigModuleRegister not available");
     return false;
   }
 
-  RedisModuleBigCallbacksV1 callbacks = {
-    .version = REDISMODULE_BIG_CALLBACKS_VERSION,
-    .getDiskUsage = getDiskUsageCallback,
+  RedisModuleBigCallbacksV2 callbacks = {
+      .version = REDISMODULE_BIG_CALLBACKS_VERSION,
+      .getDiskUsage = getDiskUsageCallback,
+      .getCachedDiskUsage = getCachedDiskUsageCallback,
+      .collectMetrics = collectMetricsCallback,
   };
 
+  infoCacheEnabled = false;
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
-    return false;
+    RedisModuleBigCallbacksV1 legacy = {.version = 1, .getDiskUsage = getDiskUsageCallback};
+    if (RedisModule_BigModuleRegister(ctx, (RedisModuleBigCallbacks *)&legacy) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
+      return false;
+    }
+    RedisModule_Log(ctx, "notice",
+                    "Disk INFO cache disabled: Flex metrics callbacks V2 unavailable");
+  } else {
+    infoCacheEnabled = true;
+    metricsCollector = disk->metrics.getCollector(disk_db);
   }
 
   RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
@@ -264,6 +287,8 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
     diskMemoryLimitBytes = 0;
+    infoCacheEnabled = false;
+    metricsCollector = NULL;
   }
 }
 
@@ -374,6 +399,7 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
   if (!spec->diskRegistered) {
     return;
   }
+  disk->metrics.retireTarget(disk_db, spec->diskSpec);
   disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
   spec->diskRegistered = false;
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
@@ -698,6 +724,25 @@ static int VecSim_DisableThrottle(void) {
 
 bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
+}
+
+bool SearchDisk_InfoCacheEnabled(void) {
+  return infoCacheEnabled;
+}
+
+uint64_t SearchDisk_CollectCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.collectCachedIndexMetrics(disk_db, index);
+}
+
+uint64_t SearchDisk_GetCachedDiskUsage(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getCachedDiskUsage(disk_db, index);
+}
+
+uint64_t SearchDisk_GetCachedBlockCount(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getCachedBlockCount(disk_db, index);
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {

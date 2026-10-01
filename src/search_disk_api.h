@@ -1022,6 +1022,15 @@ typedef struct PerFieldCfDiskMetrics {
 } PerFieldCfDiskMetrics;
 
 typedef struct MetricsDiskAPI {
+  /* Borrowed collector context remains valid until basic.close, which requires
+   * background collection to be drained. It is separate from mutable disk state. */
+  void *(*getCollector)(RedisSearchDisk *disk);
+  void (*collect)(void *collector);
+  uint64_t (*getCachedTotalDiskUsage)(void *collector);
+  void (*retireTarget)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  uint64_t (*collectCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  uint64_t (*getCachedDiskUsage)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  uint64_t (*getCachedBlockCount)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *
