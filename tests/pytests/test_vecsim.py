@@ -5,6 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import math
 import random
 import time
 
@@ -2726,6 +2727,87 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+
+@skip(cluster=True)
+def test_vector_only_update_no_reindex():
+    """A HASH write changing only the vector must reindex that field and no others."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    conn = getConnectionByEnv(env)
+
+    num_docs = 200
+    update_rounds = 5
+    dim = 8
+    ef_runtime = 2 * num_docs
+    price = 100
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'vecupdonly:', 'SCHEMA',
+               'vector', 'VECTOR', 'HNSW', '12',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', ef_runtime,
+               'price', 'NUMERIC').ok()
+
+    vectors = []
+    for i in range(num_docs):
+        cosine_similarity = 1.0 - i / num_docs
+        vector = [cosine_similarity,
+                  math.sqrt(1.0 - cosine_similarity * cosine_similarity)] + [0.0] * (dim - 2)
+        vectors.append(create_np_array_typed(vector, 'FLOAT32').tobytes())
+
+    pipe = conn.pipeline(transaction=False)
+    for i, vector in enumerate(vectors):
+        pipe.execute_command('HSET', f'vecupdonly:{i}', 'vector', vector, 'price', price)
+    env.assertEqual(pipe.execute(), [2] * num_docs)
+
+    # Settle every vector in HNSW so the updates exercise the tiered backend, not its flat buffer.
+    # A drain only waits for work already queued, so retry until async ingest has queued and run.
+    def backend_settled():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        frontend_size = get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        backend_size = get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        state = {'frontend_size': frontend_size, 'backend_size': backend_size}
+        return frontend_size == 0 and backend_size == num_docs, state
+
+    wait_for_condition(backend_settled, 'all vectors must reach the HNSW backend', timeout=10)
+
+    def field_ops():
+        info = conn.execute_command('INFO', 'MODULES')
+        return {
+            'vector': int(info['search_total_indexing_ops_vector_fields']),
+            'numeric': int(info['search_total_indexing_ops_numeric_fields']),
+            'relabel': int(info['search_total_relabel_ops_vector_fields']),
+        }
+
+    for round_num in range(1, update_rounds + 1):
+        before = field_ops()
+        pipe = conn.pipeline(transaction=False)
+        for i in range(num_docs):
+            vector = vectors[(i + round_num) % num_docs]
+            pipe.execute_command('HSET', f'vecupdonly:{i}', 'vector', vector)
+        env.assertEqual(pipe.execute(), [0] * num_docs,
+                        message=f'vector-only update round {round_num}')
+
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+        after = field_ops()
+        env.assertEqual(after['vector'] - before['vector'], num_docs,
+                        message=f'vector indexing operations in round {round_num}')
+        env.assertEqual(after['numeric'] - before['numeric'], 0,
+                        message=f'numeric indexing operations in round {round_num}')
+        env.assertEqual(after['relabel'] - before['relabel'], 0,
+                        message=f'vector relabel operations in round {round_num}')
+
+    expected_nearest = f'vecupdonly:{num_docs - update_rounds}'
+    res = env.cmd(
+        'FT.SEARCH', 'idx',
+        f'*=>[KNN 1 @vector $blob EF_RUNTIME {ef_runtime} AS distance]',
+        'PARAMS', '2', 'blob', vectors[0],
+        'SORTBY', 'distance', 'ASC', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(res, [1, expected_nearest])
+
+    res = env.cmd('FT.SEARCH', 'idx', f'@price:[{price} {price}]',
+                  'LIMIT', '0', '0', 'NOCONTENT')
+    env.assertEqual(res, [num_docs])
+
 
 @skip(cluster=True)
 def test_switch_write_mode_multiple_indexes(env):

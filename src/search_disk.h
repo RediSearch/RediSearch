@@ -75,13 +75,14 @@ void SearchDisk_UpdateLogObfuscation();
  * search-disk-max-open-files cap.
  *
  * Applies only to new index creation. On success, charges the FD cap immediately; call
- * SearchDisk_ReleaseCreateFailure if the index does not end up opening. Restore paths always
- * proceed and let the disk backend clamp shared write-buffer capacity and FD usage instead of
- * rejecting the index.
+ * SearchDisk_ReleaseCreateFailure if the index does not end up opening.
  *
  * @param status Receives the reason creation was rejected.
  */
 bool SearchDisk_CanCreateIndex(QueryError *status);
+
+/** Check memory and reserve FD headroom before opening or staging an RDB-restored disk index. */
+bool SearchDisk_CanRestoreIndex(QueryError *status);
 
 /**
  * @brief Undo the FD charge SearchDisk_CanCreateIndex applied, after a create attempt that it

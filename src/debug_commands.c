@@ -1869,6 +1869,37 @@ DEBUG_COMMAND(VecsimInfo) {
 }
 
 /**
+ * FT.DEBUG VECSIM_RELABEL_SUPPORTED <index> <field>
+ */
+DEBUG_COMMAND(VecsimRelabelSupported) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  if (!fs) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
+  }
+  VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
+  if (!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Can't open vector index");
+  }
+
+  // A supported implementation rejects an identity move as SameLabel without touching the index.
+  // The interface default returns Unsupported, which is how builds lacking the backend operation
+  // advertise that the caller must fall back to delete and insert.
+  VecSimRelabelCode code = VecSimIndex_RelabelVector(vecsimIndex, INVALID_LABEL, INVALID_LABEL);
+  SearchCtx_Free(sctx);
+  return RedisModule_ReplyWithLongLong(ctx, code != VecSimRelabel_Unsupported);
+}
+
+/**
  * FT.DEBUG DEL_CURSORS
  * Deletes the local cursors of the shard.
 */
@@ -3894,6 +3925,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"VECSIM_RELABEL_SUPPORTED", VecsimRelabelSupported},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DELETE_LOCAL_COORD_CURSORS", DeleteCoordCursors},
                                {"DUMP_HNSW", dumpHNSWData},
