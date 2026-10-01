@@ -243,7 +243,11 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const Reque
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
-  QueryRequest_SetUseReplyCallback(request, false);
+  request->replyDeferred = false;
+#ifdef ENABLE_ASSERT
+  request->inlineReplyCount = 0;
+#endif
+  RS_ASSERT(timeoutConfig);
   QueryRequestTimeout_Init(&request->timeout, timeoutConfig);
   QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
