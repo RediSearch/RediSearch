@@ -1,0 +1,76 @@
+name: "search-groupby-heavy-dist-5700K-customer-hashes-k400"
+description: >-
+  Frozen synthetic Customer workload with 5.7M hashes and the original weighted
+  prefix query, scoring expressions, and five reducers. Eight primaries exercise
+  partial-group fan-in for the top 400 groups. Memtier cluster mode permits one
+  outstanding query per primary (eight total), unlike the serial local repro.
+  Compare against the same setup and validate complete results before comparing
+  runs; the command has a 120-second timeout.
+
+metadata:
+  component: "search"
+  query_type: "groupby-heavy-distributed"
+  backend: "hash"
+  window: "0-400"
+
+timeout_seconds: 3600
+
+setups:
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - dataset_name: "customer-5_7M-v1"
+  - dataset_load_timeout_secs: 3000
+  - configuration-parameters:
+    - search-io-threads: 1
+  - module-configuration-parameters:
+      redisearch: &search_settings
+        WORKERS: 4
+        MIN_OPERATION_WORKERS: 4
+        TIMEOUT: 0
+        ON_TIMEOUT: RETURN
+        CURSOR_MAX_IDLE: 2000
+        INDEX_CURSOR_LIMIT: 2000
+        WORKERS_PRIORITY_BIAS_THRESHOLD: 6
+        BM25STD_TANH_FACTOR: 200
+        DEFAULT_DIALECT: 2
+        MAXPREFIXEXPANSIONS: 1024
+      module-oss: *search_settings
+  - init_commands:
+    - ["FT.CREATE", "idx:bench", "ON", "HASH", "PREFIX", "1", "A#", "SCHEMA",
+       "profile_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "post_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "product_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "type", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "post_type", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "media_type", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "styled", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "has_products", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "country_code", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "available", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "searchable", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
+       "iscore", "NUMERIC", "SORTABLE", "UNF",
+       "iscore2", "NUMERIC", "SORTABLE", "UNF",
+       "iscore3", "NUMERIC", "SORTABLE", "UNF",
+       "created_at", "NUMERIC", "SORTABLE", "UNF",
+       "updated_at", "NUMERIC", "SORTABLE", "UNF",
+       "price", "NUMERIC", "SORTABLE", "UNF",
+       "caption", "TEXT", "WEIGHT", "1", "WITHSUFFIXTRIE",
+       "name", "TEXT", "WEIGHT", "3", "WITHSUFFIXTRIE",
+       "description", "TEXT", "WEIGHT", "1", "WITHSUFFIXTRIE",
+       "full_name", "TEXT", "WEIGHT", "10", "WITHSUFFIXTRIE",
+       "profile_display_name_txt", "TEXT", "WEIGHT", "10", "WITHSUFFIXTRIE",
+       "bio", "TEXT", "WEIGHT", "1"]
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/customer-5_7M-v1/customer-groupby-5700K-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 5700000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: >-
+    --test-time 180 --clients 1 --threads 1 --pipeline 1 --hide-histogram --command 'FT.AGGREGATE "idx:bench" "(((term00*|term01*)) ((@post_type:{timeline}=>{$weight:0}) (@type:{post|product}=>{$weight:0})) ((@type:{post|product}=>{$weight:0}) | ((@type:{post}=>{$weight:1}))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:0.750000}))" "SCORER" "BM25STD.TANH" "ADDSCORES" "LOAD" "8" "type" "__key" "post_id" "AS" "parent_id" "product_id" "AS" "children_id" "TIMEOUT" "120000" "APPLY" "(case(exists(@iscore), @iscore, 1.0) + 0.000000) * @__score" "AS" "the_score" "APPLY" "0" "AS" "vector_distance" "APPLY" "format(\"%s::%s\", case(exists(@children_id), @children_id, '"'"''"'"') , @the_score)" "AS" "children_scores" "GROUPBY" "2" "@parent_id" "@profile_id" "REDUCE" "SUM" "1" "the_score" "AS" "the_score" "REDUCE" "SUM" "1" "__score" "AS" "bm25_score" "REDUCE" "TOLIST" "1" "children_scores" "AS" "children_scores" "REDUCE" "MIN" "1" "vector_distance" "AS" "vector_distance" "REDUCE" "MAX" "1" "created_at" "AS" "created_at" "SORTBY" "2" "@the_score" "DESC" "LIMIT" "0" "400" "DIALECT" "2"'
