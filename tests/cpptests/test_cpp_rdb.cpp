@@ -1451,8 +1451,8 @@ TEST_F(RdbMockTest, testLegacyDocTableLoadsSortVector) {
   RMCK_FreeRdbIO(io);
 }
 
-// A read that fails inside a sorting vector string must not crash the loader; the IO
-// error stays recorded for the caller.
+// A read that fails inside a sorting vector fails the whole doc-table load, rather than
+// letting it read the next document from a failed stream.
 TEST_F(RdbMockTest, testLegacyDocTableTruncatedSortVector) {
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
@@ -1476,9 +1476,11 @@ TEST_F(RdbMockTest, testLegacyDocTableTruncatedSortVector) {
   RedisModule_LoadFloat = [](RedisModuleIO *rdb) {
     return static_cast<float>(RMCK_LoadDouble(rdb));
   };
-  DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+  int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
   RedisModule_LoadFloat = originalLoadFloat;
+  EXPECT_EQ(result, REDISMODULE_ERR);
   EXPECT_EQ(1, RMCK_IsIOError(io));
+  EXPECT_EQ(DocTable_Borrow(&table, 1), nullptr);
 
   DocTable_Free(&table);
   RMCK_FreeRdbIO(io);

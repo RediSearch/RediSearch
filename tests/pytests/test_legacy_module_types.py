@@ -339,6 +339,30 @@ def testLegacySpecWithSortVectorLoads():
     env.assertEqual(index_info(env, 'idx')['index_name'], 'idx')
 
 
+@skip(cluster=True, asan=True)
+def testLegacySpecWithTruncatedSortVectorFailsToLoad():
+    """A sorting vector whose string element is not followed by a string must fail the load cleanly,
+    rather than go on reading the next document from a failed stream."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    sort_vector = _module_uint(1) + _module_uint(LEGACY_SORTABLE_STR) + _module_uint(7)
+    log_path = _write_legacy_spec_rdb(env, _legacy_doc(DOCUMENT_HAS_SORT_VECTOR, sort_vector))
+
+    # Give the server time to fail during the load before RLTest's readiness probe races with it.
+    env.envRunner.startupGraceSecs = 1
+    try:
+        env.start()
+    except Exception as e:
+        env.assertContains('Redis server is dead', str(e))
+    env.assertFalse(env.isUp())
+
+    with open(log_path) as f:
+        log = f.read()
+    # Redis writes a bug report for both a signal and a failed assertion.
+    env.assertNotContains('REDIS BUG REPORT', log, message=log[-4000:])
+    env.assertContains('IO error while loading document 1', log)
+
+
 @skip(cluster=True)
 def testLegacySpecWithDeletedPayloadDocLoads():
     """A deleted doc flagged as having a payload is dropped during the load without its payload ever

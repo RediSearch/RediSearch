@@ -16,7 +16,7 @@
 #include "config.h"
 #include "doc_table.h"
 #include "trie/trie.h"
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
