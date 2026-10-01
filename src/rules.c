@@ -457,7 +457,12 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     goto cleanup;
   }
   rule->score_default = score_default;
-  rule->lang_default = lang_default;
+  if (RSLanguage_ToString(lang_default) != NULL) {
+    rule->lang_default = lang_default;
+  } else {
+    RedisModule_LogIOError(rdb, "warning", "invalid default language in schema rule");
+    rule->lang_default = DEFAULT_LANGUAGE;
+  }
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
