@@ -3215,27 +3215,25 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
-  sp->own_ref = spec_ref;
-
-  // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-  IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
-  // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
+  IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup_name);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
-
-  uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup_name);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
                            "RDB Load: Schema is limited to %d fields",
                            SPEC_MAX_FIELDS);
-    goto cleanup;
+    goto cleanup_name;
   }
 
+  // Allocate only once the spec can be fully initialised: IndexSpec_Free relies
+  // on the IndexError members that initializeIndexSpec sets up.
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
   initializeIndexSpec(sp, specName, flags, numFields_u64);
 
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
@@ -3330,7 +3328,16 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   return sp;
 
 cleanup:
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
   StrongRef_Release(spec_ref);
+  goto cleanup_no_index;
+cleanup_name:
+  // specName is handed to the spec only in initializeIndexSpec.
+  HiddenString_Free(specName, true);
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
   return NULL;
