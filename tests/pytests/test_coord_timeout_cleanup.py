@@ -264,8 +264,7 @@ def test_search_uses_captured_timeout_policy():
     thread = None
     try:
         with vecsimMockTimeoutContext(env):
-            for initial_policy, next_policy in (('fail', 'return'), ('return', 'fail'),
-                                                ('fail',)):
+            for initial_policy, next_policy in (('fail', 'return'), ('return', 'fail')):
                 env.expect('CONFIG', 'SET', 'search-on-timeout', initial_policy).ok()
                 env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', prepare_point).ok()
                 env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', reducer_point).ok()
