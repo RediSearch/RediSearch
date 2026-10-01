@@ -95,7 +95,9 @@ class InfoSectionsTest : public ::testing::Test {
   static inline int diskOutputs = 0;
   static inline bool acceptV2 = false;
   static inline std::vector<uint64_t> registeredVersions;
-  static inline std::vector<unsigned int> controls;
+  static inline unsigned backgroundCollections = 0;
+  static inline unsigned totalReads = 0;
+  static inline unsigned indexUsageReads = 0;
   static inline int targetRegistrations = 0;
   static inline RedisModuleEventCallback cronCallback = nullptr;
   static inline RedisModuleBigCallbacksV2 callbacks{};
@@ -150,14 +152,18 @@ class InfoSectionsTest : public ::testing::Test {
       return 4321;
     };
     api.metrics.getCachedDiskUsage = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) -> uint64_t {
+      ++indexUsageReads;
       return 55;
     };
     api.metrics.getCachedBlockCount = [](RedisSearchDisk *,
                                          RedisSearchDiskIndexSpec *) -> uint64_t { return 9; };
     api.metrics.getCollector = [](RedisSearchDisk *context) -> void * { return context; };
-    api.metrics.control = [](void *, unsigned int action) { controls.push_back(action); };
-    api.metrics.registerTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *, bool retire) {
-      EXPECT_FALSE(retire);
+    api.metrics.collect = [](void *) { ++backgroundCollections; };
+    api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
+      ++totalReads;
+      return 55;
+    };
+    api.metrics.retireTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
       ++targetRegistrations;
     };
     api.metrics.getInvertedIndexTotalBlocks = [](RedisSearchDiskIndexSpec *) -> uint64_t {
@@ -177,7 +183,7 @@ class InfoSectionsTest : public ::testing::Test {
     collections = cachedCollections = diskOutputs = 0;
     acceptV2 = false;
     registeredVersions.clear();
-    controls.clear();
+    backgroundCollections = totalReads = indexUsageReads = 0;
     targetRegistrations = 0;
     cronCallback = nullptr;
     callbacks = {};
@@ -263,17 +269,13 @@ TEST_F(InfoSectionsTest, V2CallbacksUseCachedInfoMetrics) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_EQ(registeredVersions, std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION});
   ASSERT_NE(callbacks.getCachedDiskUsage, nullptr);
-  ASSERT_NE(callbacks.metrics, nullptr);
+  ASSERT_NE(callbacks.collectMetrics, nullptr);
   EXPECT_TRUE(SearchDisk_InfoCacheEnabled());
-  EXPECT_EQ(controls, std::vector<unsigned int>{2});
-  ASSERT_NE(cronCallback, nullptr);
-
-  spec->diskRegistered = true;
-  cronCallback(nullptr, RedisModuleEvent_CronLoop, 0, nullptr);
-  EXPECT_EQ(controls, (std::vector<unsigned int>{2}));
-  callbacks.metrics(REDISMODULE_METRICS_COLLECT);
-  EXPECT_EQ(controls, (std::vector<unsigned int>{2, 0}));
-  EXPECT_EQ(targetRegistrations, 1);
+  EXPECT_EQ(backgroundCollections, 0);
+  EXPECT_EQ(cronCallback, nullptr);
+  callbacks.collectMetrics();
+  EXPECT_EQ(backgroundCollections, 1);
+  EXPECT_EQ(targetRegistrations, 0);
 
   auto info = run({"indexes", "memory", "disk"});
   EXPECT_EQ(info.fields.at("total_inverted_index_blocks"), "9");
@@ -282,17 +284,44 @@ TEST_F(InfoSectionsTest, V2CallbacksUseCachedInfoMetrics) {
   EXPECT_EQ(diskOutputs, 1);
   EXPECT_EQ(callbacks.getCachedDiskUsage(), 55);
 
-  callbacks.metrics(REDISMODULE_METRICS_PAUSE);
-  callbacks.metrics(REDISMODULE_METRICS_RESUME);
-  callbacks.metrics(REDISMODULE_METRICS_FORK_CHILD);
-  EXPECT_EQ(controls, (std::vector<unsigned int>{2, 0, 1, 2, 3}));
+  EXPECT_EQ(totalReads, 1);
+  EXPECT_EQ(indexUsageReads, 0);
+}
+
+TEST_F(InfoSectionsTest, CachedTotalDoesNotReadIndexes) {
+  acceptV2 = true;
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  std::vector<StrongRef> indexes;
+  Restore<decltype(isFlex)> flexMode{isFlex};
+  isFlex = false;
+  for (unsigned i = 0; i < 1000; ++i) {
+    const char *args[] = {"SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+    auto name = std::string("cached_total_") + std::to_string(i);
+    auto index = IndexSpec_ParseC(nullptr, name.c_str(), args, 3, &err);
+    auto *sp = static_cast<IndexSpec *>(StrongRef_Get(index));
+    ASSERT_NE(sp, nullptr);
+    Spec_AddToDict(index.rm);
+    sp->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(sp);
+    indexes.push_back(index);
+  }
+  isFlex = true;
+  EXPECT_EQ(callbacks.getCachedDiskUsage(), 55);
+  EXPECT_EQ(totalReads, 1);
+  EXPECT_EQ(indexUsageReads, 0);
+  EXPECT_EQ(collections, 0);
+  EXPECT_EQ(backgroundCollections, 0);
+  for (auto index : indexes) {
+    static_cast<IndexSpec *>(StrongRef_Get(index))->diskSpec = nullptr;
+    Indexes_RemoveSpecFromGlobals(index, false);
+  }
 }
 
 TEST_F(InfoSectionsTest, V1FallbackKeepsLiveInfoMetrics) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_EQ(registeredVersions, (std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION, 1}));
   EXPECT_FALSE(SearchDisk_InfoCacheEnabled());
-  EXPECT_TRUE(controls.empty());
+  EXPECT_EQ(backgroundCollections, 0);
 
   auto info = run({"indexes", "memory", "disk"});
   EXPECT_EQ(info.fields.at("total_inverted_index_blocks"), "7");

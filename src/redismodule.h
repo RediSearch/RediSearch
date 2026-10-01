@@ -628,10 +628,6 @@ typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModule
  * Callback registered by modules for disk usage queries.
  * This typedef is in the common section so it's visible to both core and modules. */
 #define REDISMODULE_BIG_CALLBACKS_VERSION 2
-#define REDISMODULE_METRICS_COLLECT 0
-#define REDISMODULE_METRICS_PAUSE 1
-#define REDISMODULE_METRICS_RESUME 2
-#define REDISMODULE_METRICS_FORK_CHILD 3
 typedef struct RedisModuleBigCallbacks {
     uint64_t version;              /* Version of this structure for ABI compat. */
     size_t (*getDiskUsage)(void);  /* Returns module's disk usage (SST files, etc.) */
@@ -641,10 +637,10 @@ typedef struct RedisModuleBigCallbacksV2 {
   uint64_t version;
   size_t (*getDiskUsage)(void);
   size_t (*getCachedDiskUsage)(void);
-  /* COLLECT runs on the Flex metrics BIO worker. Lifecycle events run on the
-   * main thread after that worker is drained. The callback must not wait for
-   * main-thread execution. Registration owns its lifetime until unregister. */
-  void (*metrics)(int event);
+  /* Runs on BIO and completes all work before returning, without waiting for
+   * main-thread execution or retaining native resources between calls.
+   * Redis drains collection before unregister, unload, database close and fork. */
+  void (*collectMetrics)(void);
 } RedisModuleBigCallbacksV2;
 
 #define RedisModuleBigCallbacks RedisModuleBigCallbacksV2

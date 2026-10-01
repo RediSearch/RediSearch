@@ -227,84 +227,16 @@ static size_t getDiskUsageCallback(void) {
   return total;
 }
 
-// Callback for BigModuleRegister - returns total disk usage across all indexes
-static size_t getCachedDiskUsageCallback(void) {
-  size_t total = 0;
-  if (!specDict_g) {
-    return total;
-  }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      total += SearchDisk_GetCachedDiskUsage(sp->diskSpec);
-    }
-  }
-  dictReleaseIterator(iter);
-  return total;
-}
-
 static bool infoCacheEnabled;
 static void *metricsCollector;
-static bool metricsResumePending;
 
-void SearchDisk_PauseMetrics(void) {
-  metricsResumePending = false;
-  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(metricsCollector, 1);
+static size_t getCachedDiskUsageCallback(void) {
+  return disk->metrics.getCachedTotalDiskUsage(metricsCollector);
 }
 
-static void resumeMetrics(void) {
-  if (!disk || !disk_db || !infoCacheEnabled) return;
-  disk->metrics.control(metricsCollector, 2);
-  // SST abort can resume us while CF creation holds an index map's write lock.
-  // Rebuild targets only after that callback stack has unwound.
-  metricsResumePending = true;
-}
-
-static void rebuildMetricsTargets(void) {
-  if (!specDict_g) return;
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  while ((entry = dictNext(iter))) {
-    IndexSpec *spec = StrongRef_Get(dictGetRef(entry));
-    if (spec && spec->diskSpec && spec->diskRegistered)
-      disk->metrics.registerTarget(disk_db, spec->diskSpec, false);
-  }
-  dictReleaseIterator(iter);
-}
-
-static void forkChildMetrics(void) {
-  metricsResumePending = false;
-  if (disk && disk_db && infoCacheEnabled) disk->metrics.control(metricsCollector, 3);
-}
-
-static void metricsCron(RedisModuleCtx *ctx, RedisModuleEvent event, uint64_t subevent,
-                        void *data) {
-  if (metricsResumePending) {
-    metricsResumePending = false;
-    rebuildMetricsTargets();
-  }
-}
-
-/* Redis serializes collection on BIO and drains it before lifecycle events. */
-static void metricsCallback(int event) {
-  switch (event) {
-    case REDISMODULE_METRICS_COLLECT:
-      disk->metrics.control(metricsCollector, REDISMODULE_METRICS_COLLECT);
-      break;
-    case REDISMODULE_METRICS_PAUSE:
-      SearchDisk_PauseMetrics();
-      break;
-    case REDISMODULE_METRICS_RESUME:
-      resumeMetrics();
-      break;
-    case REDISMODULE_METRICS_FORK_CHILD:
-      forkChildMetrics();
-      break;
-  }
+/* Redis owns scheduling and drains this callback before lifecycle changes. */
+static void collectMetricsCallback(void) {
+  disk->metrics.collect(metricsCollector);
 }
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
@@ -317,11 +249,10 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
       .version = REDISMODULE_BIG_CALLBACKS_VERSION,
       .getDiskUsage = getDiskUsageCallback,
       .getCachedDiskUsage = getCachedDiskUsageCallback,
-      .metrics = metricsCallback,
+      .collectMetrics = collectMetricsCallback,
   };
 
   infoCacheEnabled = false;
-  metricsCollector = disk->metrics.getCollector(disk_db);
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
     RedisModuleBigCallbacksV1 legacy = {.version = 1, .getDiskUsage = getDiskUsageCallback};
     if (RedisModule_BigModuleRegister(ctx, (RedisModuleBigCallbacks *)&legacy) != REDISMODULE_OK) {
@@ -329,11 +260,10 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
       return false;
     }
     RedisModule_Log(ctx, "notice",
-                    "Disk INFO cache disabled: Flex metrics lifecycle V2 unavailable");
+                    "Disk INFO cache disabled: Flex metrics callbacks V2 unavailable");
   } else {
     infoCacheEnabled = true;
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_CronLoop, metricsCron);
-    resumeMetrics();
+    metricsCollector = disk->metrics.getCollector(disk_db);
   }
 
   RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
@@ -341,7 +271,6 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
 }
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
-  SearchDisk_PauseMetrics();
   if (disk && disk_db) {
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
@@ -458,7 +387,7 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
   if (!spec->diskRegistered) {
     return;
   }
-  disk->metrics.registerTarget(disk_db, spec->diskSpec, true);
+  disk->metrics.retireTarget(disk_db, spec->diskSpec);
   disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
   spec->diskRegistered = false;
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {

@@ -13,9 +13,8 @@ zero or old values. Samples are not atomic across column families or indexes.
 V2 rejection selects the legacy synchronous path. After successful V2
 negotiation, failed or delayed collection retains cached values. Redis owns
 scheduling through its dedicated Flex metrics BIO worker; RediSearch cron never
-collects native metrics. Resume schedules target rebuilding on cron
-after the callback stack has unwound. Drop/shutdown retire targets before native
-handle destruction.
+collects native metrics. Drop/shutdown retire targets before native handle
+destruction.
 
 The matching RediSearch Enterprise implementation documents the complete field
 contract in docs/info-metrics.md and carries executable cross-repository
@@ -25,8 +24,13 @@ FT.INFO, drop/recreate, failed/successful fork and reopen operations. Run them w
 the matching Flex Redis and RediSearch Enterprise artifacts; a standalone
 RAM-only RediSearch test does not exercise the disk API.
 
-BigModule V2 now registers a single `metrics(event)` callback. Redis invokes
-COLLECT on BIO and lifecycle events on the main thread after draining the worker.
-RediSearch forwards to a separately allocated RSE collector context and retains
-main-thread target rebuilding. Both sides must use the matching unmerged V2
-layout. RSE and Flex no longer create private metrics threads.
+BigModule V2 registers a single `collectMetrics(void)` callback. Redis invokes it
+on BIO, stops submissions and drains the worker before lifecycle changes.
+RediSearch forwards to a separately allocated RSE collector context; it does not
+handle pause/resume/fork actions or rebuild targets on cron. Both sides must use
+the matching unmerged V2 layout. RSE and Flex have no private metrics threads.
+
+The BigModule cached-usage getter reads one module-wide total published by RSE's
+background pass. It is O(1), without index iteration or native property reads.
+The broader Search INFO sections still aggregate per-index snapshots and RAM
+statistics. Live quota/admission usage remains separate.
