@@ -224,7 +224,7 @@ impl<'n> DocumentFormat for HashDocumentFormat<'n> {
 
     fn load_all(
         &self,
-        rlookup: &mut RLookup,
+        rlookup: &RLookup,
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError> {
@@ -249,27 +249,10 @@ impl<'n> DocumentFormat for HashDocumentFormat<'n> {
                 CStr::from_bytes_until_nul(bytes).expect("SDS string must contain null-terminator")
             };
 
-            let key = if let Some(c) = rlookup.find_key_by_name(field_cstr) {
-                if c.current()
-                    .unwrap() // NB: if `find_key_by_name` returns Some the cursor always points at a valid element
-                    .flags
-                    .contains(RLookupKeyFlag::QuerySrc)
-                {
-                    // Key name is already taken by a query key.
-                    return;
-                } else {
-                    c.into_current().unwrap()
-                }
-            } else {
-                // First returned document, create the key.
-                rlookup
-                    .get_key_load(
-                        field_cstr.to_owned(),
-                        field_cstr,
-                        RLookupKeyFlag::ForceLoad.into(),
-                    )
-                    .unwrap()
-            };
+            let key = rlookup.get_or_create_loaded_key(field_cstr, None);
+            if key.flags.contains(RLookupKeyFlag::QuerySrc) {
+                return;
+            }
 
             let coerce = if key.flags.contains(RLookupKeyFlag::Numeric) && !self.force_string {
                 HashCoerceType::Double
