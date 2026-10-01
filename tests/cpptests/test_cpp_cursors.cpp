@@ -321,7 +321,8 @@ TEST_F(CursorsTest, InlineCycleRejectsBlockedClientTimer) {
     ASSERT_EQ(MainThread_InitBlockedQueries(), 0);
   }
   AREQ *req = AREQ_New(nullptr, 0);
-  EXPECT_THROW(QueryRequest_BeginCycle(&req->base, nullptr, nullptr, 1), std::runtime_error);
+  EXPECT_THROW(BlockQueryClientWithTimeout(nullptr, &req->base, nullptr, nullptr, 1),
+               std::runtime_error);
   QueryRequest_Free(&req->base);
 }
 #endif

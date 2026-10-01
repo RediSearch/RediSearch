@@ -42,15 +42,13 @@ struct QueryRequest;
  * ownership of the request (it becomes the blocked client's privdata — see
  * the ownership contract on QueryRequest), links it into the BlockedQueries
  * query registry (crash reports), and records the cycle's reply mode
- * (`reply_cb` and `timeout_ms` must match RedisModule_BlockClient).
- * Inline mode requires a zero blocked-client timer; pipeline clock deadlines
- * are independent of this restriction. */
+ * (`reply_cb` must match RedisModule_BlockClient). */
 void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb, rs_wall_clock_ms_t timeout_ms);
+                             RedisModuleCmdFunc reply_cb);
 
 /* Same as QueryRequest_BeginCycle, linking into the cursor registry instead. */
 void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
-                                   RedisModuleCmdFunc reply_cb, rs_wall_clock_ms_t timeout_ms);
+                                   RedisModuleCmdFunc reply_cb);
 
 /* End the cycle: unlink the request from the registry, drain unconsumed
  * per-cycle reply state, then dispose of the request — execute the recorded
@@ -80,7 +78,8 @@ void BlockedQueries_UnwindCycles(void);
  * BlockedQueries, calls RedisModule_BlockClient(reply_cb, timeout_cb,
  * QueryRequest_OnFree, timeout_ms) and BeginCycle. `reply_cb`/`timeout_cb`
  * may both be NULL (inline reply mode) but must be provided together with a
- * non-zero `timeout_ms`. */
+ * non-zero `timeout_ms`. This checks the timer passed to Redis, rather than
+ * the request timeout configuration, which may drive an inline clock deadline. */
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       struct QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,

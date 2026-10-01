@@ -336,6 +336,7 @@ typedef struct QueryRequest {
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
    * per-cycle state must not be read while it is false. */
   bool blockedClientCycleActive;
+  // True: the Redis reply callback serializes stored results. False: the worker replies inline.
   // Fixed by BeginCycle before dispatch and cleared by EndCycle before parking.
   bool replyDeferred;
   // Assertion-only accounting in padding; keep the C/Rust layout independent of build flags.
