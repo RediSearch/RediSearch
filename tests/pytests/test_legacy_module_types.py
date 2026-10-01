@@ -191,7 +191,7 @@ def testLegacyIndexSpecRestoreIsRefused(env):
     env.assertTrue(env.isUp())
 
 
-def _fail_full_sync(env, shard_mock):
+def _fail_full_sync(env, shard_mock, sync_failed):
     """Make the server a replica of `shard_mock` and cut its full sync short, so the load fails.
 
     The load has to be diskless: a truncated RDB loaded from disk makes Redis exit instead of firing
@@ -213,12 +213,11 @@ def _fail_full_sync(env, shard_mock):
     conn.flush()
     conn.close()
 
+    # The server can answer commands before it starts loading, so wait for the failure itself.
     for _ in range(100):
-        try:
-            env.cmd('PING')
+        if sync_failed():
             break
-        except redis.exceptions.BusyLoadingError:
-            time.sleep(0.1)
+        time.sleep(0.1)
     env.cmd('REPLICAOF', 'NO', 'ONE')
 
 
@@ -243,7 +242,8 @@ def testLegacyIndexSpecRestoreIsRefusedAfterFailedLoad(env):
     failedSyncMsg = 'Failed trying to load the MASTER synchronization DB'
     failedSyncsBefore = _grep_file_count(logFilePath, failedSyncMsg)
     with ShardMock(env) as shardMock:
-        _fail_full_sync(env, shardMock)
+        _fail_full_sync(env, shardMock,
+                        lambda: _grep_file_count(logFilePath, failedSyncMsg) > failedSyncsBefore)
     env.assertGreater(_grep_file_count(logFilePath, failedSyncMsg), failedSyncsBefore,
                       message='the full sync did not fail, so this test proves nothing')
 
