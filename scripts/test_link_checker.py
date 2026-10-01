@@ -138,5 +138,28 @@ def test_link_checker():
     print("✅ Link checker test completed!")
 
 
+def test_local_only():
+    """--local-only must catch missing repo files without touching the network."""
+    import shutil
+    test_dir = Path(tempfile.mkdtemp())
+    try:
+        (test_dir / "present.md").write_text("present")
+        doc = test_dir / "doc.md"
+        doc.write_text("""
+- [present](present.md)
+- [missing](missing.c)
+- [web](https://this-domain-does-not-exist-12345.com)
+- [ftp](ftp://example.com/file)
+""")
+        checker = LinkChecker(local_only=True)
+        results = {Path(url).name: is_valid for url, _, is_valid, _, _ in checker.check_links_in_file(doc)}
+        assert results == {"present.md": True, "missing.c": False}, results
+        assert not checker.check_all_files(str(test_dir))
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)
+    print("✅ Local-only test completed!")
+
+
 if __name__ == '__main__':
+    test_local_only()
     test_link_checker()

@@ -98,10 +98,11 @@ class LinkChecker:
                     if url.lower() in {'url', 'link', 'path', 'file', 'example.com', 'domain.com'}:
                         continue
 
+                    if self.local_only and re.match(r'[A-Za-z][A-Za-z0-9+.-]*:', url):
+                        continue
+
                     # Determine link type and resolve if relative
                     if url.startswith(('http://', 'https://')):
-                        if self.local_only:
-                            continue
                         link_type = 'absolute'
                         resolved_url = url
                     else:
