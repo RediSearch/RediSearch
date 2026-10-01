@@ -850,6 +850,26 @@ TEST_F(VectorRelabelTest, alterAddedVectorFieldIsNeverRelabeled) {
   expectOpsSince(before, 1, 1);
 }
 
+// Every field in the added range is treated as added, not only the first: the ALTER added
+// `extra TAG v_new VECTOR`, so v_new is second in the range, and is still inserted without a
+// comparison although it has an entry under the old doc-id. If only the first added field were
+// marked, v_new would be compared and relabeled too, (0, 2).
+TEST_F(VectorRelabelTest, alterAddedVectorAfterNonVectorFieldIsNeverRelabeled) {
+  createSchema("title", "TEXT", "v_old", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
+               "DISTANCE_METRIC", "L2", "extra", "TAG", "v_new", "VECTOR", "FLAT", "6", "TYPE",
+               "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2");
+  t_docId old = indexFields(
+      "doc:1", {{"title", "hello"}, {"v_old", kVecA}, {"extra", "x"}, {"v_new", kVecC}});
+  ASSERT_NE(old, 0);
+  ASSERT_TRUE(namedLabelHolds("v_new", old, kVecC));
+  const VectorOps before = vectorOps();
+
+  t_docId neu = reindexForAlter("doc:1", "extra");
+
+  expectAddedVectorEndState(old, neu);
+  expectOpsSince(before, 1, 1);
+}
+
 // Every pre-existing vector field is relabeled, not just the first one the mark loop visits.
 TEST_F(VectorRelabelTest, alterRelabelsEachPreexistingVectorField) {
   createTwoVectorIndex("extra", "TAG");

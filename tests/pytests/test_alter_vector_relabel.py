@@ -381,6 +381,35 @@ def test_alter_added_vector_written_during_scan_is_reinserted():
 
 
 @skip(cluster=True)
+def test_alter_added_vector_after_non_vector_field_is_inserted():
+    """Proves that every field in the ALTER-added range is treated as added, not only the first:
+    `FT.ALTER ADD extra TAG vec2 VECTOR` puts the vector second in the range, and the scan still
+    inserts `vec2` on all three documents without a comparison, (3, 0). The schema has no other
+    vector field, so the counters see only `vec2`.
+
+    A write that lands while the scan is paused gives doc:0 a `vec2` entry under its current
+    doc-id, as in test_alter_added_vector_written_during_scan_is_reinserted. Fails if only the
+    first added field were treated as added: `vec2` would then be compared, the comparison would
+    confirm doc:0's entry and relabel it, giving (2, 1). FLAT: no tiered buffer, so the comparison
+    is exact."""
+    env, conn = _start('title', 'TEXT')
+    for i in range(3):
+        conn.execute_command('HSET', f'doc:{i}', 'title', 't', 'extra', 'x', 'vec2', _vec2(i))
+
+    with _alter_paused_before_scan(env, 'extra', 'TAG', 'vec2', *_flat(DIM)):
+        conn.execute_command('HSET', 'doc:0', 'vec2', _blob(200.0))
+        # After the write, so only the scan's own vector work is counted.
+        before = _vector_ops(env)
+
+    env.assertEqual(_ops_delta(before, _vector_ops(env)), (3, 0))
+    _assert_exact_hit(env, _blob(200.0), 'doc:0', field='vec2')
+    _assert_hits(env, (1, 2), vec=_vec2, field='vec2')
+    env.assertEqual(_knn_ids(env, _vec2(0), 10, field='vec2'), _keys(range(3)))
+    res = env.cmd('FT.SEARCH', 'idx', '@extra:{x}', 'NOCONTENT')
+    env.assertEqual(sorted(r['id'] for r in res['results']), _keys(range(3)))
+
+
+@skip(cluster=True)
 def test_alter_knn_mid_backfill_no_duplicates():
     """KNN queries issued while the selective backfill is paused, after exactly half the
     documents were relabelled onto new doc-ids, return the documents they returned before the
