@@ -35,5 +35,5 @@ pub mod mock;
 
 pub use heap::{HeapResult, ScoredResult, TopKHeap};
 pub use iterator::{TopKIterator, TopKMode, TopKSourceProfile};
-pub use order::{Ascending, Descending, RuntimeOrder, ScoreOrdering};
+pub use order::{Ascending, Descending, RuntimeOrder, ScoreOrdering, TiebreakStrategy};
 pub use traits::{BatchStrategy, ScoreBatch, ScoreSource};

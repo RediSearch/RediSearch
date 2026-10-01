@@ -71,3 +71,16 @@ impl ScoreOrdering for RuntimeOrder {
         }
     }
 }
+
+/// Which document wins when two results carry equal scores.
+///
+/// Orthogonal to [`ScoreOrdering`], which ranks the scores themselves: this
+/// settles ties between equal ones, as the direction of a query's last sort key
+/// requires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TiebreakStrategy {
+    /// The lower doc id is better, so the higher one is evicted first.
+    LowerDocIdWins,
+    /// The higher doc id is better, so the lower one is evicted first.
+    HigherDocIdWins,
+}

@@ -22,7 +22,10 @@ use std::num::NonZeroUsize;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng as _, seq::SliceRandom as _};
 use rqe_iterators::RQEIterator;
-use top_k::{Ascending, BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
+use top_k::{
+    Ascending, BatchStrategy, TiebreakStrategy::LowerDocIdWins, TopKHeap, TopKIterator, TopKMode,
+    mock::MockScoreSource,
+};
 
 // ── Heap benchmarks ───────────────────────────────────────────────────────────
 
@@ -37,7 +40,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         &(n, k),
         |b, &(n, k)| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, Ascending);
+                let mut heap = TopKHeap::new(k, Ascending, LowerDocIdWins);
                 for i in 0..n {
                     heap.push(i as u64, i as f64);
                 }
@@ -54,7 +57,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         &(n, k),
         |b, &(n, k)| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, Ascending);
+                let mut heap = TopKHeap::new(k, Ascending, LowerDocIdWins);
                 for i in (0..n).rev() {
                     heap.push(i as u64, i as f64);
                 }
@@ -75,7 +78,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         BenchmarkId::new("insert_rand", format!("{n}→k{k}")),
         |b| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, Ascending);
+                let mut heap = TopKHeap::new(k, Ascending, LowerDocIdWins);
                 for &i in &scores {
                     heap.push(i, i as f64);
                 }
@@ -96,7 +99,7 @@ fn bench_heap_pop_all(c: &mut Criterion) {
         |b, &k| {
             b.iter_batched(
                 || {
-                    let mut heap = TopKHeap::new(k, Ascending);
+                    let mut heap = TopKHeap::new(k, Ascending, LowerDocIdWins);
                     for i in 0..k.get() {
                         heap.push(i as u64, i as f64);
                     }
