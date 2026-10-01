@@ -1075,3 +1075,46 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
                     message=f'group count {total} != returned groups {len(rows)}: {res}')
     env.assertEqual(total, 1,
                     message=f'expected exactly one surviving group, got {res}')
+
+
+@skip(cluster=True)
+def test_drop_index_while_query_is_queued():
+    """A queued query retains its request, but cannot revive a dropped index."""
+    # A worker is required to queue the query; disable deadlines so only the
+    # index drop determines the outcome, including on slow sanitizer builds.
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0')
+    client = env.getConnection()
+    previous_policy = env.cmd(config_cmd(), 'GET', 'ON_TIMEOUT')[0][1]
+    try:
+        for policy in ('return', 'fail', 'return-strict'):
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+            for command in ('FT.SEARCH', 'FT.AGGREGATE'):
+                env.expect('FT.CREATE', 'queued_idx', 'SCHEMA', 'text', 'TEXT').ok()
+                connection = client.connection_pool.get_connection()
+                try:
+                    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+                    try:
+                        connection.send_command(command, 'queued_idx', '*')
+                        wait_for_condition(
+                            lambda: (getWorkersThpoolStats(env)['totalPendingJobs'] == 1, {}),
+                            f'{command} did not enter the worker queue under {policy}',
+                            timeout=5,
+                        )
+                        env.expect('FT.DROPINDEX', 'queued_idx').ok()
+                    finally:
+                        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+                    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+                    try:
+                        response = connection.read_response()
+                    except redis_exceptions.ResponseError as error:
+                        env.assertContains(
+                            'The index was dropped before the query could be executed',
+                            str(error), message=f'{command}, {policy}: {error}',
+                        )
+                    else:
+                        env.assertTrue(False, message=f'{command}, {policy}: {response}')
+                finally:
+                    connection.disconnect()
+                    client.connection_pool.release(connection)
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', previous_policy).ok()

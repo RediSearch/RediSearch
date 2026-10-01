@@ -77,7 +77,7 @@
 // This context is created on the main thread and passed to the background worker.
 typedef struct {
   RedisModuleBlockedClient *blockedClient;
-  WeakRef spec_ref;
+  WeakRef spec_ref;  // Owned until worker completion; does not keep a dropped index alive.
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
@@ -1209,6 +1209,9 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 }
 
+// The blocked-client cycle owns the request until QueryRequest_OnFree, after the
+// worker unblocks the client. A timeout or disconnect does not end that ownership.
+// Callers must not use the request after blockedClientReqCtx_destroy.
 static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
   QueryRequest *request = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
   return QueryRequest_GetAREQ(request);
