@@ -247,15 +247,15 @@ int getNextReply(RPNet *nc) {
           ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
           : NULL;
   bool popTimedOut = false;
-  MRReply *root = deadline || abortFlag
+  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+                  : deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
                       : MRIterator_Next(nc->it);
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
     // Drain-only: empty channel means end of queued replies, not a timeout —
-    // the main-thread timeout callback already observed the deadline and is
-    // now consuming whatever the I/O threads had already pushed.
+    // main-thread serialization only consumes what the I/O threads have pushed.
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
