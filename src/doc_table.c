@@ -522,8 +522,12 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
         dmd->payload->data = buf;
         dmd->payload->len--;
         t->memsize += dmd->payload->len + sizeof(RSPayload);
-      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
-        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+      } else {
+        // A deleted doc's payload is not loaded, so its flag must not tell DMD_Free there is one.
+        dmd->flags &= ~Document_HasPayload;
+        if (encver == INDEX_MIN_EXPIRE_VERSION) {
+          RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+        }
       }
     }
     dmd->sortVector = RSSortingVector_Empty();
@@ -539,6 +543,13 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
       rm_free(bufTmp);
       RedisModule_Free(tmp);
+      if (!dmd->byteOffsets) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: truncated byte offsets for doc id %llu",
+                               (unsigned long long)dmd->id);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
     }
 
     if (dmd->flags & Document_Deleted) {

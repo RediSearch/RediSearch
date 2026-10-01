@@ -22,7 +22,6 @@
 #include <time.h>
 
 #include "VecSim/query_results.h"
-#include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
 #include "query_param.h"
 #include "rdb.h"
@@ -284,7 +283,6 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
   size_t dim = info.dim;
   VecSimType type = info.type;
-  VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
@@ -317,19 +315,10 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
-      HybridIteratorParams hParams = {.index = vecsim,
-                                      .dim = dim,
-                                      .elementType = type,
-                                      .spaceMetric = metric,
-                                      .query = vq->knn,
-                                      .qParams = qParams,
-                                      .vectorScoreField = vq->scoreField,
-                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
-                                      .childIt = child_it,
-                                      .sctx = q->sctx,
-                                      .filterCtx = &filterCtx,
-      };
-      return NewHybridVectorIterator(hParams, q->status);
+      RS_ASSERT(q->sctx->timeout);
+      return NewVectorTopKIterator(vecsim, vq->knn.vector, dim * VecSimType_sizeof(type), &qParams,
+                                   vq->knn.k, q->opts->flags & Search_CanSkipRichResults, child_it,
+                                   q->sctx->timeout, q->sctx, &filterCtx);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
@@ -855,12 +844,43 @@ void VecSimParams_Cleanup(VecSimParams *params) {
   rm_free(params->logCtx);
 }
 
+// SVS sizes its search buffer from SEARCH_WINDOW_SIZE and SEARCH_BUFFER_CAPACITY, and requires the
+// capacity to hold the whole window. The backend enforces that by throwing, which would escape
+// through the module's C frames and terminate the server, so the pair is rejected here instead.
+// VecSim resolves each of the two parameters in isolation, so this cross-check has no other owner.
+static VecSimResolveCode validateSVSRuntimeParams(VecSimIndex *index,
+                                                  const VecSimQueryParams *qParams,
+                                                  QueryError *status) {
+  // svsRuntimeParams shares storage with the other algorithms' runtime params, so the fields below
+  // only hold what the SVS resolvers wrote when the index really is SVS. The resolvers gate on the
+  // same value (the backend algorithm for a tiered index).
+  if (VecSimIndex_BasicInfo(index).algo != VecSimAlgo_SVS) {
+    return VecSim_OK;
+  }
+  size_t windowSize = qParams->svsRuntimeParams.windowSize;
+  size_t bufferCapacity = qParams->svsRuntimeParams.bufferCapacity;
+  // SVS ignores the capacity unless a window size is given too. Treating zero as unset is safe for
+  // any caller: VecSimIndex_ResolveParams memsets the whole VecSimQueryParams before resolving, so
+  // an omitted attribute reads as zero regardless of how the caller initialized it.
+  if (windowSize == 0 || bufferCapacity == 0 || bufferCapacity >= windowSize) {
+    return VecSim_OK;
+  }
+  // The two values are client-supplied, so they belong in the user-data half of the error, which
+  // keeps them out of the log line when hideUserDataFromLog is set.
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
+                                "Error parsing vector similarity parameters: "
+                                "SEARCH_BUFFER_CAPACITY must not be smaller "
+                                "than SEARCH_WINDOW_SIZE",
+                                " (%zu < %zu)", bufferCapacity, windowSize);
+  return VecSimParamResolverErr_BadValue;
+}
+
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                           VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
   VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType);
   if (vecSimCode == VecSim_OK) {
-    return vecSimCode;
+    return validateSVSRuntimeParams(index, qParams, status);
   }
 
   QueryErrorCode RSErrorCode;

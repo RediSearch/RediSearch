@@ -82,6 +82,7 @@ class TestDebugCommands(object):
             "TTL_PAUSE",
             "TTL_EXPIRE",
             "VECSIM_INFO",
+            "VECSIM_RELABEL_SUPPORTED",
             "DELETE_LOCAL_CURSORS",
             "DELETE_LOCAL_COORD_CURSORS",
             "DUMP_HNSW",

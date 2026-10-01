@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-fn main() {
-    build_utils::bind_foreign_c_symbols();
+/// Returns whether `bytes` is well-formed UTF-8.
+pub const fn is_valid(bytes: &[u8]) -> bool {
+    str::from_utf8(bytes).is_ok()
 }

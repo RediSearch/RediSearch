@@ -12,6 +12,8 @@ import redis
 from includes import *
 from common import *
 from RLTest import Env
+from test_config import _grep_file_count
+from test_short_read import ShardMock
 
 # End-to-end coverage for the pre-2.0 module types (ft_invidx / numericdx / ft_tagidx). These keys
 # can only be created by deserializing an old payload, so RESTORE is the only way to get one into a
@@ -186,4 +188,221 @@ def testLegacyIndexSpecRestoreIsRefused(env):
         env.expect('RESTORE', key, 0, payload).error().contains('Bad data format')
         env.assertEqual(conn.execute_command('EXISTS', key), 0, message=key)
 
+    env.assertTrue(env.isUp())
+
+
+RDB_MODULE_OPCODE_FLOAT = 3
+RDB_MODULE_OPCODE_STRING = 5
+RDB_OPCODE_SELECTDB = 0xFE
+RDB_OPCODE_EOF = 0xFF
+
+# The newest encoding that still routes to the legacy spec loader (LEGACY_INDEX_MAX_VERSION).
+LEGACY_SPEC_ENC_VER = 16
+# INDEX_MIN_EXPIRE_VERSION: the only encoding that saved the payload of a deleted doc.
+LEGACY_SPEC_EXPIRE_ENC_VER = 13
+# INDEX_MIN_ALIAS_VERSION: the first encoding that saves the alias list.
+LEGACY_SPEC_ALIAS_ENC_VER = 15
+DOCUMENT_DELETED = 0x01
+DOCUMENT_HAS_PAYLOAD = 0x02
+DOCUMENT_HAS_OFFSET_VECTOR = 0x08
+
+
+def _module_string(value):
+    return _save_len(RDB_MODULE_OPCODE_STRING) + _save_len(len(value)) + value
+
+
+def _module_float(value):
+    return _save_len(RDB_MODULE_OPCODE_FLOAT) + struct.pack('<f', value)
+
+
+def _byte_offsets(fields, data, data_len=None):
+    """Serialize byte offsets the way RSByteOffsets_Serialize does. `data_len` overrides the length
+    prefix so the blob can claim more data than it carries."""
+    blob = bytes([len(fields)])
+    for field_id, first, last in fields:
+        blob += bytes([field_id]) + struct.pack('>II', first, last)
+    return blob + struct.pack('>I', len(data) if data_len is None else data_len) + data
+
+
+def _legacy_doc(flags, tail):
+    """A doc table record for `doc1` (doc id 1), laid out the same for encver 12 through 16. `tail`
+    holds whatever `flags` says follows the fixed fields: payload, sorting vector, byte offsets."""
+    return (_module_string(b'doc1')
+            + _module_uint(1)            # doc id
+            + _module_uint(flags)
+            + _module_uint(1)            # max term frequency
+            + _module_uint(1)            # doc length
+            + _module_float(1.0)         # score
+            + tail)
+
+
+def _legacy_spec_body(doc, encver):
+    """An `ft_index0` value for encver 13 through 16: an index `idx` with no fields and the single doc
+    record `doc`."""
+    return (_module_string(b'idx\0')
+            + _module_uint(0)            # index flags
+            + _module_uint(0)            # number of fields
+            + _module_uint(0) * 10       # index stats
+            # Doc table: size (one past the last doc), max doc id, max size.
+            + _module_uint(2) + _module_uint(1) + _module_uint(1)
+            + doc
+            + _module_uint(0)            # terms trie size
+            + _module_uint(0)            # timeout
+            + (_module_uint(0) if encver >= LEGACY_SPEC_ALIAS_ENC_VER else b''))  # aliases
+
+
+def _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_ENC_VER):
+    """Stop the server and replace its RDB file with one holding a single legacy index spec. A legacy
+    spec is only upgraded during the first RDB load after the module loads, so it cannot be RESTOREd
+    (see testLegacyIndexSpecRestoreIsRefused) and has to come from the file the server starts from.
+    Returns the server's log file path."""
+    conn = _binary_conn(env)
+    rdb_version = _rdb_version(conn)
+    db_dir = env.cmd('CONFIG', 'GET', 'dir')[1]
+    rdb_path = os.path.join(db_dir, env.cmd('CONFIG', 'GET', 'dbfilename')[1])
+    log_path = os.path.join(db_dir, env.cmd('CONFIG', 'GET', 'logfile')[1])
+    env.stop()
+
+    key = b'idx'
+    rdb = (b'REDIS%04d' % rdb_version
+           + bytes([RDB_OPCODE_SELECTDB]) + _save_len(0)
+           + bytes([RDB_TYPE_MODULE_2]) + _save_len(len(key)) + key
+           + _save_len(_module_type_id('ft_index0', encver))
+           + _legacy_spec_body(doc, encver)
+           + _save_len(RDB_MODULE_OPCODE_EOF)
+           + bytes([RDB_OPCODE_EOF]))
+    with open(rdb_path, 'wb') as f:
+        f.write(rdb + struct.pack('<Q', _crc64(rdb)))
+    return log_path
+
+
+@skip(cluster=True, asan=True)
+def testLegacySpecWithByteOffsetsLoads():
+    """The fixture itself, and byte offsets that fill their blob exactly, load and upgrade."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    offsets = _byte_offsets([(0, 1, 1)], b'\x05')
+    _write_legacy_spec_rdb(env, _legacy_doc(DOCUMENT_HAS_OFFSET_VECTOR, _module_string(offsets)))
+    env.start()
+    env.assertEqual(index_info(env, 'idx')['index_name'], 'idx')
+
+
+@skip(cluster=True, asan=True)
+def testLegacySpecWithTruncatedByteOffsetsFailsToLoad():
+    """Byte offsets whose length prefix claims more data than the blob holds must fail the load
+    cleanly. The parser used to trust the prefix: it allocated the claimed length and copied it from
+    the end of the blob, crashing the server."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    offsets = _byte_offsets([], b'', data_len=0x7FFFFFFF)
+    log_path = _write_legacy_spec_rdb(
+        env, _legacy_doc(DOCUMENT_HAS_OFFSET_VECTOR, _module_string(offsets)))
+
+    # Give the server time to fail during the load before RLTest's readiness probe races with it.
+    env.envRunner.startupGraceSecs = 1
+    try:
+        env.start()
+    except Exception as e:
+        env.assertContains('Redis server is dead', str(e))
+    env.assertFalse(env.isUp())
+
+    with open(log_path) as f:
+        log = f.read()
+    # Redis writes a bug report for both a signal and a failed assertion.
+    env.assertNotContains('REDIS BUG REPORT', log, message=log[-4000:])
+    env.assertContains('truncated byte offsets for doc id 1', log)
+
+
+@skip(cluster=True)
+def testLegacySpecWithDeletedPayloadDocLoads():
+    """A deleted doc flagged as having a payload is dropped during the load without its payload ever
+    being read. Its flag used to survive, so freeing the dropped doc dereferenced a NULL payload and
+    crashed the server mid-load."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    _write_legacy_spec_rdb(env, _legacy_doc(DOCUMENT_DELETED | DOCUMENT_HAS_PAYLOAD, b''))
+    env.start()
+    env.assertTrue(env.isUp())
+    info = index_info(env, 'idx')
+    env.assertEqual(info['index_name'], 'idx')
+    env.assertEqual(info['num_docs'], 0)
+
+
+@skip(cluster=True)
+def testLegacySpecWithDeletedPayloadDocLoadsExpireEncoding():
+    """Encver 13 saved the payload of a deleted doc anyway. The load must skip that string as well as
+    clear the flag: if it left the string unread, every later field would be read out of place and the
+    load would fail."""
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 doc')
+    skipOnExistingEnv(env)
+    doc = _legacy_doc(DOCUMENT_DELETED | DOCUMENT_HAS_PAYLOAD, _module_string(b'payload\0'))
+    _write_legacy_spec_rdb(env, doc, encver=LEGACY_SPEC_EXPIRE_ENC_VER)
+    env.start()
+    env.assertTrue(env.isUp())
+    info = index_info(env, 'idx')
+    env.assertEqual(info['index_name'], 'idx')
+    env.assertEqual(info['num_docs'], 0)
+
+
+def _fail_full_sync(env, shard_mock, sync_failed):
+    """Make the server a replica of `shard_mock` and cut its full sync short, so the load fails.
+
+    The load has to be diskless: a truncated RDB loaded from disk makes Redis exit instead of firing
+    `LOADING_FAILED`. `on-empty-db` needs an empty keyspace, but unlike `swapdb` it does not require
+    every module to support async loading."""
+    env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'on-empty-db')
+    env.cmd('REPLICAOF', '127.0.0.1', shard_mock.server_port)
+    conn = shard_mock.GetConnection(timeout=10)
+    env.assertEqual(conn.read_request(), ['PING'])
+    conn.send_status('PONG')
+    req = conn.read_request()
+    while req[0] == 'REPLCONF':
+        conn.send_status('OK')
+        req = conn.read_request()
+    env.assertEqual(req[0], 'PSYNC')
+    conn.send_status('FULLRESYNC af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc 0')
+    # Announce more bytes than we send, then hang up mid-header.
+    conn.send(b'$1000\r\nREDIS')
+    conn.flush()
+    conn.close()
+
+    # The server can answer commands before it starts loading, so wait for the failure itself.
+    for _ in range(100):
+        if sync_failed():
+            break
+        time.sleep(0.1)
+    env.cmd('REPLICAOF', 'NO', 'ONE')
+
+
+@skip(cluster=True, redis_less_than='7.0.0')
+def testLegacyIndexSpecRestoreIsRefusedAfterFailedLoad(env):
+    """A failed load leaves the legacy-spec registry and the UPGRADE_INDEX rules allocated, so the
+    refusal must key on loading state, not on the globals. The rules are freed only when a load
+    succeeds, so this needs a server that has not completed one since startup - hence the restart
+    without an RDB. A replica whose first full sync failed and was then promoted is in that state."""
+    skipOnExistingEnv(env)
+    if env.useSlaves or env.useAof:
+        env.skip()
+
+    dbDir = env.cmd('CONFIG', 'GET', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, env.cmd('CONFIG', 'GET', 'dbfilename')[1])
+    logFilePath = os.path.join(dbDir, env.cmd('CONFIG', 'GET', 'logfile')[1])
+    env.stop()
+    if os.path.exists(rdbFilePath):
+        os.unlink(rdbFilePath)
+    env.start()
+
+    failedSyncMsg = 'Failed trying to load the MASTER synchronization DB'
+    failedSyncsBefore = _grep_file_count(logFilePath, failedSyncMsg)
+    with ShardMock(env) as shardMock:
+        _fail_full_sync(env, shardMock,
+                        lambda: _grep_file_count(logFilePath, failedSyncMsg) > failedSyncsBefore)
+    env.assertGreater(_grep_file_count(logFilePath, failedSyncMsg), failedSyncsBefore,
+                      message='the full sync did not fail, so this test proves nothing')
+
+    conn = _binary_conn(env)
+    # The name is stored as a string; a uint in its place makes the read fail, which crashed the
+    # server when the loader got that far.
+    payload = _dump_payload(conn, 'ft_index0', _module_uint(0), encver=16)
+    env.expect('RESTORE', 'idx:legacy', 0, payload).error().contains('Bad data format')
     env.assertTrue(env.isUp())
