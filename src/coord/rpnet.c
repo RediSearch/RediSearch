@@ -119,7 +119,14 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
 //
 // Shard warnings are always recorded on the AREQ / QueryError so the reply
-// emitter can surface them. A shard timeout ends the coordinator pipeline early.
+// emitter can surface them. A shard's TIMEDOUT warning additionally controls
+// whether the coord pipeline should keep draining:
+//   - TimeoutPolicy_ReturnStrict: keep draining the remaining shards. The
+//     warning flag is forwarded via QEXEC_S_SHARD_TIMED_OUT_WARNING; the
+//     coord's own deadline (handled by the strict timeout callback) is the
+//     authoritative stop signal.
+//   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
+//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
@@ -152,7 +159,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (shard_timed_out) {
+  if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -220,7 +227,7 @@ int getNextReply(RPNet *nc) {
       return RS_RESULT_EOF;
     }
   }
-  // Pop wake mechanisms: the abort flag is flipped by the FAIL
+  // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
   // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
   // beyond the deadline for in-flight shard replies), while hybrid streams get
@@ -246,6 +253,12 @@ int getNextReply(RPNet *nc) {
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
+    // Drain-only: empty channel means end of queued replies, not a timeout —
+    // the main-thread timeout callback already observed the deadline and is
+    // now consuming whatever the I/O threads had already pushed.
+    if (nc->drainOnly) {
+      return RS_RESULT_EOF;
+    }
     if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -396,7 +409,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
-  if (QueryRequest_UsesReplyCallback(&areq->base) &&
+  // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
+  // may already hold a buffered reply (the NULL-reply check below wouldn't fire
+  // and we'd silently return rows). Skipped during the timer's own drain.
+  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
       QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
@@ -435,7 +451,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // FAIL with workers uses the blocked-client source, so only clock-based cycles
+    // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
     if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
         QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
@@ -444,8 +460,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
-    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
-      // A new cursor read starts a fresh timeout cycle.
+    } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      // if timeout was set in previous reads, reset it. Drain-only must keep
+      // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 

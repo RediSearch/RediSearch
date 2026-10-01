@@ -337,6 +337,14 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
+/**
+ * Classify the request's (already-built) pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout and store the result on the request's
+ * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor
+ * yet (e.g. called before the pipeline is built).
+ */
+void AREQ_SetCanYieldPartialResults(AREQ *req);
+
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
 }
@@ -497,14 +505,64 @@ static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
 bool areq_timed_out(void *arg);
 #endif
 
-/* Retained for disk-loader API compatibility. No timeout policy installs this handshake. */
+/* True when this AREQ uses the BG-thread / timeout-callback claim handshake
+ * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
+ * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
+ * cursor reads; all other paths skip the protocol. */
+static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  // Invariant: every AREQ reaching the strict-sync protocol is installed as a
+  // blocked client's private data. Sub-/transient AREQs never run it.
+  return req->base.async.requiresAggregateResultsSync;
+}
+
+/* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
+ * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
+ * Exactly one of {BG thread, timeout callback} wins. */
+bool AREQ_TryClaimAggregateResults(AREQ *req);
+
+/* CAS QueryRequestAsyncState.strictReadOwner NONE -> `owner`. Returns true if
+ * this caller won the latch. */
+bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictReadOwner owner);
+void AREQ_SignalAggregateResultsComplete(AREQ *req);
+void AREQ_WaitForAggregateResultsComplete(AREQ *req);
+
+/* RP_SAFE_LOADER GIL handshake (deadlock avoidance for RETURN_STRICT). Reached
+ * only on the sync path: the loader links its request only when
+ * requiresAggregateResultsSync is set, and the Preempt callers are the
+ * RETURN_STRICT timeout callbacks, so no in-helper policy gate is needed.
+ *
+ * EnterGIL (BG worker, before taking the GIL): if the timeout already fired,
+ *   returns false without marking holding so the worker bails instead of blocking
+ *   on the GIL the main thread holds; otherwise increments safeLoadersHoldingGIL.
+ * ExitGIL (BG worker, while still holding the GIL, before releasing it): decrements
+ *   the count. The timeout callback only runs on the main thread while it holds
+ *   the GIL, so it cannot observe the flag while the worker holds it; clearing
+ *   before the release prevents a timeout in the release->clear gap from seeing
+ *   a stale holding == true and preempting away already-loaded results.
+ * TimeoutPreemptSafeLoaderGIL (main-thread timeout callback, before Wait): returns
+ *   true if the worker is parked at the GIL gate, so the callback replies empty
+ *   instead of deadlocking. The shared aggregateResultsLock makes EnterGIL and
+ *   this check a race-free Dekker handshake. */
 bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request);
 void QueryRequest_SafeLoaderExitGIL(QueryRequest *request);
 bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
 
+/* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
+ * read so the next chunk starts from a clean slate. Resets:
+ *   - base.async.aggregatingResults (CAS claim)
+ *   - base.async.aggregateResultsDone (signal latch)
+ *   - base.async.safeLoadersHoldingGIL (GIL-handshake latch)
+ *   - the blocked-client timer latch from the previous chunk
+ *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
+ *     read does not short-circuit to EOF on the first empty-channel observation).
+ * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
+ * fresh TimedOut between the reset and SetRequest. Does NOT reset
+ * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
+void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
+
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {
-  // Only adjust the timeout for the 'fail' policy.
+  // Only adjust the timeout for 'fail' and 'return-strict' policies.
   // 'return' policy keeps the original timeout for backwards compatibility.
   if (reqConfig->timeoutPolicy == TimeoutPolicy_Return) {
     return false;

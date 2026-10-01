@@ -192,7 +192,9 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
  * deadline from the sticky timeoutMS and resets the shared counter; a zero
- * timeoutMS leaves the state UNARMED.
+ * timeoutMS leaves the state UNARMED. RETURN_STRICT must be downgraded by the
+ * consumer before selecting CLOCK_DEADLINE because it requires the
+ * blocked-client callback.
  */
 void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind);
 /**
@@ -288,7 +290,11 @@ typedef struct QueryRequestAsyncState {
    * aggregateResultsLock. The timeout callback uses it to avoid waiting while
    * holding the GIL. This is a count because hybrid pipelines share the state. */
   int safeLoadersHoldingGIL;
-  /* Reserved to preserve the request layout used by disk extensions. */
+  /* TRANSITIONAL(MOD-16691): per-cycle dequeue latch for coordinator
+   * RETURN_STRICT cursor reads. BG and the timeout callback race to claim it;
+   * a timeout winner replies without waiting, while a timeout loser may wait
+   * because a started read always stores a reply and signals completion.
+   * Deleted by the RETURN_STRICT flip. */
   RS_Atomic(int) strictReadOwner;
   RS_Atomic(int) execPhase;
   struct MRChannel *abortWakeChannel;

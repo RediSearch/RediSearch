@@ -334,7 +334,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
   // Interruptible wait: existing tests ARM/SIGNAL this point, while
-  // Blocked-client timeout tests rely on the predicate to break out as
+  // RETURN-STRICT shard-timeout tests rely on the predicate to break out as
   // soon as the main-thread callback marks the borrowed request timeout (mirrors
   // the coordinator's BeforeRPNetStart).
   if (self->firstRead) {
@@ -769,9 +769,17 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     if (policy == TimeoutPolicy_Fail) {
       return rc;
     }
+    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
+    // calls pop the buffered, sorted prefix from the heap). They differ in
+    // who drives that draining: Return surfaces a row inline now, while
+    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+    // and the main-thread drain pops the heap.
     rp->Next = rpsortNext_Yield;
-    self->timedOut = true;
-    return rpsortNext_Yield(rp, r);
+    if (policy == TimeoutPolicy_Return) {
+      self->timedOut = true;
+      return rpsortNext_Yield(rp, r);
+    }
+    return rc;
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
@@ -1191,7 +1199,7 @@ typedef struct RPSafeLoader {
   // Search context
   RedisSearchCtx *sctx;
 
-  // Request sync context; non-NULL only for legacy timeout requests that use the
+  // Request sync context; non-NULL only for RETURN_STRICT requests that use the
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
@@ -1377,7 +1385,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
                       sctx->timeout);
 #endif
 
-  // Deadlock-avoidance handshake (request non-NULL only for legacy timeout). Mark
+  // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
   if (self->request && !QueryRequest_SafeLoaderEnterGIL(self->request)) {
@@ -1612,7 +1620,7 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
 }
 
 // Link the request sync context into every RP_SAFE_LOADER (and disk RP_DISK_ASYNC_LOADER) in the
-// pipeline so they can perform the legacy timeout GIL deadlock-avoidance handshake. Called on
+// pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
 // the BG worker for requests that use the aggregate-results sync protocol.
 //
 // The disk async loader (Rust `redisearch_disk` crate) uses the same handshake via
@@ -2076,7 +2084,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a blocked-client timeout promptly when the
+    // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
     // main-thread callback flips the borrowed flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
@@ -3191,7 +3199,9 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
-  // FAIL discards buffered results on timeout; RETURN may still yield them.
+  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
+  // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
+  // discarded by the serializer anyway.
   if (self->last_rc == RS_RESULT_TIMEDOUT &&
       base->parent->timeoutPolicy != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;

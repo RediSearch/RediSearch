@@ -537,6 +537,29 @@ void HybridRequest_WakeAbortChannels(HybridRequest *req) {
   }
 }
 
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
+  bool expected = false;
+  return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed,
+                                                 memory_order_relaxed);
+}
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+}
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  while (!req->base.async.aggregateResultsDone) {
+    pthread_cond_wait(&req->base.async.aggregateResultsCond,
+                      &req->base.async.aggregateResultsLock);
+  }
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+}
+
 #ifdef __cplusplus
 }
 #endif

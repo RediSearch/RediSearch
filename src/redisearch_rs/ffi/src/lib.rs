@@ -87,7 +87,12 @@ pub struct QueryProcessingCtx {
     pub bgScanOOM: bool,
     pub isProfile: bool,
     pub timeoutPolicy: RSTimeoutPolicy,
-    /// Reserved to preserve the layout used by separately built disk extensions.
+    /// True iff any prefix of the pipeline's output is a valid (though possibly
+    /// incomplete) answer to the query - i.e. the pipeline can yield partial
+    /// results on early termination.
+    /// Set post-construction on the coordinator AREQ. Used by the
+    /// RETURN-STRICT timeout path to drain queued shard replies on the main
+    /// thread after the background pipeline has aborted.
     pub canYieldPartialResults: bool,
     /// Whether a buffering result processor may *skip* deep-copying a result's
     /// `RSIndexResult` and instead drop the borrow when storing it across an

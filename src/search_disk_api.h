@@ -31,7 +31,7 @@ typedef struct RLookupKey RLookupKey;
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
 
-// Forward declaration for the legacy timeout GIL handshake context (aggregate.h).
+// Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
 typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
@@ -357,7 +357,7 @@ typedef struct BasicDiskAPI {
 
   /**
    * Hand the disk async-loader result processor its request sync context, so it can perform
-   * the same legacy timeout GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
+   * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
    * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
    *
    * @param rp  The disk async-loader ResultProcessor, previously returned by

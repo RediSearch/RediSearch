@@ -86,7 +86,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       rs_wall_clock_ms_t timeout_ms);
 
 /* Same as BlockQueryClientWithTimeout for one cursor-read cycle; also resets
- * the cycle state (the request is reused across
+ * the per-read RETURN_STRICT claim/latch state (the request is reused across
  * reads). */
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, struct Cursor *cursor,
                                                        struct QueryRequest *request,

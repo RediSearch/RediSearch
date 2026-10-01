@@ -74,6 +74,19 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
 
 /**
+ * Link RETURN_STRICT safe-loader synchronization contexts into the HYBRID tail
+ * and subquery pipelines. Must run before any linked safe loader can execute.
+ */
+void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq);
+
+/**
+ * Return true when any HYBRID tail or subquery safe loader is parked at the
+ * Redis GIL gate and a RETURN_STRICT timeout callback must preempt instead of
+ * waiting while holding the GIL.
+ */
+bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq);
+
+/**
  * Helper function to get the search context from a hybrid request.
  *
  * @param hreq The hybrid request

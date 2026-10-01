@@ -2553,12 +2553,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   // Enum parameters
-  RM_TRY(RedisModule_RegisterEnumConfig(
+  RM_TRY(
+    RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout",
       SearchDisk_IsEnabled() ? DEFAULT_TIMEOUT_POLICY_FLEX : DEFAULT_TIMEOUT_POLICY,
-      REDISMODULE_CONFIG_UNPREFIXED, on_timeout_vals, on_timeout_enums, TimeoutPolicy_Invalid,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,
-      (void *)&RSGlobalConfig.requestConfigParams.timeoutPolicy))
+      (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
+    )
+  )
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(

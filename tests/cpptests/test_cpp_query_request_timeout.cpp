@@ -96,7 +96,7 @@ TEST_F(QueryRequestTimeoutTest, ResetAndRearmClearCycleState) {
 
 TEST_F(QueryRequestTimeoutTest, MarkingPublishesOnlyTheBlockedClientSource) {
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Fail, 100);
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 100);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
   EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
@@ -128,7 +128,7 @@ TEST_F(QueryRequestTimeoutTest, PrimaryOperationAmortizesClockChecks) {
 
 TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Fail, 1000);
+  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
   std::atomic<bool> workerReady = false;

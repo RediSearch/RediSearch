@@ -1289,14 +1289,6 @@ def testModuleLoadexEnumParams():
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
-    for removed in ('return-strict', 'RETURN-STRICT', 'Return-Strict'):
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                   'CONFIG', configName, removed).error()
-        env.expect('MODULE', 'LIST').equal(default_module_list)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                   'ARGS', argName, removed).error()
-        env.expect('MODULE', 'LIST').equal(default_module_list)
-
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, testValue
     )

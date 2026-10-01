@@ -60,6 +60,10 @@
 #ifdef ENABLE_ASSERT
 // Helper function to check and pause after extracting a result from the
 // AggregateResults loop (for testing pipeline state mid-aggregation).
+// Self-releases the pause when the request has been marked as timed out by
+// the main-thread timeout callback (RETURN-STRICT path): the callback waits
+// synchronously for BG to signal completion, so the test cannot send a
+// resume command while it is in flight.
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
@@ -126,4 +130,107 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Send the results received from the pipeline as they come (no need to aggregate)
      *rc = rp->Next(rp, r);
    }
+ }
+
+ /**
+  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
+  * valid (possibly empty) partial answer for the request's pipeline.
+  *
+  * The set of accepted shapes is selected by inspecting the pipeline's root
+  * processor type -- specifically whether the root itself buffers results
+  * that can be replayed after the upstream pipeline has aborted on TIMEDOUT.
+  *
+  * Coordinator (root is `RP_NETWORK`): RPNet maintains an internal queue of
+  * shard responses received before the timeout, so all three of the
+  * following shapes can be drained (top = end of pipeline):
+  *   1. RPNet                                         -- bare root.
+  *   2. RPPager_Limiter -> RPNet                      -- pager directly above the root.
+  *   3. [RPPager_Limiter ->] RPSorter -> ...          -- end is RPSorter (optionally
+  *                                                       under a pager); anything
+  *                                                       between the sorter and
+  *                                                       the root is allowed.
+  *
+  * Shard (root is `RP_INDEX`): RPIndex pulls fresh from the query iterator
+  * on every call and RPPager has no buffer of its own, so shapes (1) and
+  * (2) have nothing to harvest -- draining them would re-enter the QI for
+  * no useful work. Only shape (3) is accepted: rpsortNext_Yield (the state
+  * RPSorter enters on TIMEDOUT) pops from the sorter's heap without
+  * re-entering its upstream.
+  *
+  * Any other root type returns false.
+  *
+  * Note that even when this returns false, partial results that BG already
+  * accumulated in `state.results` *before* the timeout fired (e.g. for a
+  * trivial RPIndex -> RPPager pipeline) are still emitted via the buffered
+  * results path in `serializeAndReplyResults_*`; that path is independent
+  * of this classifier.
+  *
+  * Profile (`FT.PROFILE`) interleaves an RP_PROFILE wrapper around every RP,
+  * so the classifier transparently skips RP_PROFILE wrappers while walking
+  * from `endProc`. The root proc type is read from `qctx->rootProc`, which
+  * always points at the real root (RP_INDEX / RP_NETWORK) regardless of
+  * profiling, and the drain itself walks `endProc->Next` which delegates
+  * through the profile wrappers.
+  */
+ bool pipelineCanYieldPartialResults(AREQ *r) {
+   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+   ResultProcessor *end = qctx->endProc;
+   ResultProcessor *root = qctx->rootProc;
+
+   if (!end || !root) {
+     return false;
+   }
+
+   ResultProcessor *rp = end;
+   while (rp->type == RP_PROFILE || rp->type == RP_PAGER_LIMITER ||
+          rp->type == RP_VECTOR_NORMALIZER) {
+     rp = rp->upstream;
+     RS_ASSERT(rp);
+   }
+
+   switch (root->type) {
+     case RP_INDEX:
+       // Shard: RPIndex / RPPager don't buffer; only RPSorter does. Reject
+       // shapes (1) and (2) so the drain never re-enters the QI.
+       return rp->type == RP_SORTER;
+     case RP_NETWORK:
+       return rp == root || rp->type == RP_SORTER;
+     default:
+       return false;
+   }
+ }
+
+ /**
+  * Drain results buffered post-timeout into `req->base.reply.results`.
+  * Only safe for pipelines classified as yielding partial results -- caller
+  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
+  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
+  * coordinator) before invoking this function.
+  *
+  * Caller must also have already flipped the request's timeout flag and
+  * waited for the BG worker to exit the pipeline (e.g. via
+  * AREQ_WaitForAggregateResultsComplete).
+  *
+  * The pager's internal `remaining` and `qctx->resultLimit` reflect the
+  * post-abort budget, so this loop naturally respects the user's LIMIT and
+  * terminates at EOF.
+  */
+ void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored) {
+   ResultProcessor *endProc = qctx->endProc;
+   if (!stored->results) {
+     stored->results = array_new(SearchResult *, 8);
+   }
+
+   SearchResult r = SearchResult_New();
+   while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
+     qctx->resultLimit--;
+     array_append(stored->results, SearchResult_AllocateMove(&r));
+     r = SearchResult_New();
+   }
+   SearchResult_Destroy(&r);
+ }
+
+ void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
+   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
+                                           &req->base.reply);
  }

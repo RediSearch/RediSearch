@@ -48,6 +48,9 @@ void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTi
       timeout->kind = QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
       return;
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE: {
+      // RETURN_STRICT depends on the blocked-client timeout callback. Clock-based
+      // consumers must downgrade it to RETURN before starting their cycle.
+      RS_ASSERT(timeout->policy != TimeoutPolicy_ReturnStrict);
       if (timeout->timeoutMS == 0) {
         timeout->kind = QUERY_REQUEST_TIMEOUT_UNARMED;
         return;
