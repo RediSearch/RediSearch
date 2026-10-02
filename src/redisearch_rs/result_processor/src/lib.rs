@@ -203,7 +203,7 @@ impl Upstream<'_> {
 /// For intrusive data types like this we need to tell the compiler "don't move this please I have pointers to it" which is called
 /// pinning in Rust.
 ///
-/// We wrap a reference in the Pin<T> type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
+/// We wrap a reference in the `Pin<T>` type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
 /// Crucially though, the way Pin disallows is not magic, it simply doesn't implement any methods and traits that would
 /// allow a caller to move the value. Unfortunately this means banning all mutable access to the value T (you cannot get a
 /// &mut T from a Pin<&mut T> for example) since with a &mut T you can always move the value very easily (via mem::replace for example).
