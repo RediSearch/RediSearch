@@ -96,8 +96,6 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   case QT_TERM:
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_normalize(source->s, source->len);
-    // `target_value` addresses the char* slot, so the length is the string's,
-    // not the pointer object's.
     if (target_len) *target_len = strlen(*(char **)target_value);
     return false; // done
 

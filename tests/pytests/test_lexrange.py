@@ -178,9 +178,7 @@ def testEmptyBound(env):
 def testIndexedEmptyValueIsInRange(env):
     """An INDEXEMPTY field's empty value participates in the ordering.
 
-    A zero-length key is refused by the value trie, so an indexed empty value
-    lives only in its own inverted index and no range walk reaches it. It still
-    sorts below every other value, so a range covering it has to include it.
+    It sorts below every other value, so a range covering it has to include it.
     """
     enable_unstable_features(env)
     conn = create_index(env, 'tg', 'TAG', 'INDEXEMPTY')

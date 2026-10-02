@@ -372,9 +372,8 @@ QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool 
     ret->lxrng.includeEnd = inclusive;
   }
 
-  // `QueryParam_SetParam` normalizes by token type, as it does for a token node:
-  // a TEXT bound (QT_TERM) is unescaped and lowercased here, a TAG one
-  // (QT_TERM_CASE) stays raw for `tag_strtolower` at evaluation. It resolves a
+  // The bound keeps the case-preserving type the grammar gave it, for
+  // `tag_strtolower` to normalize at evaluation. `QueryParam_SetParam` resolves a
   // literal in place and returns false, leaving an unused PARAM_NONE slot that
   // must not survive: `QueryNode_AddChildren` retags every slot of a tag child
   // as PARAM_TERM_CASE, and resolving one with no name dereferences NULL.
@@ -706,9 +705,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   RS_ASSERT(qn->type == QN_LEXRANGE);
   if (!idx) return NULL;
 
-  // Normalize the bounds the way the indexed values were. `tag_strtolower`
-  // truncates at an interior NUL exactly as tag indexing does, so the bound's
-  // extent is its NUL-terminated length either way.
+  // Normalize the bounds the way the indexed values were.
   if (qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
     tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);

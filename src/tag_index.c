@@ -309,9 +309,6 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
 }
 
-// Helper: Get iterator from TrieMap iterator value
-// In disk mode: ptr is ignored, calls disk API with tag string
-// In memory mode: ptr is InvertedIndex*, uses it directly
 QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
                                                     const char *tag, size_t len, void *ptr,
                                                     double weight, t_fieldIndex fieldIndex,
