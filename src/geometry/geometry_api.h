@@ -26,6 +26,9 @@ struct GeometryApi {
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
                     t_docId docId, RedisModuleString **err_msg);
   int (*delGeom)(GeometryIndex *index, t_docId docId);
+  int (*relabelGeom)(GeometryIndex *index, t_docId oldId, t_docId newId);
+  int (*holdsGeomStr)(const GeometryIndex *index, GEOMETRY_FORMAT format, const char *str,
+                      size_t len, t_docId docId);
   QueryIterator *(*query)(const RedisSearchCtx *sctx, const FieldFilterContext*,
                           const GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
                           const char *str, size_t len, RedisModuleString **err_msg);
