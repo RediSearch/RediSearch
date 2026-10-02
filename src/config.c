@@ -1883,7 +1883,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = get_EnableUnstableFeatures},
         {.name = "OPTIMIZE_PARTIAL_UPDATE",
          .helpText = "When enabled (default), an update that leaves a VECTOR field's value"
-                     " unchanged moves the field's existing index entry onto the document's new"
+                     " unchanged, or an FT.ALTER backfill that leaves a GEOSHAPE field's value"
+                     " unchanged, moves the field's existing index entry onto the document's new"
                      " doc-id instead of deleting and re-adding it.",
          .setValue = set_OptimizePartialUpdate,
          .getValue = get_OptimizePartialUpdate},

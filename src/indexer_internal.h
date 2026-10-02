@@ -40,8 +40,8 @@ dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *do
 
 /**
  * Dispose of the replaced document's VecSim and Geometry entries: drop each one, except a
- * vector field whose entry is to be moved onto the new doc-id (relabel), which is left for the
- * vector-insert site.
+ * vector or GEOSHAPE field whose entry is to be moved onto the new doc-id (relabel), which is
+ * left for the field's insert site.
  *
  * These two index types live in memory in both memory mode and disk mode (the
  * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
@@ -50,7 +50,7 @@ dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *do
  * `newDocumentId` before the new DMD is allocated; disk mode calls it from
  * `applyDocTable` after the disk batch commits.
  *
- * `VecSimIndex_DeleteVector` and `GeometryIndex_RemoveId` no-op on unknown
+ * `VecSimIndex_DeleteVector` and the geometry `delGeom` no-op on unknown
  * doc-ids, so this is safe even if the replaced doc had no vector / geometry
  * data, and safe to call defensively on stale key-meta in disk mode.
  */

@@ -3850,10 +3850,10 @@ int CompareVersions(Version v1, Version v2) {
 
 
 /**
- * Mark each VECTOR field whose value this update may not have touched, so the
- * indexer moves its existing entry onto the new doc-id instead of deleting and
- * re-adding the blob. `alterAddedFieldsStart` is `RS_INVALID_FIELD_INDEX` except for
- * `IndexSpec_UpdateDocForAlter`.
+ * Mark each VECTOR or GEOSHAPE field whose value this update may not have touched, so the
+ * indexer moves its existing entry onto the new doc-id instead of deleting and re-adding it.
+ * GEOSHAPE fields are marked only on an FT.ALTER backfill. `alterAddedFieldsStart` is
+ * `RS_INVALID_FIELD_INDEX` except for `IndexSpec_UpdateDocForAlter`.
  */
 static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
                                           RedisModuleString **changedFields,
@@ -3862,15 +3862,18 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
   if (!RSGlobalConfig.optimizePartialUpdate) {
     return;
   }
-  if (!(spec->flags & Index_HasVecSim)) {
+  if (!(spec->flags & (Index_HasVecSim | Index_HasGeometry))) {
     return;
   }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
+    const FieldType as = doc->fields[ii].indexAs;
+    const bool alterGeometry =
+        (as & INDEXFLD_T_GEOMETRY) && alterAddedFieldsStart != RS_INVALID_FIELD_INDEX;
     if (!fs->fieldName || !FieldSpec_IsIndexable(fs) ||
-        !(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) {
+        !((as & INDEXFLD_T_VECTOR) || alterGeometry)) {
       continue;
     }
     ChangedFieldInd mark = ChangedFieldInd_Unverified;
