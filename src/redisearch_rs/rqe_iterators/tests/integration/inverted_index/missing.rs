@@ -123,7 +123,7 @@ mod not_miri {
             let ii = DocIdsOnly::from_opaque(self.test.context.missing_inverted_index());
             let field_index = self.test.context.field_spec().index;
             // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
-            // `spec` and `missingFieldDict` that outlive the returned iterator.
+            // `spec` and `missing.indexes` that outlive the returned iterator.
             unsafe {
                 Missing::new(
                     ii.reader(),

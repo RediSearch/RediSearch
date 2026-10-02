@@ -338,7 +338,7 @@ prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    --ignore-errors inconsistent,corrupt,mismatch,negative \
     --exclude '*/_deps/*'
   end_group
 }
@@ -359,22 +359,23 @@ capture_coverage() {
   # later command re-reads the affected trace file. Demote these to warnings so
   # coverage post-processing doesn't flake the job. 'mismatch' is kept as well to
   # cover lcov versions that classify the same disagreement under that name.
+  # 'negative' covers the same race producing a corrupted (wrapped-negative) hit count.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    --ignore-errors inconsistent,corrupt,mismatch,negative \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
-    --ignore-errors inconsistent,corrupt,mismatch
+    --ignore-errors inconsistent,corrupt,mismatch,negative
 
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    --ignore-errors inconsistent,corrupt,mismatch,negative \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
   # Remove coverage for directories we don't want (ignore if no file matches)
-  lcov -o $BINROOT/$NAME.info --ignore-errors inconsistent,corrupt,mismatch,unused --remove $BINROOT/source.info \
+  lcov -o $BINROOT/$NAME.info --ignore-errors inconsistent,corrupt,mismatch,negative,unused --remove $BINROOT/source.info \
     "*/tests/*" \
 
   end_group

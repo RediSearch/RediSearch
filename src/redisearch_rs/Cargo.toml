@@ -204,9 +204,11 @@ decorum = "0.4"
 enumflags2 = "0.7.12"
 fs-err = "3.2.2"
 hash32 = "1"
+hashbrown = { version = "0.17.1", default-features = false, features = ["inline-more"] }
 icu_casemap = "2.2.0"
 insta = "1.46.1"
 itertools = "0.15.0"
+itoa = "1.0.18"
 lending-iterator = "0.1.7"
 libc = "0.2.180"
 nix = { version = "0.26", default-features = false, features = ["poll"] }
@@ -251,7 +253,7 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "f4d68b97520aafc9baa2a946d42652415c4df002"
+rev = "a808377ffde496d2cb8bcf26ee76a52080da9d89"
 # `default-features = false` is load-bearing. Members declare a plain
 # `redis-module.workspace = true` and rely on it contributing no features, so that
 # c_entrypoint/redisearch_rs/Cargo.toml is the only hand-written place choosing

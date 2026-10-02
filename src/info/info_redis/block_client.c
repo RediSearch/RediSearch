@@ -13,6 +13,7 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
+#include "hybrid/hybrid_request.h"
 #include "info/info_redis/block_client.h"
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
@@ -28,6 +29,21 @@ static BlockedQueries *getBlockedQueries(void) {
   return blockedQueries;
 }
 
+static void QueryRequest_OnDisconnect(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(request);
+
+  QueryRequestTimeout_MarkTimedOut(&request->timeout);
+  if (request->kind == QUERY_REQUEST_KIND_HYBRID) {
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
+    HybridRequest_PropagateTimeoutToSubqueries(hreq);
+    HybridRequest_WakeAbortChannels(hreq);
+  } else {
+    QueryRequestAsyncState_WakeAbortChannel(&request->async);
+  }
+}
+
 static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
                              RedisModuleCmdFunc reply_cb, DLLIST *list) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
@@ -37,11 +53,19 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   // executes it), so no other client can take it before the cycle fully ended.
   RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
-  QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
+  request->replyDeferred = reply_cb != NULL;
+#ifdef ENABLE_ASSERT
+  request->inlineReplyCount = 0;
+#endif
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
   request->registryInfo.cycle_start = time(NULL);
   dllist_prepend(list, &request->registryInfo.node);
   RedisModule_BlockClientSetPrivateData(bc, request);
+  // RETURN uses a worker-owned clock deadline rather than the blocked-client
+  // atomic and intentionally retains its existing disconnect behavior.
+  if (request->timeout.policy != TimeoutPolicy_Return) {
+    RedisModule_SetDisconnectCallback(bc, QueryRequest_OnDisconnect);
+  }
 }
 
 void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
@@ -68,6 +92,10 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   struct Cursor *cursor = request->cursorInfo.cursor;
   CursorDisposition disposition = request->cursorInfo.disposition;
   request->blockedClientCycleActive = false;
+  request->replyDeferred = false;
+#ifdef ENABLE_ASSERT
+  request->inlineReplyCount = 0;
+#endif
   request->cursorInfo.cursor = NULL;
   request->cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
 
@@ -88,6 +116,13 @@ void QueryRequest_EndCycle(QueryRequest *request) {
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   QueryRequest *request = privdata;
 #ifdef ENABLE_ASSERT
+  RS_ASSERT(request->blockedClientCycleActive);
+  if (QueryRequest_UsesReplyCallback(request)) {
+    RS_ASSERT(request->inlineReplyCount == 0);
+  } else {
+    RS_ASSERT(request->inlineReplyCount == 1);
+    RS_ASSERT(!request->reply.hasStoredResults && request->reply.results == NULL);
+  }
   // Debug-only counter so tests can deterministically observe that
   // free_privdata fired without blocking the main thread in the callback.
   QueryRequestOnFreeDebug_Increment();

@@ -15,6 +15,7 @@ build_utils.workspace = true
 
 [dependencies]
 c_trie.workspace = true
+dict.workspace = true
 ffi.workspace = true
 field.workspace = true
 hidden_string.workspace = true
@@ -31,6 +32,7 @@ rs_token.workspace = true
 search_disk.workspace = true
 string_utils.workspace = true
 thiserror.workspace = true
+vector_score_source.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

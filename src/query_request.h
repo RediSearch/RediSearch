@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "query_error.h"
+#include "rmutil/rm_assert.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
 
@@ -47,11 +48,9 @@ typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not stored)
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   bool hasStoredResults;   // Whether results are available to the reply callback
-  /* The cycle's error and warnings — the request's single error slot. Hybrid
-   * sub-pipelines report into it directly (a sub's results are published by
-   * the parent's reply). TRANSITIONAL(MOD-17486): parents still clone the
-   * pipeline's stack-local QueryError into it at publication; the
-   * RETURN_STRICT flip wires every pipeline directly. */
+  /* The cycle's error and warnings — the request's single error slot. Every AREQ pipeline
+   * reports into it directly (qctx->err points here from construction), so the reply phase
+   * reads it wherever and whenever it runs; cleared at the end of each cycle. */
   QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
   size_t limit;            // Original limit, used to calculate the RESP2 result length
@@ -60,6 +59,7 @@ typedef struct {
 typedef enum {
   QUERY_REQUEST_KIND_AREQ,
   QUERY_REQUEST_KIND_HYBRID,
+  QUERY_REQUEST_KIND_COORD_SEARCH
 } QueryRequestKind;
 
 typedef enum {
@@ -277,9 +277,9 @@ bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout);
  * TODO($$$): Remove this temporary state after MOD-17486 is merged.
  */
 typedef struct QueryRequestAsyncState {
-  /* The CAS claim grants exclusive ownership of result production: the BG
-   * winner runs the pipeline and stores results, while the timeout-callback
-   * winner preempts BG and replies empty. The loser waits for completion.
+  /* The CAS claim grants exclusive ownership of result production. A timeout
+   * callback that needs the worker's results waits for completion; a timeout
+   * winner either produces partial results or preempts BG with an empty reply.
    * Gated by requiresAggregateResultsSync. MOD-17486 replaces this claim/wait
    * protocol with a timeout callback that never waits on BG state. */
   bool requiresAggregateResultsSync;   // Enable CAS/Signal/Wait around result production
@@ -336,15 +336,17 @@ typedef struct QueryRequest {
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
    * per-cycle state must not be read while it is false. */
   bool blockedClientCycleActive;
+  // True: the Redis reply callback serializes stored results. False: the worker replies inline.
+  // Fixed by BeginCycle before dispatch and cleared by EndCycle before parking.
+  bool replyDeferred;
+  // Assertion-only accounting in padding; keep the C/Rust layout independent of build flags.
+  uint8_t inlineReplyCount;
   CursorInfo cursorInfo;
   RegistryInfo registryInfo;
   /* Stored results and errors written by BG before UnblockClient and consumed
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
-  /* false: BG replies inline through a thread-safe context; true: BG stores
-   * results and the Redis reply callback serializes them on the main thread. */
-  bool useReplyCallback;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
   /**
@@ -360,6 +362,12 @@ typedef struct QueryRequest {
  * on a borrowed request (see the ownership contract on QueryRequest). */
 void QueryRequest_Free(QueryRequest *request);
 
+/* Claim exclusive result production. The winner signals completion; a caller
+ * that needs the produced results waits before reading them. */
+bool QueryRequest_TryClaimResults(QueryRequest *request);
+void QueryRequest_SignalResultsComplete(QueryRequest *request);
+void QueryRequest_WaitForResultsComplete(QueryRequest *request);
+
 static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
                                               ResultProcessor **endProcRef) {
   request->endProcRef = endProcRef;
@@ -370,12 +378,22 @@ static inline ResultProcessor *QueryRequest_GetEndProc(const QueryRequest *reque
 }
 
 static inline bool QueryRequest_UsesReplyCallback(const QueryRequest *request) {
-  return request->useReplyCallback;
+  return request->replyDeferred;
 }
 
-static inline void QueryRequest_SetUseReplyCallback(QueryRequest *request, bool useReplyCallback) {
-  request->useReplyCallback = useReplyCallback;
+/* Record one complete inline response for a blocked cycle, including errors.
+ * Foreground execution has no OnFree and is not counted. */
+#ifdef ENABLE_ASSERT
+static inline void QueryRequest_RecordInlineReply(QueryRequest *request) {
+  if (request->blockedClientCycleActive) {
+    RS_ASSERT(!QueryRequest_UsesReplyCallback(request));
+    RS_ASSERT(request->inlineReplyCount == 0);
+    ++request->inlineReplyCount;
+  }
 }
+#else
+#define QueryRequest_RecordInlineReply(request) ((void)0)
+#endif
 
 static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
   return QueryRequestAsyncState_GetExecutionPhase(&request->async);

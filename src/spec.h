@@ -223,7 +223,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 27
+#define INDEX_CURRENT_VERSION 28
+#define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
@@ -313,6 +314,17 @@ typedef enum {
   IndexDrop_KeepDocs,
 } IndexDropMode;
 
+// State backing INDEXMISSING fields.
+typedef struct {
+  // Field name -> Index_DocIdsOnly inverted index of the documents lacking
+  // that field.
+  dict *indexes;
+  // Indices into IndexSpec.fields of the INDEXMISSING fields, so indexing a
+  // document need not scan the whole schema. Indices rather than FieldSpec
+  // pointers, because FT.ALTER reallocates IndexSpec.fields.
+  arrayof(t_fieldIndex) fields;
+} IndexSpecMissing;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -387,8 +399,7 @@ typedef struct IndexSpec {
   // Quick access to the spec's strong ref
   StrongRef own_ref;
 
-  // Contains inverted indexes of missing fields
-  dict *missingFieldDict;
+  IndexSpecMissing missing;
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
@@ -448,6 +459,11 @@ static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
 }
 static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
+
+// Whether any field in the schema was declared INDEXMISSING.
+static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
+  return array_len(sp->missing.fields) != 0;
 }
 
 /**
@@ -581,6 +597,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 */
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
+// Bump whenever the schema members or their hash encoding change.
+#define SCHEMA_FINGERPRINT_VERSION 1
+
+// Deterministic hash of schema values, independent of RDB settings and shard data.
+// Includes field definitions, indexing rules, custom stopwords, synonyms, and timeout;
+// excludes index names, aliases, documents, statistics, and live index state.
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp);
+
 /**
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
  * Returns the loaded spec (its single owning reference in sp->own_ref), or NULL on failure.
@@ -644,8 +668,11 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // callback) so the DocIdMeta update can reuse the handle instead of reopening
 // the key by name; pass NULL otherwise. The caller retains ownership of
 // `openKey` and must keep it valid for the duration of the call.
+// `changedFields` / `numChangedFields` name the fields the originating command
+// modified (NULL / 0 when unknown);
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey);
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -660,7 +687,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 /* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
 extern dictType invIdxDictType;
 
-/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+/* The dictType used for IndexSpec.missing.indexes: HiddenString keys, InvertedIndex* values. */
 extern dictType missingFieldDictType;
 
 /**
@@ -842,6 +869,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
 * @return the formatted name of the index
 */
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
@@ -860,6 +888,26 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Must only be called if the spec was promoted successfully
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
+
+// A thread may hold one spec lock. Acquisitions are non-recursive, including
+// acquisitions through a different search context for the same spec.
+void IndexSpec_LockRead(IndexSpec *sp);
+int IndexSpec_TryLockRead(IndexSpec *sp);
+void IndexSpec_LockWrite(IndexSpec *sp);
+// Idempotent when this thread holds no lock; never releases another thread's lock.
+void IndexSpec_Unlock(IndexSpec *sp);
+bool IndexSpec_IsLocked(const IndexSpec *sp);
+bool IndexSpec_IsReadLocked(const IndexSpec *sp);
+// Debug-only check at worker-cycle boundaries, independent of request/context lifetime.
+void IndexSpec_AssertLockNotHeld(void);
+
+// Suppress Unlock on this thread while synchronous hybrid subqueries use the
+// outer scope's read lock, so one subquery reaching EOF cannot release it early.
+// Requires a held read lock; suppression scopes cannot nest. AllowUnlock ends
+// suppression on the same thread without releasing the lock; the outer scope
+// must then call Unlock.
+void IndexSpec_SuppressUnlock(IndexSpec *sp);
+void IndexSpec_AllowUnlock(IndexSpec *sp);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

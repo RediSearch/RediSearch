@@ -59,6 +59,7 @@ endif()
 #----------------------------------------------------------------------------------------------
 # Add subdirectories for src/ components
 add_subdirectory(geometry)
+add_subdirectory(vector_compare)
 add_subdirectory(buffer)
 add_subdirectory(iterators)
 add_subdirectory(index_result)
@@ -148,6 +149,7 @@ set_target_properties(redisearch_c PROPERTIES LINKER_LANGUAGE CXX)
 # Declare dependencies for transitive linking
 target_link_libraries(redisearch_c
     redisearch-geometry
+    redisearch-vector-compare
     redisearch-hash
     VectorSimilarity
     redisearch-coord

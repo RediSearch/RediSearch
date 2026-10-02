@@ -87,7 +87,7 @@ static bool blockedClientTimedOut(void *arg) {
  *******************************************************************************************************************/
 
 static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status) {
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
   return result_status;
 }
 
@@ -291,13 +291,13 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   QueryIterator *it = self->iterator;
 
-  // Already locked by us, or borrowed from an outer scope that has held the lock
-  // since the iterators were built - nothing to lock or revalidate either way.
-  if (sctx->lock_state != SPEC_LOCK_UNSET) {
+  // This thread has held the lock since the iterators were built or last
+  // revalidated, so neither acquisition nor revalidation is needed.
+  if (IndexSpec_IsLocked(sctx->spec)) {
     return REVALIDATE_CONTINUE;
   }
 
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
@@ -997,6 +997,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
+  // Owned; NULL when loading all fields.
+  struct HashFieldNames *fieldNames;
   QueryError status;
 } RPLoader;
 
@@ -1052,6 +1054,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
           .cached_only = false,
           .status = &self->status,
           .profile_fields = self->profileFields,
+          .field_names = self->fieldNames,
       };
       ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
@@ -1071,9 +1074,11 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 // Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
 // the iterator yielding it and the safe loader loading it (the safe loader releases the
 // spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
-// that window) - so serializing it would produce a doc id followed by a nil field-array
-// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
-// with Redis locked throughout and never sees them.
+// that window). Both loaders drop such results right after loading (see rploaderNext and
+// rpSafeLoader_Load); the plain loader runs with Redis locked throughout and rarely sees
+// them. This is the invariant the serializers assert: no flagged row reaches them, so the
+// field map is always declared. Should one slip through in a release build, it serializes
+// as an empty field map, not as a stray null that would break the declared length.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }
@@ -1114,6 +1119,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
+  HashFieldNames_Free(lc->fieldNames);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1133,6 +1139,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
+    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;
@@ -1365,7 +1372,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // let's lock Redis to provide safe access to Redis keyspace
 
   // First, we verify that we unlocked the spec before we lock Redis.
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
 
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;
@@ -2050,7 +2057,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
     // If a writer is waiting, this will fail immediately to prevent deadlock
-    int lock_rc = RedisSearchCtx_TryLockSpecRead(self->depletingThreadCtx);
+    int lock_rc = IndexSpec_TryLockRead(self->depletingThreadCtx->spec);
     if (lock_rc != REDISMODULE_OK) {
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
@@ -2098,7 +2105,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Unlock the index if we locked it
   if (lock_acquired) {
-    RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
+    IndexSpec_Unlock(self->depletingThreadCtx->spec);
   }
 
 }
@@ -2112,6 +2119,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
  * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
 static void RPSafeDepleter_Deplete(void *arg) {
+  IndexSpec_AssertLockNotHeld();
   RPSafeDepleter *self = (RPSafeDepleter *)arg;
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
 
@@ -2136,6 +2144,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
   // Record the depletion time
   self->depletionTime = rs_wall_clock_elapsed_ns(&depletionStart);
 
+  IndexSpec_AssertLockNotHeld();
   // Signal completion
   RPSafeDepleter_SignalDone(self, sync);
 }
@@ -2193,7 +2202,7 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
       // Release the main thread's lock - depleters that acquired locks have
       // their own
       // This prevents deadlock: SafeLoader needs GIL, Writer holds GIL waiting for write lock
-      RedisSearchCtx_UnlockSpec(lockedCtx);
+      IndexSpec_Unlock(lockedCtx->spec);
       // Mark the index as released
       sync->index_released = true;
       return RS_RESULT_OK;
@@ -2368,7 +2377,7 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * for its own completion, so consumers observe results in completion order.
 */
 int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
-  RS_ASSERT(lockedCtx != NULL && lockedCtx->lock_state == SPEC_LOCK_READ);
+  RS_ASSERT(lockedCtx != NULL && IndexSpec_IsReadLocked(lockedCtx->spec));
   DepleterSync *sync = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync)) {

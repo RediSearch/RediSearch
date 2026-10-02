@@ -64,6 +64,15 @@ typedef struct {
   uint32_t chunkSize;   // Number of results per cursor read (from COUNT parameter)
 } CursorConfig;
 
+// A field the coordinator requires in each reply row (`_REQUIRED_FIELDS`), paired with its
+// reply-time key. `name` is borrowed from the request arguments; `key` points into the plan's
+// last lookup and is resolved lazily during serialization — NULL until the name resolves, and
+// retried while NULL because loading documents may create the key on a later row.
+typedef struct {
+  const char *name;
+  const RLookupKey *key;
+} RequiredField;
+
 // Context structure for parseAggPlan to reduce parameter count
 typedef struct {
   AGGPlan *plan;                    // Aggregation plan
@@ -72,7 +81,7 @@ typedef struct {
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset
   CursorConfig *cursorConfig;       // Cursor configuration
-  const char ***requiredFields;     // Required fields
+  RequiredField **requiredFields;   // Required fields
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
@@ -197,7 +206,7 @@ typedef struct AREQ {
   /** Profile variables */
   ProfileClocks profileClocks;
 
-  const char** requiredFields;
+  RequiredField* requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
 
@@ -244,7 +253,7 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
       RedisModule_StringPtrLen(req->base.args.argv[req->base.args.queryOffset], len);
   // TRANSITIONAL: report the C-string length, truncating at the first NUL, so a
   // query with embedded NULs behaves as it always has.
-  // TODO: remove — the true length is what StringPtrLen already reported.
+  // Switch to StringPtrLen's full length together with searchRequestCtx_Query() in module.h.
   if (len) *len = strlen(query);
   return query;
 }
@@ -574,7 +583,7 @@ static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqC
   return false;
 }
 
-void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
+void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc

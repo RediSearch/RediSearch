@@ -35,7 +35,6 @@ typedef struct HybridRequest {
 
     arrayof(AREQ*) requests;
     size_t nrequests;
-    QueryError tailPipelineError;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
@@ -87,6 +86,10 @@ static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTime
 // Propagates a hybrid timeout to every subquery AREQ so blocked RPNet waits
 // observe the abort after their channels are woken.
 void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
+
+// A parked MR pop may be blocked on the hybrid request's own channel or a
+// subquery's channel. Wake every possible reader after publishing cancellation.
+void HybridRequest_WakeAbortChannels(HybridRequest *req);
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
   return req->base.async.requiresAggregateResultsSync;
@@ -229,6 +232,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * Owner-only: see the ownership contract on QueryRequest.
  */
 void HybridRequest_Free(HybridRequest *req);
+
+QueryError *HybridRequest_GetFatalError(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

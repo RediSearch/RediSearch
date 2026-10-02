@@ -5,6 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import math
 import random
 import time
 
@@ -1348,10 +1349,10 @@ def test_hybrid_query_non_vector_score():
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop():
-    """A filtered KNN query scores its text prefilter as if the matched terms
-    were adjacent: the scorer receives the prefilter alongside the distance
-    metric, and the slop walk pairs only top-level siblings, so the terms' real
-    offset distance never reaches the divisor."""
+    """A filtered KNN query scores its text prefilter exactly as the prefilter
+    scores on its own: the scorer receives the prefilter's own intersection of
+    term records, so the slop walk pairs the two terms and their real offset
+    distance reaches the divisor."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1386,18 +1387,18 @@ def test_hybrid_query_scorer_slop():
                               message=[scorer, text_only])
         env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
                               message=[scorer, hybrid])
-        # Under a KNN the gap between the terms is invisible, so the divisor
-        # falls back to a distance of one rather than the distance they are at.
-        env.assertAlmostEqual(undivided / hybrid['separated'], 1.0, 0.01,
+        # The KNN does not hide the gap between the terms, so the divisor is the
+        # distance they are actually at — the same one the prefilter charges.
+        env.assertAlmostEqual(undivided / hybrid['separated'], 3.0, 0.01,
                               message=[scorer, hybrid])
 
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop_ranking():
-    """The ranking a filtered KNN query replies with: a boosted document whose
-    matched terms are far apart outranks a tighter, unboosted one, because under
-    a KNN the distance between the terms is not charged against it. The same
-    prefilter on its own ranks the two the other way round."""
+    """The ranking a filtered KNN query replies with: a tighter, unboosted
+    document outranks a boosted one whose matched terms are far apart, because
+    the distance between the terms is charged against it under a KNN just as it
+    is without one. Both queries rank the two the same way."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1417,12 +1418,13 @@ def test_hybrid_query_scorer_slop_ranking():
                'NOCONTENT').equal([2, 'tight', 'boosted'])
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT',
-               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted', 'tight'])
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight', 'boosted'])
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
-               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted'])
-    # `k` selects candidates by vector distance before any scoring, so the
-    # nearest vector is the answer whatever the relevance ranking says.
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight'])
+    # `k` selects candidates by vector distance before any scoring. The nearest
+    # vector is also the top-ranked document here, so this pins the narrowing to
+    # one candidate rather than telling the two orderings apart.
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT',
                'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
@@ -1958,6 +1960,66 @@ class TestTimeoutReached(object):
         waitForIndex(self.env, 'idx')
 
         self.run_timeout_tests(n_vec, query_vec)
+
+@skip(cluster=True)
+def testKnnCursorDepletesWhenCollectionAlwaysTimesOut():
+    """
+    A KNN cursor whose collection can never complete must still deplete.
+
+    `VECSIM_MOCK_TIMEOUT` makes every VecSim timeout check report expired, so
+    top-k collection aborts before yielding anything while the request clock
+    stays healthy. Under `ON_TIMEOUT RETURN` the cursor is paused rather than
+    closed, and each `FT.CURSOR READ` is given a fresh deadline — so an
+    implementation that discards the aborted scan and re-collects from scratch
+    never reaches EOF, and the client keeps receiving empty chunks until the
+    cursor idles out.
+    """
+    # ON_TIMEOUT RETURN is what keeps the cursor alive across a timed-out read;
+    # under FAIL it is closed and the scenario cannot arise. Debug commands
+    # supply the deterministic VecSim timeout.
+    env = Env(moduleArgs='ON_TIMEOUT RETURN', enableDebugCommand=True)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+               't', 'TEXT').ok()
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'v', 'bababada', 't', 'hello')
+
+    k = 10
+    query = ('FT.AGGREGATE', 'idx', f'(@t:hello)=>[KNN {k} @v $vec]', 'LOAD', '1', '@t',
+             'PARAMS', '2', 'vec', 'aaaaaaaa', 'WITHCURSOR', 'COUNT', k, 'DIALECT', '2')
+
+    def drain(chunk, cursor, max_reads=10):
+        """Read until the cursor depletes, or `max_reads` reads have been made.
+
+        Each chunk is `[row_count, *rows]`, so its rows are all but the first
+        element.
+        """
+        rows, reads = len(chunk) - 1, 0
+        while cursor != 0 and reads < max_reads:
+            chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += len(chunk) - 1
+            reads += 1
+        return cursor, reads, rows
+
+    # Control: the same cursor depletes, and yields the whole top-k, when VecSim
+    # is not reporting timeouts. Without this a hung cursor below could just as
+    # well mean the query never terminates at all.
+    cursor, _, rows = drain(*env.cmd(*query))
+    env.assertEqual((cursor, rows), (0, k), message='baseline cursor did not deplete')
+
+    with vecsimMockTimeoutContext(env):
+        cursor, reads, rows = drain(*env.cmd(*query))
+        if cursor != 0:
+            env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+
+    # An aborted collection yields nothing, so a terminating implementation
+    # reports EOF and no rows.
+    env.assertEqual((cursor, rows), (0, 0),
+                    message=f'cursor still alive after {reads} reads, having yielded '
+                            f'{rows} rows: every read restarts collection instead of '
+                            'terminating')
 
 @skip(no_json=True)
 def test_create_multi_value_json():
@@ -2666,6 +2728,87 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+
+@skip(cluster=True)
+def test_vector_only_update_no_reindex():
+    """A HASH write changing only the vector must reindex that field and no others."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    conn = getConnectionByEnv(env)
+
+    num_docs = 200
+    update_rounds = 5
+    dim = 8
+    ef_runtime = 2 * num_docs
+    price = 100
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'vecupdonly:', 'SCHEMA',
+               'vector', 'VECTOR', 'HNSW', '12',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', ef_runtime,
+               'price', 'NUMERIC').ok()
+
+    vectors = []
+    for i in range(num_docs):
+        cosine_similarity = 1.0 - i / num_docs
+        vector = [cosine_similarity,
+                  math.sqrt(1.0 - cosine_similarity * cosine_similarity)] + [0.0] * (dim - 2)
+        vectors.append(create_np_array_typed(vector, 'FLOAT32').tobytes())
+
+    pipe = conn.pipeline(transaction=False)
+    for i, vector in enumerate(vectors):
+        pipe.execute_command('HSET', f'vecupdonly:{i}', 'vector', vector, 'price', price)
+    env.assertEqual(pipe.execute(), [2] * num_docs)
+
+    # Settle every vector in HNSW so the updates exercise the tiered backend, not its flat buffer.
+    # A drain only waits for work already queued, so retry until async ingest has queued and run.
+    def backend_settled():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        frontend_size = get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        backend_size = get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        state = {'frontend_size': frontend_size, 'backend_size': backend_size}
+        return frontend_size == 0 and backend_size == num_docs, state
+
+    wait_for_condition(backend_settled, 'all vectors must reach the HNSW backend', timeout=10)
+
+    def field_ops():
+        info = conn.execute_command('INFO', 'MODULES')
+        return {
+            'vector': int(info['search_total_indexing_ops_vector_fields']),
+            'numeric': int(info['search_total_indexing_ops_numeric_fields']),
+            'relabel': int(info['search_total_relabel_ops_vector_fields']),
+        }
+
+    for round_num in range(1, update_rounds + 1):
+        before = field_ops()
+        pipe = conn.pipeline(transaction=False)
+        for i in range(num_docs):
+            vector = vectors[(i + round_num) % num_docs]
+            pipe.execute_command('HSET', f'vecupdonly:{i}', 'vector', vector)
+        env.assertEqual(pipe.execute(), [0] * num_docs,
+                        message=f'vector-only update round {round_num}')
+
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+        after = field_ops()
+        env.assertEqual(after['vector'] - before['vector'], num_docs,
+                        message=f'vector indexing operations in round {round_num}')
+        env.assertEqual(after['numeric'] - before['numeric'], 0,
+                        message=f'numeric indexing operations in round {round_num}')
+        env.assertEqual(after['relabel'] - before['relabel'], 0,
+                        message=f'vector relabel operations in round {round_num}')
+
+    expected_nearest = f'vecupdonly:{num_docs - update_rounds}'
+    res = env.cmd(
+        'FT.SEARCH', 'idx',
+        f'*=>[KNN 1 @vector $blob EF_RUNTIME {ef_runtime} AS distance]',
+        'PARAMS', '2', 'blob', vectors[0],
+        'SORTBY', 'distance', 'ASC', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(res, [1, expected_nearest])
+
+    res = env.cmd('FT.SEARCH', 'idx', f'@price:[{price} {price}]',
+                  'LIMIT', '0', '0', 'NOCONTENT')
+    env.assertEqual(res, [num_docs])
+
 
 @skip(cluster=True)
 def test_switch_write_mode_multiple_indexes(env):

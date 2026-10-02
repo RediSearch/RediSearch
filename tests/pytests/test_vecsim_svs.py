@@ -8,6 +8,8 @@
 from RLTest import Env
 import distro
 from includes import *
+import json
+import math
 import threading
 import random
 
@@ -15,6 +17,7 @@ from vecsim_utils import *
 from common import (
     getConnectionByEnv,
     skip,
+    skip_until,
     assertInfoField,
     index_info,
     to_dict,
@@ -30,6 +33,8 @@ from common import (
     getWorkersThpoolStats,
     wait_for_condition,
     skipIfNoEnableAssert,
+    paused_workers,
+    verify_command_OK_on_all_shards,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -95,6 +100,56 @@ def test_small_window_size():
                        f'__{field_name}_score').noError()
             conn.execute_command('FLUSHALL')
 
+'''
+SEARCH_WINDOW_SIZE and SEARCH_BUFFER_CAPACITY are plain KNN query attributes, and SVS sizes its
+search buffer from the pair, requiring the capacity to hold the whole window. The backend
+enforces that by throwing, which would escape the module's C frames and take the server down,
+so the pair has to be rejected while the query parameters are resolved.
+'''
+@skip(cluster=True)
+def test_search_buffer_capacity_below_window_size():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 4
+    # The SVS backend serves queries only once trained; an untrained one returns before it
+    # builds the search buffer, so the invariant would never be reached.
+    num_docs = int(DEFAULT_BLOCK_SIZE * 1.1)
+    create_vector_index(env, dim, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
+    query_vec = populate_with_vectors(env, num_docs=num_docs, dim=dim)
+    conn = getConnectionByEnv(env)
+    p = conn.pipeline(transaction=False)
+    for i in range(1, num_docs + 1):
+        p.execute_command('HSET', f'doc{i}', 't', 'filtered')
+    p.execute()
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    # A bare KNN drives SVS topKQuery; a filter in front of it makes NewVectorIterator take its
+    # hybrid branch (child_it != NULL) and drives the SVS batch iterator instead. Both reach the
+    # same VecSim_ResolveQueryParams, which is the only caller of VecSimIndex_ResolveParams, so
+    # covering both pins that the single choke point really does cover every KNN entry point.
+    def knn(*attrs, prefix='*'):
+        return f'{prefix}=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec {" ".join(attrs)}]'
+
+    # Both a wildly undersized capacity and one just below the window are rejected, on the bare
+    # KNN and on the filtered form that routes through the batch iterator.
+    for prefix in ['*', '@t:filtered']:
+        for capacity in [1, 99]:
+            env.expect('FT.SEARCH', DEFAULT_INDEX_NAME,
+                       knn('SEARCH_WINDOW_SIZE', '100', 'SEARCH_BUFFER_CAPACITY', str(capacity),
+                           prefix=prefix),
+                       'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT').error().contains(
+                'SEARCH_BUFFER_CAPACITY must not be smaller than SEARCH_WINDOW_SIZE'
+                f' ({capacity} < 100)')
+
+    # A capacity that does hold the window, and a capacity with no window size at all (which SVS
+    # ignores), both stay accepted - the check must not narrow the legitimate surface. The second
+    # case is the one a future VecSim change could silently invalidate.
+    for prefix in ['*', '@t:filtered']:
+        for attrs in [('SEARCH_WINDOW_SIZE', '100', 'SEARCH_BUFFER_CAPACITY', '100'),
+                      ('SEARCH_BUFFER_CAPACITY', '1')]:
+            res = env.cmd('FT.SEARCH', DEFAULT_INDEX_NAME, knn(*attrs, prefix=prefix),
+                          'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT')
+            env.assertEqual(res[0], 10, message=res)
+
 def test_rdb_load_trained_svs_vamana():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
@@ -143,6 +198,93 @@ def test_rdb_load_trained_svs_vamana():
             # We passed the training threshold, so we always have at least training_threshold vectors in the backend index.
             env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
             env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
+
+
+@skip(cluster=True)
+def test_svs_vector_survives_repeated_numeric_updates():
+    """Repeated numeric-only updates must preserve every backend-resident SVS vector."""
+    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    conn = getConnectionByEnv(env)
+
+    num_docs = DEFAULT_BLOCK_SIZE
+    update_rounds = 5
+    price_round_stride = 10000
+    knn_k = 10
+    dim = 8
+    vector_params = [
+        'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+        'CONSTRUCTION_WINDOW_SIZE', num_docs, 'SEARCH_WINDOW_SIZE', num_docs,
+    ]
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'svsupd:', 'SCHEMA',
+               'vector', 'VECTOR', 'SVS-VAMANA', len(vector_params), *vector_params,
+               'price', 'NUMERIC').ok()
+    if not env.cmd(debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', 'idx', 'vector'):
+        raise SkipTest('the loaded SVS backend does not support vector relabeling')
+
+    # A full block triggers SVS training. Doc i has cosine distance i / num_docs from doc 0,
+    # making both the nearest-neighbour ordering and label ownership deterministic.
+    vectors = []
+    for i in range(num_docs):
+        cosine_similarity = 1.0 - i / num_docs
+        vector = [cosine_similarity,
+                  math.sqrt(1.0 - cosine_similarity * cosine_similarity)] + [0.0] * (dim - 2)
+        vectors.append(np.array(vector, dtype=np.float32).tobytes())
+
+    pipe = conn.pipeline(transaction=False)
+    for i, vector in enumerate(vectors):
+        pipe.execute_command('HSET', f'svsupd:{i}', 'vector', vector, 'price', i)
+    env.assertEqual(pipe.execute(), [2] * num_docs)
+
+    wait_for_background_indexing(env, 'idx', 'vector')
+    env.assertEqual(get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE'], 0)
+    env.assertEqual(get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE'], num_docs)
+
+    def vector_ops():
+        info = conn.execute_command('INFO', 'MODULES')
+        return (int(info['search_total_indexing_ops_vector_fields']),
+                int(info.get('search_total_relabel_ops_vector_fields', 0)))
+
+    indexing_before, relabel_before = vector_ops()
+    for round_num in range(1, update_rounds + 1):
+        pipe = conn.pipeline(transaction=False)
+        for i in range(num_docs):
+            pipe.execute_command('HSET', f'svsupd:{i}', 'price',
+                                 round_num * price_round_stride + i)
+        env.assertEqual(pipe.execute(), [0] * num_docs, message=f'price update round {round_num}')
+
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+    indexing_after, relabel_after = vector_ops()
+    env.assertEqual(indexing_after, indexing_before,
+                    message='numeric-only updates re-added SVS vectors')
+    env.assertEqual(relabel_after - relabel_before, num_docs * update_rounds)
+    backend_info = get_tiered_backend_debug_info(env, 'idx', 'vector')
+    env.assertEqual(backend_info['NUMBER_OF_MARKED_DELETED'], 0,
+                    message='numeric-only updates left tombstoned SVS vectors')
+
+    def knn_ids(blob, k):
+        res = env.cmd(
+            'FT.SEARCH', 'idx', f'*=>[KNN {k} @vector $blob AS distance]',
+            'PARAMS', '2', 'blob', blob, 'SORTBY', 'distance', 'ASC',
+            'LIMIT', '0', k, 'NOCONTENT', 'DIALECT', '2')
+        env.assertEqual(res['total_results'], k, message=res)
+        ids = [row['id'] for row in res['results']]
+        env.assertEqual(len(ids), len(set(ids)), message=f'duplicate vector results: {ids}')
+        return ids
+
+    env.assertEqual(knn_ids(vectors[0], knn_k),
+                    [f'svsupd:{i}' for i in range(knn_k)])
+    env.assertEqual(set(knn_ids(vectors[0], num_docs)),
+                    {f'svsupd:{i}' for i in range(num_docs)})
+    for i in (0, 1, 7, 42, 255, 512, 768, num_docs - 1):
+        env.assertEqual(knn_ids(vectors[i], 1), [f'svsupd:{i}'],
+                        message=f'svsupd:{i} no longer owns its original vector')
+
+    lower = update_rounds * price_round_stride
+    res = env.cmd('FT.SEARCH', 'idx', f'@price:[{lower} {lower + 49}]', 'NOCONTENT')
+    env.assertEqual(res['total_results'], 50,
+                    message='the numeric index does not contain the final update round')
+
 
 @skip(cluster=True)
 def test_svs_vamana_info():
@@ -400,6 +542,14 @@ def test_svs_shared_threadpool_memory_info():
 
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
+# (compression_type, data_type, workers) tuples that are flaky on the coverage lane and are
+# temporarily skipped via skip_until. Only applied when running under coverage; see MOD-18468.
+# The key deliberately excludes the metric: the async full-precision FLOAT16 variants time out
+# in wait_for_background_indexing under coverage regardless of metric, and which of COSINE/L2/IP
+# trips on a given nightly run varies.
+QUERIES_SANITY_SKIP_UNTIL = {
+    ('NO_COMPRESSION', 'FLOAT16', 4): ('2026-10-09', 'Flaky test under coverage, see MOD-18468'),
+} if CODE_COVERAGE else {}
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
     # Create SVS VAMANA index with all compression flavors
@@ -420,6 +570,10 @@ for workers in [0, 4]:
                 # In cluster mode, the same training work is multiplied across shards and can
                 # exceed the coverage job budget without adding meaningful distributed coverage.
                 test_func = skip(cluster=True)(test_func)
+                skip_spec = QUERIES_SANITY_SKIP_UNTIL.get((compression_type, data_type, workers))
+                if skip_spec is not None:
+                    skip_date, skip_reason = skip_spec
+                    test_func = skip_until(skip_date, reason=skip_reason)(test_func)
                 globals()[test_name] = test_func
 
 '''
@@ -658,20 +812,31 @@ def test_drop_index_during_query():
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
     env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
 
-def gc_test_common(env, num_workers):
+def gc_test_common(env, num_workers, compression_types):
     dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    index_size = DEFAULT_BLOCK_SIZE
-    compression_types = ['NO_COMPRESSION', 'LVQ8']
-    if is_intel_opt_enabled():
-        compression_types.append('LeanVec4x8')
 
     for compression_type in compression_types:
         compression_params = None
         if compression_type != 'NO_COMPRESSION':
             compression_params = ['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold]
         message_prefix = f"compression_params: {compression_params}"
+
+        # SVS hands dataset memory back a whole block at a time, and
+        # `svs::data::SimpleData::resize` keeps one empty block when it shrinks
+        # (VectorSimilarity #980). So "GC returned memory" is only observable once a deletion
+        # frees two blocks: three blocks in and two deleted is the cheapest sizing that does,
+        # leaving a block of live vectors. At one block -- the sizing this test used before
+        # #980 -- nothing measurable is ever freed, however many vectors are deleted.
+        #
+        # Only one variant pays for that. Block retention is a property of the SVS dataset, not
+        # of the compression applied to it, so testing it once is enough, and the coverage lane
+        # runs this instrumented: three blocks across every variant timed out there.
+        checks_memory_release = compression_type == 'NO_COMPRESSION'
+        index_size = (3 if checks_memory_release else 1) * DEFAULT_BLOCK_SIZE * env.shardsCount
+        vecs_to_delete = (2 * DEFAULT_BLOCK_SIZE * env.shardsCount if checks_memory_release
+                          else DEFAULT_BLOCK_SIZE * env.shardsCount - 24)
         set_up_database_with_vectors(env, dim, num_docs=index_size, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=compression_params)
         wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
 
@@ -684,7 +849,6 @@ def gc_test_common(env, num_workers):
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
         # Phase 1: Delete some vectors
-        vecs_to_delete = 1000
         for i in range (vecs_to_delete):
             env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}')
 
@@ -736,9 +900,10 @@ def gc_test_common(env, num_workers):
         # Verify that the number of marked deleted vectors is as expected
         env.assertEqual(tiered_backend_debug_info['NUMBER_OF_MARKED_DELETED'], 0, message=f"{message_prefix}")
 
-        # Memory should decrease
-        after_gc_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        env.assertLess(after_gc_memory, after_del_memory, message=f"{message_prefix}")
+        # Memory should decrease -- only where the deletion freed whole blocks; see above.
+        if checks_memory_release:
+            after_gc_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+            env.assertLess(after_gc_memory, after_del_memory, message=f"{message_prefix}")
 
         # Index size should be updated
         size_after = tiered_backend_debug_info['INDEX_SIZE']
@@ -750,19 +915,34 @@ def gc_test_common(env, num_workers):
 
         env.execute_command('FLUSHALL')
 
+def _gc_compressed_types():
+    return ['LVQ8'] + (['LeanVec4x8'] if is_intel_opt_enabled() else [])
+
 @skip(cluster=True)
 def test_gc():
     num_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
-    gc_test_common(env, num_workers)
+    gc_test_common(env, num_workers, ['NO_COMPRESSION'] + _gc_compressed_types())
 
+# Split from the compressed variants (MOD-15571 precedent in test_vecsim.py): with no workers, GC
+# runs synchronously on the calling thread rather than handed to the thread pool, and the
+# NO_COMPRESSION variant alone pays for the 3-block sizing `checks_memory_release` needs (see
+# above). Under coverage instrumentation, that no longer fits in the same per-test timeout as the
+# compressed variants below.
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
-    gc_test_common(env, num_workers)
+    gc_test_common(env, num_workers, ['NO_COMPRESSION'])
+
+@skip(cluster=True)
+def test_gc_no_workers_compressed():
+    num_workers = 0
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)
 def test_resize_workers_during_pending_svs_jobs():
@@ -913,3 +1093,151 @@ def test_multiple_svs_indexes_share_pool():
                                   f'*=>[KNN 10 @{field} $vec_param]',
                                   'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
         env.assertEqual(res[0], 10, message=f"{idx} KNN search should return results")
+
+
+# --- Deleting docs while a transfer into the SVS-VAMANA backend index runs (MOD-13168) --------
+
+# WORKERS 2 is load-bearing: with no worker threads the tiered index indexes in place, and there
+# is no background transfer to race with. Periodic fork GC is disabled, as in the sibling SVS
+# tests that read NUMBER_OF_MARKED_DELETED, so it cannot compact the backend under the assertions.
+_RACE_MODULE_ARGS = 'DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 1000000'
+_RACE_DIM = 32
+_RACE_K = 10
+# A margin, not a proof: whether a resumed worker actually reaches any of these vectors before
+# they are deleted is not guaranteed or asserted - only the index's final correctness is.
+_RACE_DELETES = 100
+
+
+class _DocSet:
+    """Docs of `vectors_per_doc` random vectors each, added in consecutive groups. Keeps the first
+    doc of each group, to query with, and tracks which docs were deleted."""
+
+    def __init__(self, env, vectors_per_doc, on_json):
+        self.conn = getConnectionByEnv(env)
+        self.vectors_per_doc = vectors_per_doc
+        self.on_json = on_json
+        self.group_vectors = {}     # first doc id of a group -> that doc's first vector
+        self.deleted = set()
+        self.total = 0
+
+    def add(self, count):
+        """Add a group of `count` docs after the last one, and return the first one's id."""
+        assert count > 0
+        first_doc_id = self.total + 1
+        p = self.conn.pipeline(transaction=False)
+        for doc_id in range(first_doc_id, first_doc_id + count):
+            vectors = [create_random_np_array_typed(_RACE_DIM) for _ in range(self.vectors_per_doc)]
+            if doc_id == first_doc_id:
+                self.group_vectors[doc_id] = vectors[0]
+            if self.on_json:
+                p.execute_command('JSON.SET', self.name(doc_id), '.',
+                                  json.dumps({'vecs': [vector.tolist() for vector in vectors]}))
+            else:
+                p.execute_command('HSET', self.name(doc_id), DEFAULT_FIELD_NAME, vectors[0].tobytes())
+        p.execute()
+        self.total += count
+        return first_doc_id
+
+    def delete(self, first_doc_id, count):
+        """Delete `count` docs, deliberately one round trip each - see `_RACE_DELETES`."""
+        for doc_id in range(first_doc_id, first_doc_id + count):
+            self.conn.execute_command('DEL', self.name(doc_id))
+            self.deleted.add(self.name(doc_id))
+
+    @property
+    def live(self):
+        return self.total - len(self.deleted)
+
+    @staticmethod
+    def name(doc_id):
+        return f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}'
+
+
+def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
+    """Delete docs while a transfer of the SVS-VAMANA frontend into the backend index is pending
+    and while it runs: phase 1 against the training of an empty backend, phase 2 against an update
+    of the trained one. Each phase pauses the workers, so that crossing the threshold schedules the
+    transfer without running it, deletes while it is pending, then resumes and deletes more."""
+    threshold = DEFAULT_BLOCK_SIZE      # in vectors, for both the training and the update
+    docs_per_threshold = threshold // vectors_per_doc + 1
+    # Compression is what makes a transfer start with a training phase. Where the Intel
+    # optimizations are unavailable VecSim substitutes GlobalSQ8, which goes through the same
+    # phases. SEARCH_WINDOW_SIZE is raised above `k` because the backend keeps the deleted entries
+    # marked rather than removed, and they are traversed but not returned: a `k`-wide beam would
+    # often come back with fewer than `k` live docs on a correct index.
+    params = ['TYPE', 'FLOAT32', 'DIM', _RACE_DIM, 'DISTANCE_METRIC', 'L2',
+              'COMPRESSION', 'LeanVec4x8', 'TRAINING_THRESHOLD', threshold,
+              'SEARCH_WINDOW_SIZE', 10 * _RACE_K]
+    schema = ['$.vecs[*]', 'AS', DEFAULT_FIELD_NAME] if on_json else [DEFAULT_FIELD_NAME]
+    env.expect('FT.CREATE', DEFAULT_INDEX_NAME, *(['ON', 'JSON'] if on_json else []),
+               'SCHEMA', *schema, 'VECTOR', 'SVS-VAMANA', len(params), *params).ok()
+    docs = _DocSet(env, vectors_per_doc, on_json)
+
+    def settle_and_verify(phase, deleted_probes):
+        env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], docs.live,
+                        message=f'{phase}, transfer in progress')
+        wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+        env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], docs.live,
+                        message=f'{phase}, transfer done')
+        assert_svs_tiered_state(env, docs.live, vectors_per_doc, message=phase)
+        # Query with each deleted group leader's own vector, so that an entry left behind for it
+        # ranks as high as the graph search can reach it.
+        for doc_id in deleted_probes:
+            assert_knn_page_live(env, _RACE_K, docs.group_vectors[doc_id], docs.deleted,
+                                 message=phase)
+
+    # Phase 1: crossing the training threshold schedules the training of the empty backend index.
+    with paused_workers(env):
+        pending_deletes = docs.add(10)
+        racing_deletes = docs.add(_RACE_DELETES)
+        backend_deletes = docs.add(30)      # deleted in phase 2, out of the trained backend
+        docs.add(docs_per_threshold - docs.total)   # fill the frontend past the threshold
+
+        # The training cannot run while the workers are paused, so these deletions are guaranteed
+        # to happen with a transfer of their vectors pending.
+        assert_transfer_pending(env, message='phase 1, training pending')
+        docs.delete(pending_deletes, 10)
+
+    # The training is running now: a doc deleted from the batch being transferred has to be removed
+    # from the backend once the transfer puts it there, which is what the deletions journal is for.
+    # A flow test cannot pin down an interleaving inside the job - only the final state is checked.
+    flat_buffer_deletes = docs.add(10)      # inserted, then deleted, after the transfer started
+    docs.delete(racing_deletes, _RACE_DELETES)
+    docs.delete(flat_buffer_deletes, 10)
+
+    probes = [pending_deletes, racing_deletes, flat_buffer_deletes]
+    settle_and_verify('phase 1', probes)
+
+    # Phase 2: the backend index is trained and populated now, so the next batch schedules an
+    # update of it rather than a training.
+    with paused_workers(env):
+        update_deletes = docs.add(_RACE_DELETES)
+        docs.add(docs_per_threshold)
+
+        # These docs were moved into the backend by phase 1's training, so deleting them now goes
+        # through the backend while an update of that same index is pending.
+        assert_transfer_pending(env, message='phase 2, update pending')
+        docs.delete(backend_deletes, 30)
+
+    # An update holds the main index lock exclusively for its whole batch, so these deletions block
+    # on it rather than running alongside it - MOD-13168's own symptom - and land as it finishes.
+    docs.delete(update_deletes, _RACE_DELETES)
+
+    settle_and_verify('phase 2', probes + [backend_deletes, update_deletes])
+
+
+@skip(cluster=True)
+def test_delete_during_background_indexing():
+    """Delete docs while a transfer into the SVS-VAMANA backend index is pending and while it
+    runs, for a single-value vector field (MOD-13168, VectorSimilarity #903)."""
+    _delete_docs_racing_transfers(Env(moduleArgs=_RACE_MODULE_ARGS),
+                                  vectors_per_doc=1, on_json=False)
+
+
+@skip(cluster=True, no_json=True)
+def test_delete_during_background_indexing_multi_value():
+    """Same as `test_delete_during_background_indexing` for a multi-value JSON vector field:
+    deleting a doc has to delete all of its vectors, also when the deletion races a transfer."""
+    _delete_docs_racing_transfers(Env(moduleArgs=_RACE_MODULE_ARGS),
+                                  vectors_per_doc=5, on_json=True)

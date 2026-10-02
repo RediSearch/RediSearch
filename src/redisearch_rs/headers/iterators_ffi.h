@@ -86,14 +86,6 @@ typedef struct NumericFilter NumericFilter;
  */
 typedef struct NumericRangeTree NumericRangeTree;
 
-typedef struct RLookupKey RLookupKey;
-
-/**
- * Smart pointer handle for [`RLookupKey`] that can be
- * invalidated when the iterator that owns the key is freed.
- */
-typedef struct RLookupKeyHandle RLookupKeyHandle;
-
 /**
  * A single term being evaluated at query time.
  *
@@ -181,17 +173,6 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 
 /**
- * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to a Hybrid iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
  * Profile-wrap an iterator and its entire subtree.
  *
  * Wraps the iterator as a [`CRQEIterator`], calls
@@ -234,7 +215,7 @@ QueryIterator *NewEmptyIterator(void);
  *    lifetime of all returned iterators.
  * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
  * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
- *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.fieldIndex` must be within `ctx.spec`'s current field count.
  *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
  *      freed by `GeoFilter_Free`.
  * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
@@ -259,8 +240,9 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
  *    returned iterator, and `sctx` must stay at a stable address for that
- *    whole window: the iterator reads the request-owned deadline back on every
- *    timeout probe. No write to that deadline may overlap a probe.
+ *    whole window. The request timeout reached through `sctx.timeout` must also remain valid
+ *    at a stable address until the iterator is dropped. Timeout source changes and deadline
+ *    writes may happen only between probes; only the blocked-client flag may change concurrently.
  * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
  *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
@@ -313,12 +295,12 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *
  * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
  * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
+ *    mechanism detects when the index has been replaced via `spec.missing.indexes`
  *    lookup.
  * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  * 5. `field_index` must be a valid index into `sctx.spec.fields`.
- * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+ * 6. `sctx.spec.missing.indexes` must be a non-null, valid dict pointer.
  */
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
 
@@ -484,9 +466,9 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
  * 4. `q.sctx` must be a non-null pointer to a valid
  *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
- *    address for the lifetime of the returned iterator: on the Clock Based Timeout path
- *    the iterator reads the request-owned deadline back on every probe. No write to that
- *    deadline may overlap a probe.
+ *    address for the lifetime of the returned iterator. Its request timeout must also remain
+ *    valid at a stable address for that lifetime. Timeout source changes and deadline writes
+ *    may happen only between probes; only the blocked-client flag may change concurrently.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
  * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -512,9 +494,9 @@ QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double w
  * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
  *    for the lifetime of the returned iterator.
  * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
- *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
- *    returned iterator.
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_index` is
+ *    within `(*ctx).spec`'s current field count, and the field at that index must be of
+ *    numeric or geo type.
  * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
  * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
  *    index (not a field mask).
@@ -586,8 +568,8 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
  *
  * This call can reduce to an `Empty` iterator, whose `type_` is
- * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
- * accessors below must not be called on such a handle.
+ * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The accessors in
+ * [`vector_score_source::interop`] must not be called on such a handle.
  *
  * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
  * for a hybrid (filtered) query.
@@ -615,6 +597,8 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
+ * [`IteratorType::Hybrid`]: rqe_iterators::IteratorType::Hybrid
  */
 QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
@@ -739,32 +723,6 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
-
-/**
- * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
- *
- * The key is initially `NULL`; the metrics-loader result processor writes
- * through this pointer to set the iterator's score-output key.
- *
- * # Safety
- *
- * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
- *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
- */
-RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
-
-/**
- * Set the [`RLookupKeyHandle`] back-reference on this iterator.
- *
- * The handle is used to invalidate the key pointer when the iterator is freed.
- *
- * # Safety
- *
- * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
- *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
- * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
- */
-void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
 
 /**
  *

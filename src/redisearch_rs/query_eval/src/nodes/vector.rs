@@ -126,10 +126,19 @@ fn resolve_score_field(
     }
 
     if !vq.scoreField.is_null() {
-        debug_assert!(!vq.field.is_null(), "a vector query must have a field spec");
-        // SAFETY: a well-formed vector query points at a valid `FieldSpec`
-        // whose `fieldName` is a valid `HiddenString`.
-        let field = unsafe { &*vq.field };
+        let spec = ctx.spec();
+        debug_assert!(
+            vq.fieldIndex < spec.numFields,
+            "fieldIndex must be within the spec's current field count"
+        );
+        // SAFETY: `fieldIndex` is within `spec.numFields` (asserted above), so this stays
+        // within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(vq.fieldIndex as usize) };
+        // SAFETY: `fieldIndex` was captured from the field's own stable index at parse
+        // time. `IndexSpec.fields` only grows between then and now (existing indices stay
+        // valid), and `spec` is the current field array, read under the lock evaluation
+        // holds.
+        let field = unsafe { &*field_ptr };
         let default = default_score_field(field);
         // SAFETY: the parser only ever stores a live, NUL-terminated string here.
         let score_field = unsafe { CStr::from_ptr(vq.scoreField) };
@@ -222,28 +231,25 @@ fn bind_metric_request(
     // SAFETY: `it` is a valid iterator freshly returned by `NewVectorIterator`.
     let iterator_type = unsafe { it.as_ref() }.type_;
 
-    // Neither accessor can infer the key's borrow — one comes from C, the other
-    // from a type-erased header — and `bind_metric_request_key` leaves it free
-    // on both sides too, so nothing constrains the lifetime inferred here. It is
-    // discharged by discarding it: the key leaves this function only as a raw
-    // pointer, handed straight back to the iterator that owns the slot, so no
-    // `RLookupKey` reference — nor any borrow its safe accessors hand out — is
-    // ever formed at that lifetime.
+    // Neither accessor can infer the key's borrow — both reach it through a
+    // type-erased header — and `bind_metric_request_key` leaves it free too, so
+    // nothing constrains the lifetime inferred here. It is discharged by
+    // discarding it: the key leaves this function only as a raw pointer, handed
+    // straight back to the iterator that owns the slot, so no `RLookupKey`
+    // reference — nor any borrow its safe accessors hand out — is ever formed at
+    // that lifetime.
     match iterator_type {
         IteratorType::Hybrid => {
-            // SAFETY: the discriminant says this is a hybrid iterator, and we
-            // hold it exclusively.
-            //
-            // The cast is C's view of the key — its header — widened back to
-            // the whole key the header is the first field of.
-            let own_key = unsafe { ffi::HybridIterator_GetOwnKeyRef(it.as_ptr()) }.cast();
+            // SAFETY: the discriminant says this is a vector top-k iterator, and
+            // we hold it exclusively.
+            let own_key = unsafe { vector_score_source::interop::own_key_ref(it) };
             // SAFETY: `id` was reserved by `add_metric_request` on this same
             // context; `own_key` points into the iterator, which outlives the
             // handle (it clears the handle's validity flag when freed).
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
-            // long as the AST. The cast is the same handle as C declares it.
-            unsafe { ffi::HybridIterator_SetKeyHandle(it.as_ptr(), handle.cast()) };
+            // long as the AST.
+            unsafe { vector_score_source::interop::set_key_handle(it, handle) };
         }
         IteratorType::MetricSortedById
         | IteratorType::MetricSortedByScore

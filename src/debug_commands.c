@@ -38,6 +38,7 @@
 #include "cursor.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
+#include "notifications.h"
 #include "hybrid/hybrid_exec.h"
 #include "reply.h"
 #include "info/info_command.h"
@@ -1868,6 +1869,37 @@ DEBUG_COMMAND(VecsimInfo) {
 }
 
 /**
+ * FT.DEBUG VECSIM_RELABEL_SUPPORTED <index> <field>
+ */
+DEBUG_COMMAND(VecsimRelabelSupported) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  if (!fs) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
+  }
+  VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
+  if (!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Can't open vector index");
+  }
+
+  // A supported implementation rejects an identity move as SameLabel without touching the index.
+  // The interface default returns Unsupported, which is how builds lacking the backend operation
+  // advertise that the caller must fall back to delete and insert.
+  VecSimRelabelCode code = VecSimIndex_RelabelVector(vecsimIndex, INVALID_LABEL, INVALID_LABEL);
+  SearchCtx_Free(sctx);
+  return RedisModule_ReplyWithLongLong(ctx, code != VecSimRelabel_Unsupported);
+}
+
+/**
  * FT.DEBUG DEL_CURSORS
  * Deletes the local cursors of the shard.
 */
@@ -2696,6 +2728,33 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   }
   const long long value = RSGlobalConfig.hideUserDataFromLog;
   return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
+DEBUG_COMMAND(hashSubkeyNotifications) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RedisModule_ReplyWithBool(ctx, HashSubkeyNotificationsSupported());
+}
+
+DEBUG_COMMAND(forcePlainHashNotifications) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  // argv[0] = FT.DEBUG, argv[1] = FORCE_PLAIN_HASH_NOTIFICATIONS, argv[2] = 0|1
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long force;
+  if (RedisModule_StringToLongLong(argv[2], &force) != REDISMODULE_OK || force < 0 || force > 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid value. Must be 0 or 1.");
+  }
+  if (!ForcePlainHashNotifications_Set(force != 0)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Keyspace notifications are already subscribed; the channel cannot be changed. "
+             "Set this before creating any index.");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 // Global counter for tracking yield calls
@@ -3568,7 +3627,7 @@ static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-// Used in hybrid_reader.c in computeDistances
+// Defined in vector_top_k.c, called from the Rust vector top-k scan.
 extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 
 /**
@@ -3866,6 +3925,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"VECSIM_RELABEL_SUPPORTED", VecsimRelabelSupported},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DELETE_LOCAL_COORD_CURSORS", DeleteCoordCursors},
                                {"DUMP_HNSW", dumpHNSWData},
@@ -3876,6 +3936,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
+                               {"HASH_SUBKEY_NOTIFICATIONS", hashSubkeyNotifications},
+                               {"FORCE_PLAIN_HASH_NOTIFICATIONS", forcePlainHashNotifications},
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},

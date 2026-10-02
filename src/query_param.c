@@ -50,7 +50,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, NULL, NULL);
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, RS_INVALID_FIELD_INDEX, NULL);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
   if(min != NULL) {

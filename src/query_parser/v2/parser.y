@@ -207,7 +207,9 @@ static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field, 
     return NULL;
   }
 
-  struct RSQueryNode *tag = NewTagNode(field->fs);
+  // `field->fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is
+  // set; otherwise it is uninitialised parser-stack garbage, not NULL.
+  struct RSQueryNode *tag = NewTagNode(ctx->sctx->spec ? field->fs : NULL);
   QueryNode_AddChild(tag, NewLexRangeNode_WithParams(ctx, bound, lower, inclusive));
   return tag;
 }
@@ -741,7 +743,9 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
     reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {
-    A = NewMissingNode(B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewMissingNode(ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -755,7 +759,9 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
     QueryNode_Free(C);
   } else if (C) {
-    A = NewTagNode(B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewTagNode(ctx->sctx->spec ? B.fs : NULL);
     QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
     // Set the children count on C to 0 so they won't get recursively free'd
@@ -815,7 +821,9 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    A = NewNumericNode(C, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(C, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -869,7 +877,9 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    QueryNode* E = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
     A = not_step(E);
   }
 }
@@ -880,7 +890,9 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -890,7 +902,9 @@ expr(A) ::= modifier(B) GT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -900,7 +914,9 @@ expr(A) ::= modifier(B) GE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -910,7 +926,9 @@ expr(A) ::= modifier(B) LT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -920,7 +938,9 @@ expr(A) ::= modifier(B) LE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -971,7 +991,9 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gf->fieldSpec = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    GeoFilter_SetField(C->gf, ctx->sctx->spec ? B.fs : NULL);
     A = NewGeofilterNode(C);
   }
 }
@@ -998,7 +1020,9 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
     QueryNode_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gmn.geomq->fs = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    GeometryQuery_SetField(C->gmn.geomq, ctx->sctx->spec ? B.fs : NULL);
     A = C;
   }
 }
@@ -1147,7 +1171,12 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
-    A->vn.vq->field = C.fs;
+    // `C.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — unset
+    // when the coordinator parses a KNN clause with no local spec, purely to read
+    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
+    // itself is never evaluated. Otherwise `C.fs` is uninitialised parser-stack garbage, not
+    // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
+    VectorQuery_SetField(A->vn.vq, ctx->sctx->spec ? C.fs : NULL);
     VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
@@ -1188,7 +1217,9 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
   } else if (C) {
-    C->vn.vq->field = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — see the
+    // `vector_command` rule above for when it is not.
+    VectorQuery_SetField(C->vn.vq, ctx->sctx->spec ? B.fs : NULL);
     A = C;
   }
 }

@@ -175,7 +175,7 @@ as production code.
 - `src/query.c` — query execution entry point
 - `src/query_optimizer.c` — query plan optimization
 - `src/query_parser/v2/` — Ragel lexer (`lexer.rl`) + Lemon parser (`parser.y`), used by DIALECT 2 onwards (v1 is legacy)
-- `src/iterators/` — iterator implementations (hybrid_reader, optimizer_reader)
+- `src/iterators/` — iterator implementations (optimizer_reader; vector top-k lives in `src/redisearch_rs/top_k/`)
 - `src/result_processor.c` — result processing pipeline
 - `src/numeric_filter.c` — numeric range filter iterators
 - `src/cursor.c` — cursor-based result pagination
@@ -283,7 +283,7 @@ src/redisearch_rs/
     └── triemap_ffi/      # C-callable wrapper
 ```
 
-## Review guidelines
+## Code Review Rules
 
 When reviewing pull requests:
 
@@ -303,6 +303,17 @@ When reviewing pull requests:
 - If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
 - State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead. A missing test needs no failing input: name the new or changed behavior and what an exercising test would assert, as [/rust-review](.skills/rust-review/SKILL.md) § *Test coverage* and [/adversarial-review](.skills/adversarial-review/SKILL.md) require.
 - Post findings as comments; do not request changes. A human maintainer's approval is the merge gate.
+
+### First-pass thoroughness
+
+The first review of a PR is the only pass that owes each line a full look: *Re-reviewing after a
+push* below restricts every later round to the delta, so a defect left unflagged in this pass
+typically goes unflagged for the life of the PR, not just for one round. Budget attention
+accordingly — a dense or unfamiliar function (a recursive traversal, a manual state machine, a
+routine juggling several invariants such as bounds, early-stop, and ownership together) usually
+hides more than one issue, and stopping at the first one found is how the rest surface piecemeal
+across later rounds instead of together in this one. Read such functions for all their edge
+cases before moving on, rather than skimming for the most obvious defect.
 
 ### Re-reviewing after a push
 
@@ -365,6 +376,7 @@ Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust 
 
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
+Invoke [/report-bug](.skills/report-bug/SKILL.md) to report a product bug to Jira or add a new variant to an existing bug ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
 Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/improve-flow-coverage](.skills/improve-flow-coverage/SKILL.md) to find and close flow test coverage gaps for C source files.

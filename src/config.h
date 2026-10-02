@@ -159,6 +159,15 @@ typedef struct {
 
   bool noMemPool;
 
+  /** Deprecated
+   *
+   * Once gated a command filter that captured hash field names before execution,
+   * which subkey notifications replaced
+   * Retained only so the surface it is bound to keeps working: `PARTIAL_INDEXED_DOCS`
+   * and, more importantly, the `search-partial-indexed-docs` module config. Dropping
+   * the latter's registration makes a server whose config file sets it refuse to
+   * start ("Module Configuration detected without loadmodule directive"), so it can
+   * only be removed at a major version. */
   bool filterCommands;
 
   // free resource on shutdown
@@ -198,6 +207,9 @@ typedef struct {
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // When enabled (default), using new relabel API instead of deleting and
+  // re-adding to index.
+  bool optimizePartialUpdate;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
@@ -216,19 +228,21 @@ typedef struct {
   bool simulateInFlex;
   // If true, monitor document and field expiration for new indexes.
   bool monitorExpiration;
-  // Percentage of available memory to use for disk write buffer (0-100).
-  uint8_t diskBufferPercentage;
+  // Maximum memory available to Search disk resources, as a percentage of the memory limit.
+  uint8_t diskMaxMemoryPercentage;
+  // Minimum shared WBM capacity, as a percentage of the memory limit.
+  uint8_t diskMinMemoryBudgetPercentage;
+  // Per-index contribution to the shared WBM target for current live logical indexes.
+  size_t diskWbmBudgetPerIndexMB;
   // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
   // Both default to false; users opt in via search-disk-drop-read-cache and
   // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
-  // Per-DB cap on the number of files kept open. Valid values: -1 (unlimited) or >= 11.
-  // The disk backend reserves ~10 descriptors for non-data files and uses (cap - 10) as its
-  // open-file cache size, so caps of 0..10 would underflow that to an effectively unbounded
-  // cache — silently disabling the limit — rather than bounding it. Values in that range are
-  // rejected (see set_search_disk_max_open_files_config).
+  // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
+  // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
+  // rather than raising it later.
   int diskMaxOpenFiles;
   // Concurrent async document-metadata reads a single query iterator keeps in flight.
   unsigned int diskAsyncReadPoolSize;
@@ -411,17 +425,24 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
-#define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
-#define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+#define DEFAULT_DISK_MAX_MEMORY_PERCENTAGE 60
+#define DISK_MAX_MEMORY_PERCENTAGE_MIN 1
+#define DISK_MAX_MEMORY_PERCENTAGE_MAX 100
+#define DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE 20
+#define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN 1
+#define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX 100
+#define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 3
+#define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
+#define DEFAULT_DISK_MAX_OPEN_FILES 200
+// Smallest accepted positive cap. SpeedB's SanitizeOptions already clamps below this to 20, so reject it directly here
+// instead of letting the requested and effective caps diverge.
+#define DISK_MAX_OPEN_FILES_MIN 20
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
 #define DISK_ASYNC_READ_QUEUE_FACTOR_MAX 16
 static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <= UINT16_MAX,
               "queue depth must fit IndexResultAsyncReadState's uint16_t queueSize");
-// Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
-// underflows to unbounded, so a positive cap must leave at least one cached reader.
-#define DISK_MAX_OPEN_FILES_MIN 11
 #define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
@@ -469,6 +490,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
+    .optimizePartialUpdate = DEFAULT_OPTIMIZE_PARTIAL_UPDATE,                  \
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
@@ -482,7 +504,9 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
-    .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .diskMaxMemoryPercentage = DEFAULT_DISK_MAX_MEMORY_PERCENTAGE,             \
+    .diskMinMemoryBudgetPercentage = DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE, \
+    .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,           \
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \

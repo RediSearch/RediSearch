@@ -20,8 +20,8 @@ use ffi::{
     QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode, VecSearchMode_EMPTY_MODE,
     VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
     VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
-    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
-    t_docId,
+    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
+    VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use top_k::Ascending;
@@ -105,6 +105,8 @@ impl TestIndex {
                     efConstruction: 100,
                     efRuntime: 0,
                     epsilon: 0.0,
+                    quantType: VecSimQuantType_VecSimQuant_NONE,
+                    quantParams: ptr::null(),
                 },
             },
             logCtx: ptr::null_mut(),
@@ -149,6 +151,11 @@ impl TestIndex {
     /// whose fixtures are all `FLOAT32`.
     fn expected_blob_len(&self) -> usize {
         self.dim * size_of::<f32>()
+    }
+
+    /// The request timeout every source built from this index is handed.
+    pub fn timeout_ptr(&self) -> *mut QueryRequestTimeout {
+        self.timeout.get()
     }
 
     /// Build a [`VectorScoreSource`] over this index for the `query` blob, with

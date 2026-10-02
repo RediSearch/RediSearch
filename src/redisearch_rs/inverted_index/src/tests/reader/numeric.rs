@@ -29,7 +29,7 @@ fn reading_filter_based_on_numeric_filter() {
         max: 15.0,
         min_inclusive: true,
         max_inclusive: true,
-        field_spec: ptr::null(),
+        field_index: rqe_core::RS_INVALID_FIELD_INDEX,
         geo_filter: ptr::null(),
         ascending: true,
         limit: 10,

@@ -130,7 +130,9 @@ pub struct TopKIterator<
     child: Option<C>,
     last_doc_id: DocId,
     at_eof: bool,
-    /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
+    /// Diagnostic counters for the current evaluation. Cleared by
+    /// [`rewind`](Self::rewind), but preserved when collection aborts on
+    /// timeout so a timed-out profile still reports the work done.
     pub metrics: TopKMetrics,
 }
 
@@ -248,20 +250,15 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             TopKMode::AdhocBF => self.collect_adhoc(),
         };
         if result.is_err() {
-            // Reset so a retry via read() works: Phase::Collecting has no handler there.
-            // TODO: MOD-14209: bubble up errors
-            self.phase = Phase::NotStarted;
-            self.mode = self.initial_mode;
-            // Discard whatever the aborted scan accumulated. A retry re-collects
-            // from scratch, and the collection paths append to the heap without
-            // de-duping against it, so leftover hits would duplicate doc ids and
-            // skew the top-k set. Rewind the source too: collect_batches/
-            // prepare_unfiltered_direct resume from its cursor rather than the start.
-            *self.heap = TopKHeap::new(self.k, self.order);
+            // An aborted scan is not resumable: the collection paths append to the
+            // heap without de-duping against it, so a second pass would re-admit
+            // doc ids already held. Move to the yield phase instead, so what was
+            // collected is still served and the iterator reaches EOF rather than
+            // re-collecting on every subsequent read. Only `rewind` starts a new
+            // scan. The source is rewound to release scan-scoped resources; the
+            // yield path needs none of them.
+            self.finalize_collection();
             self.source.rewind();
-            if let Some(child) = &mut self.child {
-                child.rewind();
-            }
         }
         result
     }
@@ -612,6 +609,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         *self.heap = TopKHeap::new(self.k, self.order);
         self.results.clear();
         *self.current = None;
+        self.metrics = TopKMetrics::default();
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();
@@ -803,10 +801,14 @@ pub trait TopKSourceProfile {
     /// [`TopKIterator`] passes its own (already profile-wrapped) child here so
     /// the source renders the same iterator it read through — and thus the
     /// child's real read counts — rather than an unprofiled side handle.
+    ///
+    /// Prefer `metrics` over any source-local equivalent: it spans the whole
+    /// evaluation, whereas a source counter is cleared by every mid-evaluation
+    /// source reset, including the one on the timeout path.
     fn print_profile(
         &self,
         mode: TopKMode,
-        switches: usize,
+        metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
@@ -822,7 +824,7 @@ where
     fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let child = self.child.as_ref().map(|c| c as &dyn ProfilePrint);
         self.source
-            .print_profile(self.mode, self.metrics.strategy_switches, map, ctx, child);
+            .print_profile(self.mode, &self.metrics, map, ctx, child);
     }
 }
 

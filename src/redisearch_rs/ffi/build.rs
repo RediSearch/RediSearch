@@ -176,18 +176,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/iterators/hybrid_reader.h",
-        fns: &[
-            "HybridIterator_GetChild",
-            "HybridIterator_GetMaxBatchIteration",
-            "HybridIterator_GetMaxBatchSize",
-            "HybridIterator_GetNumIterations",
-            "HybridIterator_GetOwnKeyRef",
-            "HybridIterator_GetSearchModeString",
-            "HybridIterator_IsBatchMode",
-            "HybridIterator_SetKeyHandle",
-            "RS_VecSimCheckTimeout",
-        ],
+        path: "src/iterators/vector_top_k.h",
+        fns: &["RS_VecSimCheckTimeout"],
         types: &[],
         vars: &[],
     },
@@ -276,7 +266,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/redisearch.h",
         fns: &[],
         types: &["RSToken"],
-        vars: &[],
+        vars: &["BAD_POINTER_ADDR"],
     },
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
@@ -359,6 +349,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "IndexSpec_AcquireWriteLock",
             "IndexSpec_AddTerm",
+            "IndexSpec_CreateField",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
