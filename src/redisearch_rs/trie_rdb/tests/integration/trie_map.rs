@@ -9,7 +9,7 @@
 
 use trie_rdb::test_utils::{MockRdbIO, Op};
 use trie_rdb::trie_map::{load, load_with, save, save_with};
-use trie_rdb::{RdbError, RdbOpts, TrieEntry, WireFields};
+use trie_rdb::{MAX_KEY_BYTES, MAX_KEY_RUNES, RdbError, RdbOpts, SaveError, TrieEntry, WireFields};
 use trie_rs::TrieMap;
 
 fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
@@ -22,7 +22,7 @@ fn entry(score: f64, payload: Option<&[u8]>, num_docs: u64) -> TrieEntry {
 
 fn round_trip(map: &TrieMap<TrieEntry>, opts: RdbOpts) -> TrieMap<TrieEntry> {
     let mut mock = MockRdbIO::default();
-    save(map, &mut mock, opts);
+    save(map, &mut mock, opts).expect("save should succeed");
     load(&mut mock, opts).expect("load should succeed")
 }
 
@@ -30,7 +30,7 @@ fn round_trip(map: &TrieMap<TrieEntry>, opts: RdbOpts) -> TrieMap<TrieEntry> {
 fn save_empty_map() {
     let map: TrieMap<TrieEntry> = TrieMap::new();
     let mut mock = MockRdbIO::default();
-    save(&map, &mut mock, RdbOpts::default());
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
     assert_eq!(mock.ops, vec![Op::U64(0)]);
 }
 
@@ -40,7 +40,7 @@ fn save_protocol_shape_keys_only() {
     map.insert(b"alpha", entry(1.0, None, 0));
     map.insert(b"beta", entry(2.5, None, 0));
     let mut mock = MockRdbIO::default();
-    save(&map, &mut mock, RdbOpts::default());
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
     assert_eq!(
         mock.ops,
         vec![
@@ -65,7 +65,8 @@ fn save_protocol_shape_with_all_opts() {
             payloads: true,
             num_docs: true,
         },
-    );
+    )
+    .expect("save should succeed");
     assert_eq!(
         mock.ops,
         vec![
@@ -157,7 +158,7 @@ fn lex_order_preserved() {
         map.insert(key, entry(1.0, None, 0));
     }
     let mut mock = MockRdbIO::default();
-    save(&map, &mut mock, RdbOpts::default());
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
     let keys: Vec<Vec<u8>> = mock
         .ops
         .into_iter()
@@ -193,8 +194,8 @@ fn empty_payload_normalizes_to_none() {
     };
     let mut rec_empty = MockRdbIO::default();
     let mut rec_none = MockRdbIO::default();
-    save(&from_empty, &mut rec_empty, opts);
-    save(&from_none, &mut rec_none, opts);
+    save(&from_empty, &mut rec_empty, opts).expect("save should succeed");
+    save(&from_none, &mut rec_none, opts).expect("save should succeed");
     assert_eq!(
         rec_empty.ops, rec_none.ops,
         "empty Vec and None must match on the wire"
@@ -216,7 +217,8 @@ fn trailing_nul_on_every_bytes_op() {
             payloads: true,
             num_docs: true,
         },
-    );
+    )
+    .expect("save should succeed");
     for op in &mock.ops {
         if let Op::Bytes(b) = op {
             assert_eq!(b.last(), Some(&0), "bytes op missing trailing NUL: {b:?}");
@@ -229,9 +231,10 @@ fn io_error_propagates() {
     let mut map = TrieMap::new();
     map.insert(b"a", entry(1.0, None, 0));
     let mut rec = MockRdbIO::default();
-    save(&map, &mut rec, RdbOpts::default());
-    // Recorded ops are U64(1), Bytes("a\0"), F64(1.0), so failing after the
-    // first one injects the error at the count read.
+    save(&map, &mut rec, RdbOpts::default()).expect("save should succeed");
+    // Recorded ops are U64(1), Bytes("a\0"), F64(1.0). Letting exactly one
+    // read succeed puts the failure on the key buffer, mid-entry, rather
+    // than on the count that precedes the loop.
     let mut mock = MockRdbIO::from_ops(rec.ops).fail_after(1);
     let err = load(&mut mock, RdbOpts::default()).unwrap_err();
     assert_eq!(err, RdbError::Io);
@@ -268,8 +271,9 @@ fn unit_payload_save_matches_trie_entry_wire() {
             payload: None,
             num_docs: 0,
         }
-    });
-    save(&entry_map, &mut rec_entry, RdbOpts::default());
+    })
+    .expect("save should succeed");
+    save(&entry_map, &mut rec_entry, RdbOpts::default()).expect("save should succeed");
 
     assert_eq!(rec_unit.ops, rec_entry.ops);
 }
@@ -283,7 +287,8 @@ fn unit_payload_roundtrip_discards_wire_fields() {
         score: 1.0,
         payload: None,
         num_docs: 0,
-    });
+    })
+    .expect("save should succeed");
 
     let loaded = load_with(&mut mock, RdbOpts::default(), |_| ()).expect("load should succeed");
 
@@ -342,6 +347,117 @@ fn empty_payload_buffer_errors() {
 }
 
 #[test]
+fn save_rejects_empty_key() {
+    let mut map = TrieMap::new();
+    map.insert(b"", entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(err, SaveError::EmptyKey);
+}
+
+#[test]
+fn save_rejects_key_over_byte_limit() {
+    let mut map = TrieMap::new();
+    // Multi-byte, so the key trips the byte limit rather than the rune one.
+    let key = "é".repeat(MAX_KEY_BYTES / 2 + 1).into_bytes();
+    map.insert(&key, entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(err, SaveError::KeyTooLong { bytes: key.len() });
+}
+
+#[test]
+fn save_rejects_key_over_rune_limit() {
+    let mut map = TrieMap::new();
+    map.insert(&vec![b'a'; MAX_KEY_RUNES + 1], entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(
+        err,
+        SaveError::TooManyRunes {
+            runes: MAX_KEY_RUNES + 1
+        }
+    );
+}
+
+#[test]
+fn save_rejects_key_with_embedded_nul() {
+    let mut map = TrieMap::new();
+    map.insert(b"a\0b", entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(err, SaveError::DecodesToNul);
+}
+
+#[test]
+fn save_rejects_key_decoding_to_a_zero_codepoint_without_a_nul_byte() {
+    // Both keys hold no NUL byte, yet C's decoder reads a zero codepoint out
+    // of them: the continuation pair as the whole key (C drops the entry),
+    // the overlong encoding mid-key (C truncates the key at it).
+    for key in [b"\x80\x80".as_slice(), b"a\xC0\x80b"] {
+        let mut map = TrieMap::new();
+        map.insert(key, entry(1.0, None, 0));
+        let mut mock = MockRdbIO::default();
+
+        let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+        assert_eq!(err, SaveError::DecodesToNul, "key {key:?}");
+        assert!(mock.ops.is_empty(), "key {key:?}");
+    }
+}
+
+#[test]
+fn save_rejects_key_ending_in_a_truncated_sequence() {
+    let mut map = TrieMap::new();
+    map.insert(b"ab\xF0", entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    let err = save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert_eq!(err, SaveError::TruncatedSequence);
+}
+
+#[test]
+fn save_accepts_key_at_both_limits() {
+    // Astral characters occupy four bytes each, so a key can sit exactly on
+    // the byte limit while staying well inside the rune limit — the case
+    // that separates rune counting from byte counting.
+    let mut map = TrieMap::new();
+    let astral = "😀".repeat(MAX_KEY_BYTES / 4);
+    map.insert(astral.as_bytes(), entry(1.0, None, 0));
+    map.insert(&vec![b'a'; MAX_KEY_RUNES], entry(2.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    save(&map, &mut mock, RdbOpts::default()).expect("both keys are in domain");
+
+    assert_eq!(mock.ops.first(), Some(&Op::U64(2)));
+}
+
+#[test]
+fn a_rejected_key_suppresses_the_whole_stream() {
+    let mut map = TrieMap::new();
+    map.insert(b"fine", entry(1.0, None, 0));
+    map.insert(b"", entry(1.0, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    save(&map, &mut mock, RdbOpts::default()).unwrap_err();
+
+    assert!(
+        mock.ops.is_empty(),
+        "validation must precede the count write: {:?}",
+        mock.ops
+    );
+}
+
+#[test]
 fn key_terminator_value_is_still_checked_with_payloads_on() {
     let opts = RdbOpts {
         payloads: true,
@@ -352,4 +468,67 @@ fn key_terminator_value_is_still_checked_with_payloads_on() {
     let err = load(&mut MockRdbIO::from_ops(ops), opts).unwrap_err();
 
     assert_eq!(err, RdbError::MissingTrailingNul);
+}
+
+#[test]
+fn save_quantizes_score_to_f32_domain() {
+    let over_precise = 1.000_000_000_1_f64;
+    assert_ne!(over_precise as f32 as f64, over_precise);
+
+    let mut map = TrieMap::new();
+    map.insert(b"k", entry(over_precise, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
+
+    assert_eq!(
+        mock.ops,
+        vec![
+            Op::U64(1),
+            Op::Bytes(b"k\0".to_vec()),
+            Op::F64(over_precise as f32 as f64),
+        ]
+    );
+}
+
+#[test]
+fn load_quantizes_score_to_f32_domain() {
+    // Only a hand-authored stream can carry an over-precise score — a saved
+    // one is already quantized — so this pins the load side on its own.
+    let over_precise = 1.000_000_000_1_f64;
+    assert_ne!(over_precise as f32 as f64, over_precise);
+
+    let ops = vec![
+        Op::U64(1),
+        Op::Bytes(b"k\0".to_vec()),
+        Op::F64(over_precise),
+    ];
+    let loaded = load(&mut MockRdbIO::from_ops(ops), RdbOpts::default()).unwrap();
+
+    assert_eq!(
+        loaded.find(b"k"),
+        Some(&entry(over_precise as f32 as f64, None, 0))
+    );
+}
+
+#[test]
+fn quantization_preserves_non_finite_scores() {
+    // The f32 round-trip must pass NaN and the infinities through rather
+    // than manufacture a finite value; f64::MAX collapses to infinity the
+    // same way C's double-to-float narrowing overflows it.
+    let mut map = TrieMap::new();
+    map.insert(b"inf", entry(f64::INFINITY, None, 0));
+    map.insert(b"max", entry(f64::MAX, None, 0));
+    map.insert(b"nan", entry(f64::NAN, None, 0));
+    map.insert(b"neg", entry(f64::NEG_INFINITY, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
+
+    let loaded = load(&mut mock, RdbOpts::default()).unwrap();
+    assert_eq!(loaded.find(b"inf").unwrap().score, f64::INFINITY);
+    assert_eq!(loaded.find(b"max").unwrap().score, f64::INFINITY);
+    assert_eq!(loaded.find(b"neg").unwrap().score, f64::NEG_INFINITY);
+    // NaN fails PartialEq against itself, so it needs its own predicate.
+    assert!(loaded.find(b"nan").unwrap().score.is_nan());
 }
