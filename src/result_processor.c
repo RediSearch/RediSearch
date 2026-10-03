@@ -261,10 +261,29 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
 }
 
 typedef enum {
-  REVALIDATE_CONTINUE,         // Proceed with a normal read
-  REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
-  REVALIDATE_TIMEDOUT,         // The deadline expired mid-revalidation: report a timeout
+  REVALIDATE_CONTINUE,          // Proceed with a normal read
+  REVALIDATE_VALIDATE_CURRENT,  // The iterator moved: use its current result before reading again
+  REVALIDATE_TIMEDOUT,          // The deadline expired mid-revalidation: report a timeout
+  REVALIDATE_SUSPENDED,
 } RevalidateOutcome;
+
+static void waitForSpecReader(void *data) {
+  IndexSpec *spec = data;
+  IndexSpec_LockRead(spec);
+  IndexSpec_Unlock(spec);
+}
+
+static void specReaderReady(PipelineAccess *access, void *data) {
+  (void)access;
+  (void)data;
+  // Retry acquisition and revalidation from Next. Do not retain a spec lock
+  // while requesting admission, or skip revalidation because TLS owns a lock.
+}
+
+static void specReaderWaitFree(void *data) {
+  // The request's existing spec reference outlives the pending worker.
+  (void)data;
+}
 
 /**
  * Handle initial spec lock and iterator revalidation.
@@ -298,7 +317,18 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
     return REVALIDATE_CONTINUE;
   }
 
-  IndexSpec_LockRead(sctx->spec);
+  PipelineAccess *access = self->base.parent->executionAccess;
+  if (access) {
+    if (IndexSpec_TryLockRead(sctx->spec) != REDISMODULE_OK) {
+      PipelineAccess_Suspend(access, (PipelinePending){.data = sctx->spec,
+                                                       .wait = waitForSpecReader,
+                                                       .resume = specReaderReady,
+                                                       .destroy = specReaderWaitFree});
+      return REVALIDATE_SUSPENDED;
+    }
+  } else {
+    IndexSpec_LockRead(sctx->spec);
+  }
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
@@ -324,6 +354,9 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
   RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
+  if (revalidateOutcome == REVALIDATE_SUSPENDED) {
+    return RS_RESULT_SUSPENDED;
+  }
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
   }
@@ -390,7 +423,11 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // return before revalidating at all. A moved iterator would need no special handling here anyway,
   // but the timeout is answered defensively, so that a disk spec which one day does revalidate
   // reports the timeout instead of reading past it as end-of-results.
-  if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
+  RevalidateOutcome outcome = handleSpecLockAndRevalidate(self);
+  if (outcome == REVALIDATE_SUSPENDED) {
+    return RS_RESULT_SUSPENDED;
+  }
+  if (outcome == REVALIDATE_TIMEDOUT) {
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
   }
 

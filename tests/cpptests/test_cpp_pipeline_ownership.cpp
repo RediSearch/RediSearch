@@ -8,8 +8,12 @@
  */
 
 #include "gtest/gtest.h"
+extern "C" {
+#include "util/dict.h"
+}
 #include "pipeline_execution.h"
 #include "query_request.h"
+#include "search_result_ffi.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -194,4 +198,117 @@ TEST_F(PipelineOwnershipTest, ActiveExecutionPublishesItsFinalStateBeforeDrain) 
       },
       nullptr);
   EXPECT_TRUE(worker.get());
+}
+
+class SpecOwnershipTest : public PipelineOwnershipTest {
+ protected:
+  IndexSpec spec = {};
+  dictType dictionaryType = {};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
+  ResultProcessor *source = nullptr;
+  SearchResult row = SearchResult_New();
+  unsigned revalidations = 0, reads = 0;
+  ValidateStatus validation = VALIDATE_OK;
+  std::promise<void> suspended;
+  unsigned steps = 0;
+  int result = RS_RESULT_ERROR;
+
+  struct SourceIterator : QueryIterator {
+    SpecOwnershipTest *test;
+
+    explicit SourceIterator(SpecOwnershipTest *test) : QueryIterator{}, test(test) {
+      Revalidate = [](QueryIterator *base, IndexSpec *) {
+        auto *test = static_cast<SourceIterator *>(base)->test;
+        ++test->revalidations;
+        EXPECT_TRUE(IndexSpec_IsReadLocked(&test->spec));
+        return test->validation;
+      };
+      Read = [](QueryIterator *base) {
+        auto *test = static_cast<SourceIterator *>(base)->test;
+        ++test->reads;
+        base->atEOF = true;
+        return ITERATOR_EOF;
+      };
+      Free = [](QueryIterator *base) { delete static_cast<SourceIterator *>(base); };
+    }
+  };
+
+  void SetUp() override {
+    PipelineOwnershipTest::SetUp();
+    ASSERT_EQ(0, pthread_rwlock_init(&spec.rwlock, nullptr));
+    spec.keysDict = dictCreate(&dictionaryType, nullptr);
+    sctx.timeout = &timeout;
+    source = RPQueryIterator_New(new SourceIterator(this), nullptr, 0, &sctx);
+    source->parent = &context;
+    context.endProc = context.rootProc = source;
+  }
+
+  void TearDown() override {
+    source->Free(source);
+    SearchResult_Destroy(&row);
+    IndexSpec_AssertLockNotHeld();
+    EXPECT_EQ(0, spec.keysDict->pauserehash);
+    EXPECT_EQ(0, pthread_rwlock_destroy(&spec.rwlock));
+    dictRelease(spec.keysDict);
+    PipelineOwnershipTest::TearDown();
+  }
+
+  static void run(PipelineAccess *access, void *data) {
+    auto *test = static_cast<SpecOwnershipTest *>(data);
+    ++test->steps;
+    PipelineAccess_Publish(access, &test->context);
+    test->result = test->source->Next(test->source, &test->row);
+    if (test->result == RS_RESULT_SUSPENDED) test->suspended.set_value();
+  }
+};
+
+TEST_F(SpecOwnershipTest, TimeoutRecoveryDoesNotWaitForSpecWriter) {
+  auto parked = suspended.get_future();
+  IndexSpec_LockWrite(&spec);
+  auto worker = std::async(std::launch::async,
+                           [&] { return PipelineExecution_RunNext(execution, run, this); });
+  parked.wait();
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  auto drainer = std::async(std::launch::async, [&] {
+    PipelineExecution_RunDrain(
+        execution,
+        [](PipelineAccess *access, void *) {
+          auto *root = PipelineAccess_Context(access)->rootProc;
+          auto output = SearchResult_New();
+          EXPECT_EQ(RP_DRAIN_EOF, root->Drain(root, &output));
+          SearchResult_Destroy(&output);
+        },
+        nullptr);
+  });
+  const auto drained = drainer.wait_for(1s);
+  IndexSpec_Unlock(&spec);
+  drainer.get();
+  EXPECT_FALSE(worker.get());
+  EXPECT_EQ(std::future_status::ready, drained);
+  EXPECT_EQ(1, steps);
+  EXPECT_EQ(0, revalidations);
+  EXPECT_EQ(0, reads);
+}
+
+TEST_F(SpecOwnershipTest, ResumedReaderRevalidatesBeforeReading) {
+  auto parked = suspended.get_future();
+  IndexSpec_LockWrite(&spec);
+  auto worker = std::async(std::launch::async,
+                           [&] { return PipelineExecution_RunNext(execution, run, this); });
+  parked.wait();
+  IndexSpec_Unlock(&spec);
+  EXPECT_TRUE(worker.get());
+  EXPECT_EQ(2, steps);
+  EXPECT_EQ(1, revalidations);
+  EXPECT_EQ(1, reads);
+  EXPECT_EQ(RS_RESULT_EOF, result);
+}
+
+TEST_F(SpecOwnershipTest, UncontendedReaderPropagatesRevalidationTimeout) {
+  validation = VALIDATE_TIMEOUT;
+  EXPECT_TRUE(PipelineExecution_RunNext(execution, run, this));
+  EXPECT_EQ(1, steps);
+  EXPECT_EQ(1, revalidations);
+  EXPECT_EQ(0, reads);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, result);
 }
