@@ -47,6 +47,10 @@ pub enum Error {
     Error,
 }
 
+/// Terminal recovery failure; the owning pipeline retains the diagnostic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DrainError;
+
 /// Implemented by types that participate in the result processor chain.
 ///
 /// # Search Result
@@ -102,6 +106,70 @@ pub trait ResultProcessor {
     /// In both cases `Ok(None)` and `Err(_)` indicate to the caller that calling `next`
     /// will not yield values anymore, thus ending iteration.
     fn next(&mut self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error>;
+
+    /// Recover already-available output under exclusive pipeline access.
+    ///
+    /// Uses [`Self::next`]'s result ownership conventions. The caller stops after
+    /// exhaustion or [`DrainError`]. The default is a recovery barrier; it does
+    /// not invoke [`Self::next`] or any upstream processor.
+    fn drain(
+        &mut self,
+        _cx: DrainContext,
+        _res: &mut SearchResult,
+    ) -> Result<Option<()>, DrainError> {
+        Ok(None)
+    }
+}
+
+/// Exclusive recovery access, restricted to upstream [`ResultProcessor::drain`].
+///
+/// Created only by the admitted FFI entry. Reborrowing prevents simultaneous
+/// parent/upstream access. It carries no synchronization operation of its own.
+///
+/// ```compile_fail
+/// use result_processor::DrainContext;
+/// use search_result::SearchResult;
+/// fn restart(mut cx: DrainContext, row: &mut SearchResult) {
+///     cx.upstream().unwrap().next(row);
+/// }
+/// ```
+pub struct DrainContext<'a>(Context<'a>);
+
+impl DrainContext<'_> {
+    /// Borrow the previous processor for recovery, if present.
+    pub fn upstream(&mut self) -> Option<DrainUpstream<'_>> {
+        self.0.upstream().map(DrainUpstream)
+    }
+
+    /// Borrow the owning [`ffi::QueryProcessingCtx`] until the next reborrow.
+    pub const fn parent(&mut self) -> Option<&ffi::QueryProcessingCtx> {
+        self.0.parent()
+    }
+
+    /// Account for a discarded recovered row using [`Context::subtract_total_results`].
+    pub fn subtract_total_results(&mut self, n: u32) {
+        self.0.subtract_total_results(n);
+    }
+}
+
+/// An upstream recovery borrow with no execution entry point.
+pub struct DrainUpstream<'a>(Upstream<'a>);
+
+impl DrainUpstream<'_> {
+    /// Recover a row through the upstream [`ResultProcessor::drain`] callback.
+    pub fn drain(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, DrainError> {
+        // SAFETY: every upstream contains the C prefix, but only Rust processors
+        // contain Header's debug suffix. Project the field without borrowing that suffix.
+        let drain = unsafe { (*self.0.ptr.as_ptr()).drain }
+            .expect("result processor `Drain` vtable function was null");
+        // SAFETY: the reborrow excludes another caller and res is initialized and exclusive.
+        match unsafe { drain(self.0.ptr.as_ptr(), res) } {
+            ffi::RPDrainStatus_RP_DRAIN_OK => Ok(Some(())),
+            ffi::RPDrainStatus_RP_DRAIN_EOF => Ok(None),
+            ffi::RPDrainStatus_RP_DRAIN_ERROR => Err(DrainError),
+            code => panic!("result processor returned unknown drain code {code}"),
+        }
+    }
 }
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
@@ -162,11 +230,10 @@ impl Context<'_> {
         // C provided, so writing through it is sound.
         let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
         if !parent.is_null() {
-            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
-            // the C pipeline installed on this processor; it outlives the processor and the chain
-            // runs on a single thread, so taking a transient `&mut` to update `totalResults` is sound.
-            let parent = unsafe { &mut *parent };
-            parent.totalResults = parent.totalResults.saturating_sub(n);
+            // SAFETY: the context exclusively borrows this counter. Project only the field:
+            // the pinned parent may also own the pointer to the currently borrowed chain.
+            let total = unsafe { &mut (*parent).totalResults };
+            *total = total.saturating_sub(n);
         }
     }
 }
@@ -180,8 +247,8 @@ pub struct Upstream<'a> {
 
 impl Upstream<'_> {
     pub const fn ty(&self) -> ffi::ResultProcessorType {
-        // Safety: We have to trust the pointer to this upstream result processor was set correctly.
-        unsafe { self.ptr.as_ref().ty }
+        // SAFETY: this field is in the common C prefix of the live upstream allocation.
+        unsafe { (*self.ptr.as_ptr()).ty }
     }
 
     /// Pull the next [`ffi::SearchResult`] from this result processor into the provided `res` location.
@@ -193,10 +260,9 @@ impl Upstream<'_> {
     ///
     /// Returns `Err(_)` for exceptional error cases.
     pub fn next(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
-        // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
-        // is correct.
-        let next = unsafe { self.ptr.as_ref() }
-            .next
+        // SAFETY: the live upstream has the common C prefix. Do not create a
+        // reference to Header's Rust-only debug suffix for a C processor.
+        let next = unsafe { (*self.ptr.as_ptr()).next }
             .expect("result processor `Next` vtable function was null");
 
         // Safety: At the end of the day we're calling to arbitrary code at this point... But provided
@@ -275,6 +341,9 @@ struct Header {
     /// "VTable" function. Frees the processor and any internal data related to it.
     free: Option<unsafe extern "C" fn(self_: *mut Header)>,
 
+    /// Exclusive recovery entry matching [`ffi::ResultProcessor::Drain`].
+    drain: Option<unsafe extern "C" fn(*mut Header, *mut SearchResult) -> ffi::RPDrainStatus>,
+
     // the following fields are Rust-specific and do not map to the C (ffi::ResultProcessor) type
     /// The TypeId of the inner ResultProcessor implementation, for debugging purposes
     #[cfg(debug_assertions)]
@@ -314,6 +383,7 @@ where
                 rp_gil_time: 0,
                 next: Some(Self::result_processor_next),
                 free: Some(Self::result_processor_free),
+                drain: Some(Self::result_processor_drain),
                 #[cfg(debug_assertions)]
                 inner_ty_id: TypeId::of::<P>(),
                 #[cfg(debug_assertions)]
@@ -397,6 +467,9 @@ where
     /// The caller (C code) must uphold the following safety invariants:
     /// 1. `ptr` must be a non-null, well-aligned, valid pointer to a result processor (struct [`Header`]).
     /// 2. `res` must be a non-null, well-aligned, valid pointer to an *initialized* [`ffi::SearchResult`].
+    /// 3. The caller holds exclusive execution access to the chain and output
+    ///    until this call returns. A blocking upstream must not release that
+    ///    access while this entry's mutable borrows survive.
     unsafe extern "C" fn result_processor_next(ptr: *mut Header, res: *mut SearchResult) -> c_int {
         let ptr = NonNull::new(ptr).unwrap();
         debug_assert!(ptr.is_aligned());
@@ -427,6 +500,39 @@ where
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
             Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
+        }
+    }
+
+    /// FFI recovery entry for [`ResultProcessor::drain`].
+    ///
+    /// # Safety
+    ///
+    /// The caller owns the execution domain exclusively for the entire call.
+    /// Both pointers are aligned and [valid]; the processor is pinned and the
+    /// output is initialized and exclusive. No ownership release may occur
+    /// while this entry's mutable borrows survive.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    unsafe extern "C" fn result_processor_drain(
+        ptr: *mut Header,
+        res: *mut SearchResult,
+    ) -> ffi::RPDrainStatus {
+        let ptr = NonNull::new(ptr).unwrap();
+        debug_assert!(ptr.is_aligned());
+        // SAFETY: the caller supplies this wrapper's live, pinned header.
+        unsafe { Self::debug_assert_same_type(ptr) };
+        // SAFETY: exclusive domain admission excludes overlapping RP borrows.
+        let me = unsafe { ptr.cast::<Self>().as_mut() };
+        // SAFETY: the caller preserves the wrapper's pinning invariant.
+        let me = unsafe { Pin::new_unchecked(me) }.project();
+        let cx = DrainContext(Context::new(me.header));
+        let mut res = NonNull::new(res).unwrap();
+        debug_assert!(res.is_aligned());
+        // SAFETY: the caller supplies initialized, exclusively borrowed output.
+        match me.result_processor.drain(cx, unsafe { res.as_mut() }) {
+            Ok(Some(())) => ffi::RPDrainStatus_RP_DRAIN_OK,
+            Ok(None) => ffi::RPDrainStatus_RP_DRAIN_EOF,
+            Err(DrainError) => ffi::RPDrainStatus_RP_DRAIN_ERROR,
         }
     }
 
@@ -483,6 +589,159 @@ pub(crate) mod test {
     use super::*;
     use crate::test_utils::{Chain, ResultRP};
 
+    #[test]
+    fn mixed_c_header_drain() {
+        unsafe extern "C" fn drain(
+            _: *mut ffi::ResultProcessor,
+            _: *mut ffi::SearchResult,
+        ) -> ffi::RPDrainStatus {
+            ffi::RPDrainStatus_RP_DRAIN_EOF
+        }
+        unsafe extern "C" fn next(
+            _: *mut ffi::ResultProcessor,
+            _: *mut ffi::SearchResult,
+        ) -> c_int {
+            ffi::RPStatus_RS_RESULT_EOF as c_int
+        }
+        // Allocate exactly the C prefix: a Rust Header would hide an oversized borrow.
+        let mut source = Box::new(ffi::ResultProcessor {
+            parent: ptr::null_mut(),
+            upstream: ptr::null_mut(),
+            type_: ffi::ResultProcessorType_RP_INDEX,
+            rpGILTime: 0,
+            Next: Some(next),
+            Free: None,
+            Drain: Some(drain),
+        });
+        let mut upstream = Upstream {
+            ptr: NonNull::from(source.as_mut()).cast(),
+            _borrow: PhantomData,
+        };
+        assert_eq!(upstream.ty(), ffi::ResultProcessorType_RP_INDEX);
+        let mut row = SearchResult::new();
+        assert_eq!(upstream.next(&mut row), Ok(None));
+        assert_eq!(DrainUpstream(upstream).drain(&mut row), Ok(None));
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn default_drain_does_not_restart_next_or_modify_output() {
+        let mut chain = Chain::new();
+        chain.append(ResultRP::new_ok_some());
+        let mut row = SearchResult::new();
+        let status = chain.next(&mut row);
+        assert_eq!(status, ffi::RPStatus_RS_RESULT_OK as c_int);
+        row.set_score(42.0);
+        let status = chain.drain(&mut row);
+        assert_eq!(status, ffi::RPDrainStatus_RP_DRAIN_EOF);
+        assert_eq!(row.score(), 42.0);
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn drain_propagates_rows_and_terminal_statuses_without_next() {
+        struct Source(Option<Result<Option<()>, DrainError>>);
+        impl ResultProcessor for Source {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+            fn next(&mut self, _: Context, _: &mut SearchResult) -> Result<Option<()>, Error> {
+                panic!("Drain must not restart Next")
+            }
+            fn drain(
+                &mut self,
+                _: DrainContext,
+                row: &mut SearchResult,
+            ) -> Result<Option<()>, DrainError> {
+                let status = self.0.take().expect("terminal result must not be retried");
+                if status == Ok(Some(())) {
+                    row.set_score(42.0);
+                }
+                status
+            }
+        }
+        struct Forward;
+        impl ResultProcessor for Forward {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+            fn next(&mut self, _: Context, _: &mut SearchResult) -> Result<Option<()>, Error> {
+                panic!("Drain must not restart Next")
+            }
+            fn drain(
+                &mut self,
+                mut cx: DrainContext,
+                row: &mut SearchResult,
+            ) -> Result<Option<()>, DrainError> {
+                let status = cx.upstream().unwrap().drain(row)?;
+                if status.is_some() {
+                    cx.subtract_total_results(1);
+                    row.set_score(row.score() + 1.0);
+                }
+                Ok(status)
+            }
+        }
+        for (status, expected) in [
+            (Ok(Some(())), ffi::RPDrainStatus_RP_DRAIN_OK),
+            (Ok(None), ffi::RPDrainStatus_RP_DRAIN_EOF),
+            (Err(DrainError), ffi::RPDrainStatus_RP_DRAIN_ERROR),
+        ] {
+            let mut chain = Chain::new();
+            chain.set_total_results(2);
+            chain.append(Source(Some(status)));
+            chain.append(Forward);
+            let mut row = SearchResult::new();
+            let actual = chain.drain(&mut row);
+            assert_eq!(actual, expected);
+            if status == Ok(Some(())) {
+                assert_eq!(row.score(), 43.0);
+                assert_eq!(chain.total_results(), 1);
+            } else {
+                assert_eq!(chain.total_results(), 2);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn drain_context_handles_absent_parent_and_upstream() {
+        struct Root;
+        impl ResultProcessor for Root {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+            fn next(&mut self, _: Context, _: &mut SearchResult) -> Result<Option<()>, Error> {
+                Ok(None)
+            }
+            fn drain(
+                &mut self,
+                mut cx: DrainContext,
+                _: &mut SearchResult,
+            ) -> Result<Option<()>, DrainError> {
+                assert!(cx.parent().is_none());
+                assert!(cx.upstream().is_none());
+                cx.subtract_total_results(1);
+                Ok(None)
+            }
+        }
+        let rp = Box::pin(ResultProcessorWrapper::new(Root));
+        // SAFETY: ptr remains pinned until reconstructed and dropped below.
+        let ptr = unsafe { ResultProcessorWrapper::into_ptr(rp) };
+        // SAFETY: the wrapper and initialized output are exclusively accessible.
+        let status = unsafe {
+            ResultProcessorWrapper::<Root>::result_processor_drain(
+                ptr.cast().as_ptr(),
+                &mut SearchResult::new(),
+            )
+        };
+        assert_eq!(status, ffi::RPDrainStatus_RP_DRAIN_EOF);
+        // SAFETY: this is the sole reconstruction of the still-pinned wrapper.
+        drop(unsafe { ResultProcessorWrapper::from_ptr(ptr) });
+    }
+
     // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
     // has the exact same size, alignment, and field layout.
     const _: () = {
@@ -514,6 +773,10 @@ pub(crate) mod test {
             ::std::mem::offset_of!(Header, free)
                 == ::std::mem::offset_of!(ffi::ResultProcessor, Free)
         );
+        assert!(
+            ::std::mem::offset_of!(Header, drain)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, Drain)
+        );
     };
 
     /// Assert that Rust error types translate to the correct C ret code
@@ -527,9 +790,7 @@ pub(crate) mod test {
             let mut chain = Chain::new();
             chain.append(ResultRP::new_err(error));
 
-            let rp = unsafe { chain.last_raw() };
-            let found =
-                unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
+            let found = chain.next(&mut SearchResult::new());
 
             assert_eq!(found, expected);
         }
@@ -548,8 +809,7 @@ pub(crate) mod test {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_none());
 
-        let rp = unsafe { chain.last_raw() };
-        let found = unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
+        let found = chain.next(&mut SearchResult::new());
 
         assert_eq!(found, ffi::RPStatus_RS_RESULT_EOF as i32);
     }
@@ -564,8 +824,7 @@ pub(crate) mod test {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_some());
 
-        let rp = unsafe { chain.last_raw() };
-        let found = unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
+        let found = chain.next(&mut SearchResult::new());
 
         assert_eq!(found, ffi::RPStatus_RS_RESULT_OK as i32);
     }
@@ -590,10 +849,12 @@ pub(crate) mod test {
                 me: *mut Header,
                 _res: *mut SearchResult,
             ) -> c_int {
+                // SAFETY: only this fixture installs the callback on its pinned RP.
                 unsafe { me.cast::<RP>().as_ref().unwrap().ret_code }
             }
 
             unsafe extern "C" fn result_processor_free(me: *mut Header) {
+                // SAFETY: the chain invokes Free once on the allocation created below.
                 unsafe { drop(Box::from_raw(me.cast::<RP>())) }
             }
 
@@ -605,6 +866,7 @@ pub(crate) mod test {
                     rp_gil_time: 0,
                     next: Some(result_processor_next),
                     free: Some(result_processor_free),
+                    drain: None,
 
                     #[cfg(debug_assertions)]
                     inner_ty_id: TypeId::of::<()>(),
@@ -635,6 +897,7 @@ pub(crate) mod test {
 
         fn check(code: i32, expected: Result<Option<()>, Error>) {
             let mut chain = Chain::new();
+            // SAFETY: the fixture transfers a live, pinned header and matching destructor.
             unsafe { chain.push_raw(new_upstream(code)) };
             chain.append(RP);
 
@@ -725,5 +988,9 @@ pub(crate) mod test {
 
         assert!(counter.header.next.is_some(), "Next function should be set");
         assert!(counter.header.free.is_some(), "Free function should be set");
+        assert!(
+            counter.header.drain.is_some(),
+            "Drain function should be set"
+        );
     }
 }

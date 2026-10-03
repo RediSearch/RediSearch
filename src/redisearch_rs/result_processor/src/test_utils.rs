@@ -49,17 +49,17 @@ pub struct ResultRP {
     res: Option<Result<Option<()>, Error>>,
 }
 impl ResultRP {
-    pub fn new_err(error: Error) -> Self {
+    pub const fn new_err(error: Error) -> Self {
         Self {
             res: Some(Err(error)),
         }
     }
-    pub fn new_ok_some() -> Self {
+    pub const fn new_ok_some() -> Self {
         Self {
             res: Some(Ok(Some(()))),
         }
     }
-    pub fn new_ok_none() -> Self {
+    pub const fn new_ok_none() -> Self {
         Self {
             res: Some(Ok(None)),
         }
@@ -79,6 +79,12 @@ impl ResultProcessor for ResultRP {
 pub struct Chain {
     result_processors: Vec<NonNull<crate::Header>>,
     query_processing_context: Pin<Box<ffi::QueryProcessingCtx>>,
+}
+
+impl Default for Chain {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Chain {
@@ -125,10 +131,11 @@ impl Chain {
     // consumers build chains through `append`, so this is `cfg(test)`-only to avoid a dead-code
     // warning in the feature-only build.
     #[cfg(test)]
-    pub(crate) unsafe fn push_raw(&mut self, mut result_processor: NonNull<crate::Header>) {
+    pub(crate) unsafe fn push_raw(&mut self, result_processor: NonNull<crate::Header>) {
         if let Some(upstream) = self.result_processors.last() {
+            // SAFETY: the caller transfers a pinned allocation containing the C prefix.
             unsafe {
-                result_processor.as_mut().upstream = upstream.as_ptr();
+                (*result_processor.as_ptr()).upstream = upstream.as_ptr();
             }
         }
 
@@ -151,6 +158,32 @@ impl Chain {
         self.result_processors
             .last_mut()
             .expect("empty result processor chain")
+    }
+
+    /// Invoke the tail's C execution entry while exclusively borrowing this chain.
+    pub fn next(&mut self, row: &mut SearchResult) -> i32 {
+        let ptr = self
+            .result_processors
+            .last()
+            .expect("empty result processor chain")
+            .as_ptr();
+        // SAFETY: the chain owns a pinned allocation with the shared C header prefix.
+        let next = unsafe { (*ptr).next }.unwrap();
+        // SAFETY: all processors and initialized output are exclusively borrowed here.
+        unsafe { next(ptr, row) }
+    }
+
+    /// Invoke the tail's C recovery entry while exclusively borrowing this chain.
+    pub fn drain(&mut self, row: &mut SearchResult) -> ffi::RPDrainStatus {
+        let ptr = self
+            .result_processors
+            .last()
+            .expect("empty result processor chain")
+            .as_ptr();
+        // SAFETY: the chain owns a pinned allocation with the shared C header prefix.
+        let drain = unsafe { (*ptr).drain }.unwrap();
+        // SAFETY: all processors and initialized output are exclusively borrowed here.
+        unsafe { drain(ptr, row) }
     }
 
     /// The pipeline's current `totalResults` count (from [`ffi::QueryProcessingCtx`]).
@@ -192,8 +225,9 @@ impl Chain {
         }
 
         // Safety: The assert above ensures this is always of the right type
-        let result_processor =
-            unsafe { Pin::new_unchecked(ptr.cast::<ResultProcessorWrapper<P>>().as_mut()) };
+        let result_processor = unsafe { ptr.cast::<ResultProcessorWrapper<P>>().as_mut() };
+        // SAFETY: the chain retains the original pinning guarantee.
+        let result_processor = unsafe { Pin::new_unchecked(result_processor) };
         let result_processor = result_processor.project();
 
         let cx = Context::new(result_processor.header);
@@ -205,8 +239,11 @@ impl Chain {
 
 impl Drop for Chain {
     fn drop(&mut self) {
-        for mut ptr in self.result_processors.drain(..) {
-            unsafe { (ptr.as_mut().free.unwrap())(ptr.as_ptr()) }
+        for ptr in self.result_processors.drain(..) {
+            // SAFETY: every live processor has the C prefix, including its destructor.
+            let free = unsafe { (*ptr.as_ptr()).free }.unwrap();
+            // SAFETY: the chain owns each allocation once and has no surviving borrows.
+            unsafe { free(ptr.as_ptr()) }
         }
     }
 }
