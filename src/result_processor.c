@@ -757,6 +757,17 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   return ret;
 }
 
+static RPDrainStatus rpsortDrain(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  SearchResult *best = mmh_pop_max(self->pq);
+  if (!best) {
+    return RP_DRAIN_EOF;
+  }
+  SearchResult_Override(r, best);
+  rm_free(best);
+  return RP_DRAIN_OK;
+}
+
 static void rpsortFree(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
 
@@ -910,7 +921,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = rpsortDrain;
   ret->base.type = RP_SORTER;
   return &ret->base;
 }
@@ -1252,6 +1263,9 @@ typedef struct RPSafeLoader {
   // Used when changing the MT mode through a cursor execution session (e.g. FT.CURSOR READ)
   bool becomePlainLoader;
 
+  // Only a fully loaded batch can cross the execution-to-recovery boundary.
+  bool loaded;
+
   // Search context
   RedisSearchCtx *sctx;
 
@@ -1331,11 +1345,13 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
   // Reset the next function, in case we are in cursor mode
   if (self->becomePlainLoader) {
     self->base_loader.base.Next = rploaderNext;
+    self->base_loader.base.Drain = rploaderDrain;
   } else {
     self->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   }
   self->buffer_results_count = 0;
   self->curr_result_index = 0;
+  self->loaded = false;
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
@@ -1388,6 +1404,23 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
   return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
 
+static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result_output) {
+  RPSafeLoader *self = (RPSafeLoader *)rp;
+  if (!self->loaded) {
+    return RP_DRAIN_EOF;
+  }
+  SearchResult *row;
+  while ((row = GetNextResult(self))) {
+    if (!SearchResult_GetDocumentMetadata(row)) {
+      continue;
+    }
+    SetResult(row, result_output);
+    return RP_DRAIN_OK;
+  }
+  // Do not reset into accumulation or a plain loader: recovery ends at this batch.
+  return RP_DRAIN_EOF;
+}
+
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
@@ -1414,6 +1447,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     resToBuffer = SearchResult_New();
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  SearchResult_Destroy(&resToBuffer);
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
@@ -1459,6 +1493,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
+  self->loaded = true;
 
   // Clear the GIL-gate handshake flag while we still hold the Redis lock. The
   // timeout callback only runs on the main thread while it holds the GIL, so it
@@ -1529,7 +1564,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
-  sl->base_loader.base.Drain = RPDrain_EOF;
+  sl->base_loader.base.Drain = rpSafeLoaderDrain;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
 }
@@ -1647,7 +1682,7 @@ void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor
 
 // Consumes the input loader and returns a new safe loader that wraps it.
 static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
-  RPSafeLoader *sl = rm_new(RPSafeLoader);
+  RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
@@ -1664,7 +1699,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
-  sl->base_loader.base.Drain = RPDrain_EOF;
+  sl->base_loader.base.Drain = rpSafeLoaderDrain;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
 }
@@ -1683,6 +1718,7 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
       // Now we need to change the next function back to the safe loader's next function.
       RS_ASSERT(cur->Next == rploaderNext);
       cur->Next = rpSafeLoaderNext_Accumulate;
+      cur->Drain = rpSafeLoaderDrain;
       ((RPSafeLoader *)cur)->becomePlainLoader = false;
     }
     downstream = cur;
@@ -1721,6 +1757,7 @@ void SetLoadersForMainThread(QueryProcessingCtx *qctx) {
       // empty.
       if (rp->Next == rpSafeLoaderNext_Accumulate) {
         rp->Next = rploaderNext;
+        rp->Drain = rploaderDrain;
       }
       ((RPSafeLoader *)rp)->becomePlainLoader = true;
     }
@@ -1918,6 +1955,16 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   return RESULT_QUEUED;
 }
 
+static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  if (array_len(self->pool) == 0) {
+    return RP_DRAIN_EOF;
+  }
+  // This local yield uses the committed maximum; it never invokes upstream Next.
+  RPMaxScoreNormalizer_Yield(rp, r);
+  return RP_DRAIN_OK;
+}
+
 static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
@@ -1936,7 +1983,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = RPMaxScoreNormalizer_Accum;
   ret->base.Free = RPMaxScoreNormalizer_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPMaxScoreNormalizer_Drain;
   ret->base.type = RP_MAX_SCORE_NORMALIZER;
   ret->scoreKey = rlk;
   return &ret->base;
@@ -3291,6 +3338,15 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+static RPDrainStatus RPDepleter_Drain(ResultProcessor *base, SearchResult *r) {
+  RPDepleter *self = (RPDepleter *)base;
+  if (self->cur_idx >= array_len(self->results)) {
+    return RP_DRAIN_EOF;
+  }
+  RPDepleter_Next_Yield(base, r);
+  return RP_DRAIN_OK;
+}
+
 /**
  * Next function for RPDepleter.
  */
@@ -3330,7 +3386,7 @@ ResultProcessor *RPDepleter_New() {
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Accumulate;
   ret->base.Free = RPDepleter_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPDepleter_Drain;
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;
