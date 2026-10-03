@@ -652,19 +652,27 @@ typedef struct {
   ResultProcessor base;
 } RPMetrics;
 
-static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
-  int rc;
-
-  rc = base->upstream->Next(base->upstream, res);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
-
+static inline void rpMetricsApply(SearchResult *res) {
   MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
+}
 
+static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
+  int rc = base->upstream->Next(base->upstream, res);
+  if (rc == RS_RESULT_OK) {
+    rpMetricsApply(res);
+  }
+  return rc;
+}
+
+static RPDrainStatus rpMetricsDrain(ResultProcessor *base, SearchResult *res) {
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, res);
+  // Buffered rows may no longer retain the iterator payload that supplied their metrics.
+  if (rc == RP_DRAIN_OK && SearchResult_GetIndexResult(res)) {
+    rpMetricsApply(res);
+  }
   return rc;
 }
 
@@ -678,7 +686,7 @@ ResultProcessor *RPMetricsLoader_New() {
   RPMetrics *ret = rm_calloc(1, sizeof(*ret));
   ret->base.Next = rpMetricsNext;
   ret->base.Free = rpMetricsFree;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = rpMetricsDrain;
   ret->base.type = RP_METRICS;
   return &ret->base;
 }
@@ -960,6 +968,7 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
     if (rc != RS_RESULT_OK) {
+      base->parent->resultLimit = downstreamLimit;
       return rc;
     }
     base->parent->resultLimit--;
@@ -977,6 +986,27 @@ static void rppagerFree(ResultProcessor *base) {
   rm_free(base);
 }
 
+static RPDrainStatus rppagerDrain(ResultProcessor *base, SearchResult *r) {
+  RPPager *self = (RPPager *)base;
+  if (!self->remaining) {
+    return RP_DRAIN_EOF;
+  }
+  // Drain never replenishes an accumulator, so it needs no temporary upstream budget.
+  while (self->offset) {
+    RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
+    if (rc != RP_DRAIN_OK) {
+      return rc;
+    }
+    self->offset--;
+    SearchResult_Clear(r);
+  }
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
+  if (rc == RP_DRAIN_OK) {
+    self->remaining--;
+  }
+  return rc;
+}
+
 /* Create a new pager. The offset and limit are taken from the user request */
 ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
@@ -986,7 +1016,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext_Skip;
   ret->base.Free = rppagerFree;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = rppagerDrain;
 
   return &ret->base;
 }
@@ -1125,6 +1155,20 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   return rc;
 }
 
+static RPDrainStatus rploaderDrain(ResultProcessor *base, SearchResult *r) {
+  RPLoader *lc = (RPLoader *)base;
+  RPDrainStatus rc;
+  // Plain loaders run with Redis access already held. BG pipelines use safe loaders.
+  while ((rc = base->upstream->Drain(base->upstream, r)) == RP_DRAIN_OK) {
+    rpLoader_loadDocument(lc, r);
+    if (loaderResultIsEmittable(r)) {
+      return RP_DRAIN_OK;
+    }
+    loaderDropResult(base, r);
+  }
+  return rc;
+}
+
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
@@ -1169,7 +1213,7 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
-  self->base.Drain = RPDrain_EOF;
+  self->base.Drain = rploaderDrain;
   self->base.type = RP_LOADER;
   return &self->base;
 }
@@ -1501,13 +1545,27 @@ static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
   rm_free(self);
 }
 
+static inline void RPKeyNameLoader_Apply(ResultProcessor *base, SearchResult *res) {
+  RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
+  size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr);  // keyPtr is an sds
+  RS_ASSERT(keyLen <= UINT32_MAX);
+  RLookup_WriteOwnKey(
+      nl->out, SearchResult_GetRowDataMut(res),
+      RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
+}
+
 static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   int rc = base->upstream->Next(base->upstream, res);
-  if (RS_RESULT_OK == rc) {
-    RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
-    size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
-    RS_ASSERT(keyLen <= UINT32_MAX);
-    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
+  if (rc == RS_RESULT_OK) {
+    RPKeyNameLoader_Apply(base, res);
+  }
+  return rc;
+}
+
+static RPDrainStatus RPKeyNameLoader_Drain(ResultProcessor *base, SearchResult *res) {
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, res);
+  if (rc == RP_DRAIN_OK) {
+    RPKeyNameLoader_Apply(base, res);
   }
   return rc;
 }
@@ -1518,7 +1576,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
   ResultProcessor *base = &rp->base;
   base->Free = RPKeyNameLoader_Free;
-  base->Drain = RPDrain_EOF;
+  base->Drain = RPKeyNameLoader_Drain;
   base->Next = RPKeyNameLoader_Next;
   base->type = RP_KEY_NAME_LOADER;
   return base;
@@ -1716,6 +1774,16 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   return rc;
 }
 
+static RPDrainStatus rpprofileDrain(ResultProcessor *base, SearchResult *r) {
+  RPProfile *self = (RPProfile *)base;
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+  RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
+  self->profileTime += rs_wall_clock_elapsed_ns(&start);
+  self->profileCount++;
+  return rc;
+}
+
 static void rpProfileFree(ResultProcessor *base) {
   RPProfile *rp = (RPProfile *)base;
   rm_free(rp);
@@ -1729,7 +1797,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   rpp->base.parent = qctx;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
-  rpp->base.Drain = RPDrain_EOF;
+  rpp->base.Drain = rpprofileDrain;
   rpp->base.type = RP_PROFILE;
 
   return &rpp->base;
@@ -1888,14 +1956,8 @@ typedef struct {
   const RLookupKey *scoreKey;   // score field
 } RPVectorNormalizer;
 
-static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
+static inline void RPVectorNormalizer_Apply(ResultProcessor *rp, SearchResult *r) {
   RPVectorNormalizer *self = (RPVectorNormalizer *)rp;
-
-  // Get next result from upstream
-  int rc = rp->upstream->Next(rp->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
@@ -1912,7 +1974,22 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
   if (self->scoreKey) {
     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(normalizedScore));
   }
-  return RS_RESULT_OK;
+}
+
+static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
+  int rc = rp->upstream->Next(rp->upstream, r);
+  if (rc == RS_RESULT_OK) {
+    RPVectorNormalizer_Apply(rp, r);
+  }
+  return rc;
+}
+
+static RPDrainStatus RPVectorNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
+  RPDrainStatus rc = rp->upstream->Drain(rp->upstream, r);
+  if (rc == RP_DRAIN_OK) {
+    RPVectorNormalizer_Apply(rp, r);
+  }
+  return rc;
 }
 
 static void RPVectorNormalizer_Free(ResultProcessor *rp) {
@@ -1927,7 +2004,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
   ret->normFunc = normFunc;
   ret->base.Next = RPVectorNormalizer_Next;
   ret->base.Free = RPVectorNormalizer_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPVectorNormalizer_Drain;
   ret->base.type = RP_VECTOR_NORMALIZER;
   ret->scoreKey = scoreKey;
 
