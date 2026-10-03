@@ -14,6 +14,8 @@
 #include "query.h"
 
 #include <vector>
+#include <chrono>
+#include <thread>
 
 struct OwnedBufferSource : ResultProcessor {
   std::vector<double> scores = {1, 4, 2, 3};
@@ -161,4 +163,66 @@ TEST_F(OwnedBufferDrainTest, DepleterKeepsBufferedRowsWhenExecutionTimesOut) {
   attach(RPDepleter_New());
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
   EXPECT_EQ((std::vector<double>{1, 4, 2, 3}), drain());
+}
+
+TEST_F(OwnedBufferDrainTest, DepleterPropagatesSuspensionBeforeYieldingAndResumesAccumulation) {
+  source.scores = {1, 4};
+  source.terminal = RS_RESULT_SUSPENDED;
+  attach(RPDepleter_New());
+  EXPECT_EQ(RS_RESULT_SUSPENDED, rp->Next(rp, &row));
+  EXPECT_EQ(0, SearchResult_GetDocId(&row));
+  source.scores.insert(source.scores.end(), {2, 3});
+  source.terminal = RS_RESULT_EOF;
+  ASSERT_EQ(RS_RESULT_OK, rp->Next(rp, &row));
+  EXPECT_EQ(1, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ((std::vector<double>{4, 2, 3}), drain());
+  EXPECT_EQ(6, source.nextCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, DepleterProfileIncludesSuspendedTimeExactlyOnce) {
+  source.terminal = RS_RESULT_SUSPENDED;
+  attach(RPDepleter_New());
+  auto *profile = RPProfile_New(rp, &qctx);
+  qctx.endProc = profile;
+  EXPECT_EQ(RS_RESULT_SUSPENDED, profile->Next(profile, &row));
+  const auto before = RPProfile_GetTime(profile);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  Profile_ResumeRPs(&qctx);
+  const auto resumed = RPProfile_GetTime(profile);
+  EXPECT_GE(resumed - before, std::chrono::nanoseconds(std::chrono::milliseconds(1)).count());
+  Profile_ResumeRPs(&qctx);
+  EXPECT_EQ(resumed, RPProfile_GetTime(profile));
+  EXPECT_EQ(0, RPProfile_GetCount(profile));
+  profile->Free(profile);
+}
+
+TEST_F(OwnedBufferDrainTest, SorterRetainsHeapAcrossSuspensionAndRestoresBudget) {
+  source.terminal = RS_RESULT_SUSPENDED;
+  attach(RPSorter_NewByScore(3, nullptr));
+  EXPECT_EQ(RS_RESULT_SUSPENDED, rp->Next(rp, &row));
+  EXPECT_EQ(10, qctx.resultLimit);
+  source.scores.push_back(9);
+  source.terminal = RS_RESULT_EOF;
+  ASSERT_EQ(RS_RESULT_OK, rp->Next(rp, &row));
+  EXPECT_EQ(9, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ((std::vector<double>{4, 3}), drain());
+  EXPECT_EQ(10, qctx.resultLimit);
+  EXPECT_EQ(7, source.nextCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, NormalizerResumesAccumulationBeforeChoosingFinalMaximum) {
+  source.terminal = RS_RESULT_SUSPENDED;
+  attach(RPMaxScoreNormalizer_New(key));
+  EXPECT_EQ(RS_RESULT_SUSPENDED, rp->Next(rp, &row));
+  EXPECT_EQ(10, qctx.resultLimit);
+  source.scores.push_back(8);
+  source.terminal = RS_RESULT_EOF;
+  ASSERT_EQ(RS_RESULT_OK, rp->Next(rp, &row));
+  EXPECT_EQ(1, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ((std::vector<double>{0.375, 0.25, 0.5, 0.125}), drain());
+  EXPECT_EQ(10, qctx.resultLimit);
+  EXPECT_EQ(7, source.nextCalls);
 }

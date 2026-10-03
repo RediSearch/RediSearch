@@ -34,6 +34,7 @@ typedef struct QueryProcessingCtx {
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
   bool skipIndexResultDeepCopy;
+  void *executionAccess;
 } QueryProcessingCtx;
 
 

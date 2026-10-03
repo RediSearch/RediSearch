@@ -135,6 +135,9 @@ typedef enum {
   RS_RESULT_ERROR,
   // Depleting process has begun.
   RS_RESULT_DEPLETING,
+  // Internal ownership boundary: unwind before the driver runs a pending wait.
+  // Not EOF or a query error; the same chain resumes after successful admission.
+  RS_RESULT_SUSPENDED,
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX
@@ -270,6 +273,10 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
+
+// Close suspended cumulative intervals under ownership, after resume work or before
+// recovery. Never called by a worker that lost admission; recovery freezes its time.
+void Profile_ResumeRPs(QueryProcessingCtx *qctx);
 
 /*******************************************************************************************************************
  *  Normalizer Result Processor

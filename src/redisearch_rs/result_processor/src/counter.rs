@@ -105,4 +105,44 @@ pub(crate) mod test {
         assert!(rp.next(cx, &mut SearchResult::default()).unwrap().is_none());
         assert_eq!(rp.count, 3);
     }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn suspension_preserves_count_and_resumes_without_recounting() {
+        struct SuspendingSource(u8);
+
+        impl ResultProcessor for SuspendingSource {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+            fn next(
+                &mut self,
+                _cx: crate::Context,
+                _res: &mut SearchResult<'_>,
+            ) -> Result<Option<()>, crate::Error> {
+                self.0 += 1;
+                match self.0 {
+                    1 | 3 => Ok(Some(())),
+                    2 => Err(crate::Error::Suspended),
+                    _ => Ok(None),
+                }
+            }
+        }
+
+        let mut chain = Chain::new();
+        chain.append(SuspendingSource(0));
+        chain.append(Counter::new());
+        let mut row = SearchResult::new();
+        assert_eq!(
+            chain.next(&mut row),
+            ffi::RPStatus_RS_RESULT_SUSPENDED as i32
+        );
+        let (_, counter) = chain.last_as_context_and_inner::<Counter>();
+        assert_eq!(counter.count, 1);
+        assert_eq!(chain.next(&mut row), ffi::RPStatus_RS_RESULT_EOF as i32);
+        let (_, counter) = chain.last_as_context_and_inner::<Counter>();
+        assert_eq!(counter.count, 2);
+    }
 }

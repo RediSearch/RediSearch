@@ -40,6 +40,9 @@ use std::{
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
+    /// Unwind all processor borrows before the C driver performs a pending wait.
+    /// Unlike [`Self::TimedOut`], execution may resume after ownership admission.
+    Suspended,
     /// Execution halted because of timeout
     TimedOut,
     /// Aborted because of error. The QueryState (parent->status) should have
@@ -103,8 +106,10 @@ pub trait ResultProcessor {
     ///
     /// For exceptional error cases, this method should return `Err(Error)`.
     ///
-    /// In both cases `Ok(None)` and `Err(_)` indicate to the caller that calling `next`
-    /// will not yield values anymore, thus ending iteration.
+    /// `Ok(None)` and errors other than [`Error::Suspended`] end iteration.
+    /// [`Error::Suspended`] must propagate through the entire call chain without
+    /// discarding buffered results. Only the execution driver may resume iteration,
+    /// after completing the pending operation and regaining exclusive ownership.
     fn next(&mut self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error>;
 
     /// Recover already-available output under exclusive pipeline access.
@@ -258,7 +263,8 @@ impl Upstream<'_> {
     ///
     /// # Errors
     ///
-    /// Returns `Err(_)` for exceptional error cases.
+    /// Returns errors according to [`ResultProcessor::next`], including the
+    /// resumable [`Error::Suspended`] status.
     pub fn next(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
         // SAFETY: the live upstream has the common C prefix. Do not create a
         // reference to Header's Rust-only debug suffix for a C processor.
@@ -277,6 +283,7 @@ impl Upstream<'_> {
             }
             ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
             ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
+            ffi::RPStatus_RS_RESULT_SUSPENDED => Err(Error::Suspended),
             code => {
                 unimplemented!("result processor returned unknown error code {code}")
             }
@@ -500,6 +507,7 @@ where
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
             Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
+            Err(Error::Suspended) => ffi::RPStatus_RS_RESULT_SUSPENDED as c_int,
         }
     }
 
@@ -797,6 +805,7 @@ pub(crate) mod test {
 
         check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
         check(Error::TimedOut, ffi::RPStatus_RS_RESULT_TIMEDOUT as i32);
+        check(Error::Suspended, ffi::RPStatus_RS_RESULT_SUSPENDED as i32);
     }
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
@@ -911,6 +920,10 @@ pub(crate) mod test {
         check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
         check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
         check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
+        check(
+            ffi::RPStatus_RS_RESULT_SUSPENDED as i32,
+            Err(Error::Suspended),
+        );
         check(
             ffi::RPStatus_RS_RESULT_TIMEDOUT as i32,
             Err(Error::TimedOut),
