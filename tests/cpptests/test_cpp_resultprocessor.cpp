@@ -65,9 +65,12 @@ TEST_F(ResultProcessorTest, DrainBarrierDoesNotAdvanceOrModifyOutput) {
   SearchResult_Destroy(&row);
 }
 
-TEST_F(ResultProcessorTest, ConstructorsInstallDrainBarriers) {
+TEST_F(ResultProcessorTest, ConstructorsInstallDrainCallbacks) {
+  processor1Ctx source;
+  source.Drain = RPDrain_EOF;
   ResultProcessor *processors[] = {RPMetricsLoader_New(), RPPager_New(1, 2), RPDepleter_New()};
   for (ResultProcessor *rp : processors) {
+    rp->upstream = &source;
     ASSERT_NE(rp->Drain, nullptr);
     SearchResult row = SearchResult_New();
     ASSERT_EQ(rp->Drain(rp, &row), RP_DRAIN_EOF);

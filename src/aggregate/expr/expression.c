@@ -472,13 +472,7 @@ typedef struct RPEvaluator {
 
 #define RESULT_EVAL_ERR RS_RESULT_MAX + 1
 
-static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
-  /** Get the upstream result */
-  int rc = pc->base.upstream->Next(pc->base.upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
-
+static int rpevalRow(RPEvaluator *pc, SearchResult *r) {
   pc->eval.res = r;
   pc->eval.srcrow = SearchResult_GetRowData(r);
 
@@ -489,11 +483,24 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
     pc->val = RSValue_NewUndefined();
   }
 
-  rc = ExprEval_Eval(&pc->eval, pc->val);
+  int rc = ExprEval_Eval(&pc->eval, pc->val);
   if (rc != EXPR_EVAL_OK) {
     return RS_RESULT_ERROR;
   }
   return RS_RESULT_OK;
+}
+
+static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
+  int rc = pc->base.upstream->Next(pc->base.upstream, r);
+  return rc == RS_RESULT_OK ? rpevalRow(pc, r) : rc;
+}
+
+static RPDrainStatus rpevalDrainCommon(RPEvaluator *pc, SearchResult *r) {
+  RPDrainStatus rc = pc->base.upstream->Drain(pc->base.upstream, r);
+  if (rc != RP_DRAIN_OK) {
+    return rc;
+  }
+  return rpevalRow(pc, r) == RS_RESULT_OK ? RP_DRAIN_OK : RP_DRAIN_ERROR;
 }
 
 static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
@@ -508,35 +515,63 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+static bool rpevalFilterRow(RPEvaluator *pc, SearchResult *r) {
+  // Check if it's a boolean result!
+  int boolrv = RSValue_BoolTest(pc->val);
+  RSValue_Clear(pc->val);
+
+  if (boolrv) {
+    return true;
+  }
+
+  // Reduce the total number of results, unless there is nothing left to reduce.
+  //
+  // The row being rejected was not necessarily counted into the figure this is
+  // decrementing. A cursor read without WITHCOUNT resets `totalResults` to zero when it
+  // finishes (see the reset in `AREQ_Execute`'s cursor path), while a buffering stage
+  // upstream -- `SORTBY` with `MAX`, which accumulates every row before yielding any --
+  // hands rows counted during one read to this filter during a later one. Those rows were
+  // reported in the earlier read's total and cannot be taken back out of it here.
+  //
+  // Asserting instead of clamping made that a crash in a debug build, and `totalResults`
+  // is unsigned, so a release build wrapped it to ~4.29 billion and reported that as the
+  // result count.
+  if (pc->base.parent->totalResults > 0) {
+    pc->base.parent->totalResults--;
+  }
+  // Otherwise, the result must be filtered out.
+  SearchResult_Clear(r);
+  return false;
+}
+
 static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
   RPEvaluator *pc = (RPEvaluator *)rp;
   int rc;
   while ((rc = rpevalCommon(pc, r)) == RS_RESULT_OK) {
-    // Check if it's a boolean result!
-    int boolrv = RSValue_BoolTest(pc->val);
-    RSValue_Clear(pc->val);
-
-    if (boolrv) {
+    if (rpevalFilterRow(pc, r)) {
       return RS_RESULT_OK;
     }
+  }
+  return rc;
+}
 
-    // Reduce the total number of results, unless there is nothing left to reduce.
-    //
-    // The row being rejected was not necessarily counted into the figure this is
-    // decrementing. A cursor read without WITHCOUNT resets `totalResults` to zero when it
-    // finishes (see the reset in `AREQ_Execute`'s cursor path), while a buffering stage
-    // upstream -- `SORTBY` with `MAX`, which accumulates every row before yielding any --
-    // hands rows counted during one read to this filter during a later one. Those rows were
-    // reported in the earlier read's total and cannot be taken back out of it here.
-    //
-    // Asserting instead of clamping made that a crash in a debug build, and `totalResults`
-    // is unsigned, so a release build wrapped it to ~4.29 billion and reported that as the
-    // result count.
-    if (rp->parent->totalResults > 0) {
-      rp->parent->totalResults--;
+static RPDrainStatus rpevalDrain_project(ResultProcessor *rp, SearchResult *r) {
+  RPEvaluator *pc = (RPEvaluator *)rp;
+  RPDrainStatus rc = rpevalDrainCommon(pc, r);
+  if (rc == RP_DRAIN_OK) {
+    RLookup_WriteOwnKey(pc->outkey, SearchResult_GetRowDataMut(r), pc->val);
+    pc->val = NULL;
+  }
+  return rc;
+}
+
+static RPDrainStatus rpevalDrain_filter(ResultProcessor *rp, SearchResult *r) {
+  RPEvaluator *pc = (RPEvaluator *)rp;
+  RPDrainStatus rc;
+  while ((rc = rpevalDrainCommon(pc, r)) == RP_DRAIN_OK) {
+    if (rpevalFilterRow(pc, r)) {
+      return RP_DRAIN_OK;
     }
-    // Otherwise, the result must be filtered out.
-    SearchResult_Clear(r);
   }
   return rc;
 }
@@ -554,7 +589,7 @@ static ResultProcessor *RPEvaluator_NewCommon(RSExpr *ast, const RLookup *lookup
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
-  rp->base.Drain = RPDrain_EOF;
+  rp->base.Drain = isFilter ? rpevalDrain_filter : rpevalDrain_project;
   rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
   rp->eval.mode = EVAL_MODE_QUERY;
   rp->eval.lookup = lookup;
