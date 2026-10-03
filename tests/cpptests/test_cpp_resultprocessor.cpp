@@ -53,6 +53,29 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
 
 class ResultProcessorTest : public ::testing::Test {};
 
+TEST_F(ResultProcessorTest, DrainBarrierDoesNotAdvanceOrModifyOutput) {
+  processor1Ctx source;
+  source.Next = p1_Next;
+  source.Drain = RPDrain_EOF;
+  SearchResult row = SearchResult_New();
+  SearchResult_SetDocId(&row, 123);
+  ASSERT_EQ(source.Drain(&source, &row), RP_DRAIN_EOF);
+  ASSERT_EQ(source.counter, 0);
+  ASSERT_EQ(SearchResult_GetDocId(&row), 123);
+  SearchResult_Destroy(&row);
+}
+
+TEST_F(ResultProcessorTest, ConstructorsInstallDrainBarriers) {
+  ResultProcessor *processors[] = {RPMetricsLoader_New(), RPPager_New(1, 2), RPDepleter_New()};
+  for (ResultProcessor *rp : processors) {
+    ASSERT_NE(rp->Drain, nullptr);
+    SearchResult row = SearchResult_New();
+    ASSERT_EQ(rp->Drain(rp, &row), RP_DRAIN_EOF);
+    SearchResult_Destroy(&row);
+    rp->Free(rp);
+  }
+}
+
 TEST_F(ResultProcessorTest, testProcessorChain) {
   QueryProcessingCtx qitr = {0};
   RLookup lk = RLookup_New();
