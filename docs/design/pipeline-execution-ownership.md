@@ -72,6 +72,20 @@ Upstream calls reborrow that access without acquiring another lock. Drain access
 exposes upstream Drain, not upstream Next. C access is opaque and carries debug
 domain/ownership checks; only the admitted driver creates it.
 
+The C bridge borrows this token through `QueryProcessingCtx.executionAccess`
+for the duration of a segment and clears it before unlocking. Only blocking
+boundaries consult it; passing an ordinary row does not touch the gate. Rust's
+existing `Context` and `DrainContext` remain scoped to the FFI invocation, with
+`Error::Suspended` propagating the internal C suspension outcome through Next.
+No Rust processor can keep those borrows alive while the C driver waits.
+
+Profiling wrappers retain their cumulative intervals across suspension without
+counting it as a result. After successful resume work, the driver closes those
+intervals under ownership before restarting Next. If timeout takes ownership,
+recovery closes them instead; the losing worker cannot subsequently change the
+reported time. This includes off-stack waiting and completion work in the source
+and downstream cumulative profiles, without adding normal-path synchronization.
+
 Before releasing ownership, every accepted payload is either committed in
 drainable domain state or exclusively private to the pending operation. Temporary
 budgets are restored, or represented as consistent resumable state. A losing

@@ -20,6 +20,7 @@
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
+#include "pipeline_execution.h"
 #include "extension.h"
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
@@ -1421,6 +1422,45 @@ static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result
   return RP_DRAIN_EOF;
 }
 
+static void rpSafeLoader_CommitLoadedBatch(RPSafeLoader *self, rs_wall_clock *start) {
+  rpSafeLoader_Load(self);
+  self->loaded = true;
+  ResultProcessor *rp = &self->base_loader.base;
+  if (rp->parent->isProfile) {
+    rs_wall_clock_ns_t elapsed = rs_wall_clock_elapsed_ns(start) + 1;
+    rp->parent->queryGILTime += elapsed;
+    rp->rpGILTime += elapsed;
+  }
+  rp->Next = rpSafeLoaderNext_Yield;
+}
+
+typedef struct {
+  RedisModuleCtx *redisCtx;
+  RPSafeLoader *loader;
+  rs_wall_clock start;
+  bool locked;
+} SafeLoaderPending;
+
+static void safeLoaderWait(void *data) {
+  SafeLoaderPending *pending = data;
+  RedisModule_ThreadSafeContextLock(pending->redisCtx);
+  pending->locked = true;
+}
+
+static void safeLoaderResume(PipelineAccess *access, void *data) {
+  SafeLoaderPending *pending = data;
+  RS_ASSERT(PipelineAccess_Context(access) == pending->loader->base_loader.base.parent);
+  rpSafeLoader_CommitLoadedBatch(pending->loader, &pending->start);
+}
+
+static void safeLoaderPendingFree(void *data) {
+  SafeLoaderPending *pending = data;
+  // The worker may have acquired the GIL after main already recovered the batch.
+  // Rejected admission owns only this private lock, not the loader it points at.
+  if (pending->locked) RedisModule_ThreadSafeContextUnlock(pending->redisCtx);
+  rm_free(pending);
+}
+
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
@@ -1429,12 +1469,20 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // Keep fetching results from the upstream result processor until EOF is reached
   RedisSearchCtx *sctx = self->sctx;
-  int result_status;
+  int result_status = RS_RESULT_OK;
   uint32_t bufferLimit = rp->parent->resultLimit;
+  // An upstream suspension preserves the batch, but the temporary budget belongs
+  // to this invocation. Resume at its unfilled suffix, not at a fresh batch limit.
+  rp->parent->resultLimit =
+      bufferLimit > self->buffer_results_count ? bufferLimit - self->buffer_results_count : 0;
   SearchResult resToBuffer = SearchResult_New();
-  SearchResult *currBlock = NULL;
+  SearchResult *currBlock =
+      self->buffer_results_count
+          ? self->BufferBlocks[(self->buffer_results_count - 1) / DEFAULT_BUFFER_BLOCK_SIZE]
+          : NULL;
   // Get the next result and save it in the buffer
-  while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+  while (rp->parent->resultLimit &&
+         ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
     rp->parent->resultLimit--;
     // Buffered SearchResults outlive the source iterator's `it->current` slot;
@@ -1446,12 +1494,14 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
     resToBuffer = SearchResult_New();
   }
-  rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  rp->parent->resultLimit = bufferLimit;  // Restore the result limit
   SearchResult_Destroy(&resToBuffer);
 
-  // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
+  // If we exit the loop because we got an error, or we have zero result, return without locking
+  // Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+       !(result_status == RS_RESULT_TIMEDOUT &&
+         rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
@@ -1468,11 +1518,28 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
 
+  PipelineAccess *access = rp->parent->executionAccess;
+  if (access) {
+    if (RedisModule_ThreadSafeContextTryLock(sctx->redisCtx) == REDISMODULE_OK) {
+      rpSafeLoader_CommitLoadedBatch(self, &rpStartTime);
+      RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+      return rp->Next(rp, res);
+    }
+    SafeLoaderPending *pending = rm_calloc(1, sizeof(*pending));
+    pending->redisCtx = sctx->redisCtx;
+    pending->loader = self;
+    if (isQueryProfile) pending->start = rpStartTime;
+    PipelineAccess_Suspend(access, (PipelinePending){.data = pending,
+                                                     .wait = safeLoaderWait,
+                                                     .resume = safeLoaderResume,
+                                                     .destroy = safeLoaderPendingFree});
+    return RS_RESULT_SUSPENDED;
+  }
+
 #ifdef ENABLE_ASSERT
   // Sync point: pause after buffering, before taking the GIL.
   // Interruptible so a fired timeout callback can release the worker.
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, blockedClientTimedOut,
-                      sctx->timeout);
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, blockedClientTimedOut, sctx->timeout);
 #endif
 
   // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
@@ -1798,6 +1865,9 @@ typedef struct {
   ResultProcessor base;
   rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
+  rs_wall_clock suspendedAt;
+  rs_wall_clock_ns_t suspendedTime;
+  bool suspended;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
@@ -1806,8 +1876,15 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   rs_wall_clock start;
   rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += rs_wall_clock_elapsed_ns(&start);
-  self->profileCount++;
+  rs_wall_clock end;
+  rs_wall_clock_init(&end);
+  self->profileTime += rs_wall_clock_diff_ns(&start, &end);
+  if (rc == RS_RESULT_SUSPENDED) {
+    self->suspendedAt = end;
+    self->suspended = true;
+  } else {
+    self->profileCount++;
+  }
   return rc;
 }
 
@@ -1844,7 +1921,7 @@ rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp) {
   if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
     return RPSafeDepleter_GetDepletionTime(rp->upstream);
   } else if (rp->upstream && rp->upstream->type == RP_DEPLETER) {
-    return RPDepleter_GetDepletionTime(rp->upstream);
+    return RPDepleter_GetDepletionTime(rp->upstream) + ((RPProfile *)rp)->suspendedTime;
   } else {
     return ((RPProfile *)rp)->profileTime;
   }
@@ -1858,6 +1935,22 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
 void RPProfile_IncrementCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   self->profileCount++;
+}
+
+void Profile_ResumeRPs(QueryProcessingCtx *qctx) {
+  rs_wall_clock now;
+  rs_wall_clock_init(&now);
+  for (ResultProcessor *rp = qctx->endProc; rp; rp = rp->upstream) {
+    if (rp->type != RP_PROFILE) continue;
+    RPProfile *profile = (RPProfile *)rp;
+    if (!profile->suspended) continue;
+    // Every unwound wrapper includes the same off-stack work in its cumulative
+    // interval, so profile subtraction still attributes that work to its source.
+    rs_wall_clock_ns_t elapsed = rs_wall_clock_diff_ns(&profile->suspendedAt, &now);
+    profile->profileTime += elapsed;
+    profile->suspendedTime += elapsed;
+    profile->suspended = false;
+  }
 }
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
@@ -3307,7 +3400,7 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   }
 
   // Record depletion time
-  self->depletionTime = rs_wall_clock_elapsed_ns(&start);
+  self->depletionTime += rs_wall_clock_elapsed_ns(&start);
 
   SearchResult_Destroy(r);
   rm_free(r);
@@ -3355,6 +3448,10 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
 
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
+
+  if (self->last_rc == RS_RESULT_SUSPENDED) {
+    return RS_RESULT_SUSPENDED;
+  }
 
   // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be

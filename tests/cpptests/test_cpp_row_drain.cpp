@@ -20,7 +20,11 @@ extern "C" {
 #include "redismock/util.h"
 #include "query_flags.h"
 #include "query_request.h"
+#include "pipeline_execution.h"
 
+#include <chrono>
+#include <future>
+#include <thread>
 #include <vector>
 
 // Both entries share the cursor: the handoff resumes, rather than replays, row processing.
@@ -151,6 +155,18 @@ TEST_F(OwnedRowDrainTest, ZeroLimitDoesNotDrainUpstream) {
   auto *pager = append(RPPager_New(2, 0));
   EXPECT_EQ(RP_DRAIN_EOF, pager->Drain(pager, &row));
   EXPECT_EQ(0, source.drainCalls);
+}
+
+TEST_F(OwnedRowDrainTest, ProfileDoesNotCountInternalSuspensionAsOutput) {
+  source.Next = [](ResultProcessor *base, SearchResult *) -> int {
+    auto *source = static_cast<OwnedRowSource *>(base);
+    return source->nextCalls++ ? RS_RESULT_EOF : RS_RESULT_SUSPENDED;
+  };
+  auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
+  EXPECT_EQ(RS_RESULT_SUSPENDED, profile->Next(profile, &row));
+  EXPECT_EQ(0, RPProfile_GetCount(profile));
+  EXPECT_EQ(RS_RESULT_EOF, profile->Next(profile, &row));
+  EXPECT_EQ(1, RPProfile_GetCount(profile));
 }
 
 TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
@@ -405,6 +421,114 @@ class OwnedSafeLoaderDrainTest : public OwnedLoaderDrainTest {
   }
 };
 
+struct OwnedLoaderStep {
+  QueryProcessingCtx *context;
+  ResultProcessor *loader;
+  SearchResult *row;
+  std::promise<void> suspended;
+  unsigned calls = 0;
+  int result = RS_RESULT_ERROR;
+
+  static void run(PipelineAccess *access, void *data) {
+    auto *step = static_cast<OwnedLoaderStep *>(data);
+    ++step->calls;
+    PipelineAccess_Publish(access, step->context);
+    step->result = step->loader->Next(step->loader, step->row);
+    if (step->result == RS_RESULT_SUSPENDED) step->suspended.set_value();
+  }
+};
+
+TEST_F(OwnedSafeLoaderDrainTest, OwnershipTimeoutDrainsBeforeGilWaitCanFinish) {
+  using namespace std::chrono_literals;
+  auto *dmd = document("safe:parked", "value");
+  create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  qctx.isProfile = true;
+  auto *profile = RPProfile_New(loader, &qctx);
+  qctx.endProc = profile;
+  auto *execution = PipelineExecution_New(&timeout);
+  OwnedLoaderStep step{&qctx, profile, &row};
+  auto suspended = step.suspended.get_future();
+  RedisModule_ThreadSafeContextLock(ctx);
+  auto worker = std::async(std::launch::async, [&] {
+    return PipelineExecution_RunNext(execution, OwnedLoaderStep::run, &step);
+  });
+  suspended.wait();
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  auto drainer = std::async(std::launch::async, [&] {
+    PipelineExecution_RunDrain(
+        execution,
+        [](PipelineAccess *access, void *data) {
+          auto *loader = static_cast<ResultProcessor *>(data);
+          EXPECT_EQ(loader->parent, PipelineAccess_Context(access));
+          auto output = SearchResult_New();
+          EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &output));
+          SearchResult_Destroy(&output);
+        },
+        profile);
+  });
+  const auto drained = drainer.wait_for(1s);
+  const auto frozenTime = drained == std::future_status::ready ? RPProfile_GetTime(profile) : 0;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  drainer.get();
+  EXPECT_FALSE(worker.get());
+  EXPECT_EQ(std::future_status::ready, drained);
+  EXPECT_EQ(1, step.calls);
+  EXPECT_EQ(2, dmd->ref_count);
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&row));
+  EXPECT_EQ(nullptr, qctx.executionAccess);
+  EXPECT_EQ(frozenTime, RPProfile_GetTime(profile));
+  EXPECT_EQ(1, RPProfile_GetCount(profile));
+  PipelineExecution_Free(execution);
+  profile->Free(profile);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, OwnershipResumeLoadsBatchWithoutRepeatingUpstream) {
+  document("safe:resumed", "value");
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  qctx.isProfile = true;
+  auto *loaderProfile = RPProfile_New(loader, &qctx);
+  auto *outerProfile = RPProfile_New(loaderProfile, &qctx);
+  qctx.endProc = outerProfile;
+  auto *execution = PipelineExecution_New(&timeout);
+  OwnedLoaderStep step{&qctx, outerProfile, &row};
+  auto suspended = step.suspended.get_future();
+  RedisModule_ThreadSafeContextLock(ctx);
+  auto worker = std::async(std::launch::async, [&] {
+    return PipelineExecution_RunNext(execution, OwnedLoaderStep::run, &step);
+  });
+  suspended.wait();
+  // A deliberate off-stack interval makes missing wait accounting observable,
+  // independently of how quickly the mock keyspace loads the batch.
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  EXPECT_TRUE(worker.get());
+  EXPECT_EQ(RS_RESULT_OK, step.result);
+  EXPECT_EQ(2, step.calls);
+  EXPECT_EQ(2, source.nextCalls);
+  EXPECT_GT(qctx.queryGILTime, 0);
+  EXPECT_GE(RPProfile_GetTime(loaderProfile), qctx.queryGILTime);
+  EXPECT_GE(RPProfile_GetTime(outerProfile), RPProfile_GetTime(loaderProfile));
+  EXPECT_EQ(1, RPProfile_GetCount(loaderProfile));
+  EXPECT_EQ(1, RPProfile_GetCount(outerProfile));
+  expectValue(key, "value");
+  EXPECT_EQ(nullptr, qctx.executionAccess);
+  PipelineExecution_Free(execution);
+  outerProfile->Free(outerProfile);
+  loaderProfile->Free(loaderProfile);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, UncontendedOwnershipLoadsWithoutSuspension) {
+  document("safe:uncontended", "value");
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  auto *execution = PipelineExecution_New(&timeout);
+  OwnedLoaderStep step{&qctx, loader, &row};
+  EXPECT_TRUE(PipelineExecution_RunNext(execution, OwnedLoaderStep::run, &step));
+  EXPECT_EQ(RS_RESULT_OK, step.result);
+  EXPECT_EQ(1, step.calls);
+  expectValue(key, "value");
+  PipelineExecution_Free(execution);
+}
+
 TEST_F(OwnedSafeLoaderDrainTest, DrainsOnlyLoadedRemainderWithoutRefillOrReload) {
   auto *first = document("safe:first", "one");
   auto *second = document("safe:second", "two");
@@ -446,6 +570,38 @@ TEST_F(OwnedSafeLoaderDrainTest, UnfinishedBatchRemainsNonDrainableAndIsFreed) {
   loader = nullptr;
   EXPECT_EQ(1, buffered->ref_count);
   EXPECT_EQ(2, source.nextCalls);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, SuspendedAccumulationResumesWithinOriginalBatchBudget) {
+  document("safe:suspend:first", "one");
+  document("safe:suspend:second", "two");
+  auto *third = document("safe:suspend:third", "three");
+  const auto next = source.Next;
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    if (self->nextCalls == 2) return RS_RESULT_SUSPENDED;
+    auto *dmd = self->documents[self->cursor++];
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    return RS_RESULT_OK;
+  };
+  qctx.resultLimit = 2;
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  EXPECT_EQ(RS_RESULT_SUSPENDED, loader->Next(loader, &row));
+  EXPECT_EQ(2, qctx.resultLimit);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
+  expectValue(key, "one");
+  SearchResult_Clear(&row);
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &row));
+  expectValue(key, "two");
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(2, qctx.resultLimit);
+  EXPECT_EQ(2, source.cursor);
+  EXPECT_EQ(3, source.nextCalls);
+  EXPECT_EQ(1, third->ref_count);
+  source.Next = next;
 }
 
 TEST_F(OwnedSafeLoaderDrainTest, TerminalScratchIsDestroyedWithoutPublishingIt) {
