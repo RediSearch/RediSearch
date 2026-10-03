@@ -16,6 +16,8 @@
 
 #include "value_ffi.h"
 #include "rpnet.h"
+#include "pipeline_execution.h"
+#include "rmr/chan.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "coord/dist_utils.h"
@@ -127,7 +129,7 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
 //     authoritative stop signal.
 //   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
 //     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
-static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
+static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, bool draining) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
   if (is_resp3) {
@@ -159,7 +161,8 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+  if (shard_timed_out && !draining &&
+      nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -220,8 +223,25 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   return RS_RESULT_OK;
 }
 
-int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
+typedef struct {
+  MRChannel *channel;
+  const atomic_bool *cancel;
+} RPNetPending;
+
+static void rpnetWaitReadable(void *data) {
+  RPNetPending *pending = data;
+  MRChannel_WaitReadable(pending->channel, pending->cancel);
+}
+
+static void rpnetResume(PipelineAccess *access, void *data) {
+  (void)access;
+  (void)data;
+  // No reply was removed while unowned. Next retries the channel under the gate.
+}
+
+static int getNextReplyMode(RPNet *nc, bool draining) {
+  if (!nc->it) return RS_RESULT_EOF;
+  if (!draining && nc->cmd.forCursor) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       RPNet_resetCurrent(nc);
       return RS_RESULT_EOF;
@@ -237,7 +257,9 @@ int getNextReply(RPNet *nc) {
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
   // fully drained downstream.
-  SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+  if (!draining) {
+    SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+  }
 #endif
   RS_ASSERT(nc->areq);
   QueryRequestTimeout *timeout = &nc->areq->base.timeout;
@@ -247,16 +269,35 @@ int getNextReply(RPNet *nc) {
           ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
           : NULL;
   bool popTimedOut = false;
-  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+  PipelineAccess *access = nc->base.parent->executionAccess;
+  MRReply *root = draining || access ? MRIterator_TryNext(nc->it)
                   : deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
                       : MRIterator_Next(nc->it);
+
+  if (!root && access && !draining && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+#ifdef ENABLE_ASSERT
+    SyncPoint_WaitUntil(SYNC_POINT_RPNET_EMPTY_OWNED_POP, areq_timed_out, nc->areq);
+#endif
+    if (MRIterator_GetPending(nc->it)) {
+      RPNetPending *pending = rm_malloc(sizeof(*pending));
+      *pending = (RPNetPending){.channel = MRIterator_GetChannel(nc->it), .cancel = abortFlag};
+      PipelineAccess_Suspend(access, (PipelinePending){.data = pending,
+                                                       .wait = rpnetWaitReadable,
+                                                       .resume = rpnetResume,
+                                                       .destroy = rm_free});
+      return RS_RESULT_SUSPENDED;
+    }
+    // Completion is published after the final enqueue. The first pop may have
+    // preceded that enqueue, so only a pop after completion can establish EOF.
+    root = MRIterator_TryNext(nc->it);
+  }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
     // Drain-only: empty channel means end of queued replies, not a timeout —
     // main-thread serialization only consumes what the I/O threads have pushed.
-    if (nc->drainOnly) {
+    if (draining) {
       return RS_RESULT_EOF;
     }
     if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
@@ -337,7 +378,7 @@ int getNextReply(RPNet *nc) {
   RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3, draining);
 
     if (ret == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
@@ -346,6 +387,12 @@ int getNextReply(RPNet *nc) {
 
   return RS_RESULT_OK;
 }
+
+int getNextReply(RPNet *nc) {
+  return getNextReplyMode(nc, nc->drainOnly);
+}
+
+static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r);
 
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
@@ -389,7 +436,7 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Drain = RPDrain_EOF;
+  nc->base.Drain = rpnetDrain;
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
@@ -401,19 +448,19 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.meta = NULL;
 }
 
-int rpnetNext(ResultProcessor *self, SearchResult *r) {
+static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
   RPNet *nc = (RPNet *)self;
   AREQ *areq = nc->areq;
   RS_ASSERT(areq);
 
 #ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
+  if (!draining) SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+  if (QueryRequest_UsesReplyCallback(&areq->base) && !draining &&
       QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
@@ -440,7 +487,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
+      if (processWarningsAndCleanup(nc, resp3, draining) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
 
@@ -454,20 +501,21 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   while (!root) {
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
-    if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+    if (!draining && areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
         QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
-    } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+    } else if (!draining && nc->it && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
       // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    int ret = getNextReply(nc);
+    int ret = getNextReplyMode(nc, draining);
+    if (ret == RS_RESULT_SUSPENDED) return ret;
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
     } else if (ret == RS_RESULT_TIMEDOUT) {
@@ -536,7 +584,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 #ifdef ENABLE_ASSERT
     // Sync point (debug): park BG after a shard reply has been admitted into the
     // pipeline (popped from the channel, about to emit its rows).
-    SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
+    if (!draining) {
+      SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
+    }
 #endif
     if (resp3) { // RESP3
       nc->curIdx = 0;
@@ -608,6 +658,23 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   return RS_RESULT_OK;
+}
+
+int rpnetNext(ResultProcessor *self, SearchResult *r) {
+  return rpnetRead(self, r, ((RPNet *)self)->drainOnly);
+}
+
+static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
+  int rc = rpnetRead(self, r, true);
+  switch (rc) {
+    case RS_RESULT_OK:
+      return RP_DRAIN_OK;
+    case RS_RESULT_EOF:
+      return RP_DRAIN_EOF;
+    default:
+      RS_ASSERT(rc == RS_RESULT_ERROR);
+      return RP_DRAIN_ERROR;
+  }
 }
 
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r) {

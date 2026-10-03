@@ -129,6 +129,16 @@ void *MRChannel_TryPop(MRChannel *chan) {
   return popHeadAndUnlock(chan);
 }
 
+void MRChannel_WaitReadable(MRChannel *chan, const atomic_bool *cancel) {
+  pthread_mutex_lock(&chan->lock);
+  while (!chan->size && chan->wait &&
+         !(cancel && atomic_load_explicit(cancel, memory_order_relaxed))) {
+    pthread_cond_wait(&chan->cond, &chan->lock);
+  }
+  if (!chan->size && !chan->wait) chan->wait = true;
+  pthread_mutex_unlock(&chan->lock);
+}
+
 void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
