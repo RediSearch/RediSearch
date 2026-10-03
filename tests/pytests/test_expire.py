@@ -572,9 +572,9 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
     # Wait without issuing Redis commands, then check the first search exactly once.
-    # If activeSubexpires() fails to drain per-key post-notification jobs, the first
-    # command can return stale sortable values and drain those jobs at its end.
-    # Polling FT.SEARCH (or sending another command first) would hide that regression.
+    # If background field expiration leaves index updates pending, the first command
+    # can return stale sortable values and apply those updates only at its end.
+    # Retrying the search (or sending another command first) would hide that regression.
     time.sleep(0.5)
     env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
