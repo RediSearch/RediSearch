@@ -552,18 +552,34 @@ def testJsonIndexLanguageField(env):
 def testTagalogLanguage(env):
     conn = getConnectionByEnv(env)
 
-    conn.execute_command('HSET', '{tl}:1', 'word', 'kumain')
-    conn.execute_command('HSET', '{tl}:2', 'word', 'kain')
+    # Each family lists inflected forms of one root that must all match each
+    # other: infix (k-um-ain), reduplication (bi-bili), prefixes (pag-bili),
+    # syncopated suffix (bilhin), the -ng linker (magandang), the u/o
+    # change before a suffix (tulungan) and a loanword cluster onset
+    # (tr-in-abaho, ta-trabaho).  bilis 'speed' must stay apart from bili
+    # 'buy'.
+    families = {
+        'kain': ['kumain', 'kain', 'kinain', 'kakainin'],
+        'bili': ['bili', 'bumili', 'binili', 'bibilhin', 'pagbili'],
+        'tulong': ['tulong', 'tulungan', 'nakakatulong'],
+        'trabaho': ['trabaho', 'trinabaho', 'nagtatrabaho', 'magtrabaho'],
+        'ganda': ['maganda', 'magandang', 'kagandahan'],
+        'kailangan': ['kailangan', 'kinakailangan', 'kailangang'],
+        'bilis': ['bilis', 'mabilis'],
+    }
+    for words in families.values():
+        for word in words:
+            conn.execute_command('HSET', f'{{tl}}:{word}', 'word', word)
 
     env.cmd('FT.CREATE', 'idx_tl', 'ON', 'HASH', 'PREFIX', '1', '{tl}:',
             'LANGUAGE', 'tagalog', 'SCHEMA', 'word', 'TEXT')
     waitForIndex(env, 'idx_tl')
 
-    res = env.cmd('FT.SEARCH', 'idx_tl', 'kumain', 'SORTBY', 'word', 'ASC')
-    env.assertEqual(res[0], 2)
-
-    res = env.cmd('FT.SEARCH', 'idx_tl', 'kain', 'SORTBY', 'word', 'ASC')
-    env.assertEqual(res[0], 2)
+    for words in families.values():
+        expected = {f'{{tl}}:{word}' for word in words}
+        for query in words:
+            res = env.cmd('FT.SEARCH', 'idx_tl', query, 'NOCONTENT', 'LIMIT', '0', '100')
+            env.assertEqual(set(res[1:]), expected, message=query)
 
 
 def testMalayLanguage(env):
