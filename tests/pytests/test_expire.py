@@ -575,7 +575,7 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     # If activeSubexpires() fails to drain per-key post-notification jobs, the first
     # command can return stale sortable values and drain those jobs at its end.
     # Polling FT.SEARCH (or sending another command first) would hide that regression.
-    time.sleep(2)
+    time.sleep(0.5)
     env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
