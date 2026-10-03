@@ -31,7 +31,7 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
         else
             processor=$(uname -m)
             if [[ $processor = 'x86_64' ]]; then filename=cmake-${version}-linux-x86_64.sh; else filename=cmake-${version}-linux-aarch64.sh; fi
-            _dry_line "wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}"
+            _dry_line "curl -fsSL --proto '=https' --proto-redir '=https' -o ${filename} https://github.com/Kitware/CMake/releases/download/v${version}/${filename}"
             _dry_line "chmod u+x ./${filename}"
             _dry_line "${MODE:+$MODE }./${filename} --skip-license --prefix=/usr/local --exclude-subdir"
             _dry_line "rm ./${filename}"
@@ -65,7 +65,13 @@ else
             filename=cmake-${version}-linux-aarch64.sh
         fi
 
-        wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
+        # -o truncates, so a retried bootstrap overwrites a partial download
+        # instead of executing a stale one. --proto/--proto-redir hold the
+        # transfer on HTTPS across GitHub's redirect; the file is executed
+        # below, so an http:// downgrade would be code execution.
+        curl -fsSL --proto '=https' --proto-redir '=https' \
+             -o ${filename} \
+             https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
         chmod u+x ./${filename}
         $MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
         cmake --version
