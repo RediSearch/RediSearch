@@ -163,7 +163,7 @@ TEST_F(OwnedBufferDrainTest, SorterAccumulatesUpstreamDrainBeforeYielding) {
   EXPECT_EQ(2, source.drainCalls);
 }
 
-TEST_F(OwnedBufferDrainTest, SorterReturnResumesEmptyRecoveryOnSecondTimeout) {
+TEST_F(OwnedBufferDrainTest, SorterReturnDoesNotRefillAfterEmptyRecovery) {
   qctx.timeoutPolicy = TimeoutPolicy_Return;
   source.scores.clear();
   source.Drain = [](ResultProcessor *base, SearchResult *result) {
@@ -174,15 +174,14 @@ TEST_F(OwnedBufferDrainTest, SorterReturnResumesEmptyRecoveryOnSecondTimeout) {
     return RP_DRAIN_OK;
   };
   attach(RPSorter_NewByScore(3, nullptr));
-  for (unsigned cycle = 0; cycle < 2; ++cycle) {
-    ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
-    const unsigned nextCalls = source.nextCalls;
-    EXPECT_EQ((std::vector<double>{double(cycle * 2 + 1)}), drain());
-    EXPECT_EQ((cycle + 1) * 2, source.drainCalls);
-    EXPECT_EQ(nextCalls, source.nextCalls);
-    EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
-    EXPECT_EQ((cycle + 1) * 2, source.drainCalls);
-  }
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+  const unsigned nextCalls = source.nextCalls;
+  EXPECT_EQ((std::vector<double>{1}), drain());
+  source.scores.push_back(100);
+  EXPECT_EQ(RS_RESULT_EOF, rp->Next(rp, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+  EXPECT_EQ(2, source.drainCalls);
+  EXPECT_EQ(nextCalls, source.nextCalls);
 }
 
 TEST_F(OwnedBufferDrainTest, EmptyDepleterPassesUpstreamDrainWithoutNext) {
@@ -218,7 +217,7 @@ TEST_F(OwnedBufferDrainTest, SorterReturnFoldsBeforeYieldingAndDrainDoesNotResum
   attach(RPSorter_NewByScore(3, nullptr));
   const auto accumulate = rp->Next;
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
-  EXPECT_EQ(accumulate, rp->Next);
+  EXPECT_NE(accumulate, rp->Next);
   EXPECT_EQ(10, qctx.resultLimit);
   const unsigned calls = source.nextCalls;
   EXPECT_EQ((std::vector<double>{4, 3, 2}), drain());
@@ -259,11 +258,38 @@ TEST_F(OwnedBufferDrainTest, NormalizerReturnFoldsBeforeYieldingAndKeepsCommitte
   attach(RPMaxScoreNormalizer_New(key));
   const auto accumulate = rp->Next;
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
-  EXPECT_EQ(accumulate, rp->Next);
+  EXPECT_NE(accumulate, rp->Next);
   EXPECT_EQ(10, qctx.resultLimit);
   const unsigned calls = source.nextCalls;
   EXPECT_EQ((std::vector<double>{0.75, 0.5, 1, 0.25}), drain());
   EXPECT_EQ(calls, source.nextCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, ReturnCursorYieldsOnlyRemainingCommittedAccumulatorRows) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  for (bool normalize : {false, true}) {
+    source.cursor = 0;
+    source.scores = {1, 4, 2, 3};
+    attach(normalize ? RPMaxScoreNormalizer_New(key) : RPSorter_NewByScore(4, nullptr));
+    ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+    ASSERT_EQ(RP_DRAIN_OK, rp->Drain(rp, &row));
+    EXPECT_DOUBLE_EQ(normalize ? 0.75 : 4, SearchResult_GetScore(&row));
+    SearchResult_Clear(&row);
+    const unsigned calls = source.nextCalls;
+    source.scores.push_back(100);
+    std::vector<double> remaining;
+    int rc;
+    while ((rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
+      remaining.push_back(SearchResult_GetScore(&row));
+      SearchResult_Clear(&row);
+    }
+    EXPECT_EQ(RS_RESULT_EOF, rc);
+    EXPECT_EQ(normalize ? (std::vector<double>{0.5, 1, 0.25})
+                        : (std::vector<double>{3, 2, 1}), remaining);
+    EXPECT_EQ(calls, source.nextCalls);
+    rp->Free(rp);
+    rp = nullptr;
+  }
 }
 
 TEST_F(OwnedBufferDrainTest, DepleterResumesAfterNextPrefixWithoutUpstreamCalls) {

@@ -843,6 +843,7 @@ static RPDrainStatus rpsortDrain_Accum(ResultProcessor *rp, SearchResult *r) {
     if (status != RP_DRAIN_EOF) return status;
   }
   // Recovery must finish selecting top-K before publishing its first row.
+  rp->Next = rpsortNext_Yield;
   rp->Drain = rpsortDrain_Yield;
   return rpsortDrain_Yield(rp, r);
 }
@@ -856,14 +857,17 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAc
     rp->Drain = rpsortDrain_Yield;
     return rpsortNext_Yield(rp, r);
   }
-  if (rc != RS_RESULT_OK) return rc;
+  if (rc != RS_RESULT_OK) {
+    if (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy != TimeoutPolicy_Fail) {
+      rp->Next = rpsortNext_Yield;
+    }
+    return rc;
+  }
   rpsortAccumulate(rp);
   return RESULT_QUEUED;
 }
 
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
-  // RETURN cursors resume accumulation in a new execution cycle after recovery.
-  rp->Drain = rpsortDrain_Accum;
   PipelineAccess *access = rp->parent->executionAccess;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX;  // we want to accumulate all results
@@ -2048,6 +2052,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
+    if (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy != TimeoutPolicy_Fail) {
+      rp->Next = RPMaxScoreNormalizer_Yield;
+    }
     return rc;
   }
 
@@ -2065,6 +2072,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
 
 static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  rp->Next = RPMaxScoreNormalizer_Yield;
   if (array_len(self->pool) == 0) {
     return RP_DRAIN_EOF;
   }
