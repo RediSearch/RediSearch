@@ -1574,6 +1574,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_score_source",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
@@ -1877,6 +1878,7 @@ dependencies = [
  "search_disk",
  "string_utils",
  "thiserror",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -2177,6 +2179,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
+ "string_utils_ffi",
  "syn 2.0.118",
  "term_dictionary_ffi",
  "term_suffix_index_ffi",
@@ -2971,6 +2974,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "string_utils_ffi"
+version = "0.0.1"
+dependencies = [
+ "string_utils",
+ "workspace_hack",
+]
+
+[[package]]
 name = "strip-ansi-escapes"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3613,6 +3624,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 name = "value"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "c_ffi_utils",
  "cheadergen",
  "ffi",
@@ -3628,6 +3640,7 @@ dependencies = [
  "tracing",
  "tracing_assert",
  "triomphe",
+ "value",
  "workspace_hack",
 ]
 

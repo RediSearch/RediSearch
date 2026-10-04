@@ -36,9 +36,26 @@ void testChan() {
   MRChannel_Free(c);
 }
 
+void testTryPop() {
+  MRChannel *c = MR_NewChannel();
+  int first = 1, second = 2, late = 3;
+  mu_check(MRChannel_TryPop(c) == NULL);
+  MRChannel_Push(c, &first);
+  MRChannel_Push(c, &second);
+  mu_check(MRChannel_TryPop(c) == &first);
+  // A reply arriving during the drain remains eligible for collection.
+  MRChannel_Push(c, &late);
+  mu_check(MRChannel_TryPop(c) == &second);
+  mu_check(MRChannel_TryPop(c) == &late);
+  mu_check(MRChannel_TryPop(c) == NULL);
+  mu_assert_int_eq(0, MRChannel_Size(c));
+  MRChannel_Free(c);
+}
+
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   MU_RUN_TEST(testChan);
+  MU_RUN_TEST(testTryPop);
   MU_REPORT();
 
   return minunit_status;
