@@ -367,7 +367,11 @@ def test_coord_profile():
           'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
-          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
+          'Result processors profile': [{
+            'Type': 'Network', 'Time': ANY, 'Results processed': 2,
+            'Shard-Wait-Time': ANY, 'Row-Convert-Time': ANY, 'Reply-Free-Time': ANY,
+            'Shard replies': ANY, 'Fields converted': 0,
+          }]
         }
       }
     }
@@ -385,6 +389,10 @@ def test_coord_profile():
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
     env.assertEqual(res, exp)
+    network = res['Profile']['Coordinator']['Result processors profile'][0]
+    for metric in ('Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time'):
+      env.assertGreaterEqual(network[metric], 0, message=network)
+    env.assertGreaterEqual(network['Shard replies'], 1, message=network)
     env.assertLessEqual(len(res['Profile']['Shards']), env.shardsCount)
     for shard_res in res['Profile']['Shards']:
       env.assertEqual(shard_res, shard)
