@@ -1,16 +1,14 @@
 version: 0.5
-name: "search-vector-field-update"
+name: "search-vector-field-update-unoptimized"
 description: "
              Update-only benchmark over documents that carry text, numeric and vector
              fields, rewriting only the vector (MOD-17750).
 
-             When an update names only VECTOR fields, the engine rewrites the vector in
-             place under the document's existing doc-id and skips the rest of the
-             indexing: the text and numeric fields, which are unchanged, are not
-             re-indexed. That saved work is the gain this benchmark is meant to show.
-             The comparison that shows it is this benchmark against
-             search-vector-field-update-unoptimized, which is identical but runs with
-             OPTIMIZE_PARTIAL_UPDATE off, so each update re-indexes the whole document.
+             Baseline for search-vector-field-update: the same workload with
+             OPTIMIZE_PARTIAL_UPDATE turned off, so no update takes the in-place path
+             and every one re-indexes the whole document, text and numeric fields
+             included. Compare it against
+             search-vector-field-update to see the indexing work the optimization saves.
 
              Companion to search-vector-numeric-partial-update, which leaves the vector
              unchanged and rewrites the numeric field instead. Shares the corpus with the
@@ -35,6 +33,8 @@ dbconfig:
   dataset_load_timeout_secs: 1000
   check:
     keyspacelen: 100000
+  init_commands:
+    - '"FT.CONFIG" "SET" "OPTIMIZE_PARTIAL_UPDATE" "false"'
 
 clientconfig:
   benchmark_type: "write-only"
