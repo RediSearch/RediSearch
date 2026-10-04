@@ -754,8 +754,6 @@ typedef struct {
   // When set, score ties are broken by this key's value instead of the doc id.
   const RLookupKey *scoreTieBreakKey;
 
-  // Whether a timeout warning needs to be propagated down the downstream
-  bool timedOut;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -768,9 +766,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     rm_free(cur_best);
     return RS_RESULT_OK;
   }
-  int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-  self->timedOut = false;
-  return ret;
+  return RS_RESULT_EOF;
 }
 
 static RPDrainStatus rpsortDrain(ResultProcessor *rp, SearchResult *r) {
@@ -808,23 +804,6 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAc
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT) {
-    RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
-
-    if (policy == TimeoutPolicy_Fail) {
-      return rc;
-    }
-    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
-    // calls pop the buffered, sorted prefix from the heap). They differ in
-    // who drives that draining: Return surfaces a row inline now, while
-    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
-    // and the main-thread drain pops the heap.
-    rp->Next = rpsortNext_Yield;
-    if (policy == TimeoutPolicy_Return) {
-      self->timedOut = true;
-      return rpsortNext_Yield(rp, r);
-    }
-    return rc;
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
@@ -1502,10 +1481,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // If we exit the loop because we got an error, or we have zero result, return without locking
   // Redis.
-  if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-       !(result_status == RS_RESULT_TIMEDOUT &&
-         rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
-      IsBufferEmpty(self)) {
+  if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK) || IsBufferEmpty(self)) {
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
@@ -1979,46 +1955,42 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   }
 }
 
- /*******************************************************************************************************************
-   *  Max Score Normalizer Result Processor
-   *
-   * This result processor normalizes the scores of search results using division by
-   * the max score. It gathers all results from the upstream processor, finds the
-   * maximum score, and divides each score by the maximum. This ensures that all scores
-   * fall within the range [0, 1].
-   *
-   * The processor works in two phases:
-   * 1. Accumulation: Gather all results from upstream and find the max score.
-   * 2. Yield: Normalize each result's score by division with the max score, then pass
-   *    it downstream.
-  *******************************************************************************************************************/
- typedef struct {
-   ResultProcessor base;
-   // Stores the max value found (if needed in the future)
-   double maxValue;
-   const RLookupKey *scoreKey;
-   SearchResult *pooledResult;
-   arrayof(SearchResult *) pool;
-   bool timedOut;
- } RPMaxScoreNormalizer;
+/*******************************************************************************************************************
+ *  Max Score Normalizer Result Processor
+ *
+ * This result processor normalizes the scores of search results using division by
+ * the max score. It gathers all results from the upstream processor, finds the
+ * maximum score, and divides each score by the maximum. This ensures that all scores
+ * fall within the range [0, 1].
+ *
+ * The processor works in two phases:
+ * 1. Accumulation: Gather all results from upstream and find the max score.
+ * 2. Yield: Normalize each result's score by division with the max score, then pass
+ *    it downstream.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;
+  // Stores the max value found (if needed in the future)
+  double maxValue;
+  const RLookupKey *scoreKey;
+  SearchResult *pooledResult;
+  arrayof(SearchResult *) pool;
+} RPMaxScoreNormalizer;
 
+static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
+  array_free_ex(self->pool, srDtor(*(char **)ptr));
+  srDtor(self->pooledResult);
+  rm_free(self);
+}
 
- static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
-   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
-   array_free_ex(self->pool, srDtor(*(char **)ptr));
-   srDtor(self->pooledResult);
-   rm_free(self);
- }
-
- static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
-   RPMaxScoreNormalizer* self = (RPMaxScoreNormalizer*)rp;
-   size_t length = array_len(self->pool);
-   if (length == 0) {
+static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  size_t length = array_len(self->pool);
+  if (length == 0) {
     // We've already yielded all results, return EOF
-    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-    self->timedOut = false;
-    return ret;
-   }
+    return RS_RESULT_EOF;
+  }
   SearchResult *poppedResult = array_pop(self->pool);
   SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
@@ -2027,43 +1999,40 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
     SearchResult_SetScore(r, SearchResult_GetScore(r) / self->maxValue);
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r),
+                        RSValue_NewNumber(SearchResult_GetScore(r)));
   }
   EXPLAIN(SearchResult_GetScoreExplainMut(r),
-        "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
-        SearchResult_GetScore(r), oldScore, self->maxValue);
+          "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
+          SearchResult_GetScore(r), oldScore, self->maxValue);
   return RS_RESULT_OK;
- }
+}
 
- static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r,
-                                               PipelineAccess *access) {
-   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
-   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
-   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
-   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
-   // if our upstream has finished - just change the state to not accumulating, and yield
-   if (rc == RS_RESULT_EOF) {
-     rp->Next = RPMaxScoreNormalizer_Yield;
-     return rp->Next(rp, r);
-   } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-     self->timedOut = true;
-     rp->Next = RPMaxScoreNormalizer_Yield;
-     return rp->Next(rp, r);
-   } else if (rc != RS_RESULT_OK) {
-     return rc;
-   }
+static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r,
+                                              PipelineAccess *access) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = RPMaxScoreNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc != RS_RESULT_OK) {
+    return rc;
+  }
 
-   self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
-   // The pooled result outlives the upstream iterator's `it->current` slot;
-   // preserve or drop the borrowed RSIndexResult before storing in the pool.
-   SearchResult_BufferIndexResult(rp, self->pooledResult);
-   array_ensure_append_1(self->pool, self->pooledResult);
+  self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
+  // The pooled result outlives the upstream iterator's `it->current` slot;
+  // preserve or drop the borrowed RSIndexResult before storing in the pool.
+  SearchResult_BufferIndexResult(rp, self->pooledResult);
+  array_ensure_append_1(self->pool, self->pooledResult);
 
-   // we need to allocate a new result for the next iteration
-   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-   *self->pooledResult = SearchResult_New();
-   return RESULT_QUEUED;
- }
+  // we need to allocate a new result for the next iteration
+  self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  *self->pooledResult = SearchResult_New();
+  return RESULT_QUEUED;
+}
 
 static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
@@ -3470,10 +3439,7 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   if (!RPDepleter_Deplete(self)) return RS_RESULT_TIMEDOUT;
 
-  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
-  // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
-  // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT && base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_TIMEDOUT) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_TIMEDOUT;
   }
