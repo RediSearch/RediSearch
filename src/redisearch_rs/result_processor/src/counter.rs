@@ -223,7 +223,9 @@ pub(crate) mod test {
             let mut row = SearchResult::new();
             // SAFETY: both allocations stay pinned and live through execution;
             // recovery touches only Counter, never Source or the worker's row.
-            unsafe { (*counter).upstream = &raw mut source.header };
+            // Derive from the whole allocation because Next accesses Source's
+            // trailing fields, not only its repr(C) header.
+            unsafe { (*counter).upstream = (&raw mut *source).cast() };
             // SAFETY: the live counter's constructor installed this callback.
             let next = unsafe { (*counter).Next.unwrap() };
             // SAFETY: the chain is exclusive and its private output is initialized.
