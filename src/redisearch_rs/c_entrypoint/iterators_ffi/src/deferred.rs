@@ -9,154 +9,124 @@
 
 //! C entry point for lazily-evaluated vector range iterators.
 //!
-//! This is the C-ABI glue around the pure-Rust [`rqe_iterators::deferred`] machinery: it
-//! adapts a C producer callback (plus its context) into a Rust [`Producer`] closure, which
-//! the iterator runs on its first read.
+//! The VecSim range query is captured by the iterator's [`Producer`] and runs on its first read
+//! (see [`rqe_iterators::deferred`]).
 
-use std::ffi::c_void;
+use std::{ffi::c_void, ptr::NonNull};
 
-use ffi::QueryIterator;
+use ffi::{
+    QueryIterator, QueryRequestTimeout, VecSimIndex, VecSimQueryParams, VecSimQueryReply_Order,
+};
 use index_result::RSIndexResult;
 use rqe_iterators::deferred::{ProducedResults, Producer};
 use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::utils::OwnedSlice;
 use rqe_iterators::{
     RQEIteratorError, id_list_lazy::IdListLazy, metric::MetricType, metric_lazy::MetricLazy,
 };
-
-/// Results returned by a [`ProduceResultsFn`].
-///
-/// The `ids` and `metrics` arrays are allocated by the C producer using the Redis allocator;
-/// ownership transfers to the iterator, which frees them via `RedisModule_Free` (see
-/// [`OwnedSlice::from_c`]).
-#[repr(C)]
-#[derive(Debug)]
-#[cheadergen::config(export)]
-pub struct VectorRangeResults {
-    /// Pointer to the array of `num` matching document IDs. May be null when
-    /// `num` is zero or `timed_out` is set.
-    pub ids: *mut rqe_core::DocId,
-    /// Pointer to the array of `num` metric (distance) values, parallel to `ids`.
-    /// Null when the query does not yield a metric or `timed_out` is set.
-    pub metrics: *mut f64,
-    /// Number of entries in `ids` (and `metrics`, when non-null).
-    pub num: usize,
-    /// Set when the underlying query timed out before producing results.
-    pub timed_out: bool,
-}
-
-/// Type of the C callback that runs the deferred query and returns its results.
-pub type ProduceResultsFn = unsafe extern "C" fn(ctx: *mut c_void) -> VectorRangeResults;
-/// Type of the C callback that frees the producer context.
-pub type FreeProducerCtxFn = unsafe extern "C" fn(ctx: *mut c_void);
-
-/// Owns the C producer context and frees it exactly once, when dropped — i.e. after the
-/// [`Producer`] closure runs, or when the iterator is freed without ever being read.
-struct CtxGuard {
-    ctx: *mut c_void,
-    free_ctx: FreeProducerCtxFn,
-}
-
-impl Drop for CtxGuard {
-    fn drop(&mut self) {
-        // SAFETY: `free_ctx` and `ctx` are valid per the contract of `NewLazyVectorRangeIterator`,
-        // and this is the only place the context is freed, so it is freed exactly once.
-        unsafe { (self.free_ctx)(self.ctx) };
-    }
-}
-
-/// Wrap a C produce/free callback pair into a Rust [`Producer`] closure.
-///
-/// # Safety
-///
-/// See [`NewLazyVectorRangeIterator`].
-unsafe fn c_producer(
-    produce: ProduceResultsFn,
-    free_ctx: FreeProducerCtxFn,
-    ctx: *mut c_void,
-) -> Producer<'static> {
-    let guard = CtxGuard { ctx, free_ctx };
-    Box::new(move || {
-        // Bind the *whole* `guard` by reference so the closure captures all of it. Without this,
-        // edition-2024 disjoint closure captures would capture only the `Copy` field `guard.ctx`
-        // and drop the `CtxGuard` (freeing the context) the moment `c_producer` returns — long
-        // before the deferred query runs, leaving the closure with a dangling context pointer.
-        // Capturing the whole guard ties the context's lifetime to the closure (and its iterator).
-        let guard = &guard;
-        // SAFETY: `produce` and `ctx` are valid per the contract of `NewLazyVectorRangeIterator`.
-        let results = unsafe { (produce)(guard.ctx) };
-        // Take ownership of any arrays the producer handed back *before* inspecting `timed_out`, so
-        // they are freed even on the timeout path (where the iterator drops these `OwnedSlice`s).
-        let ids = if results.ids.is_null() {
-            OwnedSlice::default()
-        } else {
-            // SAFETY: the producer guarantees `ids` points to `num` initialized `DocId`s
-            // allocated with the Redis allocator, and transfers ownership to us.
-            unsafe { OwnedSlice::from_c(results.ids, results.num) }
-        };
-        let metrics = if results.metrics.is_null() {
-            None
-        } else {
-            // SAFETY: the producer guarantees `metrics` points to `num` initialized `f64`s
-            // allocated with the Redis allocator, and transfers ownership to us.
-            Some(unsafe { OwnedSlice::from_c(results.metrics, results.num) })
-        };
-        if results.timed_out {
-            // `ids`/`metrics` drop here, freeing anything the producer allocated alongside the flag.
-            return Err(RQEIteratorError::TimedOut);
-        }
-        Ok(ProducedResults { ids, metrics })
-    })
-}
+use vecsim::{IndexRef, QueryError, QueryReply, QueryVector, ReplyOrder};
 
 /// Creates a lazily-evaluated vector range iterator.
 ///
 /// Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
-/// other ID-list/metric constructors, the matching documents are **not** computed here. Instead
-/// the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
-/// after which the resulting iterator behaves exactly like an eagerly-built metric (when
-/// `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
-/// lock before it executes, so writes can proceed concurrently (see MOD-16437).
+/// other ID-list/metric constructors, the matching documents are **not** computed here: the
+/// VecSim range query runs on the first `Read`/`SkipTo`, which the caller may issue after
+/// releasing the spec lock, so writes can proceed concurrently. The iterator then behaves like
+/// an eagerly-built metric iterator (when `yields_metric`) or ID-list iterator, sorted by id
+/// when `order` is `BY_ID`. Until the query runs, its estimate is the index size at
+/// construction.
 ///
-/// `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
-/// upper-bound estimate reported until the query runs; `type_` is the metric type (only used
-/// when `yields_metric`).
+/// `query_vector` is copied and `query_params` is taken by value, so neither has to outlive this
+/// call.
+///
+/// Aborts if `order` is neither `BY_SCORE` nor `BY_ID`, and on the first read if `radius` is
+/// negative, instead of passing VecSim a value it rejects.
 ///
 /// # Safety
 ///
-/// 1. `produce` must run the query against `ctx` and return a valid [`VectorRangeResults`]
-///    (arrays allocated with the Redis allocator, or `timed_out`); it must not free `ctx`.
-/// 2. `free_ctx` must free `ctx` and be safe to call exactly once.
-/// 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
+/// 1. `index` is non-null and [valid], and outlives the returned iterator.
+/// 2. `query_vector` is [valid] for reads of `vector_byte_len` bytes, and `vector_byte_len`
+///    equals the index's expected query-vector size.
+/// 3. `timeout` is non-null and remains [valid] for the returned iterator's lifetime.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewLazyVectorRangeIterator(
-    produce: ProduceResultsFn,
-    free_ctx: FreeProducerCtxFn,
-    ctx: *mut c_void,
+pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
+    index: *mut VecSimIndex,
+    query_vector: *const c_void,
+    vector_byte_len: usize,
+    radius: f64,
+    mut query_params: VecSimQueryParams,
+    order: VecSimQueryReply_Order,
     yields_metric: bool,
-    sorted_by_id: bool,
-    num_estimated: usize,
-    type_: MetricType,
+    timeout: *mut QueryRequestTimeout,
 ) -> *mut QueryIterator {
-    // SAFETY: callbacks and ctx are valid per preconditions 1 + 2 + 3.
-    let producer = unsafe { c_producer(produce, free_ctx, ctx) };
+    debug_assert!(!timeout.is_null(), "timeout must be non-null");
+    let order = ReplyOrder::from_raw(order).expect("a range query is ordered BY_SCORE or BY_ID");
 
-    match (yields_metric, sorted_by_id) {
-        (true, true) => {
+    // SAFETY: guaranteed by 1.
+    let index = unsafe { NonNull::new_unchecked(index) };
+    // SAFETY: 1 keeps the index valid for the iterator's lifetime, and the producer closure
+    // that holds this reference is owned by the iterator, so it cannot outlive the index.
+    let index = unsafe { IndexRef::<'static>::from_raw(index) };
+    // SAFETY: guaranteed by 2.
+    let blob =
+        unsafe { std::slice::from_raw_parts(query_vector.cast::<u8>(), vector_byte_len) }.to_vec();
+    // SAFETY: guaranteed by 2.
+    let query_vector = unsafe { QueryVector::new(index, blob) };
+    query_params.timeoutCtx = timeout.cast();
+    // Read now, while the caller still holds the spec lock.
+    let num_estimated = index.size();
+
+    // The query may return vectors added after construction. They are not filtered here: their
+    // documents are dropped downstream, when the doc-table lookup finds no metadata for them.
+    let producer: Producer<'static> = Box::new(move || {
+        // SAFETY: `query_params.timeoutCtx` is `timeout`, which 3 keeps valid for the iterator's
+        // lifetime and so for this call, made by the iterator.
+        let reply = unsafe { index.range_query(&query_vector, radius, &mut query_params, order) }
+            .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+        Ok(collect_results(reply, yields_metric))
+    });
+
+    let type_ = MetricType::VectorDistance;
+    let id_list_result = || RSIndexResult::build_virt().weight(1.0).build();
+    match (yields_metric, order) {
+        (true, ReplyOrder::ById) => {
             RQEIteratorWrapper::boxed_new(MetricLazy::<true>::new(producer, num_estimated, type_))
         }
-        (true, false) => {
+        (true, ReplyOrder::ByScore) => {
             RQEIteratorWrapper::boxed_new(MetricLazy::<false>::new(producer, num_estimated, type_))
         }
-        (false, true) => RQEIteratorWrapper::boxed_new(IdListLazy::<true>::new(
+        (false, ReplyOrder::ById) => RQEIteratorWrapper::boxed_new(IdListLazy::<true>::new(
             producer,
             num_estimated,
-            RSIndexResult::build_virt().weight(1.0).build(),
+            id_list_result(),
         )),
-        (false, false) => RQEIteratorWrapper::boxed_new(IdListLazy::<false>::new(
+        (false, ReplyOrder::ByScore) => RQEIteratorWrapper::boxed_new(IdListLazy::<false>::new(
             producer,
             num_estimated,
-            RSIndexResult::build_virt().weight(1.0).build(),
+            id_list_result(),
         )),
+    }
+}
+
+/// Drains a range-query `reply` into the iterator's ids and, when `yields_metric`, the parallel
+/// distances. A missing reply yields no results.
+fn collect_results(reply: Option<QueryReply>, yields_metric: bool) -> ProducedResults {
+    let len = reply.as_ref().map_or(0, QueryReply::len);
+    let mut ids = Vec::with_capacity(len);
+    let mut distances = Vec::with_capacity(if yields_metric { len } else { 0 });
+    if let Some(mut results) = reply.and_then(QueryReply::into_results) {
+        if yields_metric {
+            for (id, distance) in results {
+                ids.push(id);
+                distances.push(distance);
+            }
+        } else {
+            ids.extend(std::iter::from_fn(|| results.next_id()));
+        }
+    }
+    ProducedResults {
+        ids: ids.into(),
+        metrics: yields_metric.then(|| distances.into()),
     }
 }

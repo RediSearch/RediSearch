@@ -19,11 +19,12 @@ use ffi::{
     VecSimIndex_AdhocBfCtx_Free, VecSimIndex_AdhocBfCtx_GetDistanceFrom,
     VecSimIndex_AdhocBfCtx_GetExactDistances, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize,
-    VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
-    VecSimType_VecSimType_BFLOAT16, VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32,
-    VecSimType_VecSimType_FLOAT64, VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32,
-    VecSimType_VecSimType_INT64, VecSimType_VecSimType_UINT8,
+    VecSimIndex_RangeQuery, VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine,
+    VecSimParams_GetQueryBlobSize, VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks,
+    VecSimTieredIndex_ReleaseSharedLocks, VecSimType_VecSimType_BFLOAT16,
+    VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32, VecSimType_VecSimType_FLOAT64,
+    VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32, VecSimType_VecSimType_INT64,
+    VecSimType_VecSimType_UINT8,
 };
 use rqe_core::DocId;
 
@@ -195,6 +196,53 @@ impl<'index> IndexRef<'index> {
                 self.inner.as_ptr(),
                 query_vector.as_bytes().as_ptr().cast::<c_void>(),
                 k,
+                params,
+                order.as_raw(),
+            )
+        };
+        // SAFETY: `raw` is the freshly returned reply pointer from VecSim.
+        unsafe { QueryReply::from_raw_checked(raw, order) }
+    }
+
+    /// Run a range query for every vector within `radius` of `query_vector`.
+    ///
+    /// See [`QueryReply::from_raw_checked`] for the timeout/null handling contract.
+    ///
+    /// # Safety
+    ///
+    /// The `timeoutCtx` referenced by `params` must be [valid] for this call:
+    /// VecSim passes it to the registered timeout callback, which reads it as a
+    /// `QueryRequestTimeout`.
+    ///
+    /// # Panics
+    ///
+    /// If `radius` is negative.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn range_query(
+        &self,
+        query_vector: &QueryVector<'index>,
+        radius: f64,
+        params: &mut VecSimQueryParams,
+        order: ReplyOrder,
+    ) -> Result<Option<QueryReply>, QueryError> {
+        // VecSim rejects a negative radius by throwing a C++ exception, which must not unwind
+        // into Rust. This is VecSim's own comparison, so it panics on exactly the radii VecSim
+        // rejects.
+        if radius < 0.0 {
+            panic!("VecSim range query radius must not be negative");
+        }
+        // SAFETY:
+        // 1. `self.inner` upholds its invariant.
+        // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
+        //    invariant, so the pointer is valid for the bytes VecSim reads.
+        // 3. `params` is exclusively borrowed for this call, and the caller keeps
+        //    its `timeoutCtx` valid for it.
+        let raw = unsafe {
+            VecSimIndex_RangeQuery(
+                self.inner.as_ptr(),
+                query_vector.as_bytes().as_ptr().cast::<c_void>(),
+                radius,
                 params,
                 order.as_raw(),
             )

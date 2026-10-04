@@ -98,44 +98,6 @@ typedef struct RSQueryTerm RSQueryTerm;
 
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-/**
- * Type of the C callback that frees the producer context.
- */
-typedef void (*FreeProducerCtxFn)(void *ctx);
-
-/**
- * Type of the C callback that runs the deferred query and returns its results.
- */
-typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
-
-/**
- * Results returned by a [`ProduceResultsFn`].
- *
- * The `ids` and `metrics` arrays are allocated by the C producer using the Redis allocator;
- * ownership transfers to the iterator, which frees them via `RedisModule_Free` (see
- * [`OwnedSlice::from_c`]).
- */
-typedef struct VectorRangeResults {
-  /**
-   * Pointer to the array of `num` matching document IDs. May be null when
-   * `num` is zero or `timed_out` is set.
-   */
-  t_docId *ids;
-  /**
-   * Pointer to the array of `num` metric (distance) values, parallel to `ids`.
-   * Null when the query does not yield a metric or `timed_out` is set.
-   */
-  double *metrics;
-  /**
-   * Number of entries in `ids` (and `metrics`, when non-null).
-   */
-  size_t num;
-  /**
-   * Set when the underlying query timed out before producing results.
-   */
-  bool timed_out;
-} VectorRangeResults;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -401,24 +363,29 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
  * Creates a lazily-evaluated vector range iterator.
  *
  * Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
- * other ID-list/metric constructors, the matching documents are **not** computed here. Instead
- * the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
- * after which the resulting iterator behaves exactly like an eagerly-built metric (when
- * `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
- * lock before it executes, so writes can proceed concurrently (see MOD-16437).
+ * other ID-list/metric constructors, the matching documents are **not** computed here: the
+ * VecSim range query runs on the first `Read`/`SkipTo`, which the caller may issue after
+ * releasing the spec lock, so writes can proceed concurrently. The iterator then behaves like
+ * an eagerly-built metric iterator (when `yields_metric`) or ID-list iterator, sorted by id
+ * when `order` is `BY_ID`. Until the query runs, its estimate is the index size at
+ * construction.
  *
- * `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
- * upper-bound estimate reported until the query runs; `type_` is the metric type (only used
- * when `yields_metric`).
+ * `query_vector` is copied and `query_params` is taken by value, so neither has to outlive this
+ * call.
+ *
+ * Aborts if `order` is neither `BY_SCORE` nor `BY_ID`, and on the first read if `radius` is
+ * negative, instead of passing VecSim a value it rejects.
  *
  * # Safety
  *
- * 1. `produce` must run the query against `ctx` and return a valid [`VectorRangeResults`]
- *    (arrays allocated with the Redis allocator, or `timed_out`); it must not free `ctx`.
- * 2. `free_ctx` must free `ctx` and be safe to call exactly once.
- * 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
+ * 1. `index` is non-null and [valid], and outlives the returned iterator.
+ * 2. `query_vector` is [valid] for reads of `vector_byte_len` bytes, and `vector_byte_len`
+ *    equals the index's expected query-vector size.
+ * 3. `timeout` is non-null and remains [valid] for the returned iterator's lifetime.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
+QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, double radius, VecSimQueryParams query_params, VecSimQueryReply_Order order, bool yields_metric, QueryRequestTimeout *timeout);
 
 /**
  * Creates a new metric iterator sorted by ID.

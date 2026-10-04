@@ -630,26 +630,27 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
-  RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
+  RangeVectorQuery range_query = {
+      .vector = query, .vecLen = sizeof(query), .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
 
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
-  // first Read/SkipTo (see MOD-16437), so the iterator must hold the *raw* query vector (`query`
-  // outlives it). The explicit UNARMED timeout mirrors request-owned state without imposing a
-  // deadline on the test.
+  // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
+  // mirrors request-owned state without imposing a deadline on the test.
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
-      index, range_query.vector, range_query.radius, queryParams, range_query.order,
-      /*yields_metric=*/true, &timeout);
+      index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
+      range_query.order, /*yields_metric=*/true, &timeout);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
 
   // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100.
   // VecSimIndex_GetDistanceFrom_Unsafe does not normalize its input, so compute expected distances
-  // against a normalized copy. The iterator keeps the raw `query` for its deferred range query.
+  // against a normalized copy. The iterator runs its deferred range query on its own copy of the
+  // raw `query`.
   float query_normalized[d];
   memcpy(query_normalized, query, sizeof(query));
   VecSim_Normalize(query_normalized, d, t);

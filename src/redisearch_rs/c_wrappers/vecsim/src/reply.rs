@@ -14,8 +14,8 @@ use std::ptr::NonNull;
 use ffi::{
     VecSimQueryReply, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut, VecSimQueryReply_Free,
     VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Iterator,
-    VecSimQueryReply_IteratorFree, VecSimQueryReply_IteratorNext, VecSimQueryResult_GetId,
-    VecSimQueryResult_GetScore,
+    VecSimQueryReply_IteratorFree, VecSimQueryReply_IteratorNext, VecSimQueryReply_Len,
+    VecSimQueryResult, VecSimQueryResult_GetId, VecSimQueryResult_GetScore,
 };
 use rqe_core::DocId;
 
@@ -27,7 +27,7 @@ pub struct QueryReply {
     ///
     /// # Invariant
     ///
-    /// Valid (returned by `VecSimIndex_TopKQuery` or
+    /// Valid (returned by `VecSimIndex_TopKQuery`, `VecSimIndex_RangeQuery` or
     /// `VecSimBatchIterator_Next`) and not yet freed, from construction until
     /// [`Drop`].
     inner: NonNull<VecSimQueryReply>,
@@ -83,6 +83,16 @@ impl QueryReply {
             return Err(QueryError::TimedOut);
         }
         Ok(Some(reply))
+    }
+
+    /// Number of results in the reply.
+    #[expect(
+        clippy::len_without_is_empty,
+        reason = "the length only pre-sizes buffers; emptiness shows when iterating the results"
+    )]
+    pub fn len(&self) -> usize {
+        // SAFETY: `self.inner` upholds its invariant.
+        unsafe { VecSimQueryReply_Len(self.inner.as_ptr()) }
     }
 
     /// Consume the reply and produce an iterator over its results.
@@ -153,19 +163,32 @@ impl ReplyResults {
         );
         self.find(|&(id, _)| id >= target)
     }
+
+    /// Like [`Iterator::next`], but yields only the doc id, sparing callers
+    /// that never read the score a VecSim call per result.
+    #[inline]
+    pub fn next_id(&mut self) -> Option<DocId> {
+        let result = self.next_result()?;
+        // SAFETY: `result` is owned by `self.reply`, which outlives this borrow.
+        Some(unsafe { VecSimQueryResult_GetId(result.as_ptr()) } as DocId)
+    }
+
+    /// Advance the VecSim iterator, returning the next result owned by
+    /// [`reply`](Self::reply).
+    #[inline]
+    fn next_result(&mut self) -> Option<NonNull<VecSimQueryResult>> {
+        // SAFETY: `self.iter` upholds its invariant.
+        NonNull::new(unsafe { VecSimQueryReply_IteratorNext(self.iter.as_ptr()) })
+    }
 }
 
 impl Iterator for ReplyResults {
     type Item = (DocId, f64);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: `self.iter` upholds its invariant.
-        let result = unsafe { VecSimQueryReply_IteratorNext(self.iter.as_ptr()) };
-        if result.is_null() {
-            return None;
-        }
-        // SAFETY: `result` is non-null and owned by `self.reply`, which
-        // outlives this borrow.
+        let result = self.next_result()?.as_ptr();
+        // SAFETY: `result` is owned by `self.reply`, which outlives this borrow.
         let id = unsafe { VecSimQueryResult_GetId(result) } as DocId;
         // SAFETY: as above.
         let score = unsafe { VecSimQueryResult_GetScore(result) };
