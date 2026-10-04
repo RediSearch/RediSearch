@@ -27,6 +27,8 @@
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 
+#define EXPR_INLINE_ARGS 8
+
 static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
@@ -66,7 +68,10 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   /** First, evaluate every argument */
   size_t nallocdargs = 0;
   size_t nargs = f->args->len;
-  RSValue *args[nargs];
+  // Argument counts are client-controlled (up to 65535 for variadic functions)
+  // and nested calls recurse through here, so only small counts use the stack.
+  RSValue *inlineArgs[EXPR_INLINE_ARGS];
+  RSValue **args = nargs <= EXPR_INLINE_ARGS ? inlineArgs : rm_malloc(nargs * sizeof(*args));
 
   // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
@@ -88,6 +93,9 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
 cleanup:
   for (size_t ii = 0; ii < nallocdargs; ii++) {
     RSValue_DecrRef(args[ii]);
+  }
+  if (args != inlineArgs) {
+    rm_free(args);
   }
   return rc;
 }
