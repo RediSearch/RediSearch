@@ -424,11 +424,11 @@ def row_block_scores(env):
     """ADDSCORES sends each row's score as a field, whichever scorer computed it."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT', 'n', 'NUMERIC', 'SORTABLE',
                'optional', 'TEXT').ok()
-    count = 30
+    count = max(30, 10 * env.shardsCount)
     add_docs(env, count, fields=lambda i: with_optional(
         i, 'body', ' '.join(['hello'] * (i % 4 + 1) + ['filler'] * (i % 7)), 'n', i))
     assert_keys_on_every_shard(env)
-    for scorer in ([], ['SCORER', 'TFIDF'], ['SCORER', 'BM25STD.NORM']):
+    for scorer in ([], ['SCORER', 'TFIDF.DOCNORM'], ['SCORER', 'BM25STD.NORM']):
         args = ['ADDSCORES', *scorer, 'LOAD', 2, '@n', '@optional',
                 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, count]
         reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', 'hello', *args)
@@ -441,11 +441,13 @@ def row_block_scores(env):
 def row_block_timeout_return(env):
     """A shard timing out mid-chunk under ON_TIMEOUT RETURN sends a short block."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'optional', 'TEXT').ok()
-    count = 60
-    add_docs(env, count, fields=lambda i: with_optional(i, 'n', i))
-    assert_keys_on_every_shard(env)
-    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@n', '@optional', 'LIMIT', 0, count]
     timeout_after = 5
+    # Every shard must hold more than `timeout_after` rows to time out mid-chunk.
+    count = 20 * env.shardsCount
+    add_docs(env, count, fields=lambda i: with_optional(i, 'n', i))
+    for conn in env.getOSSMasterNodesConnectionList():
+        env.assertGreater(conn.execute_command('DBSIZE'), timeout_after)
+    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@n', '@optional', 'LIMIT', 0, count]
 
     def run():
         reply = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after, internal_only=True)
@@ -456,12 +458,17 @@ def row_block_timeout_return(env):
         else:
             rows = [dict(zip(row[::2], row[1::2])) for row in reply[1:]]
             total, warning = reply[0], None
-        # Which shard's rows make it in varies between runs, so compare row values to the
-        # documents they came from and only the shape to the legacy reply.
+        # The coordinator stops at the first shard reply carrying the timeout warning, so which
+        # shard's rows make it in varies between runs: compare row values to the documents they
+        # came from, and only the shape to the legacy reply.
         for row in rows:
             n = int(row['n'])
             env.assertEqual(row, dict(n=str(n), **({'optional': 'present'} if n % 2 else {})))
-        env.assertGreater(len(rows), 0)
+        if env.protocol == 3:
+            env.assertEqual((total, len(rows)), (timeout_after, timeout_after))
+        else:
+            # RESP2 shards carry no warning, so the coordinator reads on past the short block.
+            env.assertEqual(len(rows), count)
         return total, len(rows), warning
 
     with all_shards_config(env, ON_TIMEOUT_CONFIG, 'return'):
@@ -480,6 +487,7 @@ def row_block_timeout_return(env):
                     ['_FT.DEBUG', *debug_query], ['TIMEOUT_AFTER_N', timeout_after]))
                 reply, cursor = reply
                 env.assertNotEqual(cursor, 0)
+                shard.execute_command('_FT.CURSOR', 'DEL', 'idx', cursor)
                 rows = shard_rows(env, reply)
                 env.assertEqual(len(rows), 1)
                 env.assertTrue(isinstance(rows[0], bytes), message=rows)
@@ -495,7 +503,7 @@ def row_block_json(env):
                '$.tags[*]', 'AS', 'tags', 'TAG',
                '$.nums[*]', 'AS', 'nums', 'NUMERIC').ok()
     conn = getConnectionByEnv(env)
-    count = 20
+    count = max(20, 10 * env.shardsCount)
     for i in range(count):
         doc = {'n': i + 0.25, 'tags': [f't{i}', f'u{i}'], 'nums': [i, -i * 1e20, 0.1],
                'obj': {'s': str(i), 'k': i, 'nested': [[i, str(i)], {'deep': None}]},
@@ -509,11 +517,15 @@ def row_block_json(env):
             '$.mixed', 'AS', 'mixed', '$.opt', 'AS', 'opt']
     tail = ['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, count]
     # Each variant picks a different member of the shard's multi-value trio for @tags.
-    variants = [(['DIALECT', 2], 't1'), (['DIALECT', 3], '["t1","u1"]')]
+    nested = '{"s":"1","k":1,"nested":[[1,"1"],{"deep":null}]}'
+    mixed = '[1,"1",true,null,1.5]'
+    variants = [(['DIALECT', 2], 't1', {'obj': nested, 'mixed': mixed, 'nums': '1'}),
+                (['DIALECT', 3], '["t1","u1"]',
+                 {'obj': f'[{nested}]', 'mixed': f'[{mixed}]', 'nums': '[1,-1e20,0.1]'})]
     if env.protocol == 3:
-        variants += [(['FORMAT', 'EXPAND', 'DIALECT', 3], ['t1', 'u1']),
-                     (['FORMAT', 'STRING', 'DIALECT', 3], '["t1","u1"]')]
-    for variant, tags in variants:
+        variants += [(['FORMAT', 'EXPAND', 'DIALECT', 3], ['t1', 'u1'], {}),
+                     (['FORMAT', 'STRING', 'DIALECT', 3], '["t1","u1"]', {})]
+    for variant, tags, expected in variants:
         args = [*load, *tail, *variant]
         reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', '*', *args)
         if env.protocol == 3:
@@ -522,6 +534,8 @@ def row_block_json(env):
             rows = [dict(zip(row[::2], row[1::2])) for row in reply[1:]]
         env.assertEqual(len(rows), count, message=variant)
         env.assertEqual(rows[1]['tags'], tags, message=variant)
+        for name, value in expected.items():
+            env.assertEqual(rows[1][name], value, message=(variant, name))
         assert_blocks_used(env, without_optional(count), '*', *args)
 
 
