@@ -246,15 +246,16 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         };
 
         if resp3 {
+            // SAFETY: ensured by caller (2.)
+            unsafe { ffi::RedisModule_Reply_Map(reply) };
             // SAFETY: ensured by caller (2.); the key is a static C string.
             unsafe {
-                ffi::RedisModule_Reply_Map(reply);
                 ffi::RedisModule_Reply_StringBuffer_FFI(
                     reply,
                     c"extra_attributes".as_ptr(),
                     c"extra_attributes".count_bytes(),
-                );
-            }
+                )
+            };
         }
         // SAFETY: ensured by caller (2.)
         unsafe { ffi::RedisModule_Reply_Map(reply) };
@@ -276,11 +277,14 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
                     reply,
                     c"values".as_ptr(),
                     c"values".count_bytes(),
-                );
-                ffi::RedisModule_Reply_Array(reply);
-                ffi::RedisModule_Reply_ArrayEnd(reply);
-                ffi::RedisModule_Reply_MapEnd(reply);
-            }
+                )
+            };
+            // SAFETY: ensured by caller (2.)
+            unsafe { ffi::RedisModule_Reply_Array(reply) };
+            // SAFETY: ensured by caller (2.)
+            unsafe { ffi::RedisModule_Reply_ArrayEnd(reply) };
+            // SAFETY: ensured by caller (2.)
+            unsafe { ffi::RedisModule_Reply_MapEnd(reply) };
         }
         nrows += 1;
     }
