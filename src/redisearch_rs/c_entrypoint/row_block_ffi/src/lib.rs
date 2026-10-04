@@ -278,7 +278,10 @@ pub unsafe extern "C" fn RowBlockDecoder_Begin(
     let decoder = unsafe { decoder_mut(d) };
     // SAFETY: ensured by caller (2.)
     let lookup = unsafe { RLookup::from_opaque_mut_ptr(lk) }.expect("a non-null RLookup");
-    debug_assert!(!buf.is_null(), "RowBlockDecoder_Begin got a NULL buffer");
+    // A reply without a string payload gives no pointer to slice, whatever `len` says.
+    if buf.is_null() {
+        return false;
+    }
     // SAFETY: ensured by caller (3.)
     let block = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
 

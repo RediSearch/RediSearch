@@ -105,8 +105,11 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 
 // A shard asked for row blocks (the `row_block` Rust crate) sends a chunk's rows as one bulk
 // string rather than an array of RESP rows; the reply type tells the two apart. The decoder
-// borrows the string, so its rows are read only while that reply is current.
+// borrows the block's bytes, so its rows are read only while that reply is current; values
+// are copied out.
 static bool blockBegin(RPNet *nc, MRReply *rows) {
+  // A block carries no per-row score, which hybrid subqueries need.
+  if (nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
   if (!nc->blockDecoder) nc->blockDecoder = RowBlockDecoder_New();
   size_t len;
   const char *buf = MRReply_String(rows, &len);
@@ -179,9 +182,8 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
 
   rs_wall_clock freeStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&freeStart);
-  MRReply_Free(nc->current.root);
+  RPNet_freeCurrent(nc);
   if (nc->profileBreakdown) accumulateSince(&nc->breakdown.freeTime, &freeStart);
-  RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
@@ -436,6 +438,13 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
+}
+
+// The decoder borrows the block's bytes from the reply, so it ends before the reply is freed.
+void RPNet_freeCurrent(RPNet *nc) {
+  if (nc->blockDecoder) RowBlockDecoder_End(nc->blockDecoder);
+  MRReply_Free(nc->current.root);
+  RPNet_resetCurrent(nc);
 }
 
 void RPNet_resetCurrent(RPNet *nc) {

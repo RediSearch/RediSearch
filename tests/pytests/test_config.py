@@ -1664,6 +1664,7 @@ booleanConfigs = [
 configOnlyBooleanConfigs = [
     # configName, defaultValue
     ('search-_info-on-zero-indexes', 'no'),
+    ('search-internal-row-block-format', 'no'),
 ]
 
 @skip(redis_less_than='7.9.227')

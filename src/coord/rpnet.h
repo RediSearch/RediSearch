@@ -102,6 +102,7 @@ void rpnetFree(ResultProcessor *rp);
 // Appends the time breakdown to the RP's open profile map; a no-op when not profiled.
 void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
+void RPNet_freeCurrent(RPNet *nc);
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);

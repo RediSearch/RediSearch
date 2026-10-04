@@ -27,7 +27,11 @@ def row_block_env(**kwargs):
             # An explicit config file replaces the suite-wide one rather than adding to it.
             f.write(f'include {os.path.abspath(Defaults.redis_config_file)}\n')
         f.write(f'{ROW_BLOCK_CONFIG} yes\n')
-    env = Env(redisConfigFile=path, **kwargs)
+    try:
+        env = Env(redisConfigFile=path, **kwargs)
+    finally:
+        # Servers read it at startup only.
+        os.unlink(path)
     for conn in env.getOSSMasterNodesConnectionList():
         env.assertEqual(config_value(conn), 'yes')
     return env
@@ -436,7 +440,7 @@ def test_row_block_dynamic_schema_fallback():
 
 @skip(cluster=False)
 def test_row_block_resp3_counts():
-    row_block_counts(Env(protocol=3))
+    row_block_counts(row_block_env(protocol=3))
 
 
 @skip(cluster=False)

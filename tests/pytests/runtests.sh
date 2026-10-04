@@ -430,6 +430,7 @@ fi
 # Tests passing their own redisConfigFile replace that file, and so run without it.
 if [[ $ROW_BLOCK_FORMAT == 1 ]]; then
 	row_block_config=$(mktemp "${TMPDIR:-/tmp}/row_block_conf.XXXXXXX")
+	trap 'rm -f "$row_block_config"' EXIT
 	{
 		[[ -n $REDIS_TEST_CONFIG ]] && echo "include $REDIS_TEST_CONFIG"
 		echo "search-internal-row-block-format yes"
