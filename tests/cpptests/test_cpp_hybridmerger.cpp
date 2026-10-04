@@ -328,7 +328,7 @@ TEST_F(HybridMergerTest, DrainReturnsBeforeParkedNextResumes) {
   EXPECT_EQ(std::future_status::ready, ready);
   EXPECT_FALSE(worker.get());
   EXPECT_EQ(RS_RESULT_TIMEDOUT, work.rc);
-  EXPECT_EQ(RS_RESULT_OK, codes[0]);
+  EXPECT_EQ(RS_RESULT_DEPLETING, codes[0]);
   EXPECT_EQ(123, qctx.totalResults);
   SearchResult_Destroy(&work.row);
   PipelineExecution_Free(execution);
