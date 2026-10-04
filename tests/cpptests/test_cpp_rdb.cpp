@@ -13,6 +13,7 @@
 #include "redismock/redismock.h"
 #include "synonym_map.h"
 #include "trie/trie.h"
+#include <algorithm>
 #include <array>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 #include <iterator>  // For std::size
@@ -1246,6 +1247,72 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     RSGlobalConfig.simulateInFlex = previousFlex;
     EXPECT_EQ(REDISMODULE_ERR, result);
     VecSimParams_Cleanup(&loaded);
+  }
+}
+
+// A GEOSHAPE field's coordinate system indexes fixed per-system tables, so a value outside
+// GEOMETRY_COORDS must fail the load instead of reaching them.
+TEST_F(RdbMockTest, testGeometryCoordsRdbLoad) {
+  std::array args{"SCHEMA", "g", "GEOSHAPE", "FLAT"};
+  QueryError err = QueryError_Default();
+  StrongRef specRef = IndexSpec_ParseC(nullptr, "geometry_coords", args.data(), args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  auto *spec = static_cast<IndexSpec *>(StrongRef_Get(specRef));
+  ASSERT_NE(spec, nullptr);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+      spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+  auto save = [spec](GEOMETRY_COORDS coords) {
+    spec->fields[0].geometryOpts.geometryCoords = coords;
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    IndexSpec_RdbSave(io, spec, 0);
+    std::vector<uint8_t> buffer = io->buffer;
+    RMCK_FreeRdbIO(io);
+    return buffer;
+  };
+  // The two saves differ only in the coordinate system, which locates it in the stream.
+  const std::vector<uint8_t> spherical = save(GEOMETRY_COORDS_Geographic);
+  const std::vector<uint8_t> flat = save(GEOMETRY_COORDS_Cartesian);
+  ASSERT_EQ(flat.size(), spherical.size());
+  const size_t offset =
+      std::mismatch(flat.begin(), flat.end(), spherical.begin()).first - flat.begin();
+  ASSERT_LE(offset + sizeof(uint64_t), flat.size());
+  ASSERT_TRUE(std::equal(flat.begin() + offset + sizeof(uint64_t), flat.end(),
+                         spherical.begin() + offset + sizeof(uint64_t)));
+
+  struct Case {
+    uint64_t coords;
+    bool valid;
+  };
+  const std::array<Case, 5> cases{{
+      {GEOMETRY_COORDS_Cartesian, true},
+      {GEOMETRY_COORDS_Geographic, true},
+      {GEOMETRY_COORDS__NUM, false},
+      // Would truncate to a valid value if narrowed to the enum before the check.
+      {(uint64_t{1} << 32) + GEOMETRY_COORDS_Cartesian, false},
+      {UINT64_MAX, false},
+  }};
+  for (const auto &test : cases) {
+    SCOPED_TRACE(::testing::Message() << "coords=" << test.coords);
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_NE(io, nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+        io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+    io->buffer = flat;
+    memcpy(io->buffer.data() + offset, &test.coords, sizeof(test.coords));
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+        loaded, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
+    if (test.valid) {
+      ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&status);
+      EXPECT_EQ(test.coords, loaded->fields[0].geometryOpts.geometryCoords);
+    } else {
+      EXPECT_EQ(loaded, nullptr) << "out-of-range geometry coordinate system was loaded";
+      EXPECT_TRUE(QueryError_HasError(&status));
+    }
+    QueryError_ClearError(&status);
   }
 }
 
