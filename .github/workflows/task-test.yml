@@ -610,7 +610,10 @@ jobs:
           exit 1
 
       - name: Summarize branch coverage
-        if: inputs.coverage
+        if: >-
+          inputs.coverage &&
+          !inputs.skip-tests &&
+          (inputs.standalone || inputs.coordinator || inputs.unit-tests)
         env:
           INCLUDE_COORDINATOR: ${{ inputs.coordinator }}
           INCLUDE_RUST_UNIT: ${{ inputs.unit-tests && inputs.rust-unit-tests }}

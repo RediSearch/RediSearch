@@ -203,6 +203,8 @@ jobs:
           image-built: ${{ inputs.image-built }}
           san: ${{ inputs.san }}
           install-script: 'true'
+          rust-test-deps: ${{ inputs.coverage }}
+          github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
           # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
