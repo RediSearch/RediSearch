@@ -250,14 +250,14 @@ pub unsafe extern "C" fn RowBlockDecoder_Free(d: *mut RowBlockDecoder) {
     drop(unsafe { Box::from_raw(d) });
 }
 
-/// See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema. Either way the buffer now belongs to
-/// the decoder and its strings, and is freed with `RedisModule_Free`.
+/// See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema, or a NULL `buf`. Either way the
+/// buffer now belongs to the decoder and its strings, and is freed with `RedisModule_Free`.
 ///
 /// # Safety
 ///
 /// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
 /// 2. `lk` must be a non-null pointer to a [valid] `RLookup` meeting [`RowBlockDecoder::begin`]'s `lookup` contract.
-/// 3. `buf` must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
+/// 3. `buf`, unless NULL, must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
 /// 4. The Redis allocator must stay initialized until the buffer is freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn RowBlockDecoder_Begin(
     let decoder = unsafe { decoder_mut(d) };
     // SAFETY: ensured by caller (2.)
     let lookup = unsafe { RLookup::from_opaque_mut_ptr(lk) }.expect("a non-null RLookup");
-    // A reply without a string payload gives no buffer to take over.
+    // Unwinding out of an `extern "C"` function aborts, so report a missing buffer like a malformed block.
     let Some(block) = NonNull::new(buf.cast::<u8>()) else {
         return false;
     };

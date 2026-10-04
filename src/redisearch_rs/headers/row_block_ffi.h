@@ -46,14 +46,14 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema. Either way the buffer now belongs to
- * the decoder and its strings, and is freed with `RedisModule_Free`.
+ * See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema, or a NULL `buf`. Either way the
+ * buffer now belongs to the decoder and its strings, and is freed with `RedisModule_Free`.
  *
  * # Safety
  *
  * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
  * 2. `lk` must be a non-null pointer to a [valid] `RLookup` meeting [`RowBlockDecoder::begin`]'s `lookup` contract.
- * 3. `buf` must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
+ * 3. `buf`, unless NULL, must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
  * 4. The Redis allocator must stay initialized until the buffer is freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

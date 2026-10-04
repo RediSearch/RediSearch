@@ -23,7 +23,8 @@ use std::{
 ///
 /// # Safety
 ///
-/// Called once per buffer, with its pointer and length, after the last reference is gone.
+/// Called once per buffer, with its pointer and length, after the last reference is gone. That may be on any thread, so
+/// it must be safe to call from one other than the thread that created the buffer.
 pub type Dealloc = unsafe fn(NonNull<u8>, usize);
 
 /// The furthest into its buffer a shared [`String`] may start: it finds the buffer by subtracting its offset, which
@@ -51,7 +52,8 @@ struct Header {
     live_bytes: Option<Arc<AtomicUsize>>,
 }
 
-// SAFETY: the buffer is only read after creation, and released once, by the last reference.
+// SAFETY: the buffer is only read after creation, and released once, by the last reference, on a thread-agnostic
+// deallocator per the contract of `SharedBuffer::from_raw`.
 unsafe impl Send for SharedBuffer {}
 // SAFETY: as above; `&SharedBuffer` only permits reads and reference count increments.
 unsafe impl Sync for SharedBuffer {}
@@ -65,6 +67,8 @@ impl SharedBuffer {
     /// 1. `base` must be [valid] for reads and writes of `len` bytes, and accessed only through the returned handle and
     ///    its strings.
     /// 2. `dealloc(base, len)` must be the buffer's only release.
+    /// 3. `dealloc` must be callable from any thread, and the buffer must not be tied to the creating thread: the last
+    ///    reference to drop runs it, wherever the handle or its strings were sent.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn from_raw(
