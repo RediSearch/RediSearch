@@ -140,6 +140,13 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+/** Terminal recovery uses only already-available pipeline state. */
+typedef enum {
+  RP_DRAIN_OK = 0,  // Transfers one initialized SearchResult to the caller.
+  RP_DRAIN_EOF,     // No more recoverable output.
+  RP_DRAIN_ERROR,   // Diagnostic is in the owning processing context.
+} RPDrainStatus;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -171,7 +178,21 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
+
+  /**
+   * Recover one result with Next's output ownership conventions. The caller
+   * exclusively owns the execution domain; Next and Drain must not overlap
+   * accesses to its mutable state. Stop after EOF or ERROR. Drain never waits
+   * for background progress or invokes upstream Next.
+   *
+   * Constructors install RPDrain_EOF until recovery is supported. See
+   * docs/design/pipeline-execution-ownership.md for the handoff contract.
+   */
+  RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
+
+/** Recovery barrier for sources and unsupported processors; leaves res untouched. */
+RPDrainStatus RPDrain_EOF(ResultProcessor *self, SearchResult *res);
 
 /** `sctx` must carry the owning request's non-NULL timeout state. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
