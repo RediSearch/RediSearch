@@ -150,6 +150,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
 #define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
 #define SYNC_POINT_AFTER_HYBRID_PIPELINE_PUBLISHED     "AfterHybridPipelinePublished"
+#define SYNC_POINT_AFTER_HYBRID_INPUT_WINDOW "AfterHybridInputWindow"
 #define SYNC_POINT_BEFORE_HYBRID_DEPLETION              "BeforeHybridDepletion"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
