@@ -30,7 +30,8 @@ use value::{SharedBuffer, shared_buffer::Dealloc};
 ///
 /// One string that outlives its row (a `GROUPBY` key, a `TOLIST` element, a `SORTBY` heap row, a cursor) keeps its
 /// whole block allocated, so without a bound a query keeping one string per block would pin every block. Sharing
-/// resumes once pinned blocks are released.
+/// resumes once pinned blocks are released. The budget excludes the block being decoded, whose size is bounded only by
+/// the shard's rows per chunk.
 pub const MAX_PINNED_BYTES: usize = 8 << 20;
 
 /// Decodes one block at a time into lookup rows, for a caller that yields a row per call back into C.

@@ -131,6 +131,7 @@ fn a_string_too_far_into_its_block_is_copied() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "decodes megabytes of blocks, which times out")]
 fn past_the_pinning_budget_strings_are_copied_until_blocks_are_released() {
     // One string kept per block — a `GROUPBY` key, say — pins every block it came from. Once that passes the budget the
     // decoder stops sharing, so the retained memory stays bounded by the budget plus one block instead of growing with
