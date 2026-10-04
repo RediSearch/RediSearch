@@ -19,6 +19,7 @@ extern "C" {
 #include "spec.h"
 #include "redismock/util.h"
 #include "query_flags.h"
+#include "query_request.h"
 
 #include <vector>
 
@@ -378,4 +379,181 @@ TEST_F(OwnedLoaderDrainTest, KeyNameDrainCopiesNameWithoutLoadingFields) {
   expectValue(key, "drain:key-name");
   EXPECT_EQ(dmd, SearchResult_GetDocumentMetadata(&row));
   EXPECT_EQ(0, source.nextCalls);
+}
+
+class OwnedSafeLoaderDrainTest : public OwnedLoaderDrainTest {
+ protected:
+  QueryRequestTimeout timeout = {};
+
+  void SetUp() override {
+    OwnedLoaderDrainTest::SetUp();
+    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    sctx.timeout = &timeout;
+    qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    qctx.resultLimit = 4096;
+    source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+      auto *self = static_cast<OwnedLoaderSource *>(base);
+      ++self->nextCalls;
+      if (self->cursor == self->documents.size()) return RS_RESULT_EOF;
+      auto *dmd = self->documents[self->cursor++];
+      DMD_Incref(dmd);
+      SearchResult_SetDocumentMetadata(row, dmd);
+      SearchResult_SetDocId(row, dmd->id);
+      return RS_RESULT_OK;
+    };
+  }
+};
+
+TEST_F(OwnedSafeLoaderDrainTest, DrainsOnlyLoadedRemainderWithoutRefillOrReload) {
+  auto *first = document("safe:first", "one");
+  auto *second = document("safe:second", "two");
+  auto *third = document("safe:third", "three");
+  qctx.resultLimit = 2;
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
+  expectValue(key, "one");
+  SearchResult_Clear(&row);
+  EXPECT_EQ(1, first->ref_count);
+  SetLoadersForMainThread(&qctx);
+  EXPECT_TRUE(RMCK::hset(ctx, "safe:second", "field", "changed"));
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &row));
+  expectValue(key, "two");
+  EXPECT_EQ(2, second->ref_count);
+  SearchResult_Clear(&row);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(2, source.nextCalls);
+  EXPECT_EQ(2, source.cursor);
+  EXPECT_EQ(1, third->ref_count);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, UnfinishedBatchRemainsNonDrainableAndIsFreed) {
+  auto *buffered = document("safe:buffered", "value");
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    if (self->cursor == self->documents.size()) return RS_RESULT_TIMEDOUT;
+    auto *dmd = self->documents[self->cursor++];
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    return RS_RESULT_OK;
+  };
+  create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(2, buffered->ref_count);
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, buffered->ref_count);
+  EXPECT_EQ(2, source.nextCalls);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, TerminalScratchIsDestroyedWithoutPublishingIt) {
+  auto *scratch = document("safe:scratch", "value");
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    auto *dmd = self->documents.front();
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    SearchResult_SetOwnedIndexResult(row, NewVirtualResult(1, RS_FIELDMASK_ALL));
+    return RS_RESULT_ERROR;
+  };
+  create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  EXPECT_EQ(RS_RESULT_ERROR, loader->Next(loader, &row));
+  EXPECT_EQ(1, scratch->ref_count);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&row));
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, PlainPromotionDoesNotPublishUnloadedRows) {
+  auto *buffered = document("safe:promoted", "value");
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    if (self->cursor == self->documents.size()) return RS_RESULT_TIMEDOUT;
+    auto *dmd = self->documents[self->cursor++];
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    return RS_RESULT_OK;
+  };
+  create();
+  ASSERT_EQ(RP_LOADER, loader->type);
+  SetLoadersForBG(&qctx);
+  loader = qctx.endProc;
+  ASSERT_EQ(RP_SAFE_LOADER, loader->type);
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&row));
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, buffered->ref_count);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, SkipsLoadedTombstonesAndPreservesReturnedRowOwnership) {
+  document("safe:first", "one");
+  auto *missing = document("safe:missing", nullptr);
+  auto *last = document("safe:last", "three");
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
+  SearchResult_Clear(&row);
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &row));
+  EXPECT_EQ(1, qctx.skippedResults);
+  EXPECT_EQ(1, missing->ref_count);
+  EXPECT_EQ(2, last->ref_count);
+  loader->Free(loader);
+  loader = nullptr;
+  expectValue(key, "three");
+  SearchResult_Clear(&row);
+  EXPECT_EQ(1, last->ref_count);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, UnstartedMainThreadDemotionCanLoadSequentially) {
+  document("safe:main", "value");
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  SetLoadersForMainThread(&qctx);
+  ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &row));
+  expectValue(key, "value");
+  EXPECT_EQ(0, source.nextCalls);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, BackgroundReadmissionRestoresSafeDrainBarrier) {
+  document("safe:again", "value");
+  create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  auto safeDrain = loader->Drain;
+  SetLoadersForMainThread(&qctx);
+  EXPECT_NE(safeDrain, loader->Drain);
+  SetLoadersForBG(&qctx);
+  EXPECT_EQ(safeDrain, loader->Drain);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(0, source.nextCalls);
+  EXPECT_EQ(0, source.cursor);
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, ReusedBufferDoesNotRetainPreviousBatchReadiness) {
+  auto *first = document("safe:batch1", "one");
+  auto *second = document("safe:batch2", "two");
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    if (self->cursor == self->documents.size()) return RS_RESULT_TIMEDOUT;
+    auto *dmd = self->documents[self->cursor++];
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    return RS_RESULT_OK;
+  };
+  qctx.resultLimit = 1;
+  const auto *key = create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
+  expectValue(key, "one");
+  SearchResult_Clear(&row);
+  EXPECT_EQ(1, first->ref_count);
+  qctx.resultLimit = 2;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(nullptr, SearchResult_GetDocumentMetadata(&row));
+  EXPECT_EQ(2, second->ref_count);
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, second->ref_count);
 }
