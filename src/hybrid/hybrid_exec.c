@@ -778,8 +778,7 @@ static void drainAndReplyOwnedHybrid(PipelineAccess *access, void *data) {
     RS_ASSERT(array_len(stored->results) <= stored->limit);
     qctx->resultLimit = stored->limit - array_len(stored->results);
     for (size_t i = 0; i < hreq->nrequests; ++i) {
-      if (hreq->subqueriesReturnCodes[i] == RS_RESULT_OK ||
-          hreq->subqueriesReturnCodes[i] == RS_RESULT_DEPLETING) {
+      if (hreq->subqueriesReturnCodes[i] == RS_RESULT_DEPLETING) {
         hreq->subqueriesReturnCodes[i] = RS_RESULT_TIMEDOUT;
       }
     }
