@@ -12,7 +12,8 @@
 //! Gated behind the `test_utils` feature so that production builds do not
 //! include these utilities.
 
-use inverted_index::{Encoder, IndexBlock, RSIndexResult, numeric::Numeric};
+use index_result::RSIndexResult;
+use inverted_index::{Encoder, numeric::Numeric};
 
 use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
 
@@ -45,7 +46,7 @@ pub const DEEP_TREE_ENTRIES: u64 = {
 pub fn build_tree(n: u64, compress_floats: bool, max_depth_range: usize) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, i as f64, false, max_depth_range);
+        tree.add(i, i as f64, false, false, max_depth_range);
     }
     tree
 }
@@ -58,7 +59,7 @@ pub fn build_single_leaf_tree(count: u64) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=count {
         let value = (i % 4 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(
         tree.root().is_leaf(),
@@ -74,7 +75,7 @@ pub fn build_large_tree() -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=50_000u64 {
         let value = ((i - 1) % 5000 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     tree
 }
@@ -135,7 +136,12 @@ pub fn scan_node_delta_with_hll(
                 .entries()
                 .scan_gc(
                     doc_exist,
-                    None::<for<'index> fn(&RSIndexResult<'index>, &IndexBlock)>,
+                    None::<
+                        for<'index> fn(
+                            &RSIndexResult<'index>,
+                            &inverted_index::RepairContext<'index>,
+                        ),
+                    >,
                 )
                 .expect("scan_gc should not fail")
         })

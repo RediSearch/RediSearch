@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
@@ -106,7 +114,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
-  return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
+  return Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), status);
 }
 
 /**
@@ -117,7 +125,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
  * 3. Build pipeline
  * 4. Return the built HybridRequest
  *
- * Note: The caller is responsible for calling HybridRequest_DecrRef() and IndexSpec cleanup.
+ * Note: The caller is responsible for calling HybridRequest_Free() and IndexSpec cleanup.
  */
 HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* indexName,
                                           RMCK::ArgvList& args, QueryError *status, IndexSpec **outSpec = nullptr) {
@@ -140,7 +148,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   }
 
   // Create HybridRequest and allocate hybrid params
-  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
+  HybridRequest *hybridReq = MakeDefaultHybridRequest(test_sctx, args, args.size());
   if (!hybridReq) {
     return nullptr;
   }
@@ -159,18 +167,18 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   };
 
   ArgsCursor ac = {0};
-  HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
+  HybridRequest_InitArgsCursor(hybridReq, &ac, args.size());
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_DecrRef(hybridReq);
+    HybridRequest_Free(hybridReq);
     return nullptr;
   }
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true);
+  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true, status);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_DecrRef(hybridReq);
+    HybridRequest_Free(hybridReq);
     return nullptr;
   }
   return hybridReq;
@@ -194,8 +202,8 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     HybridRequest* req; \
     IndexSpec* sp; \
     ~HybridTestCleanup() { \
-      if (req) HybridRequest_DecrRef(req); \
-      if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); \
+      if (req) HybridRequest_Free(req); \
+      if (sp) Indexes_RemoveSpecFromGlobals(sp->own_ref, false); \
     } \
   } cleanup{hybridReq, spec};
 
@@ -709,5 +717,41 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
       EXPECT_EQ(RLookupKey_GetNameLen(upstreamKey), RLookupKey_GetNameLen(tailKey))
         << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
+  }
+}
+
+// A tail with no index-result reader lets every subquery depleter drop the borrow.
+TEST_F(HybridRequestParseTest, testHybridSkipIndexResultDeepCopyWhenTailHasNoReader) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_skip_copy_no_reader",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "1", "@title",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  HYBRID_TEST_SETUP("test_skip_copy_no_reader", args);
+
+  EXPECT_TRUE(hybridReq->tailPipeline->qctx.skipIndexResultDeepCopy)
+    << "Tail without matched_terms()/highlight should skip the index-result copy";
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    EXPECT_TRUE(hybridReq->requests[i]->pipeline.qctx.skipIndexResultDeepCopy)
+      << "Subquery " << i << " should not be forced to preserve the index result";
+  }
+}
+
+// A tail matched_terms() must force every subquery depleter to preserve the borrow.
+TEST_F(HybridRequestParseTest, testHybridForceIndexResultDeepCopyWhenTailReadsIt) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_force_copy_matched_terms",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "APPLY", "matched_terms()", "AS", "terms",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  HYBRID_TEST_SETUP("test_force_copy_matched_terms", args);
+
+  EXPECT_FALSE(hybridReq->tailPipeline->qctx.skipIndexResultDeepCopy)
+    << "Tail with matched_terms() must preserve the index result";
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    EXPECT_FALSE(hybridReq->requests[i]->pipeline.qctx.skipIndexResultDeepCopy)
+      << "Subquery " << i << " must preserve the index result for the tail's matched_terms()";
   }
 }

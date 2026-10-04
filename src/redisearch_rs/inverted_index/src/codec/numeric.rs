@@ -142,9 +142,10 @@
 
 use std::io::{Cursor, IoSlice, Read, Write};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
-use crate::{Decoder, Encoder, IdDelta, NumericDecoder, RSIndexResult};
+use crate::{Decoder, Encoder, IdDelta, NumericDecoder};
+use index_result::RSIndexResult;
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -172,6 +173,114 @@ pub struct NumericFloatCompression;
 
 impl NumericFloatCompression {
     const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
+}
+
+/// An encoder that decides how it will represent a numeric value before writing it.
+///
+/// The representation cannot always hold the value it was given —
+/// [`NumericFloatCompression`] stores an `f32` when the precision loss is below
+/// [its threshold](NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD), and even
+/// [`Numeric`] normalizes `-0.0` to `+0.0` by encoding it as a tiny integer. That
+/// decision is made inside [`Encoder::encode`], so anything derived from a value —
+/// cardinality, bounds, routing — must be derived from the [`StoredValue`] instead,
+/// or it describes a value the index never returns.
+///
+/// [`prepare`](Self::prepare) exposes the decision on its own and
+/// [`encode_prepared`](Self::encode_prepared) takes it back, so a caller that needs
+/// the outcome up front does not make the encoder work it out twice.
+///
+/// Implementers canonicalize: two inputs represented as the same number produce the
+/// same [`StoredValue`], so distinct stored values are numerically distinct. Callers
+/// that separate values — a cardinality estimate deciding when to split, say — can
+/// rely on that instead of second-guessing the representation.
+pub trait NumericEncoder: Encoder {
+    /// Decide how `value` will be represented. Writes nothing.
+    fn prepare(value: f64) -> PreparedValue;
+
+    /// Write a value whose representation has already been decided.
+    ///
+    /// Equivalent to [`Encoder::encode`] on a record holding the same value, down to
+    /// the bytes.
+    fn encode_prepared<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        prepared: PreparedValue,
+    ) -> std::io::Result<usize>;
+
+    /// The value a reader will decode after `value` is encoded by this encoder.
+    ///
+    /// Idempotent: the stored form of a stored value is itself.
+    fn stored_value(value: f64) -> f64 {
+        Self::prepare(value).stored_value().get()
+    }
+}
+
+impl NumericEncoder for Numeric {
+    fn prepare(value: f64) -> PreparedValue {
+        PreparedValue(Value::from(value, false))
+    }
+
+    fn encode_prepared<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        prepared: PreparedValue,
+    ) -> std::io::Result<usize> {
+        encode_value(writer, delta, prepared.0)
+    }
+}
+
+impl NumericEncoder for NumericFloatCompression {
+    fn prepare(value: f64) -> PreparedValue {
+        PreparedValue(Value::from(value, true))
+    }
+
+    fn encode_prepared<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        prepared: PreparedValue,
+    ) -> std::io::Result<usize> {
+        encode_value(writer, delta, prepared.0)
+    }
+}
+
+/// How a numeric encoder will represent a value: decided, but not yet written.
+///
+/// Not parameterized by encoder on purpose: the byte layout records which
+/// representation was used, so either numeric encoder can write a decision the other
+/// one made, and any numeric decoder reads it back. Preparing with a different
+/// encoder than the index uses is therefore harmless, if pointless.
+#[derive(Debug, Clone, Copy)]
+pub struct PreparedValue(Value);
+
+impl PreparedValue {
+    /// The value a reader will decode for this representation.
+    pub const fn stored_value(self) -> StoredValue {
+        StoredValue(self.0.to_f64())
+    }
+}
+
+/// A numeric value in the exact form an index stores — and therefore returns — it.
+///
+/// Distinct from a plain `f64` so that an input value on its way in cannot be
+/// mistaken for one the index will hand back. See [`NumericEncoder`] for why that
+/// distinction matters.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct StoredValue(f64);
+
+impl StoredValue {
+    /// Wrap a value that came out of a numeric index, which is already in stored
+    /// form.
+    ///
+    /// The caller owns that provenance: pass only values read back through a numeric
+    /// [`Decoder`], never an input value on its way in.
+    pub const fn from_decoded(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// The wrapped value.
+    pub const fn get(self) -> f64 {
+        self.0
+    }
 }
 
 /// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
@@ -236,7 +345,7 @@ impl Encoder for NumericFloatCompression {
 }
 
 fn encode<W: Write + std::io::Seek>(
-    mut writer: W,
+    writer: W,
     delta: NumericDelta,
     record: &RSIndexResult,
     compress_floats: bool,
@@ -245,6 +354,16 @@ fn encode<W: Write + std::io::Seek>(
         .as_numeric()
         .expect("numeric encoder will only be called for numeric records");
 
+    encode_value(writer, delta, Value::from(num_record, compress_floats))
+}
+
+/// Write a value whose representation has already been decided — the single writer
+/// behind both [`Encoder::encode`] and [`NumericEncoder::encode_prepared`].
+fn encode_value<W: Write + std::io::Seek>(
+    mut writer: W,
+    delta: NumericDelta,
+    value: Value,
+) -> std::io::Result<usize> {
     let delta = delta.pack();
 
     // Trim trailing zeros from delta so that we store as little as possible
@@ -252,7 +371,7 @@ fn encode<W: Write + std::io::Seek>(
     let delta = &delta[..end];
     let delta_bytes = delta.len() as _;
 
-    let bytes_written = match Value::from(num_record, compress_floats) {
+    let bytes_written = match value {
         Value::TinyInteger(i) => {
             let header = Header {
                 delta_bytes,
@@ -411,7 +530,7 @@ impl Decoder for Numeric {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         decode(cursor, base, result)
@@ -432,7 +551,7 @@ impl Decoder for NumericFloatCompression {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         decode(cursor, base, result)
@@ -445,7 +564,7 @@ impl Decoder for NumericFloatCompression {
 
 fn decode<'index>(
     cursor: &mut Cursor<&'index [u8]>,
-    base: t_docId,
+    base: DocId,
     result: &mut RSIndexResult<'index>,
 ) -> Result<(), std::io::Error> {
     let mut header = [0; 1];
@@ -612,7 +731,7 @@ impl FromSlice for f64 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Value {
     TinyInteger(u8),
     IntegerPositive(u64),
@@ -653,7 +772,19 @@ impl Value {
                             && (abs_val - f32_value as f64).abs()
                                 < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
                     {
-                        if v.is_sign_positive() {
+                        // A magnitude that rounds to zero has collapsed *onto* zero, so
+                        // store the canonical zero — the representation a literal `0.0`
+                        // gets — rather than a signed f32 zero. Otherwise two inputs this
+                        // encoder decided to represent as zero become two stored values
+                        // that compare equal, and every consumer would have to know which
+                        // stored values are secretly the same value.
+                        //
+                        // Only reachable with compression on: without it this branch needs
+                        // `back_to_f64 == abs_val`, which for a zero `f32_value` means
+                        // `abs_val` is zero — already claimed by the integer branch above.
+                        if f32_value == 0.0 {
+                            Value::TinyInteger(0)
+                        } else if v.is_sign_positive() {
                             Value::Float32Positive(f32_value)
                         } else {
                             Value::Float32Negative(f32_value)
@@ -665,6 +796,25 @@ impl Value {
                     }
                 }
             }
+        }
+    }
+
+    /// The `f64` a reader decodes for this representation.
+    ///
+    /// Mirrors [`decode`] arm for arm rather than sharing code with it: `decode` is on
+    /// the read hot path and rebuilds the number straight from the bytes. The
+    /// `numeric_stored_value_matches_encode_decode` proptest keeps the two in step.
+    const fn to_f64(self) -> f64 {
+        match self {
+            Value::TinyInteger(i) => i as f64,
+            Value::IntegerPositive(i) => i as f64,
+            Value::IntegerNegative(i) => (i as f64).copysign(-1.0),
+            Value::Float32Positive(f) => f as f64,
+            Value::Float32Negative(f) => f.copysign(-1.0) as f64,
+            Value::Float64Positive(f) => f,
+            Value::Float64Negative(f) => f.copysign(-1.0),
+            Value::FloatInfinity => f64::INFINITY,
+            Value::FloatNegInfinity => f64::NEG_INFINITY,
         }
     }
 }

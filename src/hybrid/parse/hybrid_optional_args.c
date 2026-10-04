@@ -7,11 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid/parse/hybrid_optional_args.h"
+
+#include <string.h>
+#include <assert.h>
+
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "config.h"
 #include "util/arg_parser.h"
 #include "coord/rmr/command.h"
-#include <string.h>
+#include "pipeline/pipeline_construction.h"
+#include "query_error_ffi.h"
+#include "slot_ranges.h"
+#include "spec.h"
 
 /**
  * Applies optimization to skip collecting rich results when they are not needed.
@@ -82,15 +89,18 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // TIMEOUT timeout - query timeout in milliseconds
     // Parsed already in the main thread to support blocked client timeout.
     // We still register it here since it is a valid argument for the command.
+    // Defaults for absent arguments must come from the request's own config
+    // (the construction-time snapshot), not from RSGlobalConfig: parsing may
+    // run on a background thread, after the snapshot was taken.
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
+                      ARG_OPT_DEFAULT_INT, ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    unsigned int defaultDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+    unsigned int defaultDialect = ctx->reqConfig->dialectVersion;
     if (defaultDialect < MIN_HYBRID_DIALECT) {
         defaultDialect = MIN_HYBRID_DIALECT;
     }
@@ -133,19 +143,21 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
 
-        // Mandatory SLOTS_STR argument for internal requests
+        // SLOTS_STR argument for internal requests. Optional: coordinators older than 8.4
+        // do not send it, and the caller falls back to the current local slots (MOD-16047)
         ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
                             &subArgs, 1, 1,
-                            ARG_OPT_REQUIRED,
+                            ARG_OPT_OPTIONAL,
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
                             ARG_OPT_END);
 
-        // Mandatory _COORD_DISPATCH_TIME argument for internal requests
+        // _COORD_DISPATCH_TIME is optional for rolling upgrades from coordinators older
+        // than 8.6, which do not send this internal argument.
         static_assert(sizeof(unsigned long long) == sizeof(rs_wall_clock_ns_t),
                       "rs_wall_clock_ns_t must be the same size as unsigned long long");
         ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
                             (unsigned long long *)ctx->coordDispatchTime,
-                            ARG_OPT_REQUIRED,
+                            ARG_OPT_OPTIONAL,
                             ARG_OPT_END);
 
     }
@@ -169,7 +181,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // GROUPBY nproperties property [property ...] [REDUCE function nargs arg [arg ...] [AS alias]] [...]
     ArgParser_AddSubArgsV(parser, "GROUPBY", "Group results by properties with reducers",
-                         &subArgs, 1, -1,
+                         &subArgs, 0, MAX_GROUPBY_PROPERTIES,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleGroupby, ctx,
                          ARG_OPT_END);
@@ -200,8 +212,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_CALLBACK, handleFilter, ctx,
                          ARG_OPT_END);
 
-    // TODO: Add YIELD_SCORE_AS support for score aliasing
-
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
 
@@ -218,8 +228,23 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     ArgParser_Free(parser);
 
+    // EXPLAINSCORE implies emitting the per-result score: the reply path pairs
+    // the score with its explanation, so without QEXEC_F_SEND_SCORES neither
+    // would be written. FT.HYBRID does not expose a user-facing WITHSCORES, so
+    // we set the flag here on the user's behalf.
     if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
+        *(ctx->reqFlags) |= QEXEC_F_SEND_SCORES;
+    }
+
+    // EXPLAINSCORE is incompatible with GROUPBY: the grouper consumes per-document
+    // SearchResults (and their score_explain wrappers) and emits aggregate rows
+    // whose score_explain is empty, while the hybrid reply path still opens a
+    // [score, explain] array. Reject the combination at parse time rather than
+    // emit a malformed one-element score array.
+    if ((ctx->specifiedArgs & SPECIFIED_ARG_EXPLAINSCORE) &&
+        (ctx->specifiedArgs & SPECIFIED_ARG_GROUPBY)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "EXPLAINSCORE is not supported with GROUPBY");
         return REDISMODULE_ERR;
     }
 

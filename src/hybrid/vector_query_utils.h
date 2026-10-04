@@ -31,6 +31,12 @@ typedef struct {
   char *vectorScoreFieldAlias; // Alias for the vector score field (OWNED) - NULL if not explicitly set
   uint32_t queryNodeFlags;     // QueryNode flags to be applied when creating the vector node
   bool skipFilterIntegration;  // true to make vector node root without filter wrapping (RANGE without explicit FILTER)
+
+  // EXPLAINSCORE snapshot: applyVectorQuery later nulls `query`, so we keep a
+  // copy of the fields needed to render the hybrid explain envelope.
+  VectorQueryType explainQueryType;
+  double explainRangeRadius;        // valid only when explainQueryType == VECSIM_QT_RANGE
+  char *explainRangeEpsilon;        // OWNED, NULL if user did not set EPSILON
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

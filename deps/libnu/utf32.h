@@ -11,7 +11,7 @@
 /** @defgroup utf32 UTF-32 support
  */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -78,7 +78,7 @@ char* nu_utf32be_write_bom(char *encoded);
 
 #endif /* NU_WITH_UTF32_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

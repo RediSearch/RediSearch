@@ -10,11 +10,14 @@
 
 #include "result_processor.h"
 #include "query.h"
+#include "query_request.h"
 #include "gtest/gtest.h"
+#include "search_result_ffi.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
+#include "sorting_vector_ffi.h"
 #include "hiredis/sds.h"
 #include "doc_table.h"
 
@@ -150,16 +153,14 @@ struct MockUpstream : public ResultProcessor {
 };
 
 // Static dummy RedisSearchCtx for tests - reused across all tests
-// The context has skipTimeoutChecks set to true to avoid timeout checks in tests
 static RedisSearchCtx* GetDummySearchCtx() {
+  static QueryRequestTimeout timeout = {};
   static RedisSearchCtx dummySctx = {
     .redisCtx = NULL,
-    .key_ = NULL,
     .spec = NULL,
-    .time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true},
+    .currentTime = {0, 0},
+    .timeout = &timeout,
     .apiVersion = 0,
-    .expanded = 0,
-    .flags = RS_CTX_UNSET,
   };
   return &dummySctx;
 }
@@ -219,10 +220,10 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  // Use static dummy search context for tests.
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -234,10 +235,10 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  // Use static dummy search context for tests.
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 
@@ -1290,6 +1291,11 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights, lookupCtx);
 
+  // Attach the merger to a query processing context: like every buffering RP it
+  // reads its qctx (here, the index-result copy decision) during Next().
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, hybridMerger);
+
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
   SearchResult r = SearchResult_New();
   int result;
@@ -1442,10 +1448,15 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   // Create dummy lookup context
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
 
-  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  // Use static dummy search context for tests.
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, NULL, NULL, returnCodes, lookupCtx);
+  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, nullptr, nullptr, returnCodes, lookupCtx, nullptr);
+
+  // Attach the merger to a query processing context: like every buffering RP it
+  // reads its qctx (here, the index-result copy decision) during Next().
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, hybridMerger);
 
   // Process results - this should capture the return codes
   SearchResult r = SearchResult_New();

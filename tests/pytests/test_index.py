@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 def validate_spec_invidx_info(env, expected_reply, msg, depth=0):
@@ -142,7 +149,10 @@ def test_lazy_index_creation_info_modules(env):
 def test_restore_schema(env: Env):
 
     # Test that the command is not exposed to normal users
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('unknown subcommand')
+    # In enterprise, _FT._RESTOREIFNX is rewritten to FT._RESTOREIFNX which exists;
+    # non-internal clients get 'wrong number of arguments' instead of 'unknown subcommand'
+    _restoreifnx_access_err = 'wrong number of arguments' if RS_TEST_ENTERPRISE else 'unknown subcommand'
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains(_restoreifnx_access_err)
     # Mark the client as internal for the rest of the test
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
@@ -225,3 +235,37 @@ def test_restore_schema(env: Env):
 
     # Test that synonyms were also restored correctly
     env.expect('FT.SYNDUMP', 'idx').equal(['cat', ['meow'], 'dog', ['bark']])
+
+@skip(cluster=True)
+def test_restore_schema_rejects_truncated_payload(env: Env):
+    """A schema payload that fails partway through loading must be rejected
+    without crashing and without leaving the half-loaded index registered
+    in the prefix trie or the alias table."""
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+    # Two aliases: a cut inside the second leaves the first registered unless
+    # the failure path unregisters it.
+    env.expect('FT.ALIASADD', 'a1', 'idx').ok()
+    env.expect('FT.ALIASADD', 'a2', 'idx').ok()
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+    # Every proper prefix of the payload fails at a different point of the loader.
+    for cut in range(len(dump)):
+        env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump[:cut]).error() \
+           .contains('Failed to deserialize schema')
+
+    env.assertEqual(env.cmd('FT._LIST'), [])
+    prefixes = env.cmd(debug_cmd(), 'DUMP_PREFIX_TRIE')
+    env.assertEqual(prefixes[prefixes.index('prefixes_count') + 1], 0)
+    env.expect('FT.ALIASDEL', 'a1').error().contains('Alias does not exist')
+    env.expect('FT.ALIASDEL', 'a2').error().contains('Alias does not exist')
+    # A write under the prefix must not reach a freed spec.
+    env.expect('HSET', 'doc:1', 't', 'hello', 'n', 1).equal(2)
+    env.assertTrue(env.cmd('PING'))
+
+    # The intact payload still restores, and writes under the prefix are indexed.
+    # (A restored schema does not scan existing keys, so only doc:2 is expected.)
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.expect('HSET', 'doc:2', 't', 'hello', 'n', 2).equal(2)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:2'])

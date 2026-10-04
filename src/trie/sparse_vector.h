@@ -22,9 +22,9 @@ typedef struct {
     sparseVectorEntry entries[];
 } sparseVector;
 
-size_t __sv_sizeof(size_t cap);
+size_t sv_sizeof(size_t cap);
 
-sparseVector *__sv_resize(sparseVector *v, size_t cap);
+sparseVector *sv_resize(sparseVector *v, size_t cap);
 sparseVector *newSparseVectorCap(size_t cap);
 
 // append appends another sparse vector entry with the given index and value.
@@ -37,4 +37,6 @@ void sparseVector_append(sparseVector **v, int index, int value);
 sparseVector *newSparseVector(int *values, int len);
 
 void sparseVector_free(sparseVector *v);
+
+int sv_equals(sparseVector *sv1, sparseVector *sv2);
 #endif

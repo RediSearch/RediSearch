@@ -1,0 +1,3 @@
+# Long-lived specs describing current behavior.
+# Baseline specs accumulate here; delta specs from changes fold in on merge.
+# See ../README.md and ../../docs/CONTRIBUTING-specs.md.

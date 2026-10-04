@@ -7,11 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "numeric_filter.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "rmutil/vector.h"
-#include "query_param.h"
+
+#include <errno.h>
+#include <math.h>
+#include <string.h>
+#include <strings.h>
+
 #include "fast_float/fast_float_strtod.h"
+#include "geo_index.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "rmalloc.h"
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
@@ -66,6 +72,7 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
   }
 
   LegacyNumericFilter *nf = rm_calloc(1, sizeof(*nf));
+  nf->base.fieldIndex = RS_INVALID_FIELD_INDEX;
 
   // make sure we have an index spec for this filter and it's indeed numeric
   nf->base.maxInclusive = true;
@@ -107,12 +114,12 @@ void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
 }
 
 NumericFilter *NewNumericFilter(double min, double max, bool inclusiveMin, bool inclusiveMax,
-                                bool asc, const FieldSpec *fs, const void* geoFilter) {
+                                bool asc, t_fieldIndex fieldIndex, const void* geoFilter) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;
-  f->fieldSpec = fs;
+  f->fieldIndex = fieldIndex;
   f->maxInclusive = inclusiveMax;
   f->minInclusive = inclusiveMin;
   f->geoFilter = geoFilter;

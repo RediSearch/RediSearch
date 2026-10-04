@@ -7,15 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <errno.h>
+#include <stdbool.h>
+#include <string.h>
+
 #include "dictionary.h"
 #include "redismodule.h"
 #include "rmalloc.h"
-#include "util/dict.h"
 #include "rdb.h"
-#include "resp3.h"
 #include "rmutil/rm_assert.h"
 #include "commands.h"
 #include "config.h"
+#include "util/likely.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -34,7 +39,11 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
-    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL, 0);
+    // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
+    int rc = Trie_Insert(t, values[i], 1, 1, NULL, 0);
+    if (likely(rc == TRIE_OK_NEW)) {
+      valuesAdded++;
+    }
   }
 
   return valuesAdded;
@@ -72,13 +81,12 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
 
   RedisModule_ReplyWithSet(ctx, Trie_Size(t));
 
-  TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  TrieIterator *it = Trie_IterateAll(t);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -156,13 +164,12 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
 
   RedisModuleString **terms = rm_malloc(Trie_Size(trie) * sizeof(RedisModuleString*));
   size_t termsCount = 0;
 
-  TrieIterator *it = Trie_Iterate(trie, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  TrieIterator *it = Trie_IterateAll(trie);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
     rm_free(res);
@@ -171,7 +178,7 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
 
   RS_ASSERT(termsCount == Trie_Size(trie));
   RS_LOG_ASSERT(Trie_Size(trie) != 0, "Empty dictionary should not exist in the dictionary list");
-  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_DICT_ADD), "cv", dictName, terms, termsCount);
   if (rc != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
   }
@@ -201,7 +208,7 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     char *key = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    Trie *val = TrieType_GenericLoad(rdb, false, false);
+    Trie *val = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
     if (val == NULL) {
       RedisModule_Free(key);
       goto cleanup;
@@ -230,7 +237,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
     Trie *val = dictGetVal(entry);
-    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
+    RS_LOG_ASSERT(Trie_Size(val) != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false, false);
   }

@@ -7,11 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "geometry_api.h"
-#include "rtree.hpp"
 
+#include <boost/smart_ptr/allocate_unique.hpp>  // boost::allocate_unique
 #include <array>                                // std::array
 #include <variant>                              // std::variant, std::monostate, std::get
-#include <boost/smart_ptr/allocate_unique.hpp>  // boost::allocate_unique
+#include <cstddef>
+#include <memory>
+#include <string_view>
+
+#include "rtree.hpp"
+#include "field.h"
+#include "geometry/allocator/allocator.hpp"
+#include "geometry/geometry_types.h"
+
+struct RedisSearchCtx;
 
 using namespace RediSearch::GeoShape;
 using namespace RediSearch::Allocator;

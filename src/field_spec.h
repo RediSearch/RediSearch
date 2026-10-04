@@ -10,7 +10,7 @@
 #define SRC_FIELD_SPEC_H_
 
 #include "redisearch.h"
-#include "value.h"
+#include "query_error_ffi.h"
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
@@ -119,7 +119,12 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params (diskCtx.storage is non-NULL for disk-based indexes)
+      // Disk index params. diskCtx.indexName is non-NULL exactly when the
+      // field is disk-backed; diskCtx.storage is non-NULL only once the
+      // index spec is open and PopulateVectorDiskParams has run. During
+      // SST replication load, FieldSpec_RdbLoad populates indexName early
+      // (before sp->diskSpec exists) so the disk teardown path is selected
+      // even if the load aborts before storage is bound.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {
@@ -151,6 +156,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
+#define FieldSpec_IsIndexableText(fs) (FIELD_IS((fs), INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs))
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 #define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)
@@ -166,6 +172,24 @@ const char *FieldSpec_GetTypeNames(int idx);
 
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
+
+/**
+ * True iff `name` is the document field this FieldSpec is fed from.
+ *
+ * Compares against `fieldPath`, not `fieldName`: a changed field is the hash field the command
+ * wrote, which is the path. `fieldName` is the `AS` alias, so comparing that would find no
+ * match on an aliased schema. `IndexSpec_CreateField` points `fieldPath` at `fieldName` when
+ * `AS` is absent, so unaliased schemas are unaffected.
+ */
+static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, size_t len) {
+  return HiddenString_CompareC(fs->fieldPath, name, len) == 0;
+}
+
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

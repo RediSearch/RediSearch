@@ -7,17 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX, t_fieldIndex, t_fieldMask};
+use rqe_core::{FieldIndex, FieldMask, RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX};
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-/// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 /// Type representing either a field mask or field index.
 pub enum FieldMaskOrIndex {
     /// For textual fields, allows to host multiple field indices at once.
-    Index(t_fieldIndex) = 0,
+    Index(FieldIndex) = 0,
     /// For the other fields, allows a single field to be referenced.
-    Mask(t_fieldMask) = 1,
+    Mask(FieldMask) = 1,
 }
 
 impl FieldMaskOrIndex {
@@ -35,8 +35,7 @@ impl FieldMaskOrIndex {
 /// Field expiration predicate used when checking fields.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(C)]
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FieldExpirationPredicate {
     /// one of the fields need to be valid.
     Default = 0,
@@ -52,8 +51,9 @@ impl FieldExpirationPredicate {
 }
 
 /// Field filter context used when querying fields.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
+#[cheadergen::config(export)]
 pub struct FieldFilterContext {
     /// the field mask or index to filter on.
     pub field: FieldMaskOrIndex,

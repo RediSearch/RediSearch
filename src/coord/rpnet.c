@@ -7,18 +7,37 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <stdatomic.h>
+#include <stdint.h>
+#include <string.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
+#include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
-#include "hiredis/sds.h"
 #include "coord/dist_utils.h"
-#include "debug_commands.h"
+#include "score_explain_mr.h"
+#include "rmalloc.h"
+#include "config.h"
+#include "hybrid/hybrid_exec.h"  // SEARCH_SUFFIX / VSIM_SUFFIX
+#include "module.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "search_result.h"
+#include "util/timeout.h"
 
 
 #define CURSOR_EOF 0
 
-
+// Converts an MRReply to an RSValue, consuming the reply. String buffers can be
+// transferred directly because hiredis uses the Redis module allocator.
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
@@ -26,9 +45,9 @@ static RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
-      const char *s = MRReply_String(r, &l);
+      char *s = MRReply_TakeString(r, &l);
       RS_ASSERT(l <= UINT32_MAX);
-      v = RSValue_NewCopiedString(s, l);
+      v = RSValue_NewString(s, (uint32_t)l);
       break;
     }
     case MR_REPLY_ERROR: {
@@ -49,9 +68,9 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       size_t map_len = n / 2;
       RSValueMapBuilder *map = RSValue_NewMapBuilder(map_len);
       for (size_t i = 0; i < map_len; i++) {
-        MRReply *e_k = MRReply_ArrayElement(r, i * 2);
+        MRReply *e_k = MRReply_TakeArrayElement(r, i * 2);
         RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
-        MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
+        MRReply *e_v = MRReply_TakeArrayElement(r, (i * 2) + 1);
         RSValue_MapBuilderSetEntry(map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
       v = RSValue_NewMapFromBuilder(map);
@@ -61,7 +80,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       size_t n = MRReply_Length(r);
       RSValue **arr = RSValue_NewArrayBuilder(n);
       for (size_t i = 0; i < n; ++i) {
-        arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
+        arr[i] = MRReply_ToValue(MRReply_TakeArrayElement(r, i));
       }
       v = RSValue_NewArrayFromBuilder(arr, n);
       break;
@@ -73,164 +92,43 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       v = RSValue_NullStatic();
       break;
   }
+  MRReply_Free(r);
   return v;
 }
 
-// Free a ShardResponseBarrier - used as destructor callback for MRIterator
-void shardResponseBarrier_Free(void *ptr) {
-  ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
-  if (barrier) {
-    rm_free(barrier->shardResponded);
-    rm_free(barrier);
-  }
-}
-
-// Allocate and initialize a new ShardResponseBarrier
-// Notice: numShards and shardResponded init is postponed until NumShards is known
-// Returns NULL on allocation failure
-ShardResponseBarrier *shardResponseBarrier_New() {
-  ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
-  if (!barrier) {
+// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL unless the
+// hybrid stream is running a clock-based timeout cycle.
+//
+// Hybrid streams only: a shard that never publishes its cursor mapping leaves
+// this RPNet's placeholder unarmed — no reply and no error ever arrives, so
+// under RETURN the deadline must bound the pop (it replaces the mapping-stage
+// deadline of the old blocking cursor-setup wait). Plain aggregate streams
+// keep the legacy RETURN semantics — wait beyond the deadline for in-flight
+// shard replies, observing the timeout only at reply boundaries — so they get
+// no in-band pop deadline.
+static const struct timespec *getAbsTimeout(const RPNet *nc) {
+  RS_ASSERT(nc->areq);
+  if (nc->hybridSubquery == RPNET_HYBRID_NONE ||
+      nc->areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
     return NULL;
   }
-
-  // numShards is initialized to 0 here and later updated via atomic_store in
-  // shardResponseBarrier_Init when the actual shard count is known.
-  // We must use atomic_init here (not rely on calloc zeroing)
-  // because the coord thread may call atomic_load on numShards before
-  // shardResponseBarrier_Init runs.
-  atomic_init(&barrier->numShards, 0);
-  atomic_init(&barrier->numResponded, 0);
-  atomic_init(&barrier->accumulatedTotal, 0);
-  atomic_init(&barrier->hasShardError, false);
-
-  // Set the callback for processing replies in IO threads
-  barrier->notifyCallback = shardResponseBarrier_Notify;
-
-  return barrier;
-}
-
-// Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
-void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
-  ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
-  if (!barrier || !it) {
-    return;
-  }
-
-  size_t numShards = MRIterator_GetNumShards(it);
-  barrier->shardResponded = rm_calloc(numShards, sizeof(*barrier->shardResponded));
-  if (barrier->shardResponded) {
-    // rm_calloc already zero-initializes, so all elements are false
-    // Set numShards only after successful allocation to prevent
-    // shardResponseBarrier_Notify from accessing NULL shardResponded array
-    // Use atomic_store (not atomic_init) because coord thread may already be
-    // calling atomic_load on numShards concurrently in getNextReply()
-    atomic_store(&barrier->numShards, numShards);
-  }
-  // If allocation failed, numShards remains 0 (from atomic_init in shardResponseBarrier_New)
-  // so Notify callback won't try to access the NULL shardResponded array
-}
-
-// Callback invoked by IO thread for each shard reply to accumulate totals
-// This function implements the ReplyNotifyCallback signature
-void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bool isError, void *privateData) {
-  ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
-
-  // Validate shardId bounds
-  size_t numShards = atomic_load(&barrier->numShards);
-  if (shardIndex >= numShards) {
-    return;
-  }
-
-  // Check if this is the first response from this shard
-  // No atomic needed - only one IO thread accesses shardResponded for this barrier
-  if (!barrier->shardResponded[shardIndex]) {
-    barrier->shardResponded[shardIndex] = true;
-    if (!isError) {
-      atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
-    } else {
-      atomic_store(&barrier->hasShardError, true);
-    }
-    atomic_fetch_add(&barrier->numResponded, 1);
-  }
-}
-
-static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
-  // Set the accumulated total now that all shards have responded
-  // numShards == 0 means IO thread never initialized the barrier (timeout before init)
-  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
-  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
-  if (numShards > 0 && numResponded >= numShards) {
-    long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
-    nc->base.parent->totalResults = accumulatedTotal;
-  }
-}
-
-static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
-  if (nc->pendingReplies) {
-    array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
-    array_free(nc->pendingReplies);
-    nc->pendingReplies = NULL;
-  }
-}
-
-// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
-// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
-static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
-    return NULL;
-  }
-  return (struct timespec *)&nc->areq->sctx->time.timeout;
-}
-
-// Handle timeout (not enough shards responded) only if there were no errors
-// Also handles the case where numShards == 0 (IO thread never initialized barrier)
-static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
-  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
-  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
-  // Timeout if: barrier not initialized (numShards == 0) OR not all shards responded
-  if (!(atomic_load(&nc->shardResponseBarrier->hasShardError)) &&
-      (numShards == 0 || numResponded < numShards)) {
-    // cleanup pending replies
-    shardResponseBarrier_PendingReplies_Free(nc);
-
-    // Set error in AREQ context
-    QueryError_SetError(
-      AREQ_QueryProcessingCtx(nc->areq)->err,
-      QUERY_ERROR_CODE_TIMED_OUT,
-      "ShardResponseBarrier: Timeout while waiting for first responses from all shards");
-    return true;
-  }
-  return false;
-}
-
-// Helper function to check for shard errors and keep only the first error reply
-// Returns true if an error was found and set in nc->current.root, false otherwise
-static bool shardResponseBarrier_HandleError(RPNet *nc) {
-  // Check if any shard returned an error during the waiting period
-  if (atomic_load(&nc->shardResponseBarrier->hasShardError)) {
-    // Find the first error reply in pendingReplies and return it
-    if (nc->pendingReplies) {
-      for (size_t i = 0; i < array_len(nc->pendingReplies); i++) {
-        MRReply *reply = nc->pendingReplies[i];
-        if (MRReply_Type(reply) == MR_REPLY_ERROR) {
-          // Move error reply to current
-          nc->current.root = reply;
-          array_del(nc->pendingReplies, i);
-          shardResponseBarrier_PendingReplies_Free(nc);
-          return true;  // Error found
-        }
-      }
-    }
-  }
-  return false;  // No error
+  return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
 }
 
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
-// Returns RS_RESULT_TIMEDOUT if timeout warning found, RS_RESULT_OK otherwise.
+//
+// Shard warnings are always recorded on the AREQ / QueryError so the reply
+// emitter can surface them. A shard's TIMEDOUT warning additionally controls
+// whether the coord pipeline should keep draining:
+//   - TimeoutPolicy_ReturnStrict: keep draining the remaining shards. The
+//     warning flag is forwarded via QEXEC_S_SHARD_TIMED_OUT_WARNING; the
+//     coord's own deadline (handled by the strict timeout callback) is the
+//     authoritative stop signal.
+//   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
+//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
-  bool timed_out = false;
+  bool shard_timed_out = false;
   // Check for warnings (resp3 only)
   if (is_resp3) {
     RS_ASSERT(nc->current.meta);
@@ -241,7 +139,9 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
       const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
       // Set an error to be later picked up and sent as a warning
       if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
-        timed_out = true;
+        RS_ASSERT(nc->areq);
+        shard_timed_out = true;
+        nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
       } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
       } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
@@ -259,107 +159,120 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (timed_out) {
+  if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
   }
 
   return RS_RESULT_OK;
 }
 
+// True when a popped reply is a mapping-stage warning injected into a hybrid
+// stream by the arming fan-out callback (see forwardWarnings in
+// hybrid_cursor_mappings.c): a bare warning string. The stream's other replies
+// are arrays (rows) or errors, so a top-level string is unambiguous.
+static bool isHybridMappingWarning(const RPNet *nc, MRReply *root) {
+  if (nc->hybridSubquery == RPNET_HYBRID_NONE) {
+    return false;
+  }
+  const int type = MRReply_Type(root);
+  return type == MR_REPLY_STRING || type == MR_REPLY_STATUS;
+}
+
+// Apply one mapping-stage warning from a shard's _FT.HYBRID reply to this
+// subquery's state, mirroring what processWarningsAndCleanup does for
+// row-reply warnings — with two mapping-stage differences: a shard timeout
+// warning aborts only under FAIL (under RETURN the mapping succeeded and the
+// reads proceed), and suffix-tagged max-prefix warnings are routed to the
+// subquery the shard tagged. Returns RS_RESULT_OK to keep reading, or the
+// result code to propagate.
+static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
+  QueryError *err = AREQ_QueryProcessingCtx(nc->areq)->err;
+  // Suffix-tagged max-prefix warnings don't exact-match the warning-code
+  // lookup below; match by prefix. The arming callback already routed them to
+  // the subquery stream they are tagged with (see forwardWarnings).
+  if (!strncmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS))) {
+    QueryError_SetReachedMaxPrefixExpansionsWarning(err);
+    return RS_RESULT_OK;
+  }
+  // The remaining producer set is fixed: replyWithCursors emits a timeout
+  // warning, and the early-bail empty reply emits a timeout or shard-OOM
+  // warning (see common_hybrid_query_reply_empty).
+  switch (QueryWarningCode_GetCodeFromMessage(warning_str)) {
+    case QUERY_WARNING_CODE_TIMED_OUT:
+      nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+      if (nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        return RS_RESULT_TIMEDOUT;
+      }
+      break;
+    case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
+      if (nc->areq->reqConfig.oomPolicy == OomPolicy_Fail) {
+        // The shard ran under a milder OOM policy than this coordinator; FAIL
+        // semantics still demand a hard error.
+        QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+        QueryError_SetDetail(err, warning_str);
+        return RS_RESULT_ERROR;
+      }
+      QueryError_SetQueryOOMWarning(err);
+      break;
+    default:
+      break;
+  }
+  return RS_RESULT_OK;
+}
+
 int getNextReply(RPNet *nc) {
-  // Wait for all shards' first responses before returning any results
-  // This ensures accurate total_results from the start
-  MRReply *root = NULL;
-  if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
-    // Get at least 1 response from each shard
-    // Notice: numShards is re-read on each iteration because it may initially be 0
-    // (in case the IO thread iterStartCb did not run yet and did not initialize the barrier yet).
-    // Once a reply arrives, iterStartCb has finished and numShards will be set.
-    size_t numShards;
-    while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
-           atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
-
-      // Check for timeout to avoid blocking indefinitely (respecting skipTimeoutChecks flag)
-      if (nc->areq && AREQ_ShouldCheckTimeout(nc->areq) && TimedOut(&nc->areq->sctx->time.timeout)) {
-        break;
-      // Check for blocked client timeout
-      } else if (nc->areq && AREQ_TimedOut(nc->areq)) {
-        break;
-      }
-
-      // Pop with deadline + abort flag wired. Deadline breaks stalled shards under
-      // Return; abort flag breaks under FAIL/RETURN-STRICT via MRChannel_WakeAbort.
-      // No areq means no wake mechanism is available — degrade to a blocking pop.
-      bool nextTimedOut = false;
-      MRReply *reply = nc->areq
-        ? MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nc->areq->syncCtx.timedOut, &nextTimedOut)
-        : MRIterator_Next(nc->it);
-      if (reply == NULL) {
-        break;  // No more replies, timed out, or aborted
-      }
-
-      // Store reply for later processing
-      if (!nc->pendingReplies) {
-        nc->pendingReplies = array_new(MRReply *, numShards);
-      }
-      array_append(nc->pendingReplies, reply);
-
-      // Check for errors
-      if (shardResponseBarrier_HandleError(nc)) {
-        nc->waitedForAllShards = true;
-        // If for profiling, clone and append the error
-        if (nc->cmd.forProfiling) {
-          // Clone the error and append it to the profile
-          MRReply *error = MRReply_Clone(nc->current.root);
-          array_append(nc->shardsProfile, error);
-        }
-        return RS_RESULT_OK;
-      }
+  if (nc->cmd.forCursor) {
+    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+      RPNet_resetCurrent(nc);
+      return RS_RESULT_EOF;
     }
-
-    // Mark that we've waited (even if not all shards responded due to time out - to avoid infinite loop)
-    nc->waitedForAllShards = true;
-
-    // Handle timeout or not enough shards responded
-    if (shardResponseBarrier_HandleTimeout(nc)) {
-      return RS_RESULT_TIMEDOUT;
-    }
-    shardResponseBarrier_UpdateTotalResults(nc);
   }
-
-  // First, return any pending replies collected during the wait
-  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
-    // Pop the first pending reply
-    root = nc->pendingReplies[0];
-    array_del(nc->pendingReplies, 0);
-  } else {
-    // No pending replies, get from channel
-    if (nc->cmd.forCursor) {
-      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-        RPNet_resetCurrent(nc);
-        return RS_RESULT_EOF;
-      }
-    }
-    // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
-    // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
-    // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
-    root = nc->areq
-      ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
-      : MRIterator_Next(nc->it);
-  }
+  // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
+  // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
+  // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
+  // beyond the deadline for in-flight shard replies), while hybrid streams get
+  // the in-band wall-clock deadline from getAbsTimeout — see its doc for why.
+  // An unarmed timeout source provides neither mechanism and uses MRIterator_Next.
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park BG when it is about to wait for the next shard
+  // reply. Reaching this site implies any previously admitted reply has been
+  // fully drained downstream.
+  SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+#endif
+  RS_ASSERT(nc->areq);
+  QueryRequestTimeout *timeout = &nc->areq->base.timeout;
+  const struct timespec *deadline = getAbsTimeout(nc);
+  RS_Atomic(bool) *abortFlag =
+      timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+          ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
+          : NULL;
+  bool popTimedOut = false;
+  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+                  : deadline || abortFlag
+                      ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
+                      : MRIterator_Next(nc->it);
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
     // Drain-only: empty channel means end of queued replies, not a timeout —
-    // the main-thread timeout callback already observed the deadline and is
-    // now consuming whatever the I/O threads had already pushed.
+    // main-thread serialization only consumes what the I/O threads have pushed.
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (nc->areq && AREQ_TimedOut(nc->areq)) {
+    if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
+  }
+
+  // Mapping-stage warnings ride the stream ahead of any rows; fold them into
+  // this subquery's state and keep reading (current.root stays NULL, so the
+  // rpnetNext pop loop re-enters).
+  if (isHybridMappingWarning(nc, root)) {
+    int rc = processHybridMappingWarning(nc, MRReply_String(root, NULL));
+    MRReply_Free(root);
+    RPNet_resetCurrent(nc);
+    return rc;
   }
 
   // Check if an error was returned
@@ -434,67 +347,26 @@ int getNextReply(RPNet *nc) {
   return RS_RESULT_OK;
 }
 
-/**
- * Start function for RPNet with cursor mappings
- * Replaces rpnetNext_StartDispatcher
- */
-int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
-    RPNet *nc = (RPNet *)rp;
-
-    CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
-    // Mappings should already be populated by HybridRequest_executePlan
-    if (!vsimOrSearch || array_len(vsimOrSearch->mappings) == 0) {
-        RedisModule_Log(NULL, "error", "No cursor mappings available for RPNet");
-        return REDISMODULE_ERR;
-    }
-
-    size_t idx_len;
-    const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, &idx_len);
-    char *idx_copy = rm_strndup(idx, idx_len);
-    MRCommand_Free(&nc->cmd);
-
-    // Create cursor read command using the copied index name
-    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
-    nc->cmd.rootCommand = C_READ;
-    nc->cmd.forProfiling = IsProfile(nc->areq);
-    nc->cmd.protocol = 3;
-    rm_free(idx_copy);
-
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
-    // Register the iterator's channel so the main-thread timeout callback can wake a
-    // blocked reader after flipping AREQ's `timedOut` flag. Paired with
-    // RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
-    if (nc->areq) {
-      RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
-    }
-#ifdef ENABLE_ASSERT
-    DebugBgIterator_Set(nc->it);
-#endif
-    nc->base.Next = rpnetNext;
-
-    return rpnetNext(rp, r);
-}
-
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
-
-  // Note: shardResponseBarrier is freed by MRIterator_Free via the destructor callback
-  // but pendingReplies must be freed by RPNet since it's used only in rpnetNext.
-  // This ensures barrier is not freed while I/O callbacks may still be accessing it.
-
-  // Free any pending replies that weren't consumed
-  shardResponseBarrier_PendingReplies_Free(nc);
 
   if (nc->it) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
-    if (nc->areq) {
-      RequestSyncCtx_UnregisterAbortWakeChannel(&nc->areq->syncCtx);
-    }
+    QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
     DebugBgIterator_Clear(nc->it);
 #endif
+    // The reader is going away, so the request may be torn down (timeout,
+    // fatal shard error, ...) before every shard exchange resolved — for
+    // hybrid, even before the arming fan-out delivered some shards' cursor
+    // ids. Flag the iterator so any late reply processing — getCursorCommand
+    // on an in-flight read, or the hybrid arming callback — sends DEL instead
+    // of READ: without it a healthy shard's cursor is read to depletion into
+    // a channel nobody consumes. Unconditional: with nothing outstanding the
+    // flag has no reader left to affect.
+    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
@@ -504,10 +376,6 @@ void rpnetFree(ResultProcessor *rp) {
     array_free(nc->shardsProfile);
   }
 
-  // NEW: Free cursor mappings
-  if (nc->mappings.rm) {
-    StrongRef_Release(nc->mappings);
-  }
   MRReply_Free(nc->current.root);
   MRCommand_Free(&nc->cmd);
 
@@ -534,6 +402,21 @@ void RPNet_resetCurrent(RPNet *nc) {
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
+  AREQ *areq = nc->areq;
+  RS_ASSERT(areq);
+
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
+#endif
+
+  // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
+  // may already hold a buffered reply (the NULL-reply check below wouldn't fire
+  // and we'd silently return rows). Skipped during the timer's own drain.
+  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+      QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
 
@@ -568,16 +451,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
-    // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
-    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
-    // during a drain.
-    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+    // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
+    // reach this check.
+    if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-
       return RS_RESULT_TIMEDOUT;
     } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
@@ -591,6 +472,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     } else if (ret == RS_RESULT_TIMEDOUT) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
+    } else if (ret == RS_RESULT_ERROR) {
+      // Mapping-stage warning escalated under a FAIL policy (see
+      // processHybridMappingWarning); the QueryError is already set.
+      return RS_RESULT_ERROR;
     }
 
     // If an error was returned, propagate it
@@ -604,11 +489,36 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         // The shard reply already contains the prefixed error string — set it directly
         // without re-prefixing via QueryError_SetError.
         QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
-        QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err, MRReply_String(nc->current.root, NULL));
+        // Hybrid mapping-stage timeout errors carry the shard's internal
+        // phrasing (e.g. "Depleting timed out"); reply the canonical timeout
+        // text instead, as the pre-arming-fan-out coordinator did.
+        if (nc->hybridSubquery == RPNET_HYBRID_NONE || errCode != QUERY_ERROR_CODE_TIMED_OUT) {
+          QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
+                               MRReply_String(nc->current.root, NULL));
+        }
         return RS_RESULT_ERROR;
       } else {
         // Handle shards returning error unexpectedly
         // Might be from different Timeout/OOM policy (See MOD-10774)
+        if (nc->hybridSubquery != RPNET_HYBRID_NONE) {
+          // Hybrid mapping-stage shard errors under a milder coordinator
+          // policy degrade to the warnings the mapping's warning array would
+          // have produced, instead of the aggregate path's silent drop.
+          if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
+            nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+          } else if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+            QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+          } else {
+            // No policy softens any other mapping-stage error (e.g. a shard
+            // that lost the index) — fatal, as it was for the
+            // pre-arming-fan-out coordinator; dropping it would silently
+            // return incomplete results.
+            QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
+            QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
+                                 MRReply_String(nc->current.root, NULL));
+            return RS_RESULT_ERROR;
+          }
+        }
         // Free the error reply before we override it and continue
         MRReply_Free(nc->current.root);
         // Set it as NULL avoid another free
@@ -629,19 +539,19 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 #endif
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set
-      // by the waiting logic above. We skip accumulation here to avoid double-counting.
-      // For non-WITHCOUNT or single-shard cases, we still need to count.
-      if (!nc->shardResponseBarrier) {
+      // For WITHCOUNT, totalResults was set once at Phase B start by
+      // executeAggregateDeferred from the shard-summed total accumulated on the
+      // IO thread; it is preserved across cursor reads by finishSendChunk.
+      if (!nc->withCount) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       nc->curIdx = 1;
-      // For WITHCOUNT in multi-shard aggregate, totalResults is already set
-      // by the callback accumulation logic. Skip to avoid double-counting.
-      if (!nc->shardResponseBarrier) {
+      // For WITHCOUNT, totalResults was set once at Phase B start by
+      // executeAggregateDeferred (see RESP3 branch above).
+      if (!nc->withCount) {
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }
@@ -666,16 +576,32 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
   // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
-  // when opening shard connections
+  // when opening shard connections.
   if (score) {
-    RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
-    SearchResult_SetScore(r, MRReply_Double(score));
+    const bool expectExplain = (nc->areq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    if (expectExplain) {
+      RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_ARRAY &&
+                        MRReply_Length(score) == SE_REPLY_NODE_ARITY,
+                    "EXPLAINSCORE expected score paired with explain tree");
+      const MRReply *scoreValue = MRReply_ArrayElement(score, 0);
+      const MRReply *explainReply = MRReply_ArrayElement(score, 1);
+      RS_LOG_ASSERT(scoreValue && MRReply_Type(scoreValue) == MR_REPLY_DOUBLE,
+                    "invalid score record");
+      SearchResult_SetScore(r, MRReply_Double(scoreValue));
+      // A shard with no explanation for the row sends nil in its slot.
+      if (explainReply && MRReply_Type(explainReply) != MR_REPLY_NIL) {
+        SearchResult_SetScoreExplain(r, SE_FromMRReply(explainReply));
+      }
+    } else {
+      RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
+      SearchResult_SetScore(r, MRReply_Double(score));
+    }
   }
 
   for (size_t i = 0; i < fields_length; i += 2) {
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-    MRReply *val = MRReply_ArrayElement(fields, i + 1);
+    MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
     RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }

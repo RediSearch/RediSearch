@@ -7,9 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "alias.h"
+
+#include <stdbool.h>
+#include <unistd.h>
+
 #include "spec.h"
-#include "util/dict.h"
 #include "rmutil/rm_assert.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
 
 AliasTable *AliasTable_g = NULL;
 

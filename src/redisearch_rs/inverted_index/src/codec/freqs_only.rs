@@ -9,10 +9,11 @@
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
+use rqe_core::DocId;
 
-use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
+use crate::{Decoder, Encoder, TermDecoder};
+use index_result::RSIndexResult;
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).
@@ -37,13 +38,13 @@ impl Decoder for FreqsOnly {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + delta as DocId;
         result.freq = freq;
         Ok(())
     }
@@ -52,31 +53,34 @@ impl Decoder for FreqsOnly {
         RSIndexResult::build_virt().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let freq = loop {
             let [delta, freq] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break freq;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.freq = freq;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

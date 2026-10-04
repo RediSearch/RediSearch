@@ -2,6 +2,10 @@ name: Deploy Master or Version Branch Snapshots
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -21,20 +25,45 @@ jobs:
       packages: write
     uses: ./.github/workflows/flow-build-artifacts.yml
 
-  notify-failure:
+  triage-failure:
     needs: deploy-snapshots
     if: failure()
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      triage-exists: ${{ steps.triage.outputs.triage-exists }}
+      triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+      - name: Run Codex triage
+        id: triage
+        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@v1
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/snapshot-triage.md
+
+  notify-failure:
+    permissions: {} # Slack webhook only
+    needs: [deploy-snapshots, triage-failure]
+    if: failure()
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_SNAPSHOT_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "repository": "${{ github.repository }}",
               "branch": "${{ github.ref_name }}",
               "workflow_page": "${{ github.server_url }}/${{ github.repository }}/actions/workflows/event-deploy-snapshots.yml/?query=branch%3A${{ github.ref_name }}",
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "ai_triage": ${{ needs.triage-failure.outputs.triage-exists == 'true' && needs.triage-failure.outputs.triage-content-json || '""' }}
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_SNAPSHOT_FAILED }}

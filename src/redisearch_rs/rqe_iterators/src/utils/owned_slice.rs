@@ -15,13 +15,18 @@ pub struct OwnedSlice<T> {
 impl<T> Default for OwnedSlice<T> {
     #[inline(always)]
     fn default() -> Self {
-        Self {
-            kind: SliceKind::Rust(Vec::default()),
-        }
+        Self::new()
     }
 }
 
 impl<T> OwnedSlice<T> {
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self {
+            kind: SliceKind::Rust(Vec::new()),
+        }
+    }
+
     /// # Safety
     ///
     /// ptr must be non-null and point to `len` initialized elements
@@ -53,6 +58,16 @@ impl<T> std::ops::Deref for OwnedSlice<T> {
     #[inline(always)]
     fn deref(&self) -> &[T] {
         match &self.kind {
+            SliceKind::C(s) => s,
+            SliceKind::Rust(v) => v,
+        }
+    }
+}
+
+impl<T> std::ops::DerefMut for OwnedSlice<T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [T] {
+        match &mut self.kind {
             SliceKind::C(s) => s,
             SliceKind::Rust(v) => v,
         }
@@ -98,12 +113,23 @@ impl<T> std::ops::Deref for RedisSlice<T> {
     }
 }
 
+impl<T> std::ops::DerefMut for RedisSlice<T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [T] {
+        // SAFETY: The constructor's safety contract guarantees `self.ptr` is
+        // non-null, well-aligned, and points to `self.len` initialized elements
+        // (so the total size is a valid allocation, hence <= `isize::MAX`).
+        // We hold `&mut self`, so this is the only live reference to the data.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
 impl<T> Drop for RedisSlice<T> {
     fn drop(&mut self) {
         // SAFETY: `RedisModule_Free` is guaranteed to be initialized by the
         // time any module code runs; the Redis module loader sets up the API
         // table before calling `RedisModule_OnLoad`.
-        let free_fn = unsafe { ffi::RedisModule_Free.unwrap() };
+        let free_fn = unsafe { redis_module::RedisModule_Free.unwrap() };
         // SAFETY: The memory at `self.ptr` was allocated via
         // `RedisModule_Alloc` (guaranteed by the constructor's safety
         // contract) and has not been freed yet (guaranteed by Rust's

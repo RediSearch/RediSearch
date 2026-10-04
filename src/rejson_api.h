@@ -171,9 +171,17 @@ typedef struct RedisJSONAPI {
   // use the previous array API to get the values(e.g. getAt, etc.)
   const void* (*getArray)(RedisJSON json, size_t *len, JSONArrayType *type);
 
+  ////////////////
+  // V8 entries //
+  ////////////////
+  // Get a RedisJSON root from an already-open RedisModuleKey handle.
+  // Returns NULL if the key is NULL, is not a module type, or does not hold JSON.
+  // The caller owns the key handle and must keep it open while using the returned RedisJSON.
+  RedisJSON (*getJsonFromHandle)(RedisModuleKey *redis_key);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 7
+#define RedisJSONAPI_LATEST_API_VER 8
 #ifdef __cplusplus
 }
 #endif

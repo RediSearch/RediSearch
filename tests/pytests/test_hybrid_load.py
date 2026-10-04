@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from RLTest import Env
 from includes import *
 from common import *
@@ -182,7 +189,7 @@ def test_load_all_docs_and_yield():
                 'YIELD_SCORE_AS', 'search_score',
             'VSIM', '@vector', '$BLOB',
                 'YIELD_SCORE_AS', 'vector_score',
-            'COMBINE', 'LINEAR', '6', 'ALPHA', 0.3, 'BETA', 0.7,
+            'COMBINE', 'LINEAR', '4', 'ALPHA', 0.3, 'BETA', 0.7,
                 'YIELD_SCORE_AS', 'fused_score',
             'LOAD', '*',
             'PARAMS', '2', 'BLOB', QUERY_VECTOR,

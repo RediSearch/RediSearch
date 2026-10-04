@@ -13,10 +13,10 @@ use value_ffi::getters::RSValue_Number_Get;
 use value_ffi::map::*;
 use value_ffi::shared::RSValue_DecrRef;
 
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
+// Keep the Rust FFI exports needed by the linked C bundle from being stripped.
+extern crate redisearch_rs;
+// Mock or stub the C symbols the bundle needs but the line above does not provide.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 #[test]
 fn test_map() {

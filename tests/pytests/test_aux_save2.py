@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import subprocess
 from common import *
 from RLTest import Env
@@ -143,7 +150,7 @@ def testLoadRdbWithEmptySpellcheckDict(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles(env, RDBS):
+    if not getRDBFiles(env, RDBS):
         return
 
     for fileName in RDBS:

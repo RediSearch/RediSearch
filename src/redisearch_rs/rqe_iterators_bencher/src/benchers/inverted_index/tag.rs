@@ -12,7 +12,9 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
-use inverted_index::{RSQueryTerm, doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
+use index_result::RSQueryTerm;
+use inverted_index::{doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
+use iterators_ffi::inverted_index::CTagIndexLookup;
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Tag};
 use rqe_iterators_test_utils::TestContext;
 
@@ -73,7 +75,7 @@ impl TagBencher {
                     Tag::new(
                         ii.reader(),
                         context.sctx,
-                        context.tag_index(),
+                        CTagIndexLookup::new(context.tag_index()),
                         term,
                         0.0,
                         rqe_iterators::NoOpChecker,
@@ -103,7 +105,7 @@ impl TagBencher {
                     Tag::new(
                         ii.reader(),
                         context.sctx,
-                        context.tag_index(),
+                        CTagIndexLookup::new(context.tag_index()),
                         term,
                         0.0,
                         rqe_iterators::NoOpChecker,

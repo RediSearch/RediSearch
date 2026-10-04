@@ -10,11 +10,13 @@
 pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_EOF,
+    IteratorStatus_ITERATOR_OK, ValidateStatus,
 };
-use inverted_index::{RSIndexResult, RSQueryTerm};
+use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
+use redis_module::{RedisModule_Alloc, RedisModule_Free};
+use rqe_core::DocId;
 use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -77,27 +79,13 @@ impl QueryIterator {
         Self(unsafe { NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
     }
 
-    #[inline(always)]
-    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex, sctx: *const ffi::RedisSearchCtx) -> Self {
-        let term = Box::into_raw(RSQueryTerm::new("term", 1, 0));
-        Self(unsafe {
-            iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
-                ii.cast_const(),
-                sctx,
-                field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
-                term,
-                1.0,
-            )
-        })
-    }
-
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments
     /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
     /// * `weight` - The weight for the intersection result
     #[inline(always)]
-    pub fn new_intersection(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
+    pub fn new_intersection(children_ids: &[Vec<DocId>], weight: f64) -> Self {
         let num_children = children_ids.len();
 
         // Allocate array of child iterator pointers using RedisModule_Alloc
@@ -110,8 +98,7 @@ impl QueryIterator {
         for (i, ids) in children_ids.iter().enumerate() {
             // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
             let ids_ptr = unsafe {
-                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
-                    as *mut t_docId
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<DocId>()) as *mut DocId
             };
             unsafe {
                 std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
@@ -169,7 +156,8 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn revalidate(&self, spec: *mut ffi::IndexSpec) -> ValidateStatus {
+    pub unsafe fn revalidate(&self, spec: *mut ffi::IndexSpec) -> ValidateStatus {
+        // SAFETY: Caller must ensure spec is a valid pointer
         unsafe { (*self.0).Revalidate.unwrap()(self.0, spec) }
     }
 
@@ -181,7 +169,7 @@ impl QueryIterator {
     #[inline(always)]
     pub fn current(&self) -> Option<&RSIndexResult<'static>> {
         let current = unsafe { (*self.0).current };
-        unsafe { current.cast::<RSIndexResult>().as_ref() }
+        unsafe { current.cast::<RSIndexResult<'static>>().as_ref() }
     }
 }
 
@@ -257,7 +245,7 @@ impl InvertedIndex {
         term: Option<Box<RSQueryTerm>>,
         offsets: &[u8],
     ) {
-        let offsets = inverted_index::RSOffsetSlice::from_slice(offsets);
+        let offsets = index_result::RSOffsetSlice::from_slice(offsets);
         let record = RSIndexResult::build_term()
             .borrowed_record(term, offsets)
             .doc_id(doc_id)
@@ -270,10 +258,5 @@ impl InvertedIndex {
                 &record as *const _ as *mut _,
             );
         }
-    }
-
-    #[inline(always)]
-    pub fn iterator_term(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_term(self.ii, self.sctx) }
     }
 }

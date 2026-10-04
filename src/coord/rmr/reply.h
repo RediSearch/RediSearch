@@ -50,6 +50,10 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive);
 
 const char *MRReply_String(const MRReply *reply, size_t *len);
 
+// Takes ownership of a string reply's buffer. The reply remains valid and must
+// still be freed, but no longer owns the returned buffer.
+char *MRReply_TakeString(MRReply *reply, size_t *len);
+
 MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx);
 // Same as `MRReply_ArrayElement`, but takes ownership of the element.
 MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx);
@@ -73,7 +77,7 @@ int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRRep
 
 // Clone MRReply from another MRReply
 // Currently implements a partial clone, only for the type and string types.
-// Support types - MR_REPLY_STRING, MR_REPLY_ERROR
+// Support types - MR_REPLY_STRING, MR_REPLY_ERROR, MR_REPLY_STATUS
 MRReply *MRReply_Clone(MRReply *src);
 
 // Create a new error reply with the given message.

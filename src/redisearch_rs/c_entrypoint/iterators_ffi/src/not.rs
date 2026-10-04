@@ -9,24 +9,26 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator, t_docId, timespec};
-use rqe_iterator_type::IteratorType;
+use ffi::QueryIterator;
+use rqe_core::DocId;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     not::Not,
     not_optimized::NotOptimized,
-    not_reducer::{NewNotIterator, new_not_iterator},
+    not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
+    utils::AnyTimeoutContext,
 };
 
-type NotFfi<'index> = Not<'index, CRQEIterator>;
-type NotOptimizedFfi<'index> = NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator>;
+type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
+type NotOptimizedFfi<'index> =
+    NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator, AnyTimeoutContext>;
 
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
 ///
 /// The `NotOptimized` variant is intentionally large because it inlines a
-/// [`WildcardIterator`] to avoid heap allocation. Both variants are
+/// `WildcardIterator` to avoid heap allocation. Both variants are
 /// long-lived (query lifetime), and the size difference is acceptable.
 #[expect(
     clippy::large_enum_variant,
@@ -37,11 +39,15 @@ enum NotIteratorEnum<'index> {
     NotOptimized(NotOptimizedFfi<'index>),
 }
 
-impl<'index> NotIteratorEnum<'index> {
-    const fn child(&self) -> Option<&CRQEIterator> {
+impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
         match self {
-            Self::Not(it) => it.child(),
-            Self::NotOptimized(it) => it.child(),
+            Self::Not(it) => it.print_profile(map, ctx),
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
         }
     }
 }
@@ -49,7 +55,7 @@ impl<'index> NotIteratorEnum<'index> {
 // Delegate `RQEIterator` to the inner variant.
 impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         match self {
             Self::Not(it) => it.current(),
             Self::NotOptimized(it) => it.current(),
@@ -59,7 +65,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
     {
         match self {
             Self::Not(it) => it.read(),
@@ -70,7 +76,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         match self {
@@ -80,15 +86,13 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Not(it) => unsafe { it.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::NotOptimized(it) => unsafe { it.revalidate(spec) },
+            Self::Not(it) => it.revalidate(spec),
+            Self::NotOptimized(it) => it.revalidate(spec),
         }
     }
 
@@ -109,7 +113,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         match self {
             Self::Not(it) => it.last_doc_id(),
             Self::NotOptimized(it) => it.last_doc_id(),
@@ -146,17 +150,29 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
     }
 }
 
-/// FFI wrapper for non-reduced NOT iterators ([`NotIteratorEnum`]).
+/// Build the [`AnyTimeoutContext`] the iterator should use.
 ///
-/// Used by [`GetNotIteratorChild`] to recover the Rust iterator from a raw
-/// [`QueryIterator`] pointer.
-type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
-
+/// # Safety
+///
+/// Caller must uphold preconditions 3 and 4 of [`NewNotIterator()`] for the
+/// lifetime of the returned context and every iterator built from it.
+unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutContext {
+    // SAFETY: caller guarantees q is valid (3).
+    let q_ref = unsafe { q.as_ref() };
+    let sctx = NonNull::new(q_ref.sctx).expect("q.sctx must be non-null (precondition 4)");
+    // SAFETY: precondition 4 keeps `q.sctx` and its request timeout valid and excludes source
+    // changes and deadline writes during probes.
+    unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
+}
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
 /// on the query evaluation context.
 ///
 /// If the child is trivially reducible (empty or wildcard), a simplified
 /// iterator is returned directly.
+///
+/// The request timeout reached through `q.sctx.timeout` selects no timeout,
+/// the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
+/// read back on every probe so a re-armed deadline is honoured.
 ///
 /// # Safety
 ///
@@ -165,58 +181,36 @@ type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
 /// 2. When non-null, `child` must not be aliased.
 /// 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
 /// 4. `q.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+///    address for the lifetime of the returned iterator. Its request timeout must also remain
+///    valid at a stable address for that lifetime. Timeout source changes and deadline writes
+///    may happen only between probes; only the blocked-client flag may change concurrently.
 /// 5. `q.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec).
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
 ///    [`SchemaRule`](ffi::SchemaRule).
 /// 7. When the optimized path is taken, the preconditions of
-///    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
+///    [`crate::wildcard::NewWildcardIterator`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     weight: f64,
-    timeout: timespec,
     q: *mut ffi::QueryEvalCtx,
 ) -> *mut QueryIterator {
     let query = NonNull::new(q).expect("q must be non-null");
 
-    let (rust_timeout, skip_timeout_checks) = {
-        // SAFETY: caller guarantees q is valid (3).
-        let q_ref = unsafe { query.as_ref() };
-        // SAFETY: caller guarantees q.sctx is valid (4).
-        let sctx = unsafe { &*q_ref.sctx };
-        if sctx.time.skipTimeoutChecks {
-            (std::time::Duration::ZERO, true)
-        } else {
-            match crate::timespec::duration_from_redis_timespec(timeout) {
-                Some(d) => (d, false),
-                // Redis sentinel (no timeout) => skip timeout checks
-                None => (std::time::Duration::ZERO, true),
-            }
-        }
-    };
+    // SAFETY: caller upholds preconditions (3, 4).
+    let timeout_ctx = unsafe { build_timeout_context(query) };
 
     // Handle null child: reduce with Empty directly (always becomes wildcard).
     let Some(child_ptr) = NonNull::new(child) else {
         let empty = rqe_iterators::Empty;
         // SAFETY: caller guarantees preconditions (3–7).
-        let result = unsafe {
-            new_not_iterator(
-                empty,
-                max_doc_id,
-                weight,
-                rust_timeout,
-                skip_timeout_checks,
-                query,
-            )
-        };
+        let result = unsafe { new_not_iterator(empty, max_doc_id, weight, timeout_ctx, query) };
         return match result {
             NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
-            NewNotIterator::ReducedEmpty(empty) => {
-                RQEIteratorWrapper::boxed_new(Box::new(empty) as Box<dyn RQEIterator>)
-            }
+            NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
             // Empty child always reduces; these arms are unreachable.
             NewNotIterator::Not(_) | NewNotIterator::NotOptimized(_) => {
                 panic!("Empty not child always reduces")
@@ -228,22 +222,11 @@ pub unsafe extern "C" fn NewNotIterator(
     let child = unsafe { CRQEIterator::new(child_ptr) };
 
     // SAFETY: caller guarantees preconditions (3–7).
-    let result = unsafe {
-        new_not_iterator(
-            child,
-            max_doc_id,
-            weight,
-            rust_timeout,
-            skip_timeout_checks,
-            query,
-        )
-    };
+    let result = unsafe { new_not_iterator(child, max_doc_id, weight, timeout_ctx, query) };
 
     match result {
         NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
-        NewNotIterator::ReducedEmpty(empty) => {
-            RQEIteratorWrapper::boxed_new(Box::new(empty) as Box<dyn RQEIterator>)
-        }
+        NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
         NewNotIterator::Not(iter) => {
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::Not(iter))
         }
@@ -251,31 +234,4 @@ pub unsafe extern "C" fn NewNotIterator(
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter))
         }
     }
-}
-
-/// Get the child pointer of a NOT iterator, or NULL if there is no child.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
-///    created via [`NewNotIterator`]. Must not be called on a reduced
-///    (wildcard/empty) iterator returned by [`NewNotIterator`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetNotIteratorChild(it: *const QueryIterator) -> *const QueryIterator {
-    debug_assert!(!it.is_null());
-    debug_assert!(
-        matches!(
-            // SAFETY: Safe thanks to 1
-            unsafe { (*it).type_ },
-            IteratorType::Not | IteratorType::NotOptimized
-        ),
-        "Expected a NOT or NOT_OPTIMIZED iterator"
-    );
-    // SAFETY: Safe thanks to 1
-    let wrapper = unsafe { NotIteratorWrapper::ref_from_header_ptr(it) };
-    wrapper
-        .inner
-        .child()
-        .map(|c| c.as_ref() as *const _)
-        .unwrap_or(std::ptr::null())
 }

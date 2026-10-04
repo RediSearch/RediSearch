@@ -10,9 +10,8 @@
 use std::{hint::black_box, io::Cursor, vec};
 
 use criterion::{BatchSize, Criterion};
-use inverted_index::{
-    Decoder, Encoder, RSIndexResult, offsets_only::OffsetsOnly, test_utils::TestTermRecord,
-};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, offsets_only::OffsetsOnly, test_utils::TestTermRecord};
 use itertools::Itertools;
 
 pub struct Bencher {

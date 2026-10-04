@@ -7,10 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "indexes_info.h"
-#include "util/dict.h"
-#include "spec.h"
-#include "field_spec_info.h"
+
 #include <string.h>  // Add this for strerror
+#include <pthread.h>
+#include <stdbool.h>
+
+#include "spec.h"
+#include "indexes.h"
+#include "field_spec_info.h"
+#include "VecSim/vec_sim.h"
+#include "config.h"
+#include "info/vector_index_stats.h"
+#include "redismodule.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
@@ -30,12 +41,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (!sp) {
       continue;
     }
-    // Lock for read
-    int rc = pthread_rwlock_rdlock(&sp->rwlock);
-    if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc, strerror(rc));
-      continue;
-    }
+    IndexSpec_LockRead(sp);
 
     // Vector indexes stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
@@ -44,7 +50,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
     info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
-    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
+    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, vec_info.memory);
     size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 
@@ -66,6 +72,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
+    info.total_inverted_index_blocks += IndexSpec_TotalBlockCount(sp);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
@@ -73,17 +80,23 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_indexing_failures < index_error_count) {
       info.max_indexing_failures = index_error_count;
     }
-    info.background_indexing_failures_OOM += sp->scan_failed_OOM;
+    info.background_indexing_failures_OOM += RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
     size_t total_index_mem = info.total_mem - prev_total_mem;
 
     // Update min_mem and max_mem with total memory including disk storage
     if (info.min_mem > total_index_mem) info.min_mem = total_index_mem;
     if (info.max_mem < total_index_mem) info.max_mem = total_index_mem;
 
-    pthread_rwlock_unlock(&sp->rwlock);
+    IndexSpec_Unlock(sp);
   }
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found
   if (BGIndexerInProgress) info.total_active_write_threads++;  // BG indexer is currently active
+
+  // Process-wide vector memory not tied to any specific spec (e.g. the shared SVS
+  // thread pool singleton).
+  size_t shared_vector_mem = VecSim_GetSharedMemory();
+  info.fields_stats.total_vector_idx_mem += shared_vector_mem;
+  info.total_mem += shared_vector_mem;
   return info;
 }

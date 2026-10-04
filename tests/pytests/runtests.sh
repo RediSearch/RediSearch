@@ -17,6 +17,14 @@ cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
+# Returns 0 (success) if $1 is an absolute path, non-zero otherwise.
+# Used to decide whether to prepend $ROOT to user-supplied file arguments.
+is_abspath() {
+	[[ "$1" == /* ]]
+}
+
+#----------------------------------------------------------------------------------------------
+
 help() {
 	cat <<-'END'
 		Run Python tests using RLTest
@@ -47,6 +55,8 @@ help() {
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
+		REDIS_TEST_CONFIG=f   redis-server config for every server started, empty for Redis
+		                      defaults (default: redis-test.conf)
 
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
 		EXT_HOST=addr         Address of existing env (default: 127.0.0.1)
@@ -69,8 +79,7 @@ help() {
 		LOG_LEVEL=<level>     Set log level (default: debug)
 		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 300)
 
-		PARALLEL=1            Runs tests in parallel
-		SLOW=1                Do not test in parallel
+		PARALLEL=0|1|N       Test workers: 0=serial, 1=nproc (default), N=exact count
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 
@@ -134,7 +143,7 @@ setup_rltest() {
 
 #----------------------------------------------------------------------------------------------
 
-setup_clang_sanitizer() {
+setup_sanitizer() {
 	local ignorelist=$ROOT/tests/memcheck/redis.san-ignorelist
 	if ! grep THPIsEnabled $ignorelist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> $ignorelist
@@ -150,11 +159,50 @@ setup_clang_sanitizer() {
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 	if [[ $SAN == addr || $SAN == address ]]; then
+		# Apple's ASan runtime — linked from under an .xctoolchain (any
+		# Xcode bundle, however renamed) or CommandLineTools — has no
+		# LeakSanitizer: with detect_leaks=1 every instrumented process
+		# aborts before main ("detect_leaks is not supported on this
+		# platform"). Other runtimes, like Homebrew LLVM's, support it, so
+		# key off the runtime the module links, not the OS.
+		local detect_leaks=1
+		if otool -l "$MODULE" 2> /dev/null | grep -qE '\.xctoolchain|CommandLineTools'; then
+			detect_leaks=0
+			echo "Disabling ASan leak detection: Apple's runtime does not support it"
+		fi
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=${detect_leaks}:verbosity=0"
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
+		# RediSearch uses C++, but redis-server no longer links libstdc++.
+		# Preload it before Redis starts so ASAN can install its __cxa_throw
+		# interceptor. Non-ASAN runs load libstdc++ when Redis dlopens the module.
+		if [[ $OS != macos && $RLEC != 1 ]] && command -v g++ &> /dev/null; then
+			local libstdcxx
+			libstdcxx=$(g++ -print-file-name=libstdc++.so.6 2> /dev/null)
+			if [[ -n $libstdcxx && -e $libstdcxx ]]; then
+				export LD_PRELOAD="${libstdcxx}${LD_PRELOAD:+:$LD_PRELOAD}"
+
+				local redis_server_path libasan
+				redis_server_path=$(command -v "$REDIS_SERVER")
+
+				# GCC-built sanitizer servers load libasan dynamically. Since
+				# libstdc++ is already preloaded, prepend libasan so the ASAN
+				# runtime remains first. Clang-built servers link ASAN statically,
+				# so ldd finds no libasan entry to add.
+				if command -v ldd &> /dev/null; then
+					libasan=$(ldd "$redis_server_path" 2> /dev/null | awk '
+						$1 ~ /^libasan\.so/ && $2 == "=>" { print $3; exit }
+						$1 ~ /\/libasan\.so/ { print $1; exit }
+					')
+				fi
+
+				if [[ -n $libasan && -e $libasan ]]; then
+					export LD_PRELOAD="${libasan}${LD_PRELOAD:+:$LD_PRELOAD}"
+				fi
+			fi
+		fi
 	fi
 }
 
@@ -192,6 +240,7 @@ run_env() {
 	cat <<-EOF > $rltest_config
 		--env-only
 		--oss-redis-path=$REDIS_SERVER
+		--redis-config-file=$REDIS_TEST_CONFIG
 		--module $MODULE
 		--module-args '$MODARGS'
 		$RLTEST_ARGS
@@ -248,6 +297,7 @@ run_tests() {
 		if [[ $RLEC != 1 ]]; then
 			cat <<-EOF > $rltest_config
 				--oss-redis-path=$REDIS_SERVER
+				--redis-config-file=$REDIS_TEST_CONFIG
 				--module $MODULE
 				--module-args '$MODARGS'
 				$RLTEST_ARGS
@@ -272,10 +322,14 @@ run_tests() {
 			if [[ $REJSON_MODULE ]]; then
 				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_ARGS"
 			fi
+			if [[ -n $REDIS_TEST_CONFIG ]]; then
+				XREDIS_INCLUDE="include $REDIS_TEST_CONFIG"
+			fi
 
 			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
 			rm -f $xredis_conf
 			cat <<-EOF > $xredis_conf
+				$XREDIS_INCLUDE
 				loadmodule $MODULE $MODARGS
 				$XREDIS_REJSON_ARGS
 				EOF
@@ -365,6 +419,12 @@ RLEC_PORT=${RLEC_PORT:-12000}
 EXT_HOST=${EXT_HOST:-127.0.0.1}
 EXT_PORT=${EXT_PORT:-6379}
 
+# Absolute: RLTest starts each server in that test's db directory, not here.
+REDIS_TEST_CONFIG=${REDIS_TEST_CONFIG-$HERE/redis-test.conf}
+if [[ -n $REDIS_TEST_CONFIG ]] && ! is_abspath "$REDIS_TEST_CONFIG"; then
+	REDIS_TEST_CONFIG="$ROOT/$REDIS_TEST_CONFIG"
+fi
+
 PID=$$
 
 
@@ -430,6 +490,21 @@ PARALLEL=${PARALLEL:-1}
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
 		parallel="$(nproc)"
+		# macOS 26 x86_64 CI runs in a VM on an old 6-core Intel Mac; nproc reports
+		# 12 logical (virtual) CPUs. In coordinator (cluster) mode each worker
+		# spawns its own $SHARDS-shard cluster, so 12 workers = 36 redis processes
+		# contending for 6 physical cores — oversubscribing the box and churning TCP
+		# connections, causing both per-test timeouts and ephemeral-port exhaustion
+		# (EADDRNOTAVAIL). Cap workers to virtual_cores/2 (12/2 = 6) so the worker
+		# count matches the 6 physical cores, bounding the oversubscription instead
+		# of scaling it by the logical-CPU count. Standalone runs one redis
+		# per worker and is unaffected, so it keeps the nproc default. Scoped to
+		# macOS 26 (the version on the frequent CI gates); other macOS versions
+		# are run rarely and pass today.
+		if [[ $REDIS_STANDALONE == 0 && "$(uname -s)" == Darwin && "$(uname -m)" == x86_64 ]] &&
+		   [[ "$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)" == 26 ]]; then
+			parallel=$(( parallel / 2 ))
+		fi
 	else
 		parallel=$PARALLEL
 	fi
@@ -451,7 +526,7 @@ fi
 
 if [[ -n $FAILEDFILE ]]; then
 	if ! is_abspath "$FAILEDFILE"; then
-		TESTFILE="$ROOT/$FAILEDFILE"
+		FAILEDFILE="$ROOT/$FAILEDFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
 fi
@@ -475,7 +550,11 @@ fi
 
 # Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
-  ROOT="$ROOT" BINROOT="${BINROOT}/${FULL_VARIANT}" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
+  REJSON_BINROOT="${BINROOT:-}"
+  if [[ -n $REJSON_BINROOT && -n $FULL_VARIANT ]]; then
+    REJSON_BINROOT="${REJSON_BINROOT}/${FULL_VARIANT}"
+  fi
+  ROOT="$ROOT" BINROOT="$REJSON_BINROOT" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
   echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
   RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
 else
@@ -495,12 +574,12 @@ fi
 
 setup_rltest
 
-if [[ -n $SAN ]]; then
-	setup_clang_sanitizer
-fi
-
 if [[ $RLEC != 1 ]]; then
 	setup_redis_server
+fi
+
+if [[ -n $SAN ]]; then
+	setup_sanitizer
 fi
 
 #------------------------------------------------------------------------------------- Env only
@@ -521,6 +600,7 @@ E=0
 # Test suite assumes WORKERS=0; tests that need workers enable them explicitly.
 MODARGS="${MODARGS}; WORKERS 0;"
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
+MODARGS="${MODARGS}; _MAX_FOREGROUND_TIMEOUT_LIMIT 0;" # disable per-query TIMEOUT cap by default
 MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
 
 if [[ $GC == 0 ]]; then

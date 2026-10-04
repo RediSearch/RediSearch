@@ -42,6 +42,7 @@ typedef struct {
   size_t numVectorFields;
   size_t numVectorFieldsFlat;
   size_t numVectorFieldsHNSW;
+  size_t numVectorFieldsHNSWCompressed;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
@@ -51,18 +52,40 @@ typedef struct {
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
+  size_t vectorTotalDocsRelabeled;
 } FieldsGlobalStats;
+
+// The pipeline stage a timeout occurred in, used to break down the timeout metric.
+// Doubles as the query request execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+typedef enum {
+  QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
+  QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
+  QUERY_TIMEOUT_STAGE_REPLY = 2,    // during reply serialization
+  QUERY_TIMEOUT_STAGE_COUNT
+} QueryTimeoutStage;
+
+// Per-stage breakdown of blocked-client query timeouts: every blocked-client timeout
+// callback invocation is counted at the stage the deadline caught the request. Tracked
+// independently of the aggregate `timeout` counters (which count user-visible timeout
+// replies, including non-blocked-client detections).
+typedef struct {
+  size_t queue;     // timed out before execution started (waiting in a job queue)
+  size_t pipeline;  // timed out while executing (result-processor pipeline / fan-out)
+  size_t reply;     // timed out after execution, while the reply was pending/serializing
+} QueryTimeoutStageStats;
 
 typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
   size_t timeout; // Number of timeout errors
+  QueryTimeoutStageStats timeout_by_stage; // Blocked-client timeouts by stage (FAIL policy)
   size_t oom; // Number of OOM errors
   size_t unavailableSlots; // Number of ASM inaccuracy errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
-  size_t timeout;
+  size_t timeout; // Number of timeout warnings
+  QueryTimeoutStageStats timeout_by_stage; // Blocked-client timeouts by stage (RETURN_STRICT policy)
   size_t oom;
   size_t maxPrefixExpansion;
   size_t asm_inaccuracy;
@@ -161,7 +184,7 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
 * `coord` indicates whether the error occurred on the coordinator or on a shard.
 * Standalone shards are considered as coords.
 * Will ignore not supported error codes.
-* Currently supports : syntax, parse_args
+* Currently supports : syntax, parse_args, timeout, oom, unavailable_slots
 * `toAdd` can be negative to decrease the counter.
 */
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);
@@ -170,9 +193,14 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 // `coord` indicates whether the warning occurred on the coordinator or on a shard.
 // Standalone shards are considered as coords
 // Will ignore not supported warning codes.
-// Currently supports : timeout
+// Currently supports : timeout, oom, max_prefix_expansion, asm_inaccuracy
 // `toAdd` can be negative to decrease the counter.
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
+
+// Record one blocked-client query timeout into the per-stage breakdown. Called
+// exactly once per blocked-client timeout callback, after the timedOut flag froze
+// the stage marker. `isError`: FAIL -> error, RETURN_STRICT -> warning; `coord`: side.
+void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord);
 
 // Update the number of active io threads.
 void GlobalStats_UpdateUvRunningQueries(int toAdd);
@@ -185,6 +213,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 
 // Increase the number of documents indexed by the given field type by `toAdd`.
 void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd);
+
+// Increase, by `toAdd`, the number of documents whose entry for the given field type was moved
+// onto a new doc-id rather than re-added.
+void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd);
 
 #ifdef __cplusplus
 }

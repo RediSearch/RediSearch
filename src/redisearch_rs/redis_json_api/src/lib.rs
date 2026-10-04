@@ -7,25 +7,43 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+/// Read a function slot out of the vtable, panicking if the provider left it empty.
+macro_rules! vtable_fn {
+    ($api:expr, $field:ident) => {{
+        let vtable = ($api).vtable();
+
+        // Safety: `$field` is part of the V7 prefix, which every accepted provider allocated.
+        let slot = unsafe { (&raw const (*vtable.as_ptr()).$field).read() };
+
+        slot.expect(concat!(
+            "RedisJSON API function `",
+            stringify!($field),
+            "` not available"
+        ))
+    }};
+}
+
 mod key_values;
+#[cfg(feature = "test-mock")]
+pub mod mock;
 mod path;
 mod results;
 mod value;
 
 use ffi::RedisJSONAPI as RedisJsonApiVTable;
-use redis_module::RedisString;
-use std::{error::Error, ffi::CStr, fmt};
+use redis_module::{RedisString, key::KeyFlags};
+use std::{error::Error, ffi::CStr, fmt, ptr::NonNull};
 
 pub use key_values::KeyValuesIterator;
 pub use path::JsonPath;
 pub use results::ResultsIter;
 pub use value::{JsonType, JsonValue, JsonValueRef};
 
-/// Minimum supported API version.
-pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER as i32;
+/// Minimum RedisJSON API version this wrapper accepts, kept in lockstep with the C side.
+pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER.cast_signed();
 
-/// Latest API version (V7).
-pub const LATEST_API_VERSION: i32 = 7;
+/// Latest API version (V8).
+pub const LATEST_API_VERSION: i32 = 8;
 
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";
@@ -42,7 +60,7 @@ pub const JSON_ROOT: &CStr = c"$";
 /// operations must be performed with appropriate Redis context locking.
 #[derive(Debug, Clone, Copy)]
 pub struct RedisJsonApi {
-    vtable: &'static RedisJsonApiVTable,
+    vtable: NonNull<RedisJsonApiVTable>,
 }
 
 impl RedisJsonApi {
@@ -58,17 +76,24 @@ impl RedisJsonApi {
     pub unsafe fn get() -> Option<Self> {
         // Safety: once the global pointer is initialized it will not be written to again.
         let vtable_ptr = unsafe { ffi::japi };
-        // Safety: Ensured by caller (1.)
-        let vtable = unsafe { vtable_ptr.as_ref()? };
 
-        // Check version compatibility
-        // Safety: japi_ver is initialized alongside japi
+        // Safety: japi_ver is initialized alongside japi.
         let version = unsafe { ffi::japi_ver };
         if version < MIN_API_VERSION {
             return None;
         }
 
-        Some(Self { vtable })
+        Some(Self {
+            vtable: NonNull::new(vtable_ptr)?,
+        })
+    }
+
+    /// Construct an API handle from a caller-provided vtable.
+    #[cfg(feature = "test-mock")]
+    pub const fn from_vtable(vtable: &'static RedisJsonApiVTable) -> Self {
+        Self {
+            vtable: NonNull::from_ref(vtable),
+        }
     }
 
     /// Returns the current API version.
@@ -91,13 +116,10 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
     ) -> Option<JsonValueRef<'_>> {
-        let vtable = self.vtable();
-        let open_key = vtable
-            .openKey
-            .expect("RedisJSON API function `openKey` not available");
+        let open_key = vtable_fn!(self, openKey);
 
         // Safety: ensured by caller (1.)
         let ptr = unsafe { open_key(ctx, key_name.inner.cast()) };
@@ -118,13 +140,10 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_from_str(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &CStr,
     ) -> Option<JsonValueRef<'_>> {
-        let vtable = self.vtable();
-        let open_key_from_str = vtable
-            .openKeyFromStr
-            .expect("RedisJSON API function `openKeyFromStr` not available");
+        let open_key_from_str = vtable_fn!(self, openKeyFromStr);
 
         // Safety: ensured by caller (1.)
         let ptr = unsafe { open_key_from_str(ctx, key_name.as_ptr()) };
@@ -147,17 +166,20 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_with_flags(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
-        flags: i32,
+        flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
-        let vtable = self.vtable();
-        let open_key_with_flags = vtable
-            .openKeyWithFlags
-            .expect("RedisJSON API function `openKeyWithFlags` not available");
+        let open_key_with_flags = vtable_fn!(self, openKeyWithFlags);
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key_with_flags(ctx, key_name.inner.cast(), flags) };
+        let ptr = unsafe {
+            open_key_with_flags(
+                ctx,
+                key_name.inner.cast(),
+                flags.bits() | redis_module::raw::REDISMODULE_READ as i32,
+            )
+        };
 
         if ptr.is_null() {
             None
@@ -166,7 +188,35 @@ impl RedisJsonApi {
         }
     }
 
-    pub const fn vtable(&self) -> &'static RedisJsonApiVTable {
+    /// Gets the JSON root from an already-open [`RedisModuleKey`] handle.
+    ///
+    /// Returns `None` if the key is `NULL`, is not a module type, or does not hold JSON.
+    /// The caller owns the key handle and must keep it open while the returned
+    /// [`JsonValueRef`] is in use.
+    ///
+    /// Delegates to the C helper [`ffi::JSON_GetJsonFromHandleCompat`], which
+    /// handles the V7/V8 version dispatch (see its docs).
+    ///
+    /// # Safety
+    ///
+    /// 1. `redis_key` must be a valid, open `RedisModuleKey` handle (or NULL).
+    ///
+    /// [`RedisModuleKey`]: redis_module::RedisModuleKey
+    pub unsafe fn open_from_handle(
+        &self,
+        redis_key: *mut redis_module::RedisModuleKey,
+    ) -> Option<JsonValueRef<'_>> {
+        // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
+        let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
+
+        if ptr.is_null() {
+            None
+        } else {
+            Some(JsonValueRef { ptr, api: self })
+        }
+    }
+
+    pub const fn vtable(&self) -> NonNull<RedisJsonApiVTable> {
         self.vtable
     }
 }

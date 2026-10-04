@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 @skip(cluster=False)
@@ -18,8 +25,63 @@ def testInfo(env):
     env.assertGreater(float(idx_info['offset_vectors_sz_mb']), 0)
     env.assertGreater(float(idx_info['doc_table_size_mb']), 0)
     env.assertGreater(float(idx_info['sortable_values_size_mb']), 0)
-    env.assertGreater(float(idx_info['key_table_size_mb']), 0)
+    # The key->docId mapping now lives in Redis key-metadata (not module-tracked
+    # memory), so key_table_size_mb is always 0.
+    env.assertEqual(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
+
+@skip(cluster=False)
+def testCountDistinctishAcrossShards():
+    """COUNT_DISTINCTISH is distributed as a per-shard HLL reducer (REDUCER_T_HLL),
+    merged on the coordinator by HLL_SUM (a register-wise max of the per-shard
+    HLL registers, see `distributeCountDistinctish` in `src/coord/dist_plan.cpp`).
+
+    This merge is only correct if every shard maps the same logical value to the
+    same HLL register/rank pair, i.e. the hash fed into the per-shard HLL
+    (`RSValue_HashStable`) must be deterministic across processes. If a
+    per-process-randomized hash (`RSValue_Hash`) were used instead, the same
+    `n_values` distinct values would map to unrelated registers on each shard,
+    and the merged HLL would estimate roughly `n_values * env.shardsCount`
+    distinct values instead of `n_values`.
+
+    To make the difference observable, every distinct tag value is written to
+    enough documents that (with overwhelming probability) each shard sees all
+    `n_values` of them.
+    """
+    env = Env(shardsCount=2)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'group', 'TAG', 'category', 'TAG').ok()
+
+    n_values = 50
+    docs_per_value = 20
+    for j in range(n_values):
+        for i in range(docs_per_value):
+            conn.execute_command('HSET', f'doc:{j}:{i}', 'group', 'all', 'category', f'cat{j}')
+
+    # COUNT_DISTINCT (exact) has no entry in `reducerDistributors_g`, so a GROUPBY
+    # step containing it is never distributed (see `distributeGroupStep`): it runs
+    # entirely on the coordinator over raw rows gathered from all shards, and is
+    # therefore unaffected by per-shard hash seeds. Issued in its own query so it
+    # doesn't drag the COUNT_DISTINCTISH query (below) into the same fate.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                   'GROUPBY', '1', '@group',
+                   'REDUCE', 'COUNT_DISTINCT', '1', '@category', 'AS', 'exact')
+    exact_count = int(to_dict(res[1])['exact'])
+    env.assertEqual(exact_count, n_values)
+
+    # COUNT_DISTINCTISH is the only reducer in this GROUPBY step and is in
+    # `reducerDistributors_g`, so this step *is* distributed into per-shard HLL
+    # reducers merged via HLL_SUM. The result must be close to the exact count.
+    # With a stable cross-process hash, the merged HLL is ~idempotent across
+    # shards and estimates ~n_values. With a per-process-randomized hash, it
+    # would instead estimate ~n_values * env.shardsCount, well outside this
+    # tolerance for shardsCount >= 2.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                   'GROUPBY', '1', '@group',
+                   'REDUCE', 'COUNT_DISTINCTISH', '1', '@category', 'AS', 'approx')
+    approx_count = int(to_dict(res[1])['approx'])
+    env.assertAlmostEqual(exact_count, approx_count, delta=exact_count * 0.20)
 
 @skip(cluster=True)
 def test_required_fields(env):
@@ -32,6 +94,36 @@ def test_required_fields(env):
     env.expect('ft.search', 'idx', 'hello', 'nocontent', 'SORTBY', 't', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', '$hello'])
     # Field is not in Rlookup, will not load
     env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', None])
+
+@skip(cluster=True)
+def test_required_fields_key_cache(env):
+    """The shard-side `_REQUIRED_FIELDS` key cache: a key resolved on one row is reused on
+    later rows (cache hit), a name unresolvable on early rows resolves once a later
+    document's load creates its key (the NULL retry), and a NULL entry left by one cursor
+    chunk is still retried on later `FT.CURSOR READ` chunks."""
+    env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
+    # doc1 lacks `dyn`; doc2 carries it. Without sorting, reply order is docId
+    # (insertion) order, so doc1 serializes first.
+    env.cmd('HSET', 'doc1', 't', 'hello')
+    env.cmd('HSET', 'doc2', 't', 'hello', 'dyn', 'world')
+
+    # Content loading creates each document's keys just before its row is serialized:
+    # `t` resolves on row 1 and must be served from the cache on row 2, while `dyn` is
+    # unresolvable on row 1 (doc1's load did not create it) and must resolve on row 2.
+    env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't', 'dyn').equal(
+        [2, 'doc1', '$hello', None, ['t', 'hello'],
+            'doc2', '$hello', '$world', ['t', 'hello', 'dyn', 'world']])
+
+    # Same late resolution across cursor chunks: chunk 1 serializes only doc1, leaving
+    # `dyn` unresolved in the cached request; the next chunk's `LOAD *` row creates the
+    # key, and the retained NULL entry must be retried rather than frozen.
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*',
+                          '_REQUIRED_FIELDS', '1', 'dyn', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res, [1, None, ['t', 'hello']], message=res)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    env.assertEqual(res, [1, '$world', ['t', 'hello', 'dyn', 'world']], message=res)
+    if cursor:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
 
 
 def check_info_commandstats(env, cmd):
@@ -154,12 +246,24 @@ def test_index_missing_on_one_shard(env):
     except Exception as e:
         env.assertContains(error_msg, str(e))
 
+    # Should fail regardless of which shard is the coordinator
+    read_only_cmds = (
+        ('FT.INFO', index_name),
+        ('FT.SEARCH', index_name, '*'),
+        ('FT.AGGREGATE', index_name, '*'),
+        ('FT.HYBRID', index_name, 'SEARCH', '*',
+         'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb'),
+    )
+    for shard in range(1, env.shardsCount + 1):
+        shard_conn = env.getConnection(shard)
+        for cmd in read_only_cmds:
+            try:
+                shard_conn.execute_command(*cmd)
+                env.assertTrue(False, message=f'{cmd[0]} should have failed on shard {shard}')
+            except Exception as e:
+                env.assertContains(error_msg, str(e))
+
     # Query via the cluster connection
-    env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
-    env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
-    env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
-               'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb')\
-                .error().contains(error_msg)
     env.expect('FT.SYNUPDATE', index_name, '1', 'a', 'b')\
                 .error().contains(error_msg)
     env.expect('FT.ALTER', index_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC')\
@@ -362,8 +466,8 @@ def test_queries_fail_on_all_shards_unreachable(env: Env):
     must be routed through the user callback so that:
     - FT.SEARCH: The reducer receives the error and returns it to the client
     - FT.AGGREGATE: The error is pushed to the channel and consumed by rpnetNext
-    - FT.HYBRID: The processCursorMappingCallback increments responseCount and signals
-      the condition variable, allowing ProcessHybridCursorMappings to unblock
+    - FT.HYBRID: The no-reply path records the communication error and unblocks
+      ProcessHybridCursorMappings' channel wait
     """
     # Create an index and add data before breaking topology
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
@@ -404,3 +508,35 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
 
     _set_one_shard_unreachable(env)
     _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')
+
+
+@skip(cluster=False, redis_less_than="8.0.0")
+def test_validation_preserves_connection_round_robin():
+    """Search and iterator preflight must not consume connection-pool turns."""
+    env = Env(moduleArgs='WORKERS 3 SEARCH_IO_THREADS 1 CONN_PER_SHARD 4')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'UNF').ok()
+    shards = [env.getConnection(i) for i in range(env.shardsCount)]
+    with TimeLimit(5, 'Not all pool connections became ready'):
+        while True:
+            states = env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+            if (len(states) == 2 * env.shardsCount
+                    and all(pool == ['Connected'] * 4 for pool in states[1::2])):
+                break
+
+    for command, internal_command in [
+        (['FT.SEARCH', 'idx', '*', 'RETURN', '1', 't'], '_ft.search'),
+        (['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t'], '_ft.aggregate'),
+    ]:
+        # Establish connections and negotiate the protocol before measuring commands.
+        for _ in range(8):
+            env.expect(*command).equal([0])
+        before = [{c['id']: int(c['tot-cmds']) for c in shard.client_list()}
+                  for shard in shards]
+        for _ in range(8):
+            env.expect(*command).equal([0])
+        for shard, baseline in zip(shards, before):
+            clients = shard.client_list()
+            deltas = [int(c['tot-cmds']) - baseline.get(c['id'], 0)
+                      for c in clients if c['cmd'].lower() == internal_command
+                      and int(c['tot-cmds']) > baseline.get(c['id'], 0)]
+            env.assertEqual(sorted(deltas), [2, 2, 2, 2], message=clients)

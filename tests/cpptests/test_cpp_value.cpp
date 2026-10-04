@@ -9,7 +9,7 @@
 
 #include "gtest/gtest.h"
 
-#include "value.h"
+#include "value_ffi.h"
 
 class ValueTest : public ::testing::Test {};
 

@@ -9,7 +9,7 @@
 
 use std::ffi::CStr;
 
-use ffi::RedisModule_ReplySetArrayLength;
+use redis_module::RedisModule_ReplySetArrayLength;
 
 use crate::map::MapBuilder;
 use crate::replier::Replier;
