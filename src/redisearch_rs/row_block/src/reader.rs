@@ -239,6 +239,14 @@ fn decode_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<SharedValue, Deco
     decode_payload(cursor, tag, depth)
 }
 
+/// Copies `bytes` into a string value with a single allocation.
+fn copy_string(bytes: &[u8]) -> SharedValue {
+    // Reserve room for the NUL that [`SharedValue::new_string`] appends, so it neither grows nor shrinks the buffer.
+    let mut owned = Vec::with_capacity(bytes.len() + 1);
+    owned.extend_from_slice(bytes);
+    SharedValue::new_string(owned)
+}
+
 fn decode_payload(
     cursor: &mut Cursor<'_>,
     tag: Tag,
@@ -250,7 +258,7 @@ fn decode_payload(
 
     Ok(match tag {
         Tag::Number => SharedValue::new_num(cursor.take_f64()?),
-        Tag::String => SharedValue::new_string(cursor.take_string()?.to_vec()),
+        Tag::String => copy_string(cursor.take_string()?),
         Tag::Null => SharedValue::null_static(),
         Tag::Array => {
             let count = cursor.take_count(MIN_BYTES_PER_VALUE)?;
