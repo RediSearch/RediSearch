@@ -3243,6 +3243,10 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);
   ret->upstreamReturnCodes = subqueriesReturnCodes;
+  // OK means an input completed its window, not that it has yet to be visited.
+  for (size_t i = 0; i < numUpstreams; ++i) {
+    ret->upstreamReturnCodes[i] = RS_RESULT_DEPLETING;
+  }
 
   // Store lookup context for field merging (takes ownership)
   ret->lookupCtx = lookupCtx;

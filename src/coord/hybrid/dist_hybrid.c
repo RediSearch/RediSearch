@@ -1329,8 +1329,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // subquery, including inputs the merger never visited; preserve completed
   // inputs' terminal statuses and report timeout for the unfinished ones.
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_OK ||
-        hreq->subqueriesReturnCodes[i] == RS_RESULT_DEPLETING) {
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_DEPLETING) {
       hreq->subqueriesReturnCodes[i] = RS_RESULT_TIMEDOUT;
     }
   }
