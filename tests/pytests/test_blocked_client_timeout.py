@@ -4127,6 +4127,13 @@ class TestCoordinatorTimeout:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_after_store_hybrid(self):
+        self._return_strict_timeout_after_store_hybrid(10000)
+
+    def test_return_strict_timeout_after_window_completed_hybrid(self):
+        """A completed input window is not an unfinished input at timeout."""
+        self._return_strict_timeout_after_store_hybrid(1)
+
+    def _return_strict_timeout_after_store_hybrid(self, window):
         """RETURN_STRICT timeout race after the BG hybrid pipeline has stored results.
 
         Mirrors test_return_strict_timeout_after_store_aggregate for FT.HYBRID.
@@ -4157,20 +4164,18 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
 
-        setPauseAfterStoreResults(env, True, internal=False)
-
-        # K=10000, WINDOW=10000, LIMIT=10000 (mirrors the FT.HYBRID full-set
-        # query used elsewhere in this file) so the BG pipeline produces the
-        # complete n_docs result set instead of the default KNN K=10 per shard.
+        # Exercise both EOF completion and completion at the merger's window.
         query_args = [
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10000',
-            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', str(window),
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
             'LIMIT', '0', '10000'
         ]
+        expected = env.cmd(*query_args)
+        setPauseAfterStoreResults(env, True, internal=False)
         query_result = []
         t_query = threading.Thread(
             target=call_and_store,
@@ -4204,10 +4209,8 @@ class TestCoordinatorTimeout:
         # The pipeline finished before the timeout could abort it: all shards
         # responded and BG stored a complete result set. The reply carries
         # the full row count, no TIMEOUT warning, and no metric increment.
-        env.assertEqual(result['total_results'], self.n_docs,
-                        message=f"Expected {self.n_docs} stored results, got {result['total_results']}")
-        env.assertEqual(len(result.get('results', [])), self.n_docs,
-                        message=f"Expected {self.n_docs} rows, got {len(result.get('results', []))}")
+        env.assertEqual(result['total_results'], expected['total_results'], message=result)
+        env.assertEqual(result.get('results', []), expected['results'], message=result)
         env.assertEqual(result.get('warnings', []), [],
                         message=f"Expected no warnings (pipeline completed before timeout took effect), "
                                 f"got {result.get('warnings', [])}")
