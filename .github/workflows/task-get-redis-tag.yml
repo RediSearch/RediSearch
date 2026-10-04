@@ -6,12 +6,13 @@ on:
       prefix:
         description: "Prefix to filter tags, for getting latest release of a specific version"
         type: string
-        # 8.8-rse ships against released Redis 8.10 engines, never unstable.
         default: '8.10.'
       pinned-ref:
         description: "Redis ref to use instead of the latest release tag. Empty uses the latest release tag."
         type: string
-        default: ''
+        # Currently only upstream unstable contains the field-expiration job-drain fix.
+        # Switch back to a release tag once one includes the fix.
+        default: 'unstable'
     outputs:
       tag:
         description: "Redis tag or pinned ref"
