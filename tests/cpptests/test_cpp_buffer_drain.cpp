@@ -152,6 +152,18 @@ TEST_F(OwnedBufferDrainTest, FieldSorterKeepsAscendingOrderAndNextPrefix) {
   EXPECT_EQ((std::vector<double>{2, 3, 4}), drain());
 }
 
+TEST_F(OwnedBufferDrainTest, SorterReturnFoldsBeforeYieldingAndDrainDoesNotResumeSource) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  attach(RPSorter_NewByScore(3, nullptr));
+  const auto accumulate = rp->Next;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+  EXPECT_EQ(accumulate, rp->Next);
+  EXPECT_EQ(10, qctx.resultLimit);
+  const unsigned calls = source.nextCalls;
+  EXPECT_EQ((std::vector<double>{4, 3, 2}), drain());
+  EXPECT_EQ(calls, source.nextCalls);
+}
+
 TEST_F(OwnedBufferDrainTest, DrainedRowOutlivesSorterAndUndrainedRows) {
   attach(RPSorter_NewByScore(4, nullptr));
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
@@ -179,6 +191,18 @@ TEST_F(OwnedBufferDrainTest, ZeroMaximumDoesNotDivide) {
   attach(RPMaxScoreNormalizer_New(key));
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
   EXPECT_EQ((std::vector<double>{0, 0}), drain());
+}
+
+TEST_F(OwnedBufferDrainTest, NormalizerReturnFoldsBeforeYieldingAndKeepsCommittedMaximum) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  attach(RPMaxScoreNormalizer_New(key));
+  const auto accumulate = rp->Next;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+  EXPECT_EQ(accumulate, rp->Next);
+  EXPECT_EQ(10, qctx.resultLimit);
+  const unsigned calls = source.nextCalls;
+  EXPECT_EQ((std::vector<double>{0.75, 0.5, 1, 0.25}), drain());
+  EXPECT_EQ(calls, source.nextCalls);
 }
 
 TEST_F(OwnedBufferDrainTest, DepleterResumesAfterNextPrefixWithoutUpstreamCalls) {
@@ -210,6 +234,17 @@ TEST_F(OwnedBufferDrainTest, DepleterContinuesAccumulationAfterScopedWait) {
   SearchResult_Clear(&row);
   EXPECT_EQ((std::vector<double>{4, 2, 3}), drain());
   EXPECT_EQ(5, source.nextCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, DepleterReturnFoldsBeforeYieldingBufferedRows) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  attach(RPDepleter_New());
+  const auto accumulate = rp->Next;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+  EXPECT_EQ(accumulate, rp->Next);
+  const unsigned calls = source.nextCalls;
+  EXPECT_EQ((std::vector<double>{1, 4, 2, 3}), drain());
+  EXPECT_EQ(calls, source.nextCalls);
 }
 
 TEST_F(OwnedBufferDrainTest, DepleterProfileClosesScopedCallExactlyOnce) {

@@ -26,6 +26,154 @@ extern "C" {
 
 using namespace std::chrono_literals;
 
+// Distinguish recovery from fresh execution and detect reads past a terminal
+// Drain status, including when a caller stops at its output budget instead.
+struct DrainCollectorSource {
+  ResultProcessor rp = {};
+  unsigned calls = 0;
+  unsigned rows = 2;
+  RPDrainStatus terminal = RP_DRAIN_EOF;
+  int nextStatus = RS_RESULT_ERROR;
+
+  explicit DrainCollectorSource(QueryProcessingCtx *context) {
+    rp.parent = context;
+    rp.Next = [](ResultProcessor *, SearchResult *) -> int {
+      ADD_FAILURE() << "Recovery must not execute Next";
+      return RS_RESULT_ERROR;
+    };
+    rp.Drain = [](ResultProcessor *rp, SearchResult *row) -> RPDrainStatus {
+      auto *self = reinterpret_cast<DrainCollectorSource *>(rp);
+      EXPECT_LE(self->calls, self->rows);
+      if (self->calls++ == self->rows) return self->terminal;
+      SearchResult_SetDocId(row, self->calls);
+      return RP_DRAIN_OK;
+    };
+  }
+};
+
+TEST(DrainCollectorTest, PreservesPrefixAndStopsAtBudget) {
+  QueryProcessingCtx context = {};
+  context.resultLimit = 1;
+  DrainCollectorSource source(&context);
+  SearchResult prefix = SearchResult_New();
+  SearchResult_SetDocId(&prefix, 99);
+  SearchResult **results = array_new(SearchResult *, 1);
+  array_append(results, SearchResult_AllocateMove(&prefix));
+  int rc = RS_RESULT_TIMEDOUT;
+
+  Pipeline_CollectDrainResults(&source.rp, &rc, &results);
+
+  ASSERT_EQ(2, array_len(results));
+  EXPECT_EQ(99, SearchResult_GetDocId(results[0]));
+  EXPECT_EQ(1, SearchResult_GetDocId(results[1]));
+  EXPECT_EQ(1, source.calls);
+  EXPECT_EQ(0, context.resultLimit);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+  destroyResults(results);
+  SearchResult_Destroy(&prefix);
+}
+
+TEST(DrainCollectorTest, TerminalStatusKeepsRowsAndPreservesTimeoutUnlessError) {
+  for (RPDrainStatus terminal : {RP_DRAIN_EOF, RP_DRAIN_ERROR}) {
+    QueryProcessingCtx context = {};
+    context.resultLimit = 8;
+    DrainCollectorSource source(&context);
+    source.terminal = terminal;
+    SearchResult **results = nullptr;
+    int rc = RS_RESULT_TIMEDOUT;
+
+    Pipeline_CollectDrainResults(&source.rp, &rc, &results);
+
+    ASSERT_EQ(2, array_len(results));
+    EXPECT_EQ(1, SearchResult_GetDocId(results[0]));
+    EXPECT_EQ(2, SearchResult_GetDocId(results[1]));
+    EXPECT_EQ(3, source.calls);
+    EXPECT_EQ(6, context.resultLimit);
+    EXPECT_EQ(terminal == RP_DRAIN_ERROR ? RS_RESULT_ERROR : RS_RESULT_TIMEDOUT, rc);
+    destroyResults(results);
+  }
+}
+
+TEST(DrainCollectorTest, EmptyBudgetDoesNotEnterPipeline) {
+  QueryProcessingCtx context = {};
+  DrainCollectorSource source(&context);
+  SearchResult **results = nullptr;
+  int rc = RS_RESULT_TIMEDOUT;
+
+  Pipeline_CollectDrainResults(&source.rp, &rc, &results);
+
+  EXPECT_EQ(0, array_len(results));
+  EXPECT_EQ(0, source.calls);
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+  destroyResults(results);
+}
+
+TEST(DrainCollectorTest, BufferedExecutionRecoversInlineOnlyForReturn) {
+  for (RSTimeoutPolicy policy :
+       {TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict, TimeoutPolicy_Fail}) {
+    SCOPED_TRACE(policy);
+    QueryRequestTimeout timeout = {};
+    QueryRequestTimeout_Init(&timeout, policy, 0);
+    QueryRequestTimeout_BeginCycle(&timeout, policy == TimeoutPolicy_ReturnStrict
+                                                ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                                : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    CommonPipelineCtx pipeline = {};
+    pipeline.timeout = &timeout;
+    pipeline.oomPolicy = OomPolicy_Fail;
+    QueryProcessingCtx context = {};
+    context.resultLimit = 8;
+    DrainCollectorSource source(&context);
+    source.rp.Next = [](ResultProcessor *, SearchResult *) -> int { return RS_RESULT_TIMEDOUT; };
+    SearchResult **results = nullptr;
+    SearchResult row = SearchResult_New();
+    int rc = RS_RESULT_EOF;
+
+    startPipelineCommon(&pipeline, &source.rp, &results, &row, &rc);
+
+    EXPECT_EQ(policy == TimeoutPolicy_Return ? 2 : 0, array_len(results));
+    EXPECT_EQ(policy == TimeoutPolicy_Return ? 3 : 0, source.calls);
+    EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+    destroyResults(results);
+    SearchResult_Destroy(&row);
+  }
+}
+
+TEST(DrainCollectorTest, StreamingReturnBuffersOnlyAfterTimeout) {
+  for (int upstreamStatus : {RS_RESULT_OK, RS_RESULT_EOF, RS_RESULT_TIMEDOUT, RS_RESULT_ERROR}) {
+    SCOPED_TRACE(upstreamStatus);
+    QueryRequestTimeout timeout = {};
+    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    CommonPipelineCtx pipeline = {};
+    pipeline.timeout = &timeout;
+    pipeline.oomPolicy = OomPolicy_Return;
+    QueryProcessingCtx context = {};
+    context.resultLimit = 8;
+    DrainCollectorSource source(&context);
+    source.nextStatus = upstreamStatus;
+    source.rp.Next = [](ResultProcessor *rp, SearchResult *) -> int {
+      return reinterpret_cast<DrainCollectorSource *>(rp)->nextStatus;
+    };
+    SearchResult **results = nullptr;
+    SearchResult row = SearchResult_New();
+    int rc = RS_RESULT_EOF;
+
+    startPipelineCommon(&pipeline, &source.rp, &results, &row, &rc);
+
+    EXPECT_EQ(upstreamStatus, rc);
+    if (upstreamStatus == RS_RESULT_TIMEDOUT) {
+      ASSERT_NE(nullptr, results);
+      EXPECT_EQ(2, array_len(results));
+      EXPECT_EQ(3, source.calls);
+    } else {
+      EXPECT_EQ(nullptr, results);
+      EXPECT_EQ(0, source.calls);
+    }
+    destroyResults(results);
+    SearchResult_Destroy(&row);
+  }
+}
+
 class PipelineOwnershipTest : public ::testing::Test {
  protected:
   QueryRequestTimeout timeout = {};

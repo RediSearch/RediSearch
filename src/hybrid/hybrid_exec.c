@@ -446,6 +446,11 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
         serializeResult_hybrid(hreq, reply, r, cv);
         SearchResult_Clear(r);
       }
+      if (rc == RS_RESULT_TIMEDOUT && hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+        Pipeline_CollectDrainResults(rp, &rc, results);
+        HREQ_populateReplyWithResults(reply, *results, hreq, cv);
+        *results = NULL;
+      }
     }
   }
 

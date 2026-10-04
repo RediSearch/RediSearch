@@ -625,6 +625,30 @@ TEST_F(OwnedSafeLoaderDrainTest, ScopedWaitPreservesOriginalBatchBudget) {
   source.Next = next;
 }
 
+TEST_F(OwnedSafeLoaderDrainTest, ReturnTimeoutDoesNotLoadUnfinishedBatch) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  auto *buffered = document("safe:return", "value");
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    if (self->cursor == self->documents.size()) return RS_RESULT_TIMEDOUT;
+    auto *dmd = self->documents[self->cursor++];
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    return RS_RESULT_OK;
+  };
+  create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  const auto accumulate = loader->Next;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &row));
+  EXPECT_EQ(accumulate, loader->Next);
+  EXPECT_EQ(4096, qctx.resultLimit);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(2, source.nextCalls);
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, buffered->ref_count);
+}
+
 TEST_F(OwnedSafeLoaderDrainTest, TerminalScratchIsDestroyedWithoutPublishingIt) {
   auto *scratch = document("safe:scratch", "value");
   source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
