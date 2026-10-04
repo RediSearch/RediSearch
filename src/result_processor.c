@@ -769,7 +769,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_EOF;
 }
 
-static RPDrainStatus rpsortDrain(ResultProcessor *rp, SearchResult *r) {
+static RPDrainStatus rpsortDrain_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
   SearchResult *best = mmh_pop_max(self->pq);
   if (!best) {
@@ -793,21 +793,8 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
-static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAccess *access) {
+static void rpsortAccumulate(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
-
-  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
-  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
-  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
-
-  // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF) {
-    rp->Next = rpsortNext_Yield;
-    return rpsortNext_Yield(rp, r);
-  } else if (rc != RS_RESULT_OK) {
-    // whoops!
-    return rc;
-  }
 
   // If the queue is not full - we just push the result into it
   if (self->pq->count < self->pq->size) {
@@ -844,19 +831,48 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAc
     // clear the result in preparation for the next iteration
     SearchResult_Clear(self->pooledResult);
   }
+}
+
+static RPDrainStatus rpsortDrain_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  if (!self->pq->count) {
+    RPDrainStatus status;
+    while ((status = rp->upstream->Drain(rp->upstream, self->pooledResult)) == RP_DRAIN_OK) {
+      rpsortAccumulate(rp);
+    }
+    if (status != RP_DRAIN_EOF) return status;
+  }
+  // Recovery must finish selecting top-K before publishing its first row.
+  rp->Drain = rpsortDrain_Yield;
+  return rpsortDrain_Yield(rp, r);
+}
+
+static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAccess *access) {
+  RPSorter *self = (RPSorter *)rp;
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = rpsortNext_Yield;
+    rp->Drain = rpsortDrain_Yield;
+    return rpsortNext_Yield(rp, r);
+  }
+  if (rc != RS_RESULT_OK) return rc;
+  rpsortAccumulate(rp);
   return RESULT_QUEUED;
 }
 
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
+  // RETURN cursors resume accumulation in a new execution cycle after recovery.
+  rp->Drain = rpsortDrain_Accum;
   PipelineAccess *access = rp->parent->executionAccess;
   uint32_t chunkLimit = rp->parent->resultLimit;
-  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  rp->parent->resultLimit = UINT32_MAX;  // we want to accumulate all results
   int rc;
   while ((rc = rpsortNext_innerLoop(rp, r, access)) == RESULT_QUEUED) {
     // Do nothing.
   }
   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
-  rp->parent->resultLimit = chunkLimit; // restore the limit
+  rp->parent->resultLimit = chunkLimit;  // restore the limit
   return rc;
 }
 
@@ -919,7 +935,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
-  ret->base.Drain = rpsortDrain;
+  ret->base.Drain = rpsortDrain_Accum;
   ret->base.type = RP_SORTER;
   return &ret->base;
 }
@@ -1854,6 +1870,7 @@ typedef struct {
   ResultProcessor base;
   rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
+  uint64_t resultCount;
   rs_wall_clock suspendedAt;
   rs_wall_clock_ns_t suspendedTime;
   bool suspended;
@@ -1876,6 +1893,7 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   self->profileTime += rs_wall_clock_diff_ns(&start, &end);
   self->suspended = false;
   self->profileCount++;
+  self->resultCount += rc == RS_RESULT_OK;
   return rc;
 }
 
@@ -1886,6 +1904,7 @@ static RPDrainStatus rpprofileDrain(ResultProcessor *base, SearchResult *r) {
   RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
+  self->resultCount += rc == RP_DRAIN_OK;
   return rc;
 }
 
@@ -1926,21 +1945,31 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
 void RPProfile_IncrementCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   self->profileCount++;
+  self->resultCount++;
+}
+
+uint64_t RPProfile_GetResultCount(ResultProcessor *rp) {
+  return ((RPProfile *)rp)->resultCount;
+}
+
+void RPProfile_Resume(ResultProcessor *rp) {
+  RS_ASSERT(rp->type == RP_PROFILE);
+  RPProfile *profile = (RPProfile *)rp;
+  if (!profile->suspended) return;
+  rs_wall_clock now;
+  rs_wall_clock_init(&now);
+  rs_wall_clock_ns_t elapsed = rs_wall_clock_diff_ns(&profile->suspendedAt, &now);
+  profile->profileTime += elapsed;
+  profile->suspendedTime += elapsed;
+  profile->suspended = false;
 }
 
 void Profile_ResumeRPs(QueryProcessingCtx *qctx) {
-  rs_wall_clock now;
-  rs_wall_clock_init(&now);
   for (ResultProcessor *rp = qctx->endProc; rp; rp = rp->upstream) {
-    if (rp->type != RP_PROFILE) continue;
-    RPProfile *profile = (RPProfile *)rp;
-    if (!profile->suspended) continue;
+    if (rp->type != RP_PROFILE || rp->parent != qctx) continue;
     // Close each parked wrapper's active interval once, before recovery starts.
     // The losing worker cannot later overwrite the published profile.
-    rs_wall_clock_ns_t elapsed = rs_wall_clock_diff_ns(&profile->suspendedAt, &now);
-    profile->profileTime += elapsed;
-    profile->suspendedTime += elapsed;
-    profile->suspended = false;
+    RPProfile_Resume(rp);
   }
 }
 
@@ -2171,6 +2200,8 @@ typedef struct {
   RedisSearchCtx *depletingThreadCtx;  // Upstream Search context - used by the depleting thread
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
+  bool output_ready;                   // Mailbox publication, independent of job lifetime
+  PipelineExecution *execution;        // Borrowed producer domain; configured before dispatch
   size_t cur_idx;                      // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   // True iff a background depletion job has been submitted to the pool and
@@ -2181,9 +2212,10 @@ typedef struct {
   // Drives WaitForCompletion: false means "nothing to wait for, return"; true
   // means "block on done_depleting".
   bool depletion_scheduled;
-  StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
-  rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
-  redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
+  StrongRef sync_ref;                // Reference to shared synchronization object (DepleterSync)
+  rs_wall_clock_ns_t depletionTime;  // Time spent depleting in the background thread (nanoseconds)
+  rs_wall_clock depletionStart;      // Published under producer ownership for timeout recovery
+  redisearch_thpool_t *pool;         // Thread pool used for depletion jobs
 } RPSafeDepleter;
 
 /*
@@ -2247,11 +2279,26 @@ static void RPSafeDepleter_ClearResults(RPSafeDepleter *self) {
  * Sets done_depleting to true and broadcasts to hybrid merger and waiting depleters.
  * Must be called when the depleter has finished processing (successfully or with error).
  */
-static inline void RPSafeDepleter_SignalDone(RPSafeDepleter *self, DepleterSync *sync) {
+static inline void RPSafeDepleter_SignalDone(RPSafeDepleter *self, DepleterSync *sync,
+                                             bool publishOutput) {
   pthread_mutex_lock(&sync->mutex);
+  if (publishOutput) self->output_ready = true;
   self->done_depleting = true;
   pthread_cond_broadcast(&sync->cond);
   pthread_mutex_unlock(&sync->mutex);
+}
+
+static void RPSafeDepleter_PublishOutput(RPSafeDepleter *self, DepleterSync *sync) {
+  pthread_mutex_lock(&sync->mutex);
+  self->output_ready = true;
+  pthread_mutex_unlock(&sync->mutex);
+}
+
+void RPSafeDepleter_SetExecution(ResultProcessor *base, PipelineExecution *execution) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER && execution);
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  RS_ASSERT(!self->depletion_scheduled && !self->execution);
+  self->execution = execution;
 }
 
 /**
@@ -2273,10 +2320,31 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *base) 
   return self->depletionTime;
 }
 
-// Helper function for RPSafeDepleter_Deplete that does the actual work of locking, depleting, and unlocking
+static void safeDepleterDrainUpstream(RPSafeDepleter *self) {
+  if (array_len(self->results)) return;
+  ResultProcessor *upstream = self->base.upstream;
+  for (;;) {
+    SearchResult *row = rm_malloc(sizeof(*row));
+    *row = SearchResult_New();
+    RPDrainStatus rc = upstream->Drain(upstream, row);
+    if (rc != RP_DRAIN_OK) {
+      SearchResult_Destroy(row);
+      rm_free(row);
+      if (rc == RP_DRAIN_ERROR) self->last_rc = RS_RESULT_ERROR;
+      return;
+    }
+    SearchResult_BufferIndexResult(upstream, row);
+    array_append(self->results, row);
+  }
+}
+
+// Helper function for RPSafeDepleter_Deplete that does the actual work of locking, depleting, and
+// unlocking
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
   bool lock_acquired = false;
+  IndexSpec *spec = self->depletingThreadCtx->spec;
+  PipelineAccess *access = self->base.upstream->parent->executionAccess;
 
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
@@ -2286,7 +2354,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
-      QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+      QueryError_SetError(self->base.upstream->parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                           SAFE_DEPLETER_LOCK_FAILURE_MSG);
       atomic_fetch_add(&sync->num_lock_failed, 1);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
@@ -2304,7 +2372,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     // Buffered SearchResults outlive the source iterator's `it->current`
     // slot; preserve or drop the borrowed RSIndexResult before buffering.
-    SearchResult_BufferIndexResult(&self->base, r);
+    SearchResult_BufferIndexResult(self->base.upstream, r);
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
@@ -2317,21 +2385,77 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       break;
     }
   }
+  SearchResult_Destroy(r);
   rm_free(r);
+  if (!PipelineAccess_IsOwned(access)) goto cleanup;
 
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
+  if (rc == RS_RESULT_TIMEDOUT &&
+      self->base.upstream->parent->timeoutPolicy == TimeoutPolicy_Return) {
+    // Next has folded on this producer thread; publish its recovered prefix
+    // together with the rows already accumulated, never an intermediate mailbox.
+    safeDepleterDrainUpstream(self);
+  }
+
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
-  if (rc == RS_RESULT_TIMEDOUT && self->base.parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  if (rc == RS_RESULT_TIMEDOUT &&
+      self->base.upstream->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     RPSafeDepleter_ClearResults(self);
   }
 
-  // Unlock the index if we locked it
+cleanup:
+  // The spec borrow is private to the parked frame, unlike the recovered RP.
   if (lock_acquired) {
-    IndexSpec_Unlock(self->depletingThreadCtx->spec);
+    IndexSpec_Unlock(spec);
   }
+}
 
+typedef struct {
+  RPSafeDepleter *self;
+  DepleterSync *sync;
+  rs_wall_clock start;
+  bool entered;
+} OwnedDepletion;
+
+static void runOwnedDepletion(PipelineAccess *access, void *data) {
+  OwnedDepletion *work = data;
+  work->entered = true;
+  RPSafeDepleter *self = work->self;
+  self->depletionStart = work->start;
+  PipelineAccess_Publish(access, self->base.upstream->parent);
+  RPSafeDepleter_DepleteFromUpstream(self, work->sync);
+  if (!PipelineAccess_IsOwned(access)) return;
+  self->depletionTime = rs_wall_clock_elapsed_ns(&work->start);
+}
+
+static void recoverOwnedDepletion(PipelineAccess *access, void *data) {
+  RPSafeDepleter *self = data;
+  RS_ASSERT(!PipelineAccess_Context(access) ||
+            PipelineAccess_Context(access) == self->base.upstream->parent);
+  DepleterSync *sync = StrongRef_Get(self->sync_ref);
+  if (self->last_rc == RS_RESULT_EOF || self->last_rc == RS_RESULT_ERROR) {
+    RPSafeDepleter_PublishOutput(self, sync);
+    return;
+  }
+  self->last_rc = RS_RESULT_TIMEDOUT;
+  ResultProcessor *upstream = self->base.upstream;
+  // A queued producer has no published start; recovery itself begins its work.
+  if (!PipelineAccess_Context(access)) rs_wall_clock_init(&self->depletionStart);
+  // A parked accumulator may have temporarily changed the upstream budget.
+  // The producer mailbox has no reply-chunk limit; pipeline limiters still apply.
+  upstream->parent->resultLimit = UINT64_MAX;
+  safeDepleterDrainUpstream(self);
+  self->depletionTime = rs_wall_clock_elapsed_ns(&self->depletionStart);
+  RPSafeDepleter_PublishOutput(self, sync);
+}
+
+void RPSafeDepleter_Recover(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  RS_ASSERT(self->execution);
+  PipelineExecution_RunDrain(self->execution, recoverOwnedDepletion, self);
 }
 
 /**
@@ -2346,6 +2470,16 @@ static void RPSafeDepleter_Deplete(void *arg) {
   IndexSpec_AssertLockNotHeld();
   RPSafeDepleter *self = (RPSafeDepleter *)arg;
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+
+  if (self->execution) {
+    OwnedDepletion work = {.self = self, .sync = sync};
+    rs_wall_clock_init(&work.start);
+    bool completed = PipelineExecution_RunNext(self->execution, runOwnedDepletion, &work);
+    if (!work.entered && sync->take_index_lock) atomic_fetch_add(&sync->num_skipped_lock, 1);
+    IndexSpec_AssertLockNotHeld();
+    RPSafeDepleter_SignalDone(self, sync, completed);
+    return;
+  }
 
   // Start timing the depletion
   rs_wall_clock depletionStart;
@@ -2370,7 +2504,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   IndexSpec_AssertLockNotHeld();
   // Signal completion
-  RPSafeDepleter_SignalDone(self, sync);
+  RPSafeDepleter_SignalDone(self, sync, true);
 }
 
 /**
@@ -2393,6 +2527,42 @@ static int RPSafeDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   self->results[self->cur_idx] = NULL;
   self->cur_idx++;
   return RS_RESULT_OK;
+}
+
+static int safeDepleterNextTimedOut(ResultProcessor *base, SearchResult *r) {
+  UNUSED(base);
+  UNUSED(r);
+  return RS_RESULT_TIMEDOUT;
+}
+
+static void safeDepleterBeginYield(RPSafeDepleter *self) {
+  self->base.Next =
+      self->last_rc == RS_RESULT_TIMEDOUT ? safeDepleterNextTimedOut : RPSafeDepleter_Next_Yield;
+}
+
+bool RPSafeDepleter_HasPublishedOutput(const ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  if (base->Next == RPSafeDepleter_Next_Yield || base->Next == safeDepleterNextTimedOut)
+    return true;
+  const RPSafeDepleter *self = (const RPSafeDepleter *)base;
+  DepleterSync *sync = StrongRef_Get(self->sync_ref);
+  pthread_mutex_lock(&sync->mutex);
+  bool done = self->output_ready;
+  pthread_mutex_unlock(&sync->mutex);
+  return done;
+}
+
+// Next's yield phase caches the completion handoff without per-row locking.
+static RPDrainStatus RPSafeDepleter_Drain(ResultProcessor *base, SearchResult *r) {
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  if (base->Next != RPSafeDepleter_Next_Yield) {
+    if (!RPSafeDepleter_HasPublishedOutput(base)) return RP_DRAIN_EOF;
+    base->Next = RPSafeDepleter_Next_Yield;
+  }
+  if (self->last_rc == RS_RESULT_ERROR) return RP_DRAIN_ERROR;
+  if (self->cur_idx == array_len(self->results)) return RP_DRAIN_EOF;
+  RPSafeDepleter_Next_Yield(base, r);
+  return RP_DRAIN_OK;
 }
 
 // Adds a depletion job to the configured thread pool.
@@ -2444,8 +2614,8 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
 static inline int RPSafeDepleter_WaitForDepletionToComplete(RPSafeDepleter *self, DepleterSync *sync) {
   // Check if depleting is already done.
   // We do this while holding the mutex so that we don't miss a signal.
-  if (self->done_depleting == true) {
-    self->base.Next = RPSafeDepleter_Next_Yield;
+  if (self->output_ready) {
+    safeDepleterBeginYield(self);
     return RS_RESULT_OK;
   }
 
@@ -2453,9 +2623,9 @@ static inline int RPSafeDepleter_WaitForDepletionToComplete(RPSafeDepleter *self
   pthread_cond_wait(&sync->cond, &sync->mutex);
 
   // Check if our specific thread is done after being woken up
-  if (self->done_depleting == true) {
+  if (self->output_ready) {
     // Our thread is done, switch to yield mode
-    self->base.Next = RPSafeDepleter_Next_Yield;
+    safeDepleterBeginYield(self);
     return RS_RESULT_OK;
   }
 
@@ -2478,7 +2648,20 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
   RS_ASSERT(self->depletion_scheduled);
 
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+  PipelineAccess *access = base->parent->executionAccess;
   pthread_mutex_lock(&sync->mutex);
+  if (access && !self->output_ready) {
+    // Completion is an independently synchronized mailbox, not pipeline state.
+    // Keep its mutex until cond_wait atomically releases it to avoid lost wakes.
+    PipelineAccess_ReleaseForWait(access);
+    pthread_cond_wait(&sync->cond, &sync->mutex);
+    bool done = self->output_ready;
+    pthread_mutex_unlock(&sync->mutex);
+    if (!PipelineAccess_ResumeAfterWait(access)) return RS_RESULT_TIMEDOUT;
+    if (!done) return RS_RESULT_DEPLETING;
+    safeDepleterBeginYield(self);
+    return base->Next(base, r);
+  }
   const int rc = RPSafeDepleter_WaitForDepletionToComplete(self, sync);
   pthread_mutex_unlock(&sync->mutex);
   if (rc == RS_RESULT_OK) {
@@ -2497,7 +2680,7 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
   ret->base.Free = RPSafeDepleter_Free;
-  ret->base.Drain = RPDrain_EOF;
+  ret->base.Drain = RPSafeDepleter_Drain;
   ret->base.type = RP_SAFE_DEPLETER;
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
@@ -2521,7 +2704,7 @@ void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
   // depletion_scheduled stays false: WaitForCompletion has no signal to wait
   // for, and Next yields RS_RESULT_TIMEDOUT immediately.
   self->last_rc = RS_RESULT_TIMEDOUT;
-  base->Next = RPSafeDepleter_Next_Yield;
+  base->Next = safeDepleterNextTimedOut;
 }
 
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
@@ -2708,6 +2891,8 @@ dictType dictTypeHybridSearchResult = {
  size_t numUpstreams;             // Number of upstream processors
  dict *hybridResults;             // keyPtr -> HybridSearchResult mapping
  dictIterator *iterator;          // Iterator for yielding results
+ dictEntry *pendingEntry;         // Entry selected before Next observed a timeout
+ size_t *consumed;                // Per-input rank/window progress, owned by the tail
  const RLookupKey *scoreKey;      // Key for writing score as field when YIELD_SCORE_AS is specified
  const RLookupKey *docKey;        // Key for reading document key when dmd is not available
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
@@ -2784,128 +2969,199 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  }
 
  /* Helper function to consume results from a single upstream */
- static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
-   size_t consumed = 0;
+ static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults,
+                                            size_t upstreamIndex) {
+   size_t *consumed = &self->consumed[upstreamIndex];
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
-   while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
-       double score = SearchResult_GetScore(r);
-       consumed++;
-       if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-         score = consumed;
-       }
-       if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
-         r = rm_calloc(1, sizeof(*r));
-         *r = SearchResult_New();
-       } else {
-         SearchResult_Clear(r);
-         --consumed; // avoid wrong rank in RRF
-       }
+   while (*consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
+     double score = SearchResult_GetScore(r);
+     ++*consumed;
+     if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+       score = *consumed;
+     }
+     if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
+       r = rm_calloc(1, sizeof(*r));
+       *r = SearchResult_New();
+     } else {
+       SearchResult_Clear(r);
+       --*consumed;  // avoid wrong rank in RRF
+     }
    }
+   SearchResult_Destroy(r);
    rm_free(r);
    return rc;
  }
 
  /* Yield phase - iterate through results and apply hybrid scoring */
-static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
-  RPHybridMerger *self = (RPHybridMerger *)rp;
+ static int hybridMergerYield(ResultProcessor *rp, SearchResult *r, bool draining) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  RS_ASSERT(self->iterator);
-  // Get next entry from iterator
-  dictEntry *entry = dictNext(self->iterator);
-  if (!entry) {
-    // No more results to yield
-    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-    return ret;
-  } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
-    // Timed out before we could yield all results
-    return RS_RESULT_TIMEDOUT;
-  }
+   RS_ASSERT(self->iterator);
+   // Get next entry from iterator
+   dictEntry *entry = self->pendingEntry ? self->pendingEntry : dictNext(self->iterator);
+   if (!entry) {
+     // No more results to yield
+     int ret = !draining && RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+     return ret;
+   } else if (!draining && QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+     // Timed out before we could yield all results
+     self->pendingEntry = entry;
+     return RS_RESULT_TIMEDOUT;
+   }
+   self->pendingEntry = NULL;
 
-  // Get the key and value before removing the entry
-  void *key = dictGetKey(entry);
-  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
-  RS_ASSERT(hybridResult);
+   // Get the key and value before removing the entry
+   void *key = dictGetKey(entry);
+   HybridSearchResult *hybridResult = (HybridSearchResult *)dictGetVal(entry);
+   RS_ASSERT(hybridResult);
 
-  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
-  if (!mergedResult) {
-    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
-                        "Failed to merge hybrid subquery results");
-    return RS_RESULT_ERROR;
-  }
+   SearchResult *mergedResult =
+       mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
+   if (!mergedResult) {
+     QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
+                         "Failed to merge hybrid subquery results");
+     return RS_RESULT_ERROR;
+   }
 
-  // Override the output result with merged data
-  SearchResult_Override(r, mergedResult);
-  rm_free(mergedResult);
+   // Override the output result with merged data
+   SearchResult_Override(r, mergedResult);
+   rm_free(mergedResult);
 
-  // Add score as field if scoreKey is provided
-  if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
-  }
+   // Add score as field if scoreKey is provided
+   if (self->scoreKey) {
+     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r),
+                         RSValue_NewNumber(SearchResult_GetScore(r)));
+   }
 
-  return RS_RESULT_OK;
+   return RS_RESULT_OK;
+ }
+
+ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+   return hybridMergerYield(rp, r, false);
+ }
+
+ static RPDrainStatus RPHybridMerger_Drain(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   if (RPHybridMerger_Error(self)) return RP_DRAIN_ERROR;
+   if (!self->iterator) {
+     size_t window = self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF
+                         ? self->hybridScoringCtx->rrfCtx.window
+                         : self->hybridScoringCtx->linearCtx.window;
+     for (size_t i = 0; i < self->numUpstreams; ++i) {
+       if (self->upstreamReturnCodes[i] == RS_RESULT_EOF) continue;
+       ResultProcessor *upstream = self->upstreams[i];
+       while (self->consumed[i] < window) {
+         SearchResult *row = rm_malloc(sizeof(*row));
+         *row = SearchResult_New();
+         RPDrainStatus rc = upstream->Drain(upstream, row);
+         if (rc != RP_DRAIN_OK) {
+           SearchResult_Destroy(row);
+           rm_free(row);
+           if (rc == RP_DRAIN_ERROR) {
+             self->upstreamReturnCodes[i] = RS_RESULT_ERROR;
+             return RP_DRAIN_ERROR;
+           }
+           break;
+         }
+         double score = self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF
+                            ? self->consumed[i] + 1
+                            : SearchResult_GetScore(row);
+         if (hybridMergerStoreUpstreamResult(self, row, i, score)) {
+           ++self->consumed[i];
+         } else {
+           SearchResult_Destroy(row);
+           rm_free(row);
+         }
+       }
+       ResultProcessor *producer = upstream;
+       if (producer->type == RP_PROFILE) producer = producer->upstream;
+       if (producer->type == RP_SAFE_DEPLETER && RPSafeDepleter_HasPublishedOutput(producer)) {
+         // The publication handoff protects last_rc; never inspect a running
+         // producer merely to discover whether it timed out.
+         RPStatus terminal = ((RPSafeDepleter *)producer)->last_rc;
+         if (terminal == RS_RESULT_TIMEDOUT || terminal == RS_RESULT_ERROR) {
+           self->upstreamReturnCodes[i] = terminal;
+           if (terminal == RS_RESULT_ERROR) return RP_DRAIN_ERROR;
+         }
+       }
+     }
+     self->iterator = dictGetIterator(self->hybridResults);
+     rp->parent->totalResults = dictSize(self->hybridResults);
+     rp->parent->skippedResults = 0;
+   }
+   int rc = hybridMergerYield(rp, r, true);
+   return rc == RS_RESULT_OK ? RP_DRAIN_OK : rc == RS_RESULT_EOF ? RP_DRAIN_EOF : RP_DRAIN_ERROR;
  }
 
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
-  RPHybridMerger *self = (RPHybridMerger *)rp;
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   PipelineAccess *access = rp->parent->executionAccess;
 
-  size_t window;
-  if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    window = self->hybridScoringCtx->rrfCtx.window;
-  } else {
-    window = self->hybridScoringCtx->linearCtx.window;
-  }
+   size_t window;
+   if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+     window = self->hybridScoringCtx->rrfCtx.window;
+   } else {
+     window = self->hybridScoringCtx->linearCtx.window;
+   }
 
-  bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
-  size_t numConsumed = 0;
-  // Continuously try to consume from upstreams until all are consumed
-  while (numConsumed < self->numUpstreams) {
-    for (size_t i = 0; i < self->numUpstreams; i++) {
-      if (consumed[i]) {
-        continue;
-      }
-      int rc = hybridMergerConsumeFromUpstream(self, window, i);
+   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
+   size_t numConsumed = 0;
+   // Continuously try to consume from upstreams until all are consumed
+   while (numConsumed < self->numUpstreams) {
+     for (size_t i = 0; i < self->numUpstreams; i++) {
+       if (consumed[i]) {
+         continue;
+       }
+       int rc = hybridMergerConsumeFromUpstream(self, window, i);
+       if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) {
+         rm_free(consumed);
+         return rc;
+       }
 
-      if (rc == RS_RESULT_DEPLETING) {
-        // Upstream is still active but not ready to provide results. Skip to the next.
-        continue;
-      }
+       if (rc == RS_RESULT_DEPLETING) {
+         // Upstream is still active but not ready to provide results. Skip to the next.
+         continue;
+       }
 
-      // Store the final return code for this upstream
-      self->upstreamReturnCodes[i] = rc;
-      // Currently continues processing other upstreams.
-      // No need for a timeout mechanism to stop its spawned thread before completion
-      // assuming other threads would time out within the same timeout-counter interval
-      consumed[i] = true;
-      numConsumed++;
-    }
-  }
+       // Store the final return code for this upstream
+       self->upstreamReturnCodes[i] = rc;
+       if (rc == RS_RESULT_TIMEDOUT) {
+         // Folding this input does not establish a timeout on unconsumed inputs.
+         rm_free(consumed);
+         return RPHybridMerger_Error(self) ? RS_RESULT_ERROR : rc;
+       }
+       consumed[i] = true;
+       numConsumed++;
+     }
+   }
 
-  // Free the consumed tracking array
-  rm_free(consumed);
+   // Free the consumed tracking array
+   rm_free(consumed);
 
-  if (RPHybridMerger_Error(self)) {
-    return RS_RESULT_ERROR;
-  } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
-    // If any of the threads timed out and we're in FAIL mode, return timeout without yielding any result
-    return RS_RESULT_TIMEDOUT;
-  }
+   if (RPHybridMerger_Error(self)) {
+     return RS_RESULT_ERROR;
+   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+     // If any of the threads timed out and we're in FAIL mode, return timeout without yielding any
+     // result
+     return RS_RESULT_TIMEDOUT;
+   }
 
-  // Initialize iterator for yield phase
-  self->iterator = dictGetIterator(self->hybridResults);
+   // Initialize iterator for yield phase
+   self->iterator = dictGetIterator(self->hybridResults);
 
-  // Update total results to reflect the number of unique documents we'll yield
-  rp->parent->totalResults = dictSize(self->hybridResults);
-  // Merged-doc count excludes upstream loader drops; clear the skip correction
-  // (same invariant as the grouper).
-  rp->parent->skippedResults = 0;
+   // Update total results to reflect the number of unique documents we'll yield
+   rp->parent->totalResults = dictSize(self->hybridResults);
+   // Merged-doc count excludes upstream loader drops; clear the skip correction
+   // (same invariant as the grouper).
+   rp->parent->skippedResults = 0;
 
-  // Switch to yield phase
-  rp->Next = RPHybridMerger_Yield;
-  return rp->Next(rp, r);
+   // Switch to yield phase
+   rp->Next = RPHybridMerger_Yield;
+   return rp->Next(rp, r);
  }
 
  /* Free function for RPHybridMerger */
@@ -2921,6 +3177,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
+   rm_free(self->consumed);
 
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
@@ -2962,6 +3219,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   ret->sctx = sctx;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
+  ret->consumed = rm_calloc(numUpstreams, sizeof(*ret->consumed));
 
   // Store the context by pointer - RPHybridMerger takes ownership and is responsible for freeing it
   RS_ASSERT(hybridScoringCtx);
@@ -3000,7 +3258,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->base.type = RP_HYBRID_MERGER;
    ret->base.Next = RPHybridMerger_Accum;
    ret->base.Free = RPHybridMerger_Free;
-   ret->base.Drain = RPDrain_EOF;
+   ret->base.Drain = RPHybridMerger_Drain;
 
    return &ret->base;
  }
@@ -3423,6 +3681,11 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
 
 static RPDrainStatus RPDepleter_Drain(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
+  if (!array_len(self->results)) {
+    RPDrainStatus status = base->upstream->Drain(base->upstream, r);
+    if (status == RP_DRAIN_EOF) base->Drain = RPDrain_EOF;
+    return status;
+  }
   if (self->cur_idx >= array_len(self->results)) {
     return RP_DRAIN_EOF;
   }
@@ -3435,6 +3698,7 @@ static RPDrainStatus RPDepleter_Drain(ResultProcessor *base, SearchResult *r) {
  */
 static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
+  base->Drain = RPDepleter_Drain;
 
   // Call the sync depletion function directly
   if (!RPDepleter_Deplete(self)) return RS_RESULT_TIMEDOUT;

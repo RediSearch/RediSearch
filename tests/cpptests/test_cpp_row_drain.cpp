@@ -181,6 +181,7 @@ TEST_F(OwnedRowDrainTest, ProfileCountsScopedWaitAsOneNextCall) {
       profile));
   PipelineExecution_Free(execution);
   EXPECT_EQ(1, RPProfile_GetCount(profile));
+  EXPECT_EQ(0, RPProfile_GetResultCount(profile));
 }
 
 TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
@@ -188,7 +189,9 @@ TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
   append(RPEvaluator_NewProjector(expression("@input * 10"), &lookup, output));
   append(RPPager_New(1, 2));
   auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
+  EXPECT_EQ(0, RPProfile_GetResultCount(profile));
   ASSERT_EQ(RP_DRAIN_OK, profile->Drain(profile, &row));
+  EXPECT_EQ(1, RPProfile_GetResultCount(profile));
   EXPECT_EQ(4, SearchResult_GetDocId(&row));
   EXPECT_EQ(40, value(output));
   SearchResult_Clear(&row);
@@ -200,6 +203,9 @@ TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
   EXPECT_EQ(4, qctx.totalResults);
   EXPECT_EQ(0, source.nextCalls);
   EXPECT_EQ(3, RPProfile_GetCount(profile));
+  EXPECT_EQ(2, RPProfile_GetResultCount(profile));
+  EXPECT_EQ(RP_DRAIN_EOF, profile->Drain(profile, &row));
+  EXPECT_EQ(2, RPProfile_GetResultCount(profile));
 }
 
 TEST_F(OwnedRowDrainTest, FilterDoesNotUnderflowCursorCount) {
