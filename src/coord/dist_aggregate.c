@@ -497,7 +497,7 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 
 // Build the distributed MR command for FT.AGGREGATE
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, bool resp3) {
   // We need to prepend the array with the command, index, and query that
   // we want to use. Lengths ride along so binary-capable arguments (the query,
   // user-defined names) reach the shards without strlen truncation.
@@ -534,6 +534,16 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   APPEND_LITERAL("_NUM_SSTRING");
+  // Ask for the compact row-block encoding only when this coordinator can decode it.
+  // Older shards reject the unknown argument, so the config must stay off until the whole
+  // fleet is upgraded; see RSGlobalConfig.internalRowBlockFormat.
+  if (RSGlobalConfig.internalRowBlockFormat) {
+    if (resp3) {
+      APPEND_LITERAL("_ROW_BLOCK_RESP3");
+    } else {
+      APPEND_LITERAL("_ROW_BLOCK");
+    }
+  }
 
   int argOffset = 0;
   // Preserve WITHCOUNT flag from the original command
@@ -637,7 +647,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmplens);
 }
 
-
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us,
                              int (*nextFunc)(ResultProcessor *, SearchResult *),
                              const AggregateKnnContext *knnSnapshot) {
@@ -650,6 +659,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   // lookup at execution time; changing an existing key panics in the Rust core.
   RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
+  // Only profiled requests pay for the wait/convert/free breakdown (see RPNet::breakdown).
+  rpRoot->profileBreakdown = (r->reqflags & QEXEC_F_PROFILE) != 0;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
   // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
@@ -828,7 +839,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   AggregateKnnContext knnSnapshot;
   bool hasKnnSnapshot = false;
-  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp, is_resp3(ctx));
 
   if (knnCtx) {
     hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);

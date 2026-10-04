@@ -7,17 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! End-to-end tests for the row block wire format.
+//!
+//! Everything goes through the public encoder and decoder, driven the way the aggregate reply
+//! path drives them: build an `RLookup`, write a schema, append rows, read the bytes back.
+
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
 // Mock or stub the ones that aren't provided by the line above
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-mod collection;
-mod comparison;
-mod debug;
-mod dereference;
-mod hash;
-mod num_to_str;
-mod shared;
-mod shared_buffer;
-mod string;
+mod bitmap;
+mod decode;
+mod decoder;
+mod harness;
+mod kinds;
+mod properties;
+mod refusal;
+mod schema;
+mod sharing;
+mod trio;
+mod values;

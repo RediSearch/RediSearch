@@ -11,6 +11,7 @@ pub use crate::{
     collection::{Array, Map},
     redis_string::RedisString,
     shared::SharedValue,
+    shared_buffer::SharedBuffer,
     string::String,
     trio::Trio,
 };
@@ -24,6 +25,7 @@ mod pool;
 pub mod redis_string;
 pub mod sds_writer;
 pub mod shared;
+pub mod shared_buffer;
 pub mod string;
 pub mod trio;
 pub mod util;
