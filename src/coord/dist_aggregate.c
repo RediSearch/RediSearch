@@ -718,7 +718,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
     do {
-      MRReply_Free(rpnet->current.root);
+      RPNet_freeCurrent(rpnet);
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
   }
 
