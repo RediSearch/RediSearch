@@ -82,6 +82,7 @@ typedef struct {
     rs_wall_clock_ns_t convertTime;
     // Freeing fully consumed reply trees; excludes the error path and RP teardown.
     rs_wall_clock_ns_t freeTime;
+    // Everything popped from the channel: rows, empty, error and hybrid warning replies.
     uint64_t replies;
     uint64_t fields;
   } breakdown;

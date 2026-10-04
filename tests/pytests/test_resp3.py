@@ -392,10 +392,48 @@ def test_coord_profile():
     network = res['Profile']['Coordinator']['Result processors profile'][0]
     for metric in ('Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time'):
       env.assertGreaterEqual(network[metric], 0, message=network)
-    env.assertGreaterEqual(network['Shard replies'], 1, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
     env.assertLessEqual(len(res['Profile']['Shards']), env.shardsCount)
     for shard_res in res['Profile']['Shards']:
       env.assertEqual(shard_res, shard)
+
+def network_profile(env, res):
+    if env.protocol == 3:
+      return res['Profile']['Coordinator']['Result processors profile'][0]
+    coordinator = to_dict(to_dict(res[1])['Coordinator'])
+    return to_dict(coordinator['Result processors profile'][0])
+
+def check_network_breakdown(env):
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+    env.cmd('FT.create', 'idx1', 'PREFIX', 1, 'doc', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT')
+    waitForIndex(env, 'idx1')
+
+    breakdown_keys = ['Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time', 'Shard replies', 'Fields converted']
+
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, 'f1', 'f2')
+    network = network_profile(env, res)
+    for key in breakdown_keys:
+      env.assertContains(key, network)
+    # Two rows of two loaded fields each, however they are spread over the shards.
+    env.assertEqual(int(network['Fields converted']), 4, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
+    env.assertGreater(float(network['Row-Convert-Time']), 0, message=network)
+
+    # An index with no matches yields only empty replies, which are still counted.
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '@f1:nomatch', 'LOAD', 2, 'f1', 'f2')
+    network = network_profile(env, res)
+    env.assertEqual(int(network['Fields converted']), 0, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_coord_profile_network_breakdown_resp3():
+    check_network_breakdown(Env(protocol=3))
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_coord_profile_network_breakdown_resp2():
+    check_network_breakdown(Env(protocol=2))
 
 @skip(redis_less_than="7.0.0")
 def test_aggregate():

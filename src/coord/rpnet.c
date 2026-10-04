@@ -255,10 +255,16 @@ int getNextReply(RPNet *nc) {
           ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
           : NULL;
   bool popTimedOut = false;
+  rs_wall_clock waitStart;
+  if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
   MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
                   : deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
                       : MRIterator_Next(nc->it);
+  if (nc->profileBreakdown) {
+    accumulateSince(&nc->breakdown.waitTime, &waitStart);
+    if (root) nc->breakdown.replies++;
+  }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
@@ -487,14 +493,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    rs_wall_clock waitStart;
-    if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
     int ret = getNextReply(nc);
-    if (nc->profileBreakdown) {
-      accumulateSince(&nc->breakdown.waitTime, &waitStart);
-      // RS_RESULT_OK with a NULL root means the channel was momentarily empty.
-      if (nc->current.root) nc->breakdown.replies++;
-    }
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
     } else if (ret == RS_RESULT_TIMEDOUT) {
