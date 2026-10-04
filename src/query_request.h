@@ -342,6 +342,9 @@ typedef struct QueryRequest {
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
   QueryRequestTimeout timeout;
+  // Finalized with timeout configuration before execution; retained across cursor reads.
+  // Reply code must not derive this warning from a producer's mutable execution flags.
+  bool timeoutWasCapped;
   QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.

@@ -472,7 +472,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   // The slot lives for the request, so warnings must go too or the next cursor read re-emits them
   // (and re-counts them in the warning metrics). TODO(MOD-18840): some warnings are query-scoped
   // (max prefix expansions is raised once, when the iterator tree is built) and could deliberately
-  // be kept across cursor reads, the way QEXEC_S_MAX_TIMEOUT_CAPPED is; others (timeouts, shard
+  // be kept across cursor reads, the way timeoutWasCapped is; others (timeouts, shard
   // OOM) are per chunk and must not be.
   QueryError_ClearError(qctx->err);
   QueryError_ClearWarnings(qctx->err);
@@ -788,7 +788,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
-  if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+  if (req->base.timeoutWasCapped) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -1050,7 +1050,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
       RedisModule_Reply_SimpleString(reply, QUERY_ASM_INACCURATE_RESULTS);
     }
-    if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+    if (req->base.timeoutWasCapped) {
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
     }
     RedisModule_Reply_ArrayEnd(reply);
@@ -2320,7 +2320,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     // Apply the foreground cap before BeginCycle derives this read's clock deadline.
     if (RSConfig_CapQueryTimeoutToForegroundLimit(&cursor_req->base.timeout.config.queryTimeoutMS)) {
-      cursor_req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+      cursor_req->base.timeoutWasCapped = true;
     }
   }
 

@@ -394,10 +394,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     warnings |= HYBRID_WARNING_TIMEOUT;
   }
-  // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
-  // the search subquery is sufficient.
-  const AREQ *searchReq = hreq->requests[SEARCH_INDEX];
-  if (searchReq->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+  if (hreq->base.timeoutWasCapped) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
 
@@ -1404,6 +1401,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybridRequest, cmd.hybridParams, &status, internal);
   }
   hybridRequest->reqflags = cmd.hybridParams->aggregationParams.common.reqflags;
+  hybridRequest->base.timeoutWasCapped |= cmd.timeoutWasCapped;
 
   if (internal) {
     if (TimeoutConfig_ApplyCoordinatorElapsedTime(

@@ -205,6 +205,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
+  hreq->base.timeoutWasCapped |= cmd.timeoutWasCapped;
   if (rc != REDISMODULE_OK) {
     HybridPipelineParams_Cleanup(&hybridParams);
     HybridRequest_Free(hreq);
