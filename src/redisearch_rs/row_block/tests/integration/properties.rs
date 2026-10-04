@@ -13,8 +13,9 @@
 // proptest calls getcwd(), which Miri does not support.
 #![cfg(not(miri))]
 
-use crate::harness::{Decoded, decode_prefix, encode, lookup, row};
+use crate::harness::{Decoded, decode_into, decode_prefix, encode, lookup, row, try_decode};
 use proptest::prelude::*;
+use rlookup::RLookup;
 use row_block::{Block, MAGIC, VERSION};
 
 /// Arbitrary values of every tag, nested a few levels deep.
@@ -132,5 +133,36 @@ proptest! {
             .map(|parsed| parsed.rows().take_while(Result::is_ok).count())
             .unwrap_or(0);
         prop_assert!(rows <= garbage.len());
+    }
+
+    /// The coordinator's decoder must agree with the reader on arbitrary input: the same
+    /// rows where the reader decodes, the same error where it fails, and never a panic or an
+    /// out-of-bounds read — the bytes come straight off the network.
+    #[test]
+    fn the_decoder_agrees_with_the_reader_on_arbitrary_bytes(
+        tail in prop::collection::vec(any::<u8>(), 0..256),
+        ncols in 1u16..12,
+        garbage_header in any::<bool>(),
+    ) {
+        let block = if garbage_header {
+            tail
+        } else {
+            let mut block = MAGIC.to_le_bytes().to_vec();
+            block.push(VERSION);
+            block.extend_from_slice(&ncols.to_le_bytes());
+            for col in 0..ncols {
+                let name = format!("c{col}");
+                block.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+                block.extend_from_slice(name.as_bytes());
+                block.push(0);
+            }
+            block.extend_from_slice(&tail);
+            block
+        };
+
+        let mut coordinator = RLookup::new();
+        let got = decode_into(&block, &mut coordinator).map(|rows| rows.len());
+        let want = try_decode(&block).map(|rows| rows.len());
+        prop_assert_eq!(got, want);
     }
 }

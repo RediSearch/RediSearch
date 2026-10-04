@@ -8,8 +8,8 @@
 */
 
 //! C entrypoint for the [`row_block`] wire format: the encoder used by the shard-side
-//! aggregate reply path, and the format constants the coordinator-side decoder
-//! (`src/coord/rpnet.c`) parses with.
+//! aggregate reply path, and the decoder the coordinator's network result processor
+//! (`src/coord/rpnet.c`) reads shard replies with.
 //!
 //! The format itself, including which facts are a contract with that decoder, is documented
 //! on the [`row_block`] crate.
@@ -20,36 +20,8 @@ use ffi::{
 };
 use query_flags::{QEFlag, QEFlags};
 use rlookup::{OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKeyFlags, RLookupRow};
-use row_block::{Block, ColumnFilter, RowBlockWriter, Tag, TrioMember};
+use row_block::{Block, ColumnFilter, RowBlockDecoder, RowBlockWriter, TrioMember};
 use std::ffi::{c_char, c_uint};
-
-/// Opens a block's header.
-#[cheadergen::config(export, rename = "ROW_BLOCK_MAGIC")]
-pub const ROW_BLOCK_MAGIC: u32 = row_block::MAGIC;
-
-/// The format version this build writes and reads.
-#[cheadergen::config(export, rename = "ROW_BLOCK_VERSION")]
-pub const ROW_BLOCK_VERSION: u8 = row_block::VERSION;
-
-/// Tag for a [`Tag::Number`] value.
-#[cheadergen::config(export, rename = "ROW_BLOCK_TAG_NUM")]
-pub const ROW_BLOCK_TAG_NUM: u8 = Tag::Number as u8;
-
-/// Tag for a [`Tag::String`] value.
-#[cheadergen::config(export, rename = "ROW_BLOCK_TAG_STR")]
-pub const ROW_BLOCK_TAG_STR: u8 = Tag::String as u8;
-
-/// Tag for a [`Tag::Null`] value.
-#[cheadergen::config(export, rename = "ROW_BLOCK_TAG_NULL")]
-pub const ROW_BLOCK_TAG_NULL: u8 = Tag::Null as u8;
-
-/// Tag for a [`Tag::Array`] value.
-#[cheadergen::config(export, rename = "ROW_BLOCK_TAG_ARRAY")]
-pub const ROW_BLOCK_TAG_ARRAY: u8 = Tag::Array as u8;
-
-/// Tag for a [`Tag::Map`] value.
-#[cheadergen::config(export, rename = "ROW_BLOCK_TAG_MAP")]
-pub const ROW_BLOCK_TAG_MAP: u8 = Tag::Map as u8;
 
 /// Allocates a writer with no header written yet. Free it with [`RowBlockWriter_Free`].
 ///
@@ -319,6 +291,141 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     true
 }
 
+/// Allocates a decoder with no active block. Free it with [`RowBlockDecoder_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn RowBlockDecoder_New() -> *mut RowBlockDecoder {
+    Box::into_raw(Box::new(RowBlockDecoder::new()))
+}
+
+/// Releases a decoder, ending its active block if any.
+///
+/// # Safety
+///
+/// 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`] and not freed since.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_Free(d: *mut RowBlockDecoder) {
+    debug_assert!(!d.is_null(), "RowBlockDecoder_Free got a NULL decoder");
+    // SAFETY: ensured by caller (1.)
+    drop(unsafe { Box::from_raw(d) });
+}
+
+/// Makes the `len` bytes at `buf` the active block, resolving its columns in `lk`; see
+/// [`RowBlockDecoder::begin`].
+///
+/// Returns false, leaving no block active, if the header or schema is malformed.
+///
+/// # Safety
+///
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+/// 2. `lk` must be a non-null pointer to a [valid] `RLookup`, and the rest of
+///    [`RowBlockDecoder::begin`]'s contract on its `lookup` must hold.
+/// 3. `buf` must be [valid] for reads of `len` bytes, and the rest of
+///    [`RowBlockDecoder::begin`]'s contract on its `block` must hold.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_Begin(
+    d: *mut RowBlockDecoder,
+    lk: *mut OpaqueRLookup,
+    buf: *const c_char,
+    len: usize,
+) -> bool {
+    // SAFETY: ensured by caller (1.)
+    let decoder = unsafe { decoder_mut(d) };
+    // SAFETY: ensured by caller (2.)
+    let lookup = unsafe { RLookup::from_opaque_mut_ptr(lk) }.expect("a non-null RLookup");
+    debug_assert!(!buf.is_null(), "RowBlockDecoder_Begin got a NULL buffer");
+    // SAFETY: ensured by caller (3.)
+    let block = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
+
+    // SAFETY: ensured by caller (2., 3.)
+    match unsafe { decoder.begin(lookup, block) } {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(%error, "malformed row block in shard reply");
+            false
+        }
+    }
+}
+
+/// Whether a block is active; see [`RowBlockDecoder::is_active`].
+///
+/// # Safety
+///
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_IsActive(d: *const RowBlockDecoder) -> bool {
+    // SAFETY: ensured by caller (1.)
+    unsafe { decoder_ref(d) }.is_active()
+}
+
+/// Whether the active block still holds a row; see [`RowBlockDecoder::has_rows`].
+///
+/// # Safety
+///
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_HasRows(d: *const RowBlockDecoder) -> bool {
+    // SAFETY: ensured by caller (1.)
+    unsafe { decoder_ref(d) }.has_rows()
+}
+
+/// The active block's column count; see [`RowBlockDecoder::ncols`].
+///
+/// # Safety
+///
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_ColumnCount(d: *const RowBlockDecoder) -> usize {
+    // SAFETY: ensured by caller (1.)
+    unsafe { decoder_ref(d) }.ncols()
+}
+
+/// Decodes the active block's next row into `row`; see [`RowBlockDecoder::next_row`].
+///
+/// Returns false, leaving no block active, if the row is truncated or malformed.
+///
+/// # Safety
+///
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable;
+///    and [`RowBlockDecoder_HasRows`] must be true for it.
+/// 2. The contract of the [`RowBlockDecoder_Begin`] call that started the active block must
+///    still hold.
+/// 3. `row` must be a non-null pointer to a [valid] `RLookupRow`, not aliased for the
+///    duration of the call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_NextRow(
+    d: *mut RowBlockDecoder,
+    row: *mut OpaqueRLookupRow,
+) -> bool {
+    // SAFETY: ensured by caller (1.)
+    let decoder = unsafe { decoder_mut(d) };
+    // SAFETY: ensured by caller (3.)
+    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("a non-null RLookupRow");
+
+    // SAFETY: ensured by caller (1., 2.)
+    match unsafe { decoder.next_row(row) } {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(%error, "truncated row block in shard reply");
+            false
+        }
+    }
+}
+
+/// Ends the active block, if any; see [`RowBlockDecoder::end`].
+///
+/// # Safety
+///
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RowBlockDecoder_End(d: *mut RowBlockDecoder) {
+    // SAFETY: ensured by caller (1.)
+    unsafe { decoder_mut(d) }.end();
+}
+
 /// Reinterprets an `RLookup_F` bit pair as the column predicate.
 ///
 /// # Panics
@@ -381,4 +488,24 @@ unsafe fn writer_mut<'a>(w: *mut RowBlockWriter) -> &'a mut RowBlockWriter {
     debug_assert!(!w.is_null(), "row block writer pointer must not be NULL");
     // SAFETY: ensured by caller (1.)
     unsafe { &mut *w }
+}
+
+/// # Safety
+///
+/// 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`], not freed since,
+///    which outlives `'a`.
+unsafe fn decoder_ref<'a>(d: *const RowBlockDecoder) -> &'a RowBlockDecoder {
+    debug_assert!(!d.is_null(), "row block decoder pointer must not be NULL");
+    // SAFETY: ensured by caller (1.)
+    unsafe { &*d }
+}
+
+/// # Safety
+///
+/// 1. Same contract as [`decoder_ref`]'s `d`, and no other reference to the decoder may be
+///    live for `'a`.
+unsafe fn decoder_mut<'a>(d: *mut RowBlockDecoder) -> &'a mut RowBlockDecoder {
+    debug_assert!(!d.is_null(), "row block decoder pointer must not be NULL");
+    // SAFETY: ensured by caller (1.)
+    unsafe { &mut *d }
 }

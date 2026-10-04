@@ -114,163 +114,18 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 // Detection is by reply type, not by negotiation: the rows element is a string for a block
 // and an array for the legacy per-row encoding, so a coordinator decodes whatever it is sent.
 
-// Read a little-endian scalar, advancing the cursor. Returns false if the block is truncated.
-#define BLOCK_READ(nc, dst, n)                                       \
-  ({                                                                 \
-    bool _ok = (size_t)((nc)->block.end - (nc)->block.cur) >= (n);    \
-    if (_ok) {                                                       \
-      memcpy((dst), (nc)->block.cur, (n));                           \
-      (nc)->block.cur += (n);                                        \
-    }                                                                \
-    _ok;                                                             \
-  })
-
-// Parse header and schema, resolving each column name to an RLookupKey once for the whole
-// block. Returns false on a malformed block, which the caller reports as a shard error.
+// Make the block in `rows` the decoder's active block, resolving its columns to RLookupKeys
+// once for the whole block. Returns false on a malformed block, which the caller reports as a
+// shard error.
 static bool blockBegin(RPNet *nc, MRReply *rows) {
+  if (!nc->blockDecoder) nc->blockDecoder = RowBlockDecoder_New();
   size_t len;
   const char *buf = MRReply_String(rows, &len);
-  nc->block.cur = buf;
-  nc->block.end = buf + len;
-  nc->block.active = false;
-
-  uint32_t magic;
-  uint8_t version;
-  uint16_t ncols;
-  if (!BLOCK_READ(nc, &magic, sizeof(magic)) || magic != ROW_BLOCK_MAGIC) return false;
-  if (!BLOCK_READ(nc, &version, sizeof(version)) || version != ROW_BLOCK_VERSION) return false;
-  if (!BLOCK_READ(nc, &ncols, sizeof(ncols))) return false;
-
-  if (ncols > nc->block.colsCap) {
-    nc->block.cols = rm_realloc(nc->block.cols, ncols * sizeof(*nc->block.cols));
-    nc->block.colsCap = ncols;
-  }
-  for (uint16_t i = 0; i < ncols; i++) {
-    uint16_t nameLen;
-    if (!BLOCK_READ(nc, &nameLen, sizeof(nameLen))) return false;
-    // nameLen excludes the terminator the writer appends.
-    if ((size_t)(nc->block.end - nc->block.cur) < (size_t)nameLen + 1) return false;
-    if (nc->block.cur[nameLen] != '\0') return false;
-    // RLookup keys are pointer-stable (individually pinned), so resolving once per block and
-    // reusing across its rows is sound.
-    RLookupKey *key = RLookup_GetKey_ReadEx(nc->lookup, nc->block.cur, nameLen, RLOOKUP_F_NOFLAGS);
-    if (!key) {
-      // A shard can send a column the coordinator's plan never named - `LOAD *` and other
-      // dynamic keys - so create it, exactly as the legacy per-row path does through
-      // RLookupRow_WriteByNameOwned. NAMEALLOC because the name lives in the block, which is
-      // freed with the reply while the key outlives it.
-      key = RLookup_GetKey_WriteEx(nc->lookup, nc->block.cur, nameLen, RLOOKUP_F_NAMEALLOC);
-    }
-    nc->block.cols[i] = key;
-    nc->block.cur += nameLen + 1;
-  }
-  nc->block.ncols = ncols;
-  nc->block.active = true;
-  return true;
+  return RowBlockDecoder_Begin(nc->blockDecoder, nc->lookup, buf, len);
 }
 
-// Decode one tagged value. Strings are copied, because the block buffer is released with the
-// reply while the RSValue outlives it; making them borrow is a separate change that needs a
-// refcounted backing buffer.
-static RSValue *blockReadValue(RPNet *nc) {
-  uint8_t tag;
-  if (!BLOCK_READ(nc, &tag, sizeof(tag))) return NULL;
-  switch (tag) {
-    case ROW_BLOCK_TAG_NUM: {
-      double d;
-      if (!BLOCK_READ(nc, &d, sizeof(d))) return NULL;
-      return RSValue_NewNumber(d);
-    }
-    case ROW_BLOCK_TAG_STR: {
-      uint32_t n;
-      if (!BLOCK_READ(nc, &n, sizeof(n))) return NULL;
-      if ((size_t)(nc->block.end - nc->block.cur) < n) return NULL;
-      RSValue *v = RSValue_NewCopiedString(nc->block.cur, n);
-      nc->block.cur += n;
-      return v;
-    }
-    case ROW_BLOCK_TAG_ARRAY: {
-      uint32_t n;
-      if (!BLOCK_READ(nc, &n, sizeof(n))) return NULL;
-      // Every element costs at least its tag byte, so a count past the remaining bytes is a
-      // corrupt block: reject it before sizing an allocation from it.
-      if ((size_t)(nc->block.end - nc->block.cur) < n) return NULL;
-      RSValue **arr = RSValue_NewArrayBuilder(n);
-      bool ok = true;
-      for (uint32_t i = 0; i < n; i++) {
-        RSValue *e = ok ? blockReadValue(nc) : NULL;
-        if (!e) {
-          // Keep filling: the builder must be fully initialised before it can be
-          // finalised, and only a finalised array can be freed.
-          ok = false;
-          e = RSValue_NullStatic();
-        }
-        arr[i] = e;
-      }
-      RSValue *v = RSValue_NewArrayFromBuilder(arr, n);
-      if (!ok) {
-        RSValue_DecrRef(v);
-        return NULL;
-      }
-      return v;
-    }
-    case ROW_BLOCK_TAG_MAP: {
-      uint32_t n;
-      if (!BLOCK_READ(nc, &n, sizeof(n))) return NULL;
-      // Two tag bytes minimum per entry, same reasoning as the array count above.
-      if ((size_t)(nc->block.end - nc->block.cur) / 2 < n) return NULL;
-      RSValueMapBuilder *map = RSValue_NewMapBuilder(n);
-      bool ok = true;
-      for (uint32_t i = 0; i < n; i++) {
-        RSValue *k = ok ? blockReadValue(nc) : NULL;
-        RSValue *val = k ? blockReadValue(nc) : NULL;
-        if (!k || !val) {
-          ok = false;
-          if (!k) k = RSValue_NullStatic();
-          if (!val) val = RSValue_NullStatic();
-        }
-        RSValue_MapBuilderSetEntry(map, i, k, val);
-      }
-      RSValue *v = RSValue_NewMapFromBuilder(map);
-      if (!ok) {
-        RSValue_DecrRef(v);
-        return NULL;
-      }
-      return v;
-    }
-    case ROW_BLOCK_TAG_NULL:
-      return RSValue_NullStatic();
-    default:
-      // An unknown tag carries an unknown payload length, so the cursor cannot be advanced
-      // past it: the block is undecodable from here on.
-      return NULL;
-  }
-}
-
-// True while the current block still holds rows.
-static inline bool blockHasRows(const RPNet *nc) {
-  return nc->block.active && nc->block.cur < nc->block.end;
-}
-
-// Decode the next row into `r`. Returns false on a truncated block.
-static bool blockNextRow(RPNet *nc, SearchResult *r) {
-  size_t bitmapBytes = (nc->block.ncols + 7) / 8;
-  if ((size_t)(nc->block.end - nc->block.cur) < bitmapBytes) return false;
-  const unsigned char *bitmap = (const unsigned char *)nc->block.cur;
-  nc->block.cur += bitmapBytes;
-
-  for (uint16_t i = 0; i < nc->block.ncols; i++) {
-    if (!(bitmap[i / 8] & (1u << (i % 8)))) continue;
-    RSValue *v = blockReadValue(nc);
-    if (!v) return false;
-    const RLookupKey *key = nc->block.cols[i];
-    if (key) {
-      RLookup_WriteOwnKey(key, SearchResult_GetRowDataMut(r), v);
-    } else {
-      RSValue_DecrRef(v);  // column the coordinator's lookup does not know; drop it
-    }
-  }
-  return true;
+static inline bool blockActive(const RPNet *nc) {
+  return nc->blockDecoder && RowBlockDecoder_IsActive(nc->blockDecoder);
 }
 
 // Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL unless the
@@ -543,8 +398,8 @@ void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor
 }
 
 void rpnetFree(ResultProcessor *rp) {
-  rm_free(((RPNet *)rp)->block.cols);
   RPNet *nc = (RPNet *)rp;
+  if (nc->blockDecoder) RowBlockDecoder_Free(nc->blockDecoder);
 
   if (nc->it) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
@@ -594,6 +449,8 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
+    // The active block, if any, lived in the reply just dropped.
+    if (nc->blockDecoder) RowBlockDecoder_End(nc->blockDecoder);
 }
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
@@ -634,15 +491,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 take_reply:
   if (rows) {
     // A row block is consumed by cursor position; the legacy encoding by element index.
-    const bool exhausted = nc->block.active ? !blockHasRows(nc)
-                                            : (nc->curIdx == MRReply_Length(rows));
+    const bool exhausted = blockActive(nc) ? !RowBlockDecoder_HasRows(nc->blockDecoder)
+                                           : (nc->curIdx == MRReply_Length(rows));
     if (exhausted) {
       if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
 
       root = rows = NULL;
-      nc->block.active = false;
     }
   }
 
@@ -772,7 +628,7 @@ take_reply:
     }
     if (resp3) {
       size_t rowCount = MRReply_Length(rows);
-      if (nc->block.active) {
+      if (blockActive(nc)) {
         MRReply *count = MRReply_MapElement(nc->current.meta, "row_block_rows");
         if (!count || MRReply_Type(count) != MR_REPLY_INTEGER || MRReply_Integer(count) < 0) {
           QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC,
@@ -790,14 +646,14 @@ take_reply:
   // A chunk that produced no rows still carries a header and schema, so its reply is longer
   // than the bare `[total]` getNextReply drops for the legacy encoding, and the row decoder
   // below would read it as a truncated row. Retire it and take the next reply instead.
-  if (nc->block.active && !blockHasRows(nc)) {
+  if (blockActive(nc) && !RowBlockDecoder_HasRows(nc->blockDecoder)) {
     goto take_reply;
   }
 
-  if (nc->block.active) {
+  if (blockActive(nc)) {
     rs_wall_clock convertStart;
     if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
-    if (!blockNextRow(nc, r)) {
+    if (!RowBlockDecoder_NextRow(nc->blockDecoder, SearchResult_GetRowDataMut(r))) {
       QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC);
       QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
                            "Truncated row block in shard reply");
@@ -805,7 +661,8 @@ take_reply:
     }
     if (nc->profileBreakdown) {
       accumulateSince(&nc->breakdown.convertTime, &convertStart);
-      nc->breakdown.fields += nc->block.ncols;
+      // Every column counts, present in this row or not: a block row spans the whole schema.
+      nc->breakdown.fields += RowBlockDecoder_ColumnCount(nc->blockDecoder);
     }
     return RS_RESULT_OK;
   }

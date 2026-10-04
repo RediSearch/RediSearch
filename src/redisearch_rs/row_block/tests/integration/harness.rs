@@ -11,7 +11,10 @@
 //! back out.
 
 use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
-use row_block::{Block, DecodeError, RefusedRow, RowBlockWriter, TrioMember};
+use row_block::{
+    Block, DecodeError, MAGIC, RefusedRow, RowBlockDecoder, RowBlockWriter, Tag, TrioMember,
+    VERSION,
+};
 use std::ffi::{CStr, CString};
 use value::{SharedValue, Value};
 
@@ -127,7 +130,7 @@ impl Decoded {
     ///
     /// Panics on anything the decoder cannot produce, which is how a decoder that started
     /// producing it would be caught.
-    fn from_value(value: &Value) -> Self {
+    pub fn from_value(value: &Value) -> Self {
         match value {
             Value::Number(number) => Self::Number(*number),
             Value::String(string) => Self::Bytes(string.as_bytes().to_vec()),
@@ -217,4 +220,156 @@ fn field_of((name, value): &(&CStr, SharedValue)) -> (String, Decoded) {
         name.to_string_lossy().into_owned(),
         Decoded::from_value(value),
     )
+}
+
+/// Decodes `block` through the coordinator's [`RowBlockDecoder`] into rows of `lookup`, and
+/// reads every row back as name / value pairs in `lookup`'s key order.
+///
+/// Fails with the first error either [`RowBlockDecoder::begin`] or
+/// [`RowBlockDecoder::next_row`] reports.
+pub fn decode_into(
+    block: &[u8],
+    lookup: &mut RLookup<'_>,
+) -> Result<Vec<Vec<(String, Decoded)>>, DecodeError> {
+    let mut decoder = RowBlockDecoder::new();
+    // SAFETY: `block` and `lookup` outlive `decoder`.
+    unsafe { decoder.begin(lookup, block) }?;
+
+    let mut rows = Vec::new();
+    while decoder.has_rows() {
+        let mut row = RLookupRow::new();
+        // SAFETY: as above.
+        unsafe { decoder.next_row(&mut row) }?;
+        rows.push(
+            lookup
+                .iter()
+                .filter_map(|key| {
+                    let value = row.get(key)?;
+                    Some((
+                        key.name().to_string_lossy().into_owned(),
+                        Decoded::from_value(value),
+                    ))
+                })
+                .collect(),
+        );
+    }
+    Ok(rows)
+}
+
+/// Builds a header for `ncols` columns, then whatever `rest` adds.
+pub fn block(ncols: u16, rest: &[&[u8]]) -> Vec<u8> {
+    let mut bytes = MAGIC.to_le_bytes().to_vec();
+    bytes.push(VERSION);
+    bytes.extend_from_slice(&ncols.to_le_bytes());
+    for part in rest {
+        bytes.extend_from_slice(part);
+    }
+    bytes
+}
+
+/// One schema entry for a single-byte column name.
+pub fn column(name: u8) -> Vec<u8> {
+    let mut bytes = 1u16.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&[name, 0]);
+    bytes
+}
+
+/// A valid, reasonably varied block, used as the starting point for corruption.
+pub fn valid_block() -> Vec<u8> {
+    let lookup = lookup(&["a", "bb", "ccc"]);
+    encode(
+        &lookup,
+        &[
+            row(
+                &lookup,
+                &[
+                    ("a", SharedValue::new_num(-1.5)),
+                    (
+                        "ccc",
+                        Decoded::Map(vec![(bytes("k"), Decoded::Array(vec![Decoded::Null]))])
+                            .to_value(),
+                    ),
+                ],
+            ),
+            row(&lookup, &[]),
+            row(
+                &lookup,
+                &[("bb", SharedValue::new_string(b"hello".to_vec()))],
+            ),
+        ],
+    )
+}
+
+/// One block for every way the format can be malformed, each labelled for assertion messages.
+pub fn malformed_blocks() -> Vec<(&'static str, Vec<u8>)> {
+    let valid = valid_block();
+    let mut bad_magic = valid.clone();
+    bad_magic[0] ^= 0xff;
+    let mut bad_version = valid.clone();
+    bad_version[4] = VERSION.wrapping_add(1);
+
+    let mut nested = vec![0b1u8];
+    for _ in 0..10_000 {
+        nested.push(Tag::Array as u8);
+        nested.extend_from_slice(&1u32.to_le_bytes());
+    }
+    nested.push(Tag::Null as u8);
+
+    vec![
+        ("bad magic", bad_magic),
+        ("bad version", bad_version),
+        ("truncated header", valid[..6].to_vec()),
+        ("truncated schema", valid[..10].to_vec()),
+        ("truncated value", valid[..valid.len() - 1].to_vec()),
+        ("absurd column count", block(u16::MAX, &[&column(b'a')])),
+        (
+            "unterminated name",
+            block(1, &[&1u16.to_le_bytes()[..], b"a", b"a"]),
+        ),
+        (
+            "interior NUL in a name",
+            block(1, &[&2u16.to_le_bytes()[..], b"a\0", &[0]]),
+        ),
+        ("rows without columns", block(0, &[&[0u8][..]])),
+        (
+            "truncated bitmap",
+            block(9, &[&column(b'a').repeat(9), &[0xff]]),
+        ),
+        ("unknown tag", block(1, &[&column(b'a'), &[0b1, 200]])),
+        (
+            "absurd array count",
+            block(
+                1,
+                &[
+                    &column(b'a'),
+                    &[0b1, Tag::Array as u8],
+                    &u32::MAX.to_le_bytes()[..],
+                ],
+            ),
+        ),
+        (
+            "absurd map count",
+            block(
+                1,
+                &[
+                    &column(b'a'),
+                    &[0b1, Tag::Map as u8],
+                    &u32::MAX.to_le_bytes()[..],
+                ],
+            ),
+        ),
+        (
+            "absurd string length",
+            block(
+                1,
+                &[
+                    &column(b'a'),
+                    &[0b1, Tag::String as u8],
+                    &1_000_000u32.to_le_bytes()[..],
+                    b"short",
+                ],
+            ),
+        ),
+        ("nesting too deep", block(1, &[&column(b'a'), &nested])),
+    ]
 }

@@ -15,6 +15,7 @@
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
 #include "rs_wall_clock.h"
+#include "row_block_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -96,19 +97,10 @@ typedef struct {
     uint64_t replies;
     uint64_t fields;
   } breakdown;
-  // Decoder state for a compact row block (see src/aggregate/row_block.h), when the shard
-  // sent one instead of per-row RESP maps. Valid only while `current.rows` holds a block.
-  struct {
-    // Borrowed into the block buffer owned by `current.rows`; not freed here.
-    const char *cur;
-    const char *end;
-    // Schema columns resolved once per block, so per-row writes go by key instead of by
-    // name. Sized `ncols`, owned by the RPNet and reused across blocks.
-    const RLookupKey **cols;
-    uint16_t ncols;
-    uint16_t colsCap;
-    bool active;
-  } block;
+  // Decoder for a compact row block (the `row_block` Rust crate), when the shard sent one
+  // instead of per-row RESP maps. Created on the first block this RP receives; its block is
+  // active only while `current.rows` holds one.
+  RowBlockDecoder *blockDecoder;
 
   // Whether to maintain `breakdown`. Timing costs two clock reads per row, so it is
   // confined to profiled requests. Deliberately per-row and not per-field: a clock pair

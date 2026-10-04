@@ -46,15 +46,17 @@
 //!
 //! # Compatibility
 //!
-//! The byte layout is a contract with the decoder on the other end of the internal path
-//! (`src/coord/rpnet.c`). [`VERSION`] is bumped whenever the tag set or the layout changes:
+//! The byte layout is a contract between the shard that writes a block and the coordinator
+//! that decodes it with [`RowBlockDecoder`]. [`VERSION`] is bumped whenever the tag set or the layout changes:
 //! a reader rejects any other version, and the two sides are always the same build in
 //! practice (internal path, no negotiation).
 
+pub mod decoder;
 pub mod reader;
 pub mod writer;
 
-pub use reader::{Block, DecodeError, Row};
+pub use decoder::RowBlockDecoder;
+pub use reader::{Block, DecodeError, Row, RowReader, Rows};
 pub use writer::{ColumnFilter, RefusedRow, RowBlockWriter, SchemaError, TrioMember};
 
 /// Opens a block's header. Spells `RSBR` when read as little-endian bytes.

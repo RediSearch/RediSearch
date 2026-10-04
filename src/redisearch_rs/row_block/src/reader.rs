@@ -9,9 +9,10 @@
 
 //! Reading a block back: the inverse of [`crate::writer`], over the same byte layout.
 //!
-//! The primary consumer is the encoder's own fallback path, which replays a block it just
-//! wrote as ordinary RESP rows. Even there the input is treated as untrusted: a block is
-//! bytes, and there is no cheap way to prove the bytes came from this build.
+//! Two consumers: the coordinator, which decodes the blocks shards send it through
+//! [`crate::RowBlockDecoder`], and the encoder's own fallback path, which replays a block it
+//! just wrote as ordinary RESP rows. The input is untrusted in both: a block is bytes, and
+//! there is no cheap way to prove the bytes came from this build.
 
 use crate::{MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get};
 use std::ffi::CStr;
@@ -134,12 +135,17 @@ impl<'a> Block<'a> {
         &self.names
     }
 
+    /// The bytes following the schema, for a [`RowReader`].
+    pub const fn row_bytes(&self) -> &'a [u8] {
+        self.rows
+    }
+
     /// Decodes the block's rows, stopping at the first malformed one.
-    pub const fn rows(&self) -> Rows<'a, '_> {
+    pub fn rows(&self) -> Rows<'a, '_> {
+        let ncols = u16::try_from(self.names.len()).expect("a block's column count is a u16");
         Rows {
             block: self,
-            cursor: Cursor { bytes: self.rows },
-            failed: false,
+            reader: RowReader::new(self.rows, ncols),
         }
     }
 }
@@ -151,41 +157,93 @@ impl<'a> Block<'a> {
 #[derive(Debug)]
 pub struct Rows<'a, 'block> {
     block: &'block Block<'a>,
-    cursor: Cursor<'a>,
-    failed: bool,
+    reader: RowReader<'a>,
 }
 
 impl<'a> Iterator for Rows<'a, '_> {
     type Item = Result<Row<'a>, DecodeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.failed || self.cursor.bytes.is_empty() {
+        if self.reader.is_exhausted() {
             return None;
         }
-        let row = self.decode_row();
-        if row.is_err() {
-            self.failed = true;
-        }
-        Some(row)
+        let names = &self.block.names;
+        let mut fields = Vec::new();
+        let outcome = self
+            .reader
+            .read_row(|col, value| fields.push((names[usize::from(col)], value)));
+        Some(outcome.map(|()| Row { fields }))
     }
 }
 
 impl std::iter::FusedIterator for Rows<'_, '_> {}
 
-impl<'a> Rows<'a, '_> {
-    /// Decodes the row at the cursor.
-    fn decode_row(&mut self) -> Result<Row<'a>, DecodeError> {
-        let ncols = u16::try_from(self.block.names.len()).expect("a block's column count is a u16");
-        let bitmap = self.cursor.take(bitmap_bytes(ncols))?;
+/// Decodes the rows section of a block one row at a time, handing each present field to a
+/// caller-supplied sink instead of collecting it.
+///
+/// This is the primitive under both [`Rows`] and [`crate::RowBlockDecoder`]: the latter cannot
+/// hold a [`Block`] across calls from C, so it rebuilds a reader over the bytes it has not
+/// consumed yet on every row.
+///
+/// Fuses on the first error, for the reason given on [`Rows`].
+#[derive(Debug)]
+pub struct RowReader<'a> {
+    cursor: Cursor<'a>,
+    ncols: u16,
+    failed: bool,
+}
 
-        let mut fields = Vec::new();
-        for (col, name) in self.block.names.iter().enumerate() {
-            let col = u16::try_from(col).expect("a block's column count is a u16");
+impl<'a> RowReader<'a> {
+    /// A reader over `rows`, the bytes following the schema of a block declaring `ncols`
+    /// columns.
+    pub const fn new(rows: &'a [u8], ncols: u16) -> Self {
+        Self {
+            cursor: Cursor { bytes: rows },
+            ncols,
+            failed: false,
+        }
+    }
+
+    /// Whether no row is left to read, either because the bytes ran out on a row boundary or
+    /// because an earlier row failed to decode.
+    pub const fn is_exhausted(&self) -> bool {
+        self.failed || self.cursor.bytes.is_empty()
+    }
+
+    /// The bytes after the last row read.
+    pub const fn remaining(&self) -> &'a [u8] {
+        self.cursor.bytes
+    }
+
+    /// Decodes the next row, calling `sink` with each present column's index and value, in
+    /// schema order.
+    ///
+    /// On error `sink` may already have been called for the columns before the malformed one;
+    /// the reader is then exhausted.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if the reader is already exhausted.
+    pub fn read_row(&mut self, mut sink: impl FnMut(u16, SharedValue)) -> Result<(), DecodeError> {
+        debug_assert!(!self.is_exhausted(), "no row is left to read");
+        let outcome = self.read_row_inner(&mut sink);
+        if outcome.is_err() {
+            self.failed = true;
+        }
+        outcome
+    }
+
+    fn read_row_inner(
+        &mut self,
+        sink: &mut impl FnMut(u16, SharedValue),
+    ) -> Result<(), DecodeError> {
+        let bitmap = self.cursor.take(bitmap_bytes(self.ncols))?;
+        for col in 0..self.ncols {
             if bitmap_get(bitmap, col) {
-                fields.push((*name, decode_value(&mut self.cursor, 0)?));
+                sink(col, decode_value(&mut self.cursor, 0)?);
             }
         }
-        Ok(Row { fields })
+        Ok(())
     }
 }
 

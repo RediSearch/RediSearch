@@ -12,54 +12,9 @@
 //! Every one of these must produce a `DecodeError` — never a panic, never a read past the
 //! buffer, and never an allocation sized from a number the block cannot back up.
 
-use crate::harness::{Decoded, bytes, decode, decode_prefix, encode, lookup, row, try_decode};
+use crate::harness::{block, column, decode, decode_prefix, try_decode, valid_block};
 use pretty_assertions::assert_eq;
-use row_block::{Block, DecodeError, MAGIC, Tag, VERSION};
-use value::SharedValue;
-
-/// Builds a header for `ncols` columns, then whatever `rest` adds.
-fn block(ncols: u16, rest: &[&[u8]]) -> Vec<u8> {
-    let mut bytes = MAGIC.to_le_bytes().to_vec();
-    bytes.push(VERSION);
-    bytes.extend_from_slice(&ncols.to_le_bytes());
-    for part in rest {
-        bytes.extend_from_slice(part);
-    }
-    bytes
-}
-
-/// One schema entry for a single-byte column name.
-fn column(name: u8) -> Vec<u8> {
-    let mut bytes = 1u16.to_le_bytes().to_vec();
-    bytes.extend_from_slice(&[name, 0]);
-    bytes
-}
-
-/// A valid, reasonably varied block, used as the starting point for corruption.
-fn valid_block() -> Vec<u8> {
-    let lookup = lookup(&["a", "bb", "ccc"]);
-    encode(
-        &lookup,
-        &[
-            row(
-                &lookup,
-                &[
-                    ("a", SharedValue::new_num(-1.5)),
-                    (
-                        "ccc",
-                        Decoded::Map(vec![(bytes("k"), Decoded::Array(vec![Decoded::Null]))])
-                            .to_value(),
-                    ),
-                ],
-            ),
-            row(&lookup, &[]),
-            row(
-                &lookup,
-                &[("bb", SharedValue::new_string(b"hello".to_vec()))],
-            ),
-        ],
-    )
-}
+use row_block::{Block, DecodeError, Tag, VERSION};
 
 #[test]
 fn a_block_that_does_not_open_with_the_magic_is_rejected() {
