@@ -686,19 +686,24 @@ dictIterator *RS_dictGetIterator(dict *d)
 {
     dictIterator *iter = rm_malloc(sizeof(*iter));
 
-    iter->d = d;
-    iter->table = 0;
-    iter->index = -1;
-    iter->safe = 0;
-    iter->entry = NULL;
-    iter->nextEntry = NULL;
+    RS_dictInitIterator(iter, d, 0);
     return iter;
 }
 
-dictIterator *RS_dictGetSafeIterator(dict *d) {
-    dictIterator *i = RS_dictGetIterator(d);
+void RS_dictInitIterator(dictIterator *iter, dict *d, int safe)
+{
+    iter->d = d;
+    iter->table = 0;
+    iter->index = -1;
+    iter->safe = safe;
+    iter->entry = NULL;
+    iter->nextEntry = NULL;
+}
 
-    i->safe = 1;
+dictIterator *RS_dictGetSafeIterator(dict *d) {
+    dictIterator *i = rm_malloc(sizeof(*i));
+
+    RS_dictInitIterator(i, d, 1);
     return i;
 }
 
@@ -737,7 +742,7 @@ dictEntry *RS_dictNext(dictIterator *iter)
     return NULL;
 }
 
-void RS_dictReleaseIterator(dictIterator *iter)
+void RS_dictDeinitIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
@@ -745,6 +750,11 @@ void RS_dictReleaseIterator(dictIterator *iter)
         else
             assert(iter->fingerprint == dictFingerprint(iter->d));
     }
+}
+
+void RS_dictReleaseIterator(dictIterator *iter)
+{
+    RS_dictDeinitIterator(iter);
     rm_free(iter);
 }
 

@@ -192,7 +192,9 @@ void *RS_dictFetchValue(dict *d, const void *key);
 int RS_dictResize(dict *d);
 dictIterator *RS_dictGetIterator(dict *d);
 dictIterator *RS_dictGetSafeIterator(dict *d);
+void RS_dictInitIterator(dictIterator *iter, dict *d, int safe);
 dictEntry *RS_dictNext(dictIterator *iter);
+void RS_dictDeinitIterator(dictIterator *iter);
 void RS_dictReleaseIterator(dictIterator *iter);
 dictEntry *RS_dictGetRandomKey(dict *d);
 unsigned int RS_dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
@@ -226,7 +228,9 @@ dictEntry **RS_dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_
 #define dictResize RS_dictResize
 #define dictGetIterator RS_dictGetIterator
 #define dictGetSafeIterator RS_dictGetSafeIterator
+#define dictInitIterator RS_dictInitIterator
 #define dictNext RS_dictNext
+#define dictDeinitIterator RS_dictDeinitIterator
 #define dictReleaseIterator RS_dictReleaseIterator
 #define dictGetRandomKey RS_dictGetRandomKey
 #define dictGetSomeKeys RS_dictGetSomeKeys

@@ -65,13 +65,14 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   dict *values = ctx;
   size_t len = dictSize(values);
-  dictIterator *it = dictGetIterator(values);
+  dictIterator it;
+  dictInitIterator(&it, values, 0);
   RSValue **arr = RSValue_NewArrayBuilder(len);
   for (size_t i = 0; i < len; i++) {
-    dictEntry *de = dictNext(it);
+    dictEntry *de = dictNext(&it);
     arr[i] = RSValue_IncrRef(dictGetKey(de));
   }
-  dictReleaseIterator(it);
+  dictDeinitIterator(&it);
   RSValue *ret = RSValue_NewArrayFromBuilder(arr, len);
   return ret;
 }
