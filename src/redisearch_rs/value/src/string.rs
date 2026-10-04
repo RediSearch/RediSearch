@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::shared_buffer::{MAX_SHARED_OFFSET, SharedBuffer};
 use nul_terminated_bytes::NulTerminatedBytes;
 use redis_module::RedisModule_Free;
 use std::ffi::c_char;
@@ -28,6 +29,7 @@ pub struct String {
 }
 
 /// This defines the type of allocation used by the [`String`]
+#[derive(Clone, Copy)]
 enum StringKind {
     /// Used when the [`String`] is allocated directly through the Rust
     /// Global allocator. Most often when originating from Rust code.
@@ -38,7 +40,12 @@ enum StringKind {
     /// Used when the [`String`] is referencing borrowed data which
     /// should not be freed when dropping the [`String`].
     Borrowed,
+    /// Borrows from a [`SharedBuffer`] it holds a reference to, this many bytes in. Three bytes fit the padding after
+    /// [`String::len`], so [`Value`](crate::Value) does not grow.
+    Shared { offset: [u8; 3] },
 }
+
+const _: () = assert!(size_of::<String>() == 16);
 
 impl String {
     /// Create an [`String`] from a `Vec<u8>`. The length must not be more than
@@ -110,6 +117,31 @@ impl String {
         }
     }
 
+    /// Takes over one of a [`SharedBuffer`]'s references.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must lie `offset` (at most [`MAX_SHARED_OFFSET`]) bytes into a [`SharedBuffer`], with the whole
+    ///    buffer's provenance.
+    /// 2. The caller must have taken a buffer reference for this string to release on drop.
+    /// 3. `ptr` must be [valid] for reads of `len+1` bytes, nul-terminated, and unmodified while the buffer lives.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub(crate) const unsafe fn shared(ptr: *const c_char, len: u32, offset: usize) -> Self {
+        debug_assert!(offset <= MAX_SHARED_OFFSET);
+        let [a, b, c, _] = (offset as u32).to_le_bytes();
+        Self {
+            ptr,
+            len,
+            kind: StringKind::Shared { offset: [a, b, c] },
+        }
+    }
+
+    /// Whether this string borrows from a [`SharedBuffer`].
+    pub const fn is_shared(&self) -> bool {
+        matches!(self.kind, StringKind::Shared { .. })
+    }
+
     /// Returns the string data pointer and length.
     pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
@@ -142,6 +174,11 @@ impl Drop for String {
                 unsafe { rm_free(self.ptr.cast_mut().cast()) };
             }
             StringKind::Borrowed => (), // No need to free borrowed strings.
+            StringKind::Shared { offset: [a, b, c] } => {
+                let offset = u32::from_le_bytes([a, b, c, 0]) as usize;
+                // Safety: made by `SharedBuffer::share`, and not yet released.
+                unsafe { SharedBuffer::release_shared(self.ptr, offset) };
+            }
         }
     }
 }

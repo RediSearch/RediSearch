@@ -14,7 +14,10 @@ use row_block::{
     Block, ColumnKind, DecodeError, MAGIC, MAX_NESTING_DEPTH, RowBlockDecoder, RowBlockWriter, Tag,
     TrioMember, VERSION,
 };
-use std::ffi::{CStr, CString};
+use std::{
+    ffi::{CStr, CString},
+    ptr::NonNull,
+};
 use value::{SharedValue, Value};
 
 pub fn lookup(columns: &[&str]) -> RLookup<'static> {
@@ -224,15 +227,33 @@ pub fn decode_into(
     Ok(rows)
 }
 
-/// Makes `block` the active block of `decoder`. [`RowBlockDecoder::begin`]'s contract is left to the caller: `block`
-/// must outlive the block, and `lookup` its [`RowBlockDecoder::next_row`] calls.
+/// Hands `decoder` a copy of `block` in a buffer of its own. The lookup half of [`RowBlockDecoder::begin`]'s contract
+/// is left to the caller's [`RowBlockDecoder::next_row`] calls.
 pub fn begin(
     decoder: &mut RowBlockDecoder,
     lookup: &mut RLookup<'_>,
     block: &[u8],
 ) -> Result<(), DecodeError> {
-    // SAFETY: left to the caller, as documented above.
-    unsafe { decoder.begin(lookup, block) }
+    let (buffer, len) = allocate(block);
+    // SAFETY: `buffer` is a fresh allocation of `len` bytes that nothing else refers to, and `release` frees it the way
+    // it was allocated.
+    unsafe { decoder.begin(lookup, buffer, len, release) }
+}
+
+/// Copies `bytes` into a buffer from the mocked Redis module allocator.
+pub fn allocate(bytes: &[u8]) -> (NonNull<u8>, usize) {
+    let buffer = redis_mock::allocator::alloc_shim(bytes.len().max(1)).cast::<u8>();
+    let buffer = NonNull::new(buffer).expect("the allocation succeeded");
+    // SAFETY: the allocation is at least `bytes.len()` long and fresh.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer.as_ptr(), bytes.len()) };
+    (buffer, bytes.len())
+}
+
+/// # Safety
+///
+/// 1. `buffer` must come from [`allocate`] and not be freed since.
+pub unsafe fn release(buffer: NonNull<u8>, _len: usize) {
+    redis_mock::allocator::free_shim(buffer.as_ptr().cast());
 }
 
 pub fn block(ncols: u16, rest: &[&[u8]]) -> Vec<u8> {

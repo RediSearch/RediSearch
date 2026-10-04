@@ -48,10 +48,10 @@ fn columns_the_coordinator_already_knows_reuse_its_keys() {
 
 #[test]
 fn a_created_key_outlives_the_block_it_was_named_in() {
-    // The lookup is handed names that point into the block, which is freed with its shard reply while the key lives on.
-    // Under Miri a key still borrowing its name is a use-after-free here.
+    // The lookup is handed names that point into the block, which is freed once its rows are read while the key lives
+    // on. Under Miri a key still borrowing its name is a use-after-free here.
     let shard = lookup(&["dynamic"]);
-    let mut block = encode(
+    let block = encode(
         &shard,
         &[row(&shard, &[("dynamic", SharedValue::new_num(1.0))])],
     );
@@ -59,8 +59,7 @@ fn a_created_key_outlives_the_block_it_was_named_in() {
     let mut decoder = RowBlockDecoder::new();
     begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
     decoder.end();
-    block.fill(0xa5);
-    drop(block);
+    assert_eq!(decoder.live_bytes(), 0, "the block is freed");
 
     let name = CString::new("dynamic").unwrap();
     let key = coordinator
