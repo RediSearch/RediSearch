@@ -1037,6 +1037,26 @@ def testStartsWith(env):
                                                                 ['t', 'aaa', 'prefix', '1'], \
                                                                 ['t', 'ab', 'prefix', '0']]))
 
+def testFunctionManyArgs(env):
+    """Function calls with more arguments than the evaluator keeps on the stack"""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'u', 'TEXT', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 't', 'a')
+
+    def fmt(*args):
+        return f'format("{"%s" * len(args)}", {", ".join(args)})'
+
+    many = ['@t'] * 12
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', fmt(*many), 'AS', 'x')
+    env.assertEqual(res, [1, ['t', 'a', 'x', 'a' * 12]])
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', fmt(fmt(*many), *many), 'AS', 'x')
+    env.assertEqual(res, [1, ['t', 'a', 'x', 'a' * 24]])
+
+    # A failing argument after the inline capacity must still release the heap array.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', fmt(*many, '@u'), 'AS', 'x') \
+        .error().contains('SEARCH_VALUE_NOT_FOUND')
+
 def testContains(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
