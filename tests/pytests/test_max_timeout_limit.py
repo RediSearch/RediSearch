@@ -204,6 +204,27 @@ class TestMaxForegroundTimeoutLimit:
         env.assertNotContains(CAP_WARNING, _get_warnings(res),
                               message=f"FT.SEARCH should not warn within limit, got: {res}")
 
+    def test_hybrid_cursor_retains_parent_timeout_cap(self):
+        """Transferred subcursors retain the cap after the hybrid parent is freed."""
+        skipTest(cluster=True)
+        self._reset(workers=0, timeout=100, limit=1000)
+        env = self.env
+        blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+        result = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*',
+                         'VSIM', '@v', '$BLOB', 'PARAMS', 2, 'BLOB', blob,
+                         'TIMEOUT', 5000, 'WITHCURSOR', 'COUNT', 1)
+        cursors = {name: result[name] for name in ('SEARCH', 'VSIM')}
+        try:
+            for name in cursors:
+                for _ in range(2):
+                    env.assertNotEqual(cursors[name], 0, message=result)
+                    rows, cursors[name] = env.cmd('FT.CURSOR', 'READ', 'idx', cursors[name])
+                    env.assertContains(CAP_WARNING, _get_warnings(rows), message=rows)
+        finally:
+            for cursor in cursors.values():
+                if cursor:
+                    env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
+
     def test_per_query_inherits_global_timeout_capped(self):
         # When WORKERS == 0 and the global TIMEOUT exceeds the limit, a query
         # that does *not* pass TIMEOUT must still inherit the (capped) global

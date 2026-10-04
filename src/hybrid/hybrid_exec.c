@@ -782,6 +782,8 @@ static arrayof(ResultProcessor*) collectDepleters(const HybridRequest *req,
 int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
+      // Cursor-owned subrequests outlive the parent that resolved the cap.
+      areq->base.timeoutWasCapped |= req->base.timeoutWasCapped;
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->base.cursorConfig.maxIdle, status);
       if (!cursor) {
         RS_ASSERT(QueryError_HasError(status));
