@@ -10,7 +10,10 @@
 //! The coordinator's side of the format: decoding the blocks shards send straight into the
 //! coordinator's lookup rows.
 
-use crate::reader::{Block, DecodeError, RowReader};
+use crate::{
+    ColumnKind,
+    reader::{Block, DecodeError, RowReader},
+};
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlags, RLookupRow};
 use std::{borrow::Cow, ffi::CStr, ptr::NonNull};
 
@@ -35,6 +38,8 @@ pub struct RowBlockDecoder {
     /// The keys belong to the lookup passed to [`RowBlockDecoder::begin`]. `RLookup` pins each
     /// key individually, so the pointers stay valid as the lookup grows.
     keys: Vec<Option<NonNull<RLookupKey<'static>>>>,
+    /// The active block's column kinds, in schema order.
+    kinds: Vec<ColumnKind>,
     /// The active block's undecoded rows, borrowed under [`RowBlockDecoder::begin`]'s
     /// contract. Empty when no block is active.
     rows: RawBytes,
@@ -93,6 +98,8 @@ impl RowBlockDecoder {
 
         let parsed = Block::parse(block)?;
         self.keys.clear();
+        self.kinds.clear();
+        self.kinds.extend_from_slice(parsed.kinds());
         self.keys.extend(
             parsed
                 .columns()
@@ -143,11 +150,10 @@ impl RowBlockDecoder {
     pub unsafe fn next_row(&mut self, row: &mut RLookupRow<'_>) -> Result<(), DecodeError> {
         assert!(self.has_rows(), "no row is left in the active block");
 
-        let ncols = u16::try_from(self.keys.len()).expect("a block's column count is a u16");
         // SAFETY: `rows` was carved out of the block `begin` was handed, which is still valid
         // and unmodified per (1.); the decoder only ever shrinks it from the front.
         let bytes = unsafe { std::slice::from_raw_parts(self.rows.ptr.as_ptr(), self.rows.len) };
-        let mut reader = RowReader::new(bytes, ncols);
+        let mut reader = RowReader::new(bytes, &self.kinds);
 
         let keys = &self.keys;
         let outcome = reader.read_row(|col, value| {

@@ -12,8 +12,8 @@
 
 use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
 use row_block::{
-    Block, DecodeError, MAGIC, RefusedRow, RowBlockDecoder, RowBlockWriter, Tag, TrioMember,
-    VERSION,
+    Block, ColumnKind, DecodeError, MAGIC, RefusedRow, RowBlockDecoder, RowBlockWriter, Tag,
+    TrioMember, VERSION,
 };
 use std::ffi::{CStr, CString};
 use value::{SharedValue, Value};
@@ -267,10 +267,15 @@ pub fn block(ncols: u16, rest: &[&[u8]]) -> Vec<u8> {
     bytes
 }
 
-/// One schema entry for a single-byte column name.
+/// One [`ColumnKind::Tagged`] schema entry for a single-byte column name.
 pub fn column(name: u8) -> Vec<u8> {
+    typed_column(name, ColumnKind::Tagged)
+}
+
+/// One schema entry of the given `kind` for a single-byte column name.
+pub fn typed_column(name: u8, kind: ColumnKind) -> Vec<u8> {
     let mut bytes = 1u16.to_le_bytes().to_vec();
-    bytes.extend_from_slice(&[name, 0]);
+    bytes.extend_from_slice(&[name, 0, kind.to_byte()]);
     bytes
 }
 
@@ -324,11 +329,36 @@ pub fn malformed_blocks() -> Vec<(&'static str, Vec<u8>)> {
         ("absurd column count", block(u16::MAX, &[&column(b'a')])),
         (
             "unterminated name",
-            block(1, &[&1u16.to_le_bytes()[..], b"a", b"a"]),
+            block(1, &[&1u16.to_le_bytes()[..], b"a", b"a", &[0]]),
         ),
         (
             "interior NUL in a name",
-            block(1, &[&2u16.to_le_bytes()[..], b"a\0", &[0]]),
+            block(1, &[&2u16.to_le_bytes()[..], b"a\0", &[0, 0]]),
+        ),
+        (
+            "unknown column kind",
+            block(1, &[&1u16.to_le_bytes()[..], b"a\0", &[6]]),
+        ),
+        (
+            "truncated typed value",
+            block(
+                1,
+                &[
+                    &typed_column(b'a', ColumnKind::Typed(Tag::Number)),
+                    &[0b1, 0, 0],
+                ],
+            ),
+        ),
+        (
+            "absurd typed string length",
+            block(
+                1,
+                &[
+                    &typed_column(b'a', ColumnKind::Typed(Tag::String)),
+                    &[0b1],
+                    &u32::MAX.to_le_bytes()[..],
+                ],
+            ),
         ),
         ("rows without columns", block(0, &[&[0u8][..]])),
         (

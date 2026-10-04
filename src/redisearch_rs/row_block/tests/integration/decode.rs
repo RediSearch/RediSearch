@@ -50,8 +50,22 @@ fn a_schema_name_without_its_terminator_is_rejected() {
 }
 
 #[test]
+fn an_unknown_column_kind_is_rejected() {
+    // Every value of the column would have an unknown layout, so the schema itself is
+    // unreadable rather than just the rows that use the column.
+    for kind in [6u8, 200, 255] {
+        let corrupt = block(1, &[&1u16.to_le_bytes()[..], b"a\0", &[kind]]);
+        assert_eq!(
+            Block::parse(&corrupt).err(),
+            Some(DecodeError::UnknownColumnKind { kind }),
+            "kind {kind}"
+        );
+    }
+}
+
+#[test]
 fn a_column_count_the_schema_cannot_cover_is_rejected() {
-    // Every column costs at least three bytes, so this is caught before the decoder tries to
+    // Every column costs at least four bytes, so this is caught before the decoder tries to
     // reserve room for 65535 names.
     assert_eq!(
         try_decode(&block(u16::MAX, &[&column(b'a')])),

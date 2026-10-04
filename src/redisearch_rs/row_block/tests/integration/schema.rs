@@ -10,26 +10,50 @@
 //! The header and schema: the exact bytes, which keys become columns, and the cases a caller
 //! must fall back to RESP for.
 
-use crate::harness::{columns_of, decode, encode, lookup, lookup_with_flags, row};
+use crate::harness::{bytes, columns_of, decode, encode, lookup, lookup_with_flags, row};
 use pretty_assertions::assert_eq;
 use rlookup::{RLookupKeyFlag, RLookupKeyFlags};
-use row_block::{ColumnFilter, MAGIC, RowBlockWriter, SchemaError, TrioMember};
+use row_block::{ColumnFilter, MAGIC, RowBlockWriter, SchemaError, Tag, TrioMember, VERSION};
 use value::SharedValue;
 
 #[test]
 fn header_and_schema_bytes_are_exactly_the_documented_layout() {
-    // The decoder on the other end of the internal path parses these bytes by hand, so this
-    // is the test that fails if the layout is ever changed by accident.
+    // The decoder on the other end of the internal path is a separate build in principle, so
+    // this is the test that fails if the layout is ever changed by accident.
     let lookup = lookup(&["ab", "c"]);
     let block = encode(&lookup, &[]);
 
     #[rustfmt::skip]
     let want: Vec<u8> = [
-        &MAGIC.to_le_bytes()[..],       // magic
-        &[2],                           // version
-        &2u16.to_le_bytes()[..],        // ncols
-        &2u16.to_le_bytes()[..], b"ab", &[0],  // "ab" plus its terminator
-        &1u16.to_le_bytes()[..], b"c",  &[0],  // "c" plus its terminator
+        &MAGIC.to_le_bytes()[..],                   // magic
+        &[VERSION],                                 // version
+        &2u16.to_le_bytes()[..],                    // ncols
+        &2u16.to_le_bytes()[..], b"ab", &[0], &[3], // "ab", its terminator, kind: no value yet
+        &1u16.to_le_bytes()[..], b"c",  &[0], &[3], // "c", likewise
+    ]
+    .concat();
+
+    assert_eq!(block, want);
+    assert_eq!(VERSION, 3, "a layout change must bump the version");
+}
+
+#[test]
+fn a_row_of_typed_columns_carries_bare_payloads() {
+    let lookup = lookup(&["a", "b"]);
+    let block = encode(
+        &lookup,
+        &[row(&lookup, &[("b", SharedValue::new_num(1.0))])],
+    );
+
+    #[rustfmt::skip]
+    let want: Vec<u8> = [
+        &MAGIC.to_le_bytes()[..],
+        &[VERSION],
+        &2u16.to_le_bytes()[..],
+        &1u16.to_le_bytes()[..], b"a", &[0], &[Tag::Null as u8],   // never held a value
+        &1u16.to_le_bytes()[..], b"b", &[0], &[Tag::Number as u8], // fixed by the row
+        &[0b10],                                                   // bitmap: column 1 only
+        &1.0f64.to_le_bytes()[..],                                 // no tag
     ]
     .concat();
 
@@ -37,28 +61,28 @@ fn header_and_schema_bytes_are_exactly_the_documented_layout() {
 }
 
 #[test]
-fn a_row_is_a_bitmap_followed_by_tagged_values() {
-    let lookup = lookup(&["a", "b"]);
-    let schema = encode(&lookup, &[]);
+fn a_mixed_column_carries_a_tag_per_value() {
+    let lookup = lookup(&["v"]);
     let block = encode(
         &lookup,
-        &[row(&lookup, &[("b", SharedValue::new_num(1.0))])],
+        &[
+            row(&lookup, &[("v", SharedValue::new_num(1.0))]),
+            row(&lookup, &[("v", bytes("x").to_value())]),
+        ],
     );
 
     #[rustfmt::skip]
-    let want_row: Vec<u8> = [
-        &[0b10][..],                    // presence bitmap: column 1 only
-        &[1],                           // ROW_BLOCK_TAG_NUM
-        &1.0f64.to_le_bytes()[..],
+    let want: Vec<u8> = [
+        &MAGIC.to_le_bytes()[..],
+        &[VERSION],
+        &1u16.to_le_bytes()[..],
+        &1u16.to_le_bytes()[..], b"v", &[0], &[0], // kind: tagged
+        &[0b1], &[Tag::Number as u8], &1.0f64.to_le_bytes()[..],
+        &[0b1], &[Tag::String as u8], &1u32.to_le_bytes()[..], b"x",
     ]
     .concat();
 
-    assert_eq!(
-        &block[..schema.len()],
-        &schema[..],
-        "the schema is unchanged"
-    );
-    assert_eq!(&block[schema.len()..], &want_row[..]);
+    assert_eq!(block, want);
 }
 
 #[test]

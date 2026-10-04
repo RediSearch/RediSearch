@@ -33,6 +33,13 @@ fn any_value() -> impl Strategy<Value = Decoded> {
     })
 }
 
+/// Mostly valid [`ColumnKind`] bytes, plus the first byte past them.
+///
+/// [`ColumnKind`]: row_block::ColumnKind
+fn any_kind_byte() -> impl Strategy<Value = u8> {
+    0u8..=6
+}
+
 /// Arbitrary rows over `ncols` columns: `Some` where the row holds a value.
 fn any_rows(ncols: usize) -> impl Strategy<Value = Vec<Vec<Option<Decoded>>>> {
     prop::collection::vec(
@@ -119,15 +126,20 @@ proptest! {
     /// Arbitrary bytes behind a valid header must be reported as malformed, not crash the
     /// decoder. A shard cannot be assumed to be the build the coordinator expects.
     #[test]
-    fn arbitrary_row_bytes_decode_or_error(garbage in prop::collection::vec(any::<u8>(), 0..256)) {
+    fn arbitrary_row_bytes_decode_or_error(
+        garbage in prop::collection::vec(any::<u8>(), 0..256),
+        kind in any_kind_byte(),
+    ) {
         let mut block = MAGIC.to_le_bytes().to_vec();
         block.push(VERSION);
         block.extend_from_slice(&1u16.to_le_bytes());
         block.extend_from_slice(&1u16.to_le_bytes());
         block.extend_from_slice(b"c\0");
+        block.push(kind);
         block.extend_from_slice(&garbage);
 
-        // Every row costs at least its bitmap byte, so a decoder that made no progress —
+        // Every row costs at least its bitmap byte — even one whose only value is an empty
+        // typed null — so a decoder that made no progress —
         // yielding rows forever off a fixed buffer — fails this bound rather than hanging.
         let rows = Block::parse(&block)
             .map(|parsed| parsed.rows().take_while(Result::is_ok).count())
@@ -141,28 +153,31 @@ proptest! {
     #[test]
     fn the_decoder_agrees_with_the_reader_on_arbitrary_bytes(
         tail in prop::collection::vec(any::<u8>(), 0..256),
-        ncols in 1u16..12,
+        kinds in prop::collection::vec(any_kind_byte(), 1..12),
         garbage_header in any::<bool>(),
     ) {
-        let block = if garbage_header {
-            tail
-        } else {
-            let mut block = MAGIC.to_le_bytes().to_vec();
-            block.push(VERSION);
-            block.extend_from_slice(&ncols.to_le_bytes());
-            for col in 0..ncols {
-                let name = format!("c{col}");
-                block.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
-                block.extend_from_slice(name.as_bytes());
-                block.push(0);
-            }
-            block.extend_from_slice(&tail);
-            block
-        };
-
         let mut coordinator = RLookup::new();
-        let got = decode_into(&block, &mut coordinator).map(|rows| rows.len());
-        let want = try_decode(&block).map(|rows| rows.len());
-        prop_assert_eq!(got, want);
+        if garbage_header {
+            // Column names are arbitrary here and may repeat, which folds columns together in
+            // the coordinator's lookup, so only the outcome is comparable.
+            let got = decode_into(&tail, &mut coordinator).map(|rows| rows.len());
+            let want = try_decode(&tail).map(|rows| rows.len());
+            prop_assert_eq!(got, want);
+            return Ok(());
+        }
+
+        let mut block = MAGIC.to_le_bytes().to_vec();
+        block.push(VERSION);
+        block.extend_from_slice(&u16::try_from(kinds.len()).unwrap().to_le_bytes());
+        for (col, kind) in kinds.iter().enumerate() {
+            let name = format!("c{col}");
+            block.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+            block.extend_from_slice(name.as_bytes());
+            block.push(0);
+            block.push(*kind);
+        }
+        block.extend_from_slice(&tail);
+
+        prop_assert_eq!(decode_into(&block, &mut coordinator), try_decode(&block));
     }
 }

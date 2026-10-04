@@ -9,7 +9,9 @@
 
 //! Building a block: see the [crate] docs for the byte layout it produces.
 
-use crate::{MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes};
+use crate::{
+    ColumnKind, MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get, reader::value_len,
+};
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::Value;
 
@@ -128,6 +130,28 @@ pub struct RowBlockWriter {
     ncols: u16,
     /// Set once the header and schema have been written.
     header_written: bool,
+    /// One entry per schema column, in schema order.
+    columns: Vec<Column>,
+    /// Offset of the first row in [`RowBlockWriter::buf`].
+    rows_at: usize,
+    /// The state of every column the row being appended changed, as it was before the row:
+    /// what a refused row restores, and what re-encoding the earlier rows reads them by.
+    undo: Vec<(u16, Column)>,
+    /// The previous buffer, kept for its capacity: re-encoding builds the new rows here and
+    /// then swaps the two.
+    spare: Vec<u8>,
+}
+
+/// What the writer knows about one schema column.
+#[derive(Copy, Clone, Debug)]
+struct Column {
+    /// The kind every value written to this column so far conforms to.
+    kind: ColumnKind,
+    /// Whether a value has fixed [`Column::kind`] yet. Until then it holds a placeholder,
+    /// which no row contradicts since no row holds a value for the column.
+    fixed: bool,
+    /// Offset of the column's kind byte in the schema, for backpatching.
+    kind_at: usize,
 }
 
 impl Default for RowBlockWriter {
@@ -145,6 +169,10 @@ impl RowBlockWriter {
             filter: ColumnFilter::default(),
             ncols: 0,
             header_written: false,
+            columns: Vec::new(),
+            rows_at: 0,
+            undo: Vec::new(),
+            spare: Vec::new(),
         }
     }
 
@@ -155,6 +183,9 @@ impl RowBlockWriter {
         self.filter = ColumnFilter::default();
         self.ncols = 0;
         self.header_written = false;
+        self.columns.clear();
+        self.rows_at = 0;
+        self.undo.clear();
     }
 
     /// The block built so far, ready to be sent.
@@ -192,6 +223,7 @@ impl RowBlockWriter {
                 self.filter = filter;
                 self.ncols = ncols;
                 self.header_written = true;
+                self.rows_at = self.buf.len();
                 Ok(ncols)
             }
             Err(error) => {
@@ -228,6 +260,14 @@ impl RowBlockWriter {
             // The terminator lets a decoder resolve the name by pointing straight into the
             // block; `CStr` is why the name itself cannot contain one.
             self.buf.push(0);
+
+            let column = Column {
+                kind: ColumnKind::Typed(Tag::Null),
+                fixed: false,
+                kind_at: self.buf.len(),
+            };
+            self.buf.push(column.kind.to_byte());
+            self.columns.push(column);
         }
 
         self.buf[ncols_at..ncols_at + size_of::<u16>()].copy_from_slice(&ncols.to_le_bytes());
@@ -239,7 +279,13 @@ impl RowBlockWriter {
     /// `trio` is the member a field stored as a [`Value::Trio`] resolves to; see
     /// [`TrioMember`].
     ///
-    /// On error nothing is appended for the row — see [`RefusedRow`].
+    /// The first value a column receives fixes its kind to that value's [`Tag`]. A value of
+    /// another tag in a later row turns the column [`ColumnKind::Tagged`] for the rest of the
+    /// block, which re-encodes every row written so far — a copy of the block, at most once
+    /// per column per block, and never for a chunk whose columns keep their types.
+    ///
+    /// On error nothing is appended for the row and no column kind changes — see
+    /// [`RefusedRow`].
     ///
     /// # Panics
     ///
@@ -258,9 +304,13 @@ impl RowBlockWriter {
         // The bitmap sits at the row's first byte, so this doubles as the rollback point.
         let row_at = self.buf.len();
         self.buf.resize(row_at + bitmap_bytes(self.ncols), 0);
+        self.undo.clear();
 
         match self.append_row(lookup, row, trio, row_at) {
             Ok(()) => {
+                if self.undo.iter().any(|(col, _)| self.retagged(*col)) {
+                    self.retag_rows_before(row_at);
+                }
                 self.nrows += 1;
                 Ok(())
             }
@@ -268,6 +318,10 @@ impl RowBlockWriter {
                 // Roll the half-written row back so the block ends on a row boundary and stays
                 // decodable, whether the caller emits it or throws it away.
                 self.buf.truncate(row_at);
+                for (col, before) in self.undo.drain(..) {
+                    self.columns[usize::from(col)] = before;
+                    self.buf[before.kind_at] = before.kind.to_byte();
+                }
                 Err(error)
             }
         }
@@ -290,7 +344,7 @@ impl RowBlockWriter {
             }
             if let Some(value) = row.get(key) {
                 self.buf[row_at + col as usize / 8] |= 1u8 << (col % 8);
-                self.append_field(value, trio)?;
+                self.append_field(col, value, trio)?;
             }
             col += 1;
         }
@@ -301,59 +355,144 @@ impl RowBlockWriter {
         Ok(())
     }
 
-    /// Appends one top-level row field.
-    fn append_field(&mut self, value: &Value, trio: TrioMember) -> Result<(), RefusedRow> {
+    /// Appends one top-level row field to column `col`, fixing or widening the column's kind
+    /// to fit it.
+    ///
+    /// Only this row is encoded under a widened kind here; the rows before it are re-encoded
+    /// once the row is accepted, by [`RowBlockWriter::retag_rows_before`].
+    fn append_field(
+        &mut self,
+        col: u16,
+        value: &Value,
+        trio: TrioMember,
+    ) -> Result<(), RefusedRow> {
         // The RESP row serializer applies the three-way trio choice exactly once, and only to
         // a value the row stores as a trio directly: its trio test does not follow references,
         // and everything below a field is emitted by the generic value serializer, whose own
-        // trio case takes the middle member whatever was asked for. `append_value` is the
-        // mirror of that generic path, so resolving here and recursing there is the whole of
-        // the distinction.
-        let resolved = match value {
+        // trio case takes the middle member whatever was asked for. `resolve_nested` is the
+        // mirror of that generic path, so resolving here and there is the whole of the
+        // distinction.
+        let top = match value {
             Value::Trio(members) => match trio {
                 TrioMember::Left => members.left(),
                 TrioMember::Middle => members.middle(),
                 TrioMember::Right => members.right(),
             },
-            other => return self.append_value(other, 0),
+            other => other,
         };
-        self.append_value(resolved, 0)
+        let value = resolve_nested(top);
+        let tag = tag_of(value)?;
+
+        let column = self.columns[usize::from(col)];
+        let kind = match column.kind {
+            _ if !column.fixed => ColumnKind::Typed(tag),
+            ColumnKind::Typed(typed) if typed != tag => ColumnKind::Tagged,
+            kind => kind,
+        };
+        if !column.fixed || kind != column.kind {
+            self.undo.push((col, column));
+            self.columns[usize::from(col)] = Column {
+                kind,
+                fixed: true,
+                ..column
+            };
+            self.buf[column.kind_at] = kind.to_byte();
+        }
+
+        if kind == ColumnKind::Tagged {
+            self.buf.push(tag as u8);
+        }
+        self.append_payload(value, 0)
+    }
+
+    /// Whether the row being appended turned column `col` from typed to
+    /// [`ColumnKind::Tagged`], leaving the rows before it to re-encode.
+    fn retagged(&self, col: u16) -> bool {
+        self.undo.iter().any(|(undone, before)| {
+            *undone == col
+                && before.fixed
+                && before.kind != ColumnKind::Tagged
+                && self.columns[usize::from(col)].kind == ColumnKind::Tagged
+        })
+    }
+
+    /// Re-encodes the rows before `row_at` for the columns the row at `row_at` retagged.
+    ///
+    /// A typed value is its tagged encoding minus the tag, so re-encoding is splicing each
+    /// retagged column's old tag in front of its values; everything else, the row at
+    /// `row_at` included, is copied verbatim.
+    fn retag_rows_before(&mut self, row_at: usize) {
+        // The kinds the earlier rows were written under: what each column was before this row
+        // changed it, and the current kind of every column the row left alone.
+        let mut before: Vec<ColumnKind> = self.columns.iter().map(|column| column.kind).collect();
+        for (col, column) in &self.undo {
+            before[usize::from(*col)] = column.kind;
+        }
+        let splice: Vec<Option<Tag>> = (0..self.ncols)
+            .map(|col| match before[usize::from(col)] {
+                ColumnKind::Typed(tag) if self.retagged(col) => Some(tag),
+                _ => None,
+            })
+            .collect();
+
+        let mut out = std::mem::take(&mut self.spare);
+        out.clear();
+        out.reserve(self.buf.len() + self.nrows * splice.iter().flatten().count());
+        out.extend_from_slice(&self.buf[..self.rows_at]);
+
+        let bitmap_len = bitmap_bytes(self.ncols);
+        let mut at = self.rows_at;
+        while at < row_at {
+            let bitmap = &self.buf[at..at + bitmap_len];
+            out.extend_from_slice(bitmap);
+            at += bitmap_len;
+            for col in (0..self.ncols).filter(|col| bitmap_get(bitmap, *col)) {
+                let len = value_len(&self.buf[at..row_at], before[usize::from(col)])
+                    .expect("the writer only appends rows it can read back");
+                if let Some(tag) = splice[usize::from(col)] {
+                    out.push(tag as u8);
+                }
+                out.extend_from_slice(&self.buf[at..at + len]);
+                at += len;
+            }
+        }
+
+        out.extend_from_slice(&self.buf[row_at..]);
+        self.spare = std::mem::replace(&mut self.buf, out);
     }
 
     /// Appends one tagged value nested `depth` levels below a row field.
     fn append_value(&mut self, value: &Value, depth: u32) -> Result<(), RefusedRow> {
+        let value = resolve_nested(value);
+        self.buf.push(tag_of(value)? as u8);
+        self.append_payload(value, depth)
+    }
+
+    /// Appends the payload of an already resolved value nested `depth` levels below a row
+    /// field, without its tag.
+    fn append_payload(&mut self, value: &Value, depth: u32) -> Result<(), RefusedRow> {
         if depth > MAX_NESTING_DEPTH {
             return Err(RefusedRow::TooDeeplyNested);
         }
 
-        match resolve_nested(value) {
-            Value::Number(number) => {
-                self.buf.push(Tag::Number as u8);
-                self.buf.extend_from_slice(&number.to_le_bytes());
-            }
+        match value {
+            Value::Number(number) => self.buf.extend_from_slice(&number.to_le_bytes()),
             Value::String(string) => self.append_string(string.as_bytes())?,
             Value::RedisString(string) => self.append_string(string.as_bytes())?,
             Value::Array(array) => {
-                self.buf.push(Tag::Array as u8);
                 self.append_count(array.len())?;
                 for item in array.iter() {
                     self.append_value(item, depth + 1)?;
                 }
             }
             Value::Map(map) => {
-                self.buf.push(Tag::Map as u8);
                 self.append_count(map.len())?;
                 for (key, value) in map.iter() {
                     self.append_value(key, depth + 1)?;
                     self.append_value(value, depth + 1)?;
                 }
             }
-            // `Undefined` is what the RESP path replies as null too, and carries nothing to
-            // lose.
-            Value::Null | Value::Undefined => self.buf.push(Tag::Null as u8),
-            // Deliberately no catch-all arm, so that a variant added to `Value` is a compile
-            // error here instead of quietly taking a lossy path. These two are resolved away
-            // by `resolve_nested`, which is where a new indirecting variant belongs.
+            Value::Null | Value::Undefined => {}
             Value::Ref(_) | Value::Trio(_) => return Err(RefusedRow::UnresolvedIndirection),
         }
         Ok(())
@@ -361,7 +500,6 @@ impl RowBlockWriter {
 
     /// Appends a [`Tag::String`] payload.
     fn append_string(&mut self, bytes: &[u8]) -> Result<(), RefusedRow> {
-        self.buf.push(Tag::String as u8);
         self.append_count(bytes.len())?;
         self.buf.extend_from_slice(bytes);
         Ok(())
@@ -373,6 +511,22 @@ impl RowBlockWriter {
         self.buf.extend_from_slice(&count.to_le_bytes());
         Ok(())
     }
+}
+
+/// The tag an already resolved value is written with.
+const fn tag_of(value: &Value) -> Result<Tag, RefusedRow> {
+    Ok(match value {
+        Value::Number(_) => Tag::Number,
+        Value::String(_) | Value::RedisString(_) => Tag::String,
+        // `Undefined` is what the RESP path replies as null too, and carries nothing to lose.
+        Value::Null | Value::Undefined => Tag::Null,
+        Value::Array(_) => Tag::Array,
+        Value::Map(_) => Tag::Map,
+        // Deliberately no catch-all arm, so that a variant added to `Value` is a compile
+        // error here instead of quietly taking a lossy path. These two are resolved away by
+        // `resolve_nested`, which is where a new indirecting variant belongs.
+        Value::Ref(_) | Value::Trio(_) => return Err(RefusedRow::UnresolvedIndirection),
+    })
 }
 
 /// Follows the indirection a nested value carries, the way the generic RESP value serializer

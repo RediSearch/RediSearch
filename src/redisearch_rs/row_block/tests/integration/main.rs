@@ -21,6 +21,7 @@ mod bitmap;
 mod decode;
 mod decoder;
 mod harness;
+mod kinds;
 mod properties;
 mod refusal;
 mod schema;

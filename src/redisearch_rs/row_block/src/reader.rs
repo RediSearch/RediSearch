@@ -14,7 +14,7 @@
 //! just wrote as ordinary RESP rows. The input is untrusted in both: a block is bytes, and
 //! there is no cheap way to prove the bytes came from this build.
 
-use crate::{MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get};
+use crate::{ColumnKind, MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get};
 use std::ffi::CStr;
 use value::SharedValue;
 
@@ -52,6 +52,14 @@ pub enum DecodeError {
         tag: u8,
     },
 
+    /// A schema kind byte no [`ColumnKind`] uses. Every value of the column would have an
+    /// unknown layout, so no row can be read.
+    #[error("column declares kind {kind}, which no version of this format writes")]
+    UnknownColumnKind {
+        /// The unrecognised kind byte.
+        kind: u8,
+    },
+
     /// A length or count field larger than the bytes left in the block could satisfy. Caught
     /// before it is used to size an allocation.
     #[error("length field of {count} exceeds what the rest of the block can hold")]
@@ -74,6 +82,7 @@ pub enum DecodeError {
 #[derive(Debug)]
 pub struct Block<'a> {
     names: Vec<&'a CStr>,
+    kinds: Vec<ColumnKind>,
     rows: &'a [u8],
 }
 
@@ -105,19 +114,23 @@ impl<'a> Block<'a> {
         }
         let ncols = cursor.take_u16()?;
 
-        // Every column costs a length field and a terminator at the very least, so a count
-        // the rest of the block cannot cover is corrupt — reject it before sizing `names`.
-        const MIN_BYTES_PER_COLUMN: usize = size_of::<u16>() + 1;
+        // Every column costs a length field, a terminator and a kind at the very least, so a
+        // count the rest of the block cannot cover is corrupt — reject it before sizing
+        // `names`.
+        const MIN_BYTES_PER_COLUMN: usize = size_of::<u16>() + 2;
         if usize::from(ncols) * MIN_BYTES_PER_COLUMN > cursor.bytes.len() {
             return Err(DecodeError::Truncated);
         }
 
         let mut names = Vec::with_capacity(usize::from(ncols));
+        let mut kinds = Vec::with_capacity(usize::from(ncols));
         for _ in 0..ncols {
             let name_len = usize::from(cursor.take_u16()?);
             let stored = cursor.take(name_len + 1)?;
             let name = CStr::from_bytes_with_nul(stored).map_err(|_| DecodeError::MalformedName)?;
             names.push(name);
+            let kind = cursor.take_u8()?;
+            kinds.push(ColumnKind::from_byte(kind).ok_or(DecodeError::UnknownColumnKind { kind })?);
         }
 
         if ncols == 0 && !cursor.bytes.is_empty() {
@@ -126,6 +139,7 @@ impl<'a> Block<'a> {
 
         Ok(Self {
             names,
+            kinds,
             rows: cursor.bytes,
         })
     }
@@ -135,6 +149,11 @@ impl<'a> Block<'a> {
         &self.names
     }
 
+    /// The block's column kinds, in schema order.
+    pub fn kinds(&self) -> &[ColumnKind] {
+        &self.kinds
+    }
+
     /// The bytes following the schema, for a [`RowReader`].
     pub const fn row_bytes(&self) -> &'a [u8] {
         self.rows
@@ -142,10 +161,9 @@ impl<'a> Block<'a> {
 
     /// Decodes the block's rows, stopping at the first malformed one.
     pub fn rows(&self) -> Rows<'a, '_> {
-        let ncols = u16::try_from(self.names.len()).expect("a block's column count is a u16");
         Rows {
             block: self,
-            reader: RowReader::new(self.rows, ncols),
+            reader: RowReader::new(self.rows, &self.kinds),
         }
     }
 }
@@ -157,7 +175,7 @@ impl<'a> Block<'a> {
 #[derive(Debug)]
 pub struct Rows<'a, 'block> {
     block: &'block Block<'a>,
-    reader: RowReader<'a>,
+    reader: RowReader<'a, 'block>,
 }
 
 impl<'a> Iterator for Rows<'a, '_> {
@@ -187,19 +205,27 @@ impl std::iter::FusedIterator for Rows<'_, '_> {}
 ///
 /// Fuses on the first error, for the reason given on [`Rows`].
 #[derive(Debug)]
-pub struct RowReader<'a> {
+pub struct RowReader<'a, 'k> {
     cursor: Cursor<'a>,
-    ncols: u16,
+    kinds: &'k [ColumnKind],
     failed: bool,
 }
 
-impl<'a> RowReader<'a> {
-    /// A reader over `rows`, the bytes following the schema of a block declaring `ncols`
-    /// columns.
-    pub const fn new(rows: &'a [u8], ncols: u16) -> Self {
+impl<'a, 'k> RowReader<'a, 'k> {
+    /// A reader over `rows`, the bytes following the schema of a block whose columns have the
+    /// given `kinds`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are more `kinds` than a block can declare columns.
+    pub fn new(rows: &'a [u8], kinds: &'k [ColumnKind]) -> Self {
+        assert!(
+            u16::try_from(kinds.len()).is_ok(),
+            "a block's column count is a u16"
+        );
         Self {
             cursor: Cursor { bytes: rows },
-            ncols,
+            kinds,
             failed: false,
         }
     }
@@ -237,10 +263,15 @@ impl<'a> RowReader<'a> {
         &mut self,
         sink: &mut impl FnMut(u16, SharedValue),
     ) -> Result<(), DecodeError> {
-        let bitmap = self.cursor.take(bitmap_bytes(self.ncols))?;
-        for col in 0..self.ncols {
+        let ncols = self.kinds.len() as u16;
+        let bitmap = self.cursor.take(bitmap_bytes(ncols))?;
+        for (col, kind) in (0..ncols).zip(self.kinds) {
             if bitmap_get(bitmap, col) {
-                sink(col, decode_value(&mut self.cursor, 0)?);
+                let value = match kind {
+                    ColumnKind::Tagged => decode_value(&mut self.cursor, 0)?,
+                    ColumnKind::Typed(tag) => decode_payload(&mut self.cursor, *tag, 0)?,
+                };
+                sink(col, value);
             }
         }
         Ok(())
@@ -249,12 +280,20 @@ impl<'a> RowReader<'a> {
 
 /// Decodes one tagged value nested `depth` levels below a row field.
 fn decode_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<SharedValue, DecodeError> {
+    let tag = cursor.take_tag()?;
+    decode_payload(cursor, tag, depth)
+}
+
+/// Decodes the payload of a value whose `tag` is already known, nested `depth` levels below
+/// a row field.
+fn decode_payload(
+    cursor: &mut Cursor<'_>,
+    tag: Tag,
+    depth: u32,
+) -> Result<SharedValue, DecodeError> {
     if depth > MAX_NESTING_DEPTH {
         return Err(DecodeError::TooDeeplyNested);
     }
-
-    let byte = cursor.take_u8()?;
-    let tag = Tag::from_byte(byte).ok_or(DecodeError::UnknownTag { tag: byte })?;
 
     Ok(match tag {
         Tag::Number => SharedValue::new_num(cursor.take_f64()?),
@@ -284,7 +323,54 @@ fn decode_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<SharedValue, Deco
     })
 }
 
-/// The fewest bytes an encoded value can occupy: a bare [`Tag::Null`] is its tag alone.
+/// The length of the value of `kind` at the start of `bytes`, without decoding it.
+///
+/// For the writer, which re-encodes rows it already wrote when a column's kind changes.
+pub(crate) fn value_len(bytes: &[u8], kind: ColumnKind) -> Result<usize, DecodeError> {
+    let mut cursor = Cursor { bytes };
+    match kind {
+        ColumnKind::Tagged => skip_value(&mut cursor, 0)?,
+        ColumnKind::Typed(tag) => skip_payload(&mut cursor, tag, 0)?,
+    }
+    Ok(bytes.len() - cursor.bytes.len())
+}
+
+/// Steps over one tagged value; the skipping counterpart of [`decode_value`].
+fn skip_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<(), DecodeError> {
+    let tag = cursor.take_tag()?;
+    skip_payload(cursor, tag, depth)
+}
+
+/// Steps over one payload; the skipping counterpart of [`decode_payload`].
+fn skip_payload(cursor: &mut Cursor<'_>, tag: Tag, depth: u32) -> Result<(), DecodeError> {
+    if depth > MAX_NESTING_DEPTH {
+        return Err(DecodeError::TooDeeplyNested);
+    }
+    match tag {
+        Tag::Number => {
+            cursor.take_f64()?;
+        }
+        Tag::String => {
+            let len = cursor.take_count(1)?;
+            cursor.take(len)?;
+        }
+        Tag::Null => {}
+        Tag::Array => {
+            for _ in 0..cursor.take_count(MIN_BYTES_PER_VALUE)? {
+                skip_value(cursor, depth + 1)?;
+            }
+        }
+        Tag::Map => {
+            for _ in 0..cursor.take_count(2 * MIN_BYTES_PER_VALUE)? {
+                skip_value(cursor, depth + 1)?;
+                skip_value(cursor, depth + 1)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The fewest bytes a tagged value can occupy: a bare [`Tag::Null`] is its tag alone.
 const MIN_BYTES_PER_VALUE: usize = 1;
 
 /// Little-endian read head over a block's bytes.
@@ -324,6 +410,12 @@ impl<'a> Cursor<'a> {
 
     fn take_f64(&mut self) -> Result<f64, DecodeError> {
         Ok(f64::from_le_bytes(self.take_array()?))
+    }
+
+    /// Consumes a value's tag byte.
+    fn take_tag(&mut self) -> Result<Tag, DecodeError> {
+        let byte = self.take_u8()?;
+        Tag::from_byte(byte).ok_or(DecodeError::UnknownTag { tag: byte })
     }
 
     /// Consumes one of the layout's `u32` length fields, rejecting a count the remaining bytes
