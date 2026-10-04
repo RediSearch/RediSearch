@@ -118,6 +118,7 @@ jobs:
         run: sed -i "s/^$PATCH_LINE_PREFIX [0-9]\+$/$PATCH_LINE_PREFIX $NEXT_PATCH/" src/version.h
 
       - name: Commit and push
+        id: push
         env:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           SENDER_ID: ${{ github.event.sender.id }}
@@ -125,18 +126,34 @@ jobs:
         run: |
           git config --global user.name "$TRIGGERING_ACTOR"
           git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
+          # A re-run of the release (e.g. to promote snapshots that were missing the first time)
+          # finds the bump from the earlier run already in place; carry on instead of failing.
+          if git diff --quiet -- src/version.h; then
+            echo "::notice title=Version already bumped::src/version.h on $RELEASE_BRANCH already declares $NEXT_VERSION"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+            echo "::notice title=Bump branch exists::$BRANCH was pushed by an earlier run; reusing it"
+            exit 0
+          fi
           git checkout -b "$BRANCH"
           git add src/version.h
           git commit -m "Bump version from $CUR_VERSION to $NEXT_VERSION"
           git push origin "$BRANCH"
 
       - name: Create Pull Request
+        if: steps.push.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TEAM_LEADERS: ${{ vars.TEAM_LEADERS }}
           ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
+          if [ -n "$(gh pr list --head "$BRANCH" --base "$RELEASE_BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo "::notice title=Bump PR exists::A pull request for $BRANCH is already open"
+            exit 0
+          fi
           # Omit GITHUB_ACTOR from reviewers if it is a bot account
           REVIEWERS="$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE"
           if [[ "$GITHUB_ACTOR" != *"[bot]" ]]; then
@@ -160,6 +177,7 @@ jobs:
             --draft
 
       - name: Generate GitHub App token
+        if: steps.push.outputs.skip != 'true'
         id: generate-app-token
         uses: actions/create-github-app-token@v3
         with:
@@ -171,6 +189,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Trigger CI
+        if: steps.push.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
@@ -201,7 +220,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Get boto3
-        run: pip install boto3
+        run: pip install --upgrade boto3
       - name: Set Version Artifacts
         env:
           SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
@@ -211,6 +230,7 @@ jobs:
         shell: python
         run: |
           import boto3
+          import hashlib
           import os
           import json
           import re
@@ -312,22 +332,38 @@ jobs:
           group_print("Included Files", include_list)
           group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
 
+          def same_content(src, dst):
+              # ETags match for a plain copy of a single-part upload; fall back to hashing the
+              # bodies because under SSE-KMS identical objects can still carry different ETags.
+              if client.head_object(Bucket=bucket, Key=src)["ETag"] == client.head_object(Bucket=bucket, Key=dst)["ETag"]:
+                  return True
+              def digest(key):
+                  return hashlib.sha256(client.get_object(Bucket=bucket, Key=key)["Body"].read()).hexdigest()
+              return digest(src) == digest(dst)
+
           # IfNoneMatch="*" makes the copy a conditional write: S3 rejects it with PreconditionFailed
           # if an object already exists at dst, instead of silently overwriting a published artifact.
+          # A re-run (e.g. once the remaining snapshots have landed) skips artifacts that are already
+          # published with identical content, so it only fills in the missing ones.
+          copied, skipped = [], []
           for src, dst in zip(include_list, dest_files):
               try:
                   client.copy_object(
                       Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src},
                       ACL="public-read", IfNoneMatch="*",
                   )
+                  copied.append(dst)
               except ClientError as e:
-                  if e.response["Error"]["Code"] == "PreconditionFailed":
+                  if e.response["Error"]["Code"] != "PreconditionFailed":
+                      raise
+                  if not same_content(src, dst):
                       raise Exception(
                           f"::error title=Release artifact already exists::Refusing to overwrite s3://{bucket}/{dst}"
                       )
-                  raise
+                  skipped.append(dst)
 
-          group_print("New Files", dest_files)
+          group_print("New Files", copied)
+          group_print("Already Published (identical, skipped)", skipped)
 
           if len(exclude_list) > 0:
               print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
