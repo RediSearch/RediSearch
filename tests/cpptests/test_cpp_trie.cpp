@@ -1327,7 +1327,7 @@ static void expectRdbInterop(Trie *original, bool payloads, bool numDocs,
   });
   ASSERT_TRUE(ioRust != nullptr);
 
-  LexTrieRs_RdbSave(ioRust, rustMap, payloads, numDocs);
+  ASSERT_TRUE(LexTrieRs_RdbSave(ioRust, rustMap, payloads, numDocs));
   EXPECT_EQ(0, RMCK_IsIOError(ioRust));
   EXPECT_EQ(ioC->buffer, ioRust->buffer);
 
@@ -1427,7 +1427,7 @@ TEST_F(TrieTest, testCRustRdbInteropEmpty) {
   });
   ASSERT_TRUE(ioRust != nullptr);
 
-  LexTrieRs_RdbSave(ioRust, rustMap, /*save_payloads=*/true, /*save_num_docs=*/true);
+  ASSERT_TRUE(LexTrieRs_RdbSave(ioRust, rustMap, /*save_payloads=*/true, /*save_num_docs=*/true));
   EXPECT_EQ(0, RMCK_IsIOError(ioRust));
   EXPECT_EQ(ioC->buffer, ioRust->buffer);
 
@@ -1456,4 +1456,119 @@ TEST_F(TrieTest, testCRustRdbInteropKeysOnly) {
       {"日本", 4.0f},
   });
   expectRdbInterop(original.get(), /*payloads=*/false, /*numDocs=*/false);
+}
+
+// The tests below hand-author RDB streams through the mock's save
+// primitives rather than through `TrieType_GenericSave`, because each one
+// carries something the C serializer cannot emit: a key that is not valid
+// UTF-8, a truncated record, or a key the C loader would refuse to insert.
+TEST_F(TrieTest, testRustRdbLoadRejectsNonUtf8Key) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveStringBuffer(io, "\xff\xfe", 3);  // two stray high bytes plus the terminator
+  RMCK_SaveDouble(io, 1.0);
+
+  io->read_pos = 0;
+  LexTrieRs *rustMap = LexTrieRs_RdbLoad(io, /*load_payloads=*/false, /*load_num_docs=*/false);
+
+  EXPECT_EQ(nullptr, rustMap);
+}
+
+TEST_F(TrieTest, testRustRdbLoadRejectsTruncatedStream) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Header promises two entries; only the first one is present.
+  RMCK_SaveUnsigned(io, 2);
+  RMCK_SaveStringBuffer(io, "a", 2);
+  RMCK_SaveDouble(io, 1.0);
+
+  io->read_pos = 0;
+  LexTrieRs *rustMap = LexTrieRs_RdbLoad(io, /*load_payloads=*/false, /*load_num_docs=*/false);
+
+  EXPECT_EQ(nullptr, rustMap);
+}
+
+TEST_F(TrieTest, testRustRdbSaveRejectsKeyTheCLoaderWouldDrop) {
+  // Longer than `TRIE_INITIAL_STRING_LEN * sizeof(rune)`, so
+  // `Trie_InsertStringBuffer` refuses it.
+  const std::string longKey(600, 'a');
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveStringBuffer(io, longKey.c_str(), longKey.size() + 1);
+  RMCK_SaveDouble(io, 1.0);
+
+  // What such a stream costs C: the entry is dropped, but the count that
+  // announced it is not, so the trie loads one entry short of its own header.
+  io->read_pos = 0;
+  Trie *cTrie =
+      (Trie *)TrieType_GenericLoad(io, /*loadPayloads=*/false, /*loadNumDocs=*/false, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> cTriePtr(cTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(cTrie != nullptr);
+  EXPECT_EQ(0, Trie_Size(cTrie));
+
+  // Rust loads the same stream — the domain is enforced on save, not on load.
+  io->read_pos = 0;
+  LexTrieRs *rustMap = LexTrieRs_RdbLoad(io, /*load_payloads=*/false, /*load_num_docs=*/false);
+  std::unique_ptr<LexTrieRs, std::function<void(LexTrieRs *)>> rustMapPtr(rustMap, [](LexTrieRs *m) {
+    LexTrieRs_Free(m);
+  });
+  ASSERT_TRUE(rustMap != nullptr);
+
+  RedisModuleIO *ioRust = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioRustPtr(ioRust, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioRust != nullptr);
+
+  EXPECT_FALSE(LexTrieRs_RdbSave(ioRust, rustMap, /*save_payloads=*/false, /*save_num_docs=*/false));
+  EXPECT_EQ(0u, ioRust->buffer.size());
+}
+
+TEST_F(TrieTest, testRdbZeroCodepointKeyDropsInCButRejectsInRust) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // No NUL byte in the key, yet C's decoder reads a zero codepoint out of the
+  // continuation pair and stops before consuming a single rune.
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveStringBuffer(io, "\x80\x80", 3);
+  RMCK_SaveDouble(io, 1.0);
+
+  // C drops the entry silently: the trie loads empty while its own header
+  // announced one entry.
+  io->read_pos = 0;
+  Trie *cTrie =
+      (Trie *)TrieType_GenericLoad(io, /*loadPayloads=*/false, /*loadNumDocs=*/false, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> cTriePtr(cTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(cTrie != nullptr);
+  EXPECT_EQ(0, Trie_Size(cTrie));
+
+  // Rust refuses the whole stream instead: the pair is not valid UTF-8, so
+  // the key never enters the str-keyed trie.
+  io->read_pos = 0;
+  LexTrieRs *rustMap = LexTrieRs_RdbLoad(io, /*load_payloads=*/false, /*load_num_docs=*/false);
+
+  EXPECT_EQ(nullptr, rustMap);
 }
