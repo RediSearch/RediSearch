@@ -167,7 +167,7 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
       }
       continue;
     }
-    QueryError* err = &hreq->requests[i]->base.reply.err;
+    QueryError *err = &hreq->requests[i]->base.reply.err;
     warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
   }
 
@@ -639,11 +639,11 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  * @param cv Cached variables for result processing
  */
 void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
-    if (hreq->base.execution) {
-      OwnedHybridChunk work = {.request = hreq, .cv = cv, .limit = limit};
-      PipelineExecution_RunNext(hreq->base.execution, executeOwnedHybridChunk, &work);
-      return;
-    }
+  if (hreq->base.execution) {
+    OwnedHybridChunk work = {.request = hreq, .cv = cv, .limit = limit};
+    PipelineExecution_RunNext(hreq->base.execution, executeOwnedHybridChunk, &work);
+    return;
+  }
     SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
@@ -694,7 +694,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     published = snapshotHybridInputPublication(hreq);
     fatalError = HybridRequest_GetPublishedFatalError(hreq, published);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError, published);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError,
+                                    published);
     rm_free(published);
 
 done_err:
@@ -716,7 +717,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 }
 
 void serializePublishedResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-                                     const bool *published) {
+                                      const bool *published) {
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   ResultProcessor *rp = qctx->endProc;
   ChunkReplyState *stored = &hreq->base.reply;
@@ -746,12 +747,14 @@ typedef struct {
   RedisModuleCtx *ctx;
   HybridRequest *request;
   bool recoverInputs;
+  bool published;
 } OwnedHybridTimeoutReply;
 
 static void excludeHybridTail(PipelineAccess *access, void *data) {
   OwnedHybridTimeoutReply *work = data;
   QueryProcessingCtx *qctx = PipelineAccess_Context(access);
   if (!qctx) return;
+  work->published = true;
   HybridRequest *hreq = work->request;
   work->recoverInputs =
       hreq->base.reply.rc != RS_RESULT_EOF && hreq->base.reply.rc != RS_RESULT_ERROR;
@@ -765,12 +768,7 @@ static void drainAndReplyOwnedHybrid(PipelineAccess *access, void *data) {
   OwnedHybridTimeoutReply *work = data;
   HybridRequest *hreq = work->request;
   QueryProcessingCtx *qctx = PipelineAccess_Context(access);
-  if (!qctx) {
-    common_hybrid_query_reply_empty(work->ctx, QUERY_ERROR_CODE_TIMED_OUT, false, IsProfile(hreq));
-    TotalGlobalStats_CountQuery(HREQ_RequestFlags(hreq),
-                                rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock));
-    return;
-  }
+  RS_ASSERT(qctx);
   ChunkReplyState *stored = &hreq->base.reply;
   if (stored->rc != RS_RESULT_EOF && stored->rc != RS_RESULT_ERROR) {
     stored->rc = RS_RESULT_TIMEDOUT;
@@ -793,11 +791,12 @@ static void drainAndReplyOwnedHybrid(PipelineAccess *access, void *data) {
   rm_free(published);
 }
 
-void HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq) {
+bool HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq) {
   OwnedHybridTimeoutReply work = {.ctx = ctx, .request = hreq};
   // Timeout denies every future tail admission. Once its current segment ends,
   // producer recovery cannot race the consumer even between these gate scopes.
   PipelineExecution_RunDrain(hreq->base.execution, excludeHybridTail, &work);
+  if (!work.published) return false;
   if (work.recoverInputs) {
     for (size_t i = 0; i < hreq->nrequests; ++i) {
       AREQ *input = hreq->requests[i];
@@ -808,6 +807,7 @@ void HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq) {
     }
   }
   PipelineExecution_RunDrain(hreq->base.execution, drainAndReplyOwnedHybrid, &work);
+  return true;
 }
 
 void HREQ_EnableProducerOwnership(HybridRequest *hreq) {
@@ -1236,7 +1236,11 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
   if (hreq->base.execution) {
-    HREQ_ReplyOwnedTimeout(ctx, hreq);
+    if (!HREQ_ReplyOwnedTimeout(ctx, hreq)) {
+      common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false, IsProfile(hreq));
+      TotalGlobalStats_CountQuery(HREQ_RequestFlags(hreq),
+                                  rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock));
+    }
     return REDISMODULE_OK;
   }
 
