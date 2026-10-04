@@ -12,6 +12,7 @@
 
 #include "value_ffi.h"
 #include "document.h"
+#include "byte_offsets_ffi.h"
 #include "rlookup_ffi.h"
 #include "forward_index.h"
 #include "numeric_range_tree.h"
@@ -464,10 +465,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   if (FieldSpec_IsIndexable(fs)) {
     ForwardIndexTokenizerCtx tokCtx;
     ByteOffsetWriter *curOffsetWriter = NULL;
-    RSByteOffsetField *curOffsetField = NULL;
+    uint32_t firstTokPos = aCtx->totalTokens + 1;
     uint32_t offsetsBefore = 0;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
       offsetsBefore = ByteOffsetWriter_Count(&aCtx->offsetsWriter);
       // A multi-value field's byte offsets are relative to each value's own string, and its
       // positions can have gaps (see multiTextOffsetDelta below) RSByteOffsetIterator cannot
@@ -519,10 +519,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
         }
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
-
-      if (curOffsetWriter) {
-        curOffsetField->lastTokPos = lastTokPos;
-      }
       aCtx->totalTokens = lastTokPos;
       Token_Destroy(&tok);
 
@@ -530,9 +526,13 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
-    // Enforce the RSByteOffsetField offset-range contract.
-    RS_ASSERT(!curOffsetField || ByteOffsetWriter_Count(&aCtx->offsetsWriter) - offsetsBefore ==
-                                     curOffsetField->lastTokPos - curOffsetField->firstTokPos + 1);
+
+    if (aCtx->byteOffsets) {
+      uint32_t numOffsets = ByteOffsetWriter_Count(&aCtx->offsetsWriter) - offsetsBefore;
+      // The offsets of a field that stores them cover its positions one to one.
+      RS_ASSERT(numOffsets == (curOffsetWriter ? aCtx->totalTokens - firstTokPos + 1 : 0));
+      RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, firstTokPos, numOffsets);
+    }
   }
 
   return 0;

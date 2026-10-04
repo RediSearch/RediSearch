@@ -16,6 +16,10 @@ types = "skip"
 # `const`-ness (the auto-generated typedef drops the `const` qualifier).
 types = "skip"
 
+[package.byte_offsets]
+# Avoid a name conflict with the pre-existing `byte_offsets.h` header file.
+header_name = "byte_offsets_rs"
+
 [package.document]
 # Avoid a name conflict with the pre-existing `document.h` header file.
 header_name = "document_rs"
@@ -52,6 +56,10 @@ typedef uint64_t t_fieldMask;
 #define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
 #endif
 """
+
+[header.byte_offsets_ffi]
+# `RSByteOffsetIterator` is only passed by pointer, but C allocates it on its stack.
+includes = ["byte_offsets_rs.h"]
 
 [header.field]
 

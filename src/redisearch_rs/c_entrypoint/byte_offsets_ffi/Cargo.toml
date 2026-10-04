@@ -1,0 +1,21 @@
+[package]
+name = "byte_offsets_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# The tests live under `tests/`; a no-op lib test or bench binary can cause
+# linking issues with C.
+test = false
+bench = false
+
+[dependencies]
+byte_offsets.workspace = true
+cheadergen.workspace = true
+varint.workspace = true
+workspace_hack.workspace = true
+
+[lints]
+workspace = true

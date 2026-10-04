@@ -13,7 +13,6 @@
 #include "redismodule.h"
 #include "redisearch.h"
 #include "sorting_vector.h"
-#include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
@@ -118,7 +117,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
 /* Set the offset vector for a document. This contains the byte offsets of each token found in
  * the document. This is used for highlighting
  */
-void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
+void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, struct RSByteOffsets *offsets);
 
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, FieldExpirations allFieldSorted);
 

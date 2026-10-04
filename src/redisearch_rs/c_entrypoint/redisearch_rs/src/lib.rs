@@ -17,6 +17,7 @@
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
+pub use byte_offsets_ffi as byte_offsets;
 pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;
 pub use geo_ffi as geo;

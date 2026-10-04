@@ -1,0 +1,16 @@
+[package]
+name = "byte_offsets"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+c_ffi_utils.workspace = true
+cheadergen.workspace = true
+thiserror.workspace = true
+varint.workspace = true
+workspace_hack.workspace = true
+
+[lints]
+workspace = true

@@ -16,7 +16,7 @@
 #include "value_ffi.h"
 #include "util/minmax.h"
 #include "toksep.h"
-#include "byte_offsets.h"
+#include "byte_offsets_ffi.h"
 #include "field_spec.h"
 #include "iterators/iterator_api.h"
 #include "language.h"
@@ -78,7 +78,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter = {NULL};
   RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
+  if (!RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter)) {
     goto done;
   }
 

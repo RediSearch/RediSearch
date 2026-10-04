@@ -12,11 +12,11 @@
 #include <string.h>
 
 #include "redismodule.h"
+#include "byte_offsets_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
-#include "buffer.h"
 #include "rules.h"
 
 struct timespec;
@@ -545,9 +545,7 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     if (dmd->flags & Document_HasOffsetVector) {
       size_t nTmp = 0;
       char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
-      Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
-      dmd->byteOffsets = LoadByteOffsets(bufTmp);
-      rm_free(bufTmp);
+      dmd->byteOffsets = RSByteOffsets_LoadLegacy(tmp, nTmp);
       RedisModule_Free(tmp);
       if (!dmd->byteOffsets) {
         RedisModule_LogIOError(rdb, "warning",

@@ -177,6 +177,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "byte_offsets"
+version = "0.0.1"
+dependencies = [
+ "c_ffi_utils",
+ "cheadergen",
+ "thiserror",
+ "varint",
+ "workspace_hack",
+]
+
+[[package]]
+name = "byte_offsets_ffi"
+version = "0.0.1"
+dependencies = [
+ "byte_offsets",
+ "cheadergen",
+ "varint",
+ "workspace_hack",
+]
+
+[[package]]
 name = "bytecount"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2199,6 +2220,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "build_utils",
+ "byte_offsets_ffi",
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
@@ -2569,6 +2591,7 @@ name = "rqe_wildcard"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "byte_offsets_ffi",
  "criterion",
  "ffi",
  "fnv_ffi",

@@ -473,23 +473,23 @@ void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIt
                                       RSOffsetIterator *offIter) {
   iter->offsetIter = offIter;
   iter->byteIter = byteOffsets;
-  iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+  iter->curByteToken = RSByteOffsetIterator_Next(iter->byteIter);
 
   // Advance the offset iterator to the first offset we care about (i.e. that
   // correlates with the first byte offset)
   do {
     iter->curTokPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
-  } while (iter->byteIter->curPos > iter->curTokPos);
+  } while (iter->curByteToken.position > iter->curTokPos);
 }
 
 int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo) {
-  if (iter->curMatchRec == NULL || iter->curByteOffset == RSBYTEOFFSET_EOF ||
+  if (iter->curMatchRec == NULL || iter->curByteToken.byte_offset == RSBYTEOFFSET_EOF ||
       iter->curTokPos == RS_OFFSETVECTOR_EOF) {
     return 0;
   }
 
-  if (iter->byteIter->curPos < iter->curTokPos) {
-    iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+  if (iter->curByteToken.position < iter->curTokPos) {
+    iter->curByteToken = RSByteOffsetIterator_Next(iter->byteIter);
     // No matching term at this position.
     *termInfo = NULL;
     return 1;
@@ -501,12 +501,12 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   iter->tmpTerm.termId = QueryTerm_GetID(term);
   iter->tmpTerm.len = QueryTerm_GetLen(term);
   iter->tmpTerm.tokPos = iter->curTokPos;
-  iter->tmpTerm.bytePos = iter->curByteOffset;
+  iter->tmpTerm.bytePos = iter->curByteToken.byte_offset;
   *termInfo = &iter->tmpTerm;
 
   uint32_t nextPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
   if (nextPos != iter->curTokPos) {
-    iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+    iter->curByteToken = RSByteOffsetIterator_Next(iter->byteIter);
   }
   iter->curTokPos = nextPos;
   return 1;

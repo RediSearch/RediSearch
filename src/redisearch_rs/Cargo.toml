@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "build_utils",
+    "byte_offsets",
     "c_entrypoint/*",
     "c_wrappers/*",
     "document",
@@ -115,6 +116,7 @@ publish = false
 [workspace.dependencies]
 buffer = { path = "./c_wrappers/buffer" }
 build_utils = { path = "./build_utils" }
+byte_offsets = { path = "./byte_offsets" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
