@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Round trips for every value tag, and for the values the encoder maps onto one.
+//! Values the encoder maps onto another tag or resolves before writing, and the limits on
+//! what it writes. Plain round trips of every tag are the property tests' job.
 
-use crate::harness::{Decoded, bytes, decode, encode, lookup, row};
+use crate::harness::{Decoded, decode, encode, lookup, row};
 use pretty_assertions::assert_eq;
 use row_block::{MAX_NESTING_DEPTH, RefusedRow, RowBlockWriter, TrioMember};
 use value::{SharedValue, Value};
@@ -23,56 +24,6 @@ fn round_trip(value: SharedValue) -> Decoded {
     let mut fields = rows.pop().expect("one row");
     assert_eq!(fields.len(), 1);
     fields.pop().expect("one field").1
-}
-
-#[test]
-fn numbers_survive_by_bit_pattern() {
-    // An integral value must not come back as a string, a fractional one must not be
-    // rounded, and the payload is a raw `f64` so the oddities have to survive too.
-    for number in [
-        0.0,
-        -0.0,
-        1.0,
-        -1.0,
-        42.0,
-        0.5,
-        -1.0 / 3.0,
-        f64::MIN,
-        f64::MAX,
-        f64::MIN_POSITIVE,
-        f64::EPSILON,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NAN,
-        9_007_199_254_740_993.0,
-    ] {
-        assert_eq!(
-            round_trip(SharedValue::new_num(number)),
-            Decoded::Number(number),
-            "{number} did not survive the round trip"
-        );
-    }
-}
-
-#[test]
-fn strings_are_carried_as_opaque_bytes() {
-    // The format gives a string an explicit length and no encoding, so an embedded NUL and
-    // invalid UTF-8 must come back untouched — a decoder that used `strlen` or validated
-    // UTF-8 would truncate or reject these.
-    for input in [
-        b"".to_vec(),
-        b"plain".to_vec(),
-        b"with\0embedded\0nuls".to_vec(),
-        vec![0xff, 0xfe, 0x80, 0x00, 0x41],
-        vec![b'x'; 100_000],
-    ] {
-        assert_eq!(
-            round_trip(SharedValue::new_string(input.clone())),
-            Decoded::Bytes(input.clone()),
-            "a {} byte string did not survive the round trip",
-            input.len()
-        );
-    }
 }
 
 #[test]
@@ -90,35 +41,6 @@ fn references_resolve_to_their_target() {
     let inner = SharedValue::new_num(7.0);
     let reference = SharedValue::new(Value::Ref(SharedValue::new(Value::Ref(inner))));
     assert_eq!(round_trip(reference), Decoded::Number(7.0));
-}
-
-#[test]
-fn nested_arrays_and_maps_round_trip() {
-    let nested = Decoded::Map(vec![
-        (
-            bytes("nums"),
-            Decoded::Array(vec![Decoded::Number(1.0), Decoded::Null]),
-        ),
-        (
-            bytes("inner"),
-            Decoded::Array(vec![Decoded::Map(vec![(bytes("k"), bytes("v"))])]),
-        ),
-        // A non-string map key is representable: keys are tagged values like any other.
-        (Decoded::Number(3.0), Decoded::Array(vec![])),
-    ]);
-    assert_eq!(round_trip(nested.to_value()), nested);
-}
-
-#[test]
-fn empty_collections_round_trip() {
-    assert_eq!(
-        round_trip(Decoded::Array(vec![]).to_value()),
-        Decoded::Array(vec![])
-    );
-    assert_eq!(
-        round_trip(Decoded::Map(vec![]).to_value()),
-        Decoded::Map(vec![])
-    );
 }
 
 #[test]

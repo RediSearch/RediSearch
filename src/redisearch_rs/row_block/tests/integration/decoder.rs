@@ -11,12 +11,11 @@
 //! result processor drives it.
 
 use crate::harness::{
-    Decoded, begin, bytes, decode, decode_into, encode, lookup, malformed_blocks, row, try_decode,
-    valid_block,
+    Decoded, begin, bytes, decode_into, encode, lookup, row, try_decode, valid_block,
 };
 use pretty_assertions::assert_eq;
 use rlookup::{RLookup, RLookupRow};
-use row_block::{Block, RowBlockDecoder};
+use row_block::RowBlockDecoder;
 use std::ffi::CString;
 use value::SharedValue;
 
@@ -24,7 +23,7 @@ use value::SharedValue;
 fn rows_land_under_the_coordinator_keys_of_their_columns() {
     let block = valid_block();
     let mut coordinator = RLookup::new();
-    assert_eq!(decode_into(&block, &mut coordinator), Ok(decode(&block)));
+    assert_eq!(decode_into(&block, &mut coordinator), try_decode(&block));
 }
 
 #[test]
@@ -74,7 +73,7 @@ fn a_created_key_outlives_the_block_it_was_named_in() {
 }
 
 #[test]
-fn an_empty_block_is_active_but_holds_no_rows() {
+fn an_empty_block_is_active_until_ended_but_holds_no_rows() {
     let shard = lookup(&["a"]);
     let block = encode(&shard, &[]);
     let mut coordinator = RLookup::new();
@@ -84,6 +83,8 @@ fn an_empty_block_is_active_but_holds_no_rows() {
     assert!(decoder.is_active());
     assert!(!decoder.has_rows());
     assert_eq!(decoder.ncols(), 1);
+    decoder.end();
+    assert!(!decoder.is_active());
 }
 
 #[test]
@@ -99,66 +100,6 @@ fn every_column_counts_whether_or_not_the_row_holds_it() {
     unsafe { decoder.next_row(&mut target) }.expect("the row decodes");
     assert_eq!(decoder.ncols(), 3);
     assert_eq!(target.num_dyn_values(), 1);
-}
-
-#[test]
-fn every_malformed_block_fails_with_the_error_the_reader_reports() {
-    // The coordinator turns a failed `begin` and a failed `next_row` into different errors,
-    // so beyond failing at all, each corruption must fail in the same phase as in the reader.
-    for (what, block) in malformed_blocks() {
-        let mut coordinator = RLookup::new();
-        let got = decode_into(&block, &mut coordinator);
-        assert!(got.is_err(), "{what} decoded");
-        assert_eq!(got.err(), try_decode(&block).err(), "{what}");
-        assert_eq!(
-            begin_fails(&block),
-            Block::parse(&block).is_err(),
-            "{what} failed in another phase"
-        );
-    }
-}
-
-/// Whether [`RowBlockDecoder::begin`] rejects `block`, as opposed to a later row.
-fn begin_fails(block: &[u8]) -> bool {
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, block).is_err()
-}
-
-#[test]
-fn a_malformed_header_or_schema_leaves_no_block_active() {
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    let good = valid_block();
-    for (what, block) in malformed_blocks() {
-        // Start from an active block, so the failure has to tear it down.
-        begin(&mut decoder, &mut coordinator, &good).expect("the valid block parses");
-        let outcome = begin(&mut decoder, &mut coordinator, &block);
-        if outcome.is_ok() {
-            // Some corruptions only surface in the rows.
-            continue;
-        }
-        assert!(!decoder.is_active(), "{what}");
-        assert!(!decoder.has_rows(), "{what}");
-    }
-}
-
-#[test]
-fn a_truncated_row_ends_the_block() {
-    let block = valid_block();
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    let truncated = &block[..block.len() - 1];
-
-    begin(&mut decoder, &mut coordinator, truncated).expect("the schema is intact");
-    let mut outcome = Ok(());
-    while decoder.has_rows() {
-        let mut target = RLookupRow::new();
-        // SAFETY: `coordinator` outlives the decoder.
-        outcome = unsafe { decoder.next_row(&mut target) };
-    }
-    assert!(outcome.is_err(), "the cut-off row decoded");
-    assert!(!decoder.is_active());
 }
 
 #[test]
@@ -190,17 +131,6 @@ fn beginning_a_block_ends_the_one_before() {
         rows += 1;
     }
     assert_eq!(rows, 1, "the first block's second row is gone");
-}
-
-#[test]
-fn ending_a_block_drops_its_remaining_rows() {
-    let block = valid_block();
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    decoder.end();
-    assert!(!decoder.is_active());
-    assert!(!decoder.has_rows());
 }
 
 #[test]

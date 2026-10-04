@@ -23,72 +23,77 @@ fn string_block(rows: usize, len: usize) -> Vec<u8> {
     let rows: Vec<_> = (0..rows)
         .map(|i| {
             let text = format!("{i:0len$}");
-            row(
-                &shard,
-                &[
-                    ("s", bytes(&text).to_value()),
-                    ("n", SharedValue::new_num(i as f64)),
-                ],
-            )
+            let fields = [
+                ("s", bytes(&text).to_value()),
+                ("n", SharedValue::new_num(i as f64)),
+            ];
+            row(&shard, &fields)
         })
         .collect();
     encode(&shard, &rows)
 }
 
-/// Decodes every row of the active block, keeping the rows.
-fn read_all(decoder: &mut RowBlockDecoder) -> Vec<RLookupRow<'static>> {
-    let mut rows = Vec::new();
+/// Makes `block` `decoder`'s active block and decodes all of it, returning each row's values
+/// in schema order. The rows themselves are dropped, as a streaming pipeline drops them.
+fn decode_values(decoder: &mut RowBlockDecoder, block: &[u8]) -> Vec<Vec<SharedValue>> {
+    let mut coordinator = RLookup::new();
+    begin(decoder, &mut coordinator, block).expect("the block parses");
+    let mut values = Vec::new();
     while decoder.has_rows() {
         let mut row = RLookupRow::new();
-        // SAFETY: every caller's coordinator lookup outlives its decoder.
+        // SAFETY: `coordinator` outlives every `next_row` call.
         unsafe { decoder.next_row(&mut row) }.expect("the row decodes");
-        rows.push(row);
-    }
-    rows
-}
-
-/// The values `rows` hold, in the coordinator lookup's key order.
-fn values(lookup: &RLookup<'_>, rows: &[RLookupRow<'_>]) -> Vec<Vec<SharedValue>> {
-    rows.iter()
-        .map(|row| {
-            lookup
+        values.push(
+            coordinator
                 .iter()
                 .filter_map(|key| row.get(key).cloned())
-                .collect()
-        })
-        .collect()
+                .collect(),
+        );
+    }
+    values
 }
 
-/// Whether `value` is a string borrowed from its block.
 const fn is_shared(value: &Value) -> bool {
     matches!(value, Value::String(string) if string.is_shared())
 }
 
 #[test]
-fn decoded_strings_borrow_from_the_block() {
-    let block = string_block(3, 4);
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    assert!(decoder.shares_strings());
+fn decoded_strings_borrow_from_the_block_at_any_depth() {
+    let shard = lookup(&["s", "v"]);
+    let nested = Decoded::Map(vec![(
+        bytes("key"),
+        Decoded::Array(vec![bytes("a"), Decoded::Number(1.0)]),
+    )]);
+    let fields = [("s", bytes("top").to_value()), ("v", nested.to_value())];
+    let block = encode(&shard, &[row(&shard, &fields)]);
 
-    let rows = read_all(&mut decoder);
-    for (i, row) in values(&coordinator, &rows).iter().enumerate() {
-        assert!(is_shared(&row[0]), "row {i}'s string was copied");
-        assert_eq!(Decoded::from_value(&row[0]), bytes(&format!("{i:04}")));
-        assert_eq!(Decoded::from_value(&row[1]), Decoded::Number(i as f64));
-    }
+    let mut decoder = RowBlockDecoder::new();
+    let row = decode_values(&mut decoder, &block).remove(0);
+    assert!(decoder.shares_strings());
+    assert!(is_shared(&row[0]));
+    assert_eq!(Decoded::from_value(&row[0]), bytes("top"));
+    assert_eq!(Decoded::from_value(&row[1]), nested);
+
+    let Value::Map(map) = &*row[1] else {
+        panic!("a map decodes as a map");
+    };
+    let (key, inner) = map.iter().next().expect("one entry");
+    let Value::Array(items) = &**inner else {
+        panic!("an array decodes as an array");
+    };
+    assert!(is_shared(key) && is_shared(&items[0]));
 }
 
 #[test]
-fn a_string_keeps_its_block_alive_until_it_is_dropped() {
-    let block = string_block(2, 8);
-    let mut coordinator = RLookup::new();
+fn the_block_lives_until_the_decoder_and_its_last_string_let_go() {
+    let block = string_block(2, 16);
     let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    let rows = read_all(&mut decoder);
-    let kept = values(&coordinator, &rows)[1][0].clone();
-    drop(rows);
+    let kept = decode_values(&mut decoder, &block).remove(1).remove(0);
+    assert_eq!(
+        decoder.live_bytes(),
+        block.len(),
+        "the active block is held"
+    );
 
     decoder.end();
     assert_eq!(
@@ -96,72 +101,14 @@ fn a_string_keeps_its_block_alive_until_it_is_dropped() {
         block.len(),
         "one string pins the block"
     );
-    assert_eq!(Decoded::from_value(&kept), bytes("00000001"));
 
-    drop(kept);
-    assert_eq!(decoder.live_bytes(), 0, "the last string frees the block");
-}
-
-#[test]
-fn a_block_whose_strings_are_all_gone_is_freed_when_it_ends() {
-    let block = string_block(2, 8);
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    drop(read_all(&mut decoder));
-    assert_eq!(
-        decoder.live_bytes(),
-        block.len(),
-        "the active block is held"
-    );
-    decoder.end();
-    assert_eq!(decoder.live_bytes(), 0);
-}
-
-#[test]
-fn strings_nested_in_collections_borrow_too() {
-    let shard = lookup(&["v"]);
-    let value = Decoded::Map(vec![(
-        bytes("key"),
-        Decoded::Array(vec![bytes("a"), Decoded::Number(1.0), bytes("bc")]),
-    )]);
-    let block = encode(&shard, &[row(&shard, &[("v", value.to_value())])]);
-
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    let rows = read_all(&mut decoder);
-    let decoded = values(&coordinator, &rows)[0][0].clone();
-    assert_eq!(Decoded::from_value(&decoded), value);
-
-    let Value::Map(map) = &*decoded else {
-        panic!("a map decodes as a map");
-    };
-    let (key, inner) = map.iter().next().expect("one entry");
-    assert!(is_shared(key));
-    let Value::Array(items) = &**inner else {
-        panic!("an array decodes as an array");
-    };
-    assert!(is_shared(&items[0]) && is_shared(&items[2]));
-}
-
-#[test]
-fn a_string_dropped_on_another_thread_frees_its_block() {
-    let block = string_block(1, 16);
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    let rows = read_all(&mut decoder);
-    let kept = values(&coordinator, &rows)[0][0].clone();
-    drop(rows);
-    decoder.end();
-
+    // The last reference may go on any thread.
     std::thread::spawn(move || {
-        assert_eq!(Decoded::from_value(&kept), bytes(&format!("{:016}", 0)));
+        assert_eq!(Decoded::from_value(&kept), bytes(&format!("{:016}", 1)))
     })
     .join()
     .expect("the thread succeeds");
-    assert_eq!(decoder.live_bytes(), 0);
+    assert_eq!(decoder.live_bytes(), 0, "the last string frees the block");
 }
 
 #[test]
@@ -169,22 +116,16 @@ fn a_string_dropped_on_another_thread_frees_its_block() {
 fn a_string_too_far_into_its_block_is_copied() {
     // Its offset would not fit the room a shared string has for it.
     let shard = lookup(&["s"]);
+    let far = bytes(&"x".repeat(MAX_SHARED_OFFSET));
     let block = encode(
         &shard,
         &[
-            row(
-                &shard,
-                &[("s", bytes(&"x".repeat(MAX_SHARED_OFFSET)).to_value())],
-            ),
+            row(&shard, &[("s", far.to_value())]),
             row(&shard, &[("s", bytes("far").to_value())]),
         ],
     );
 
-    let mut coordinator = RLookup::new();
-    let mut decoder = RowBlockDecoder::new();
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-    let rows = read_all(&mut decoder);
-    let decoded = values(&coordinator, &rows);
+    let decoded = decode_values(&mut RowBlockDecoder::new(), &block);
     assert!(is_shared(&decoded[0][0]));
     assert!(!is_shared(&decoded[1][0]));
     assert_eq!(Decoded::from_value(&decoded[1][0]), bytes("far"));
@@ -196,21 +137,15 @@ fn past_the_pinning_budget_strings_are_copied_until_blocks_are_released() {
     // that passes the budget the decoder stops sharing, so the retained memory stays bounded
     // by the budget plus one block instead of growing with the stream.
     let block = string_block(64, 1024);
-    let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
 
     let mut kept = Vec::new();
     let mut copied_blocks = 0;
-    let blocks = MAX_PINNED_BYTES / block.len() + 4;
-    for _ in 0..blocks {
-        begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
-        let sharing = decoder.shares_strings();
-        let rows = read_all(&mut decoder);
-        let string = values(&coordinator, &rows)[0][0].clone();
-        assert_eq!(is_shared(&string), sharing);
-        copied_blocks += usize::from(!sharing);
+    for _ in 0..MAX_PINNED_BYTES / block.len() + 4 {
+        let string = decode_values(&mut decoder, &block).remove(0).remove(0);
+        assert_eq!(is_shared(&string), decoder.shares_strings());
+        copied_blocks += usize::from(!decoder.shares_strings());
         kept.push(string);
-        drop(rows);
         decoder.end();
         assert!(decoder.live_bytes() <= MAX_PINNED_BYTES + block.len());
     }
@@ -218,7 +153,7 @@ fn past_the_pinning_budget_strings_are_copied_until_blocks_are_released() {
 
     kept.clear();
     assert_eq!(decoder.live_bytes(), 0);
-    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
+    decode_values(&mut decoder, &block);
     assert!(
         decoder.shares_strings(),
         "sharing resumes once blocks are released"

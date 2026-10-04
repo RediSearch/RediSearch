@@ -10,7 +10,7 @@
 //! The header and schema: the exact bytes, which keys become columns, and the cases a caller
 //! must fall back to RESP for.
 
-use crate::harness::{bytes, columns_of, decode, encode, lookup, lookup_with_flags, row};
+use crate::harness::{Decoded, bytes, columns_of, decode, encode, lookup, lookup_with_flags, row};
 use pretty_assertions::assert_eq;
 use rlookup::{RLookupKeyFlag, RLookupKeyFlags};
 use row_block::{ColumnFilter, MAGIC, RowBlockWriter, SchemaError, Tag, TrioMember, VERSION};
@@ -237,4 +237,36 @@ fn reset_discards_the_block_and_lets_a_new_schema_be_written() {
         columns_of(writer.as_bytes()),
         vec!["x".to_owned(), "y".to_owned()]
     );
+}
+
+#[test]
+fn presence_bits_cross_bitmap_bytes() {
+    // Seventeen columns take three bitmap bytes, the last holding a single bit: the one an
+    // off-by-one in the byte count would drop.
+    let names: Vec<String> = (0..17).map(|i| format!("c{i}")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let lookup = lookup(&refs);
+    let presence: [&dyn Fn(usize) -> bool; 4] =
+        [&|_| true, &|_| false, &|i| i == 16, &|i| i % 2 == 1];
+
+    let rows: Vec<_> = presence
+        .iter()
+        .map(|present| {
+            let fields: Vec<_> = (0..17)
+                .filter(|i| present(*i))
+                .map(|i| (refs[i], SharedValue::new_num(i as f64)))
+                .collect();
+            row(&lookup, &fields)
+        })
+        .collect();
+    let want: Vec<Vec<_>> = presence
+        .iter()
+        .map(|present| {
+            (0..17)
+                .filter(|i| present(*i))
+                .map(|i| (names[i].clone(), Decoded::Number(i as f64)))
+                .collect()
+        })
+        .collect();
+    assert_eq!(decode(&encode(&lookup, &rows)), want);
 }

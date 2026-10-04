@@ -12,7 +12,7 @@
 
 use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
 use row_block::{
-    Block, ColumnKind, DecodeError, MAGIC, RefusedRow, RowBlockDecoder, RowBlockWriter, Tag,
+    Block, ColumnKind, DecodeError, MAGIC, MAX_NESTING_DEPTH, RowBlockDecoder, RowBlockWriter, Tag,
     TrioMember, VERSION,
 };
 use std::{
@@ -88,20 +88,6 @@ pub fn encode_with_trio(
     writer.as_bytes().to_vec()
 }
 
-/// Encodes one row and reports whether the writer accepted it, along with the resulting block.
-pub fn try_encode_one(
-    lookup: &RLookup<'_>,
-    row: &RLookupRow<'_>,
-    trio: TrioMember,
-) -> (Result<(), RefusedRow>, Vec<u8>, usize) {
-    let mut writer = RowBlockWriter::new();
-    writer
-        .write_schema(lookup, Default::default())
-        .expect("the schema is encodable");
-    let outcome = writer.write_row(lookup, row, trio);
-    (outcome, writer.as_bytes().to_vec(), writer.nrows())
-}
-
 /// A decoded value, in a form tests can build, print and compare.
 #[derive(Debug, Clone)]
 pub enum Decoded {
@@ -169,12 +155,10 @@ impl Decoded {
     }
 }
 
-/// Shorthand for a string value in an expectation.
 pub fn bytes(s: &str) -> Decoded {
     Decoded::Bytes(s.as_bytes().to_vec())
 }
 
-/// The block's column names, in schema order.
 pub fn columns_of(block: &[u8]) -> Vec<String> {
     Block::parse(block)
         .expect("the block parses")
@@ -184,12 +168,15 @@ pub fn columns_of(block: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// Every row of the block as name / value pairs, in schema order.
+/// Every row of the block as name / value pairs, in schema order, decoded the way the
+/// coordinator decodes it.
 pub fn decode(block: &[u8]) -> Vec<Vec<(String, Decoded)>> {
-    try_decode(block).expect("the block decodes")
+    // A fresh lookup creates the columns' keys in schema order, which is the order
+    // `decode_into` reads them back in.
+    decode_into(block, &mut RLookup::new()).expect("the block decodes")
 }
 
-/// Like [`decode`], but surfacing the error a malformed block produces.
+/// The rows the reader the replay path uses yields, or the first error it reports.
 pub fn try_decode(block: &[u8]) -> Result<Vec<Vec<(String, Decoded)>>, DecodeError> {
     let block = Block::parse(block)?;
     block
@@ -225,11 +212,8 @@ fn field_of((name, value): &(&CStr, SharedValue)) -> (String, Decoded) {
     )
 }
 
-/// Decodes `block` through the coordinator's [`RowBlockDecoder`] into rows of `lookup`, and
-/// reads every row back as name / value pairs in `lookup`'s key order.
-///
-/// Fails with the first error either [`RowBlockDecoder::begin`] or
-/// [`RowBlockDecoder::next_row`] reports.
+/// Decodes `block` through [`RowBlockDecoder`] into rows of `lookup`, read back as name /
+/// value pairs in `lookup`'s key order.
 pub fn decode_into(
     block: &[u8],
     lookup: &mut RLookup<'_>,
@@ -304,12 +288,10 @@ pub fn block(ncols: u16, rest: &[&[u8]]) -> Vec<u8> {
     bytes
 }
 
-/// One [`ColumnKind::Tagged`] schema entry for a single-byte column name.
-pub fn column(name: u8) -> Vec<u8> {
-    typed_column(name, ColumnKind::Tagged)
-}
+/// A [`ColumnKind::Tagged`] schema entry for a column named `a`.
+pub const TAGGED_COLUMN: [u8; 5] = [1, 0, b'a', 0, 0];
 
-/// One schema entry of the given `kind` for a single-byte column name.
+/// A schema entry of the given `kind` for a single-byte column name.
 pub fn typed_column(name: u8, kind: ColumnKind) -> Vec<u8> {
     let mut bytes = 1u16.to_le_bytes().to_vec();
     bytes.extend_from_slice(&[name, 0, kind.to_byte()]);
@@ -342,14 +324,38 @@ pub fn valid_block() -> Vec<u8> {
     )
 }
 
-/// One block for every way the format can be malformed, each labelled for assertion messages.
-pub fn malformed_blocks() -> Vec<(&'static str, Vec<u8>)> {
+/// Where a malformed block is caught: by [`Block::parse`] / [`RowBlockDecoder::begin`], or by
+/// the row that holds the corruption. The coordinator reports the two differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Schema,
+    Row,
+}
+
+/// A malformed block and the error the reader must report for it.
+pub struct Malformed {
+    pub what: &'static str,
+    pub block: Vec<u8>,
+    pub error: DecodeError,
+    pub phase: Phase,
+}
+
+/// One block for every way the format can be malformed.
+pub fn malformed_blocks() -> Vec<Malformed> {
+    use DecodeError::*;
+    use Phase::*;
+
     let valid = valid_block();
     let mut bad_magic = valid.clone();
     bad_magic[0] ^= 0xff;
+    let magic = u32::from_le_bytes(bad_magic[..4].try_into().unwrap());
+    // Not read as best-effort: another version may have reused a tag, so guessing at the
+    // payloads would produce wrong values rather than an error.
     let mut bad_version = valid.clone();
     bad_version[4] = VERSION.wrapping_add(1);
 
+    // One array tag plus a count of 1 buys a level of recursion, so a few kilobytes of block
+    // would otherwise recurse deep enough to overflow the stack.
     let mut nested = vec![0b1u8];
     for _ in 0..10_000 {
         nested.push(Tag::Array as u8);
@@ -357,98 +363,158 @@ pub fn malformed_blocks() -> Vec<(&'static str, Vec<u8>)> {
     }
     nested.push(Tag::Null as u8);
 
+    let tagged = |rest: &[&[u8]]| {
+        let mut parts: Vec<&[u8]> = vec![&TAGGED_COLUMN, &[0b1]];
+        parts.extend_from_slice(rest);
+        block(1, &parts)
+    };
+    let typed = |tag: Tag, rest: &[&[u8]]| {
+        let column = typed_column(b'a', ColumnKind::Typed(tag));
+        let mut parts: Vec<&[u8]> = vec![&column, &[0b1]];
+        parts.extend_from_slice(rest);
+        block(1, &parts)
+    };
+    let case = |what, block, error, phase| Malformed {
+        what,
+        block,
+        error,
+        phase,
+    };
+
     vec![
-        ("bad magic", bad_magic),
-        ("bad version", bad_version),
-        ("truncated header", valid[..6].to_vec()),
-        ("truncated schema", valid[..10].to_vec()),
-        ("truncated value", valid[..valid.len() - 1].to_vec()),
-        ("absurd column count", block(u16::MAX, &[&column(b'a')])),
-        (
+        case("bad magic", bad_magic, BadMagic { magic }, Schema),
+        case(
+            "bad version",
+            bad_version,
+            UnsupportedVersion {
+                version: VERSION.wrapping_add(1),
+            },
+            Schema,
+        ),
+        case("truncated header", valid[..6].to_vec(), Truncated, Schema),
+        case("truncated schema", valid[..10].to_vec(), Truncated, Schema),
+        // Every column costs at least four bytes, so this is caught before the decoder tries
+        // to reserve room for 65535 names.
+        case(
+            "absurd column count",
+            block(u16::MAX, &[&TAGGED_COLUMN]),
+            Truncated,
+            Schema,
+        ),
+        case(
             "unterminated name",
-            block(1, &[&1u16.to_le_bytes()[..], b"a", b"a", &[0]]),
+            block(1, &[&1u16.to_le_bytes(), b"a", b"a", &[0]]),
+            MalformedName,
+            Schema,
         ),
-        (
+        // An interior NUL would make the name the decoder hands on shorter than its declared
+        // length, so the two sides would disagree about which column this is.
+        case(
             "interior NUL in a name",
-            block(1, &[&2u16.to_le_bytes()[..], b"a\0", &[0, 0]]),
+            block(1, &[&2u16.to_le_bytes(), b"a\0", &[0, 0]]),
+            MalformedName,
+            Schema,
         ),
-        (
+        case(
             "unknown column kind",
-            block(1, &[&1u16.to_le_bytes()[..], b"a\0", &[6]]),
+            block(1, &[&1u16.to_le_bytes(), b"a\0", &[6]]),
+            UnknownColumnKind { kind: 6 },
+            Schema,
         ),
-        (
-            "truncated typed value",
-            block(
-                1,
-                &[
-                    &typed_column(b'a', ColumnKind::Typed(Tag::Number)),
-                    &[0b1, 0, 0],
-                ],
-            ),
+        // Such rows would be zero bytes long, so no reader could tell one from a thousand.
+        case(
+            "rows without columns",
+            block(0, &[&[0]]),
+            RowsWithoutColumns,
+            Schema,
         ),
-        (
-            "absurd typed string length",
-            block(
-                1,
-                &[
-                    &typed_column(b'a', ColumnKind::Typed(Tag::String)),
-                    &[0b1],
-                    &u32::MAX.to_le_bytes()[..],
-                ],
-            ),
+        case(
+            "truncated value",
+            valid[..valid.len() - 1].to_vec(),
+            Truncated,
+            Row,
         ),
-        ("rows without columns", block(0, &[&[0u8][..]])),
-        (
+        case(
             "truncated bitmap",
-            block(9, &[&column(b'a').repeat(9), &[0xff]]),
+            block(9, &[&TAGGED_COLUMN.repeat(9), &[0xff]]),
+            Truncated,
+            Row,
         ),
-        ("unknown tag", block(1, &[&column(b'a'), &[0b1, 200]])),
-        (
+        case(
+            "truncated typed value",
+            typed(Tag::Number, &[&[0, 0]]),
+            Truncated,
+            Row,
+        ),
+        // A tag's payload length is unknown, so the cursor cannot step over it.
+        case(
+            "unknown tag",
+            tagged(&[&[200]]),
+            UnknownTag { tag: 200 },
+            Row,
+        ),
+        case(
+            "the tagged kind byte as a tag",
+            tagged(&[&[0]]),
+            UnknownTag { tag: 0 },
+            Row,
+        ),
+        // Without the count checks these would be handed to `Vec::with_capacity`, turning
+        // four corrupt bytes into a multi-gigabyte allocation.
+        case(
             "absurd array count",
-            block(
-                1,
-                &[
-                    &column(b'a'),
-                    &[0b1, Tag::Array as u8],
-                    &u32::MAX.to_le_bytes()[..],
-                ],
-            ),
+            tagged(&[&[Tag::Array as u8], &u32::MAX.to_le_bytes()]),
+            ImplausibleCount { count: u32::MAX },
+            Row,
         ),
-        (
+        case(
             "absurd map count",
-            block(
-                1,
-                &[
-                    &column(b'a'),
-                    &[0b1, Tag::Map as u8],
-                    &u32::MAX.to_le_bytes()[..],
-                ],
-            ),
+            tagged(&[&[Tag::Map as u8], &u32::MAX.to_le_bytes()]),
+            ImplausibleCount { count: u32::MAX },
+            Row,
         ),
-        (
+        // A map entry is a key *and* a value, so it costs two bytes at the very least; a count
+        // checked against one byte per entry would run off the end.
+        case(
+            "map count only half backed",
+            tagged(&[
+                &[Tag::Map as u8],
+                &2u32.to_le_bytes(),
+                &[Tag::Null as u8; 3],
+            ]),
+            ImplausibleCount { count: 2 },
+            Row,
+        ),
+        case(
             "absurd string length",
-            block(
-                1,
-                &[
-                    &column(b'a'),
-                    &[0b1, Tag::String as u8],
-                    &1_000_000u32.to_le_bytes()[..],
-                    b"short",
-                ],
-            ),
+            tagged(&[&[Tag::String as u8], &1_000_000u32.to_le_bytes(), b"short"]),
+            ImplausibleCount { count: 1_000_000 },
+            Row,
         ),
-        ("nesting too deep", block(1, &[&column(b'a'), &nested])),
-        (
+        case(
+            "absurd typed string length",
+            typed(Tag::String, &[&u32::MAX.to_le_bytes()]),
+            ImplausibleCount { count: u32::MAX },
+            Row,
+        ),
+        case(
             "unterminated string",
-            block(
-                1,
-                &[
-                    &typed_column(b'a', ColumnKind::Typed(Tag::String)),
-                    &[0b1],
-                    &1u32.to_le_bytes()[..],
-                    b"xy",
-                ],
-            ),
+            typed(Tag::String, &[&1u32.to_le_bytes(), b"xy"]),
+            UnterminatedString,
+            Row,
+        ),
+        case(
+            "nesting too deep",
+            block(1, &[&TAGGED_COLUMN, &nested]),
+            TooDeeplyNested,
+            Row,
         ),
     ]
+}
+
+/// A value nesting one level deeper than the format carries.
+pub fn too_deep() -> SharedValue {
+    (0..=MAX_NESTING_DEPTH).fold(SharedValue::new_num(1.0), |inner, _| {
+        SharedValue::new_array(vec![inner])
+    })
 }

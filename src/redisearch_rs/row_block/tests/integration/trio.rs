@@ -27,7 +27,6 @@ const LEFT: f64 = 1.0;
 const MIDDLE: f64 = 2.0;
 const RIGHT: f64 = 3.0;
 
-/// A trio of [`LEFT`], [`MIDDLE`] and [`RIGHT`].
 fn trio() -> SharedValue {
     SharedValue::new_trio(
         SharedValue::new_num(LEFT),
@@ -36,7 +35,6 @@ fn trio() -> SharedValue {
     )
 }
 
-/// Encodes `value` as the only field of the only row, and decodes it back.
 fn field(value: SharedValue, trio: TrioMember) -> Decoded {
     let lookup = lookup(&["v"]);
     let block = encode_with_trio(&lookup, &[row(&lookup, &[("v", value)])], trio);
@@ -60,58 +58,42 @@ fn a_top_level_trio_takes_the_member_the_caller_chose() {
 }
 
 #[test]
-fn a_trio_inside_an_array_always_takes_its_middle_member() {
-    // This is the case `FORMAT EXPAND` gets wrong if the three-way choice is applied at every
-    // depth: `REDUCE TOLIST` over a JSON multi-value field puts trios inside an array, and
-    // shipping the right member there would disagree with what RESP sends for the same row.
-    for choice in [TrioMember::Left, TrioMember::Middle, TrioMember::Right] {
-        let array = SharedValue::new_array(vec![trio()]);
-        assert_eq!(
-            field(array, choice),
-            Decoded::Array(vec![Decoded::Number(MIDDLE)]),
-            "{choice:?}"
-        );
+fn a_trio_anywhere_but_directly_in_a_field_takes_its_middle_member() {
+    let middle = Decoded::Number(MIDDLE);
+    let empty = || SharedValue::new_array(vec![]);
+    let cases = [
+        // The case `FORMAT EXPAND` gets wrong if the three-way choice is applied at every
+        // depth: `REDUCE TOLIST` over a JSON multi-value field puts trios inside an array.
+        (
+            "in an array",
+            SharedValue::new_array(vec![trio()]),
+            Decoded::Array(vec![middle.clone()]),
+        ),
+        (
+            "in a map",
+            SharedValue::new_map(vec![(trio(), trio())]),
+            Decoded::Map(vec![(middle.clone(), middle.clone())]),
+        ),
+        // The choice happens exactly once; the chosen member is then serialized like any
+        // other nested value, so this is the chosen member's own middle.
+        (
+            "reached through a trio",
+            SharedValue::new_trio(trio(), empty(), trio()),
+            middle.clone(),
+        ),
+        // The RESP path's trio test does not follow references, so a referenced trio never
+        // reaches the choice at all: the generic serializer dereferences it.
+        (
+            "behind a reference",
+            SharedValue::new(Value::Ref(trio())),
+            middle.clone(),
+        ),
+    ];
+    for (what, value, want) in cases {
+        for choice in [TrioMember::Left, TrioMember::Right] {
+            assert_eq!(field(value.clone(), choice), want, "{what}, {choice:?}");
+        }
     }
-}
-
-#[test]
-fn a_trio_inside_a_map_always_takes_its_middle_member() {
-    for choice in [TrioMember::Left, TrioMember::Right] {
-        let map = SharedValue::new_map(vec![(trio(), trio())]);
-        assert_eq!(
-            field(map, choice),
-            Decoded::Map(vec![(Decoded::Number(MIDDLE), Decoded::Number(MIDDLE))]),
-            "{choice:?}"
-        );
-    }
-}
-
-#[test]
-fn a_trio_reached_through_a_top_level_trio_takes_its_middle_member() {
-    // The three-way choice happens exactly once. The chosen member is then serialized like
-    // any other nested value, so a trio found there takes its middle.
-    let nested = SharedValue::new_trio(
-        SharedValue::new_array(vec![]),
-        SharedValue::new_array(vec![]),
-        trio(),
-    );
-    assert_eq!(
-        field(nested, TrioMember::Right),
-        Decoded::Number(MIDDLE),
-        "the right member's own middle, not its right"
-    );
-}
-
-#[test]
-fn a_trio_behind_a_top_level_reference_takes_its_middle_member() {
-    // The RESP path's trio test does not follow references, so a row holding a reference to a
-    // trio never reaches the three-way choice at all — the generic serializer dereferences it
-    // and takes the middle.
-    let behind_reference = SharedValue::new(Value::Ref(trio()));
-    assert_eq!(
-        field(behind_reference, TrioMember::Right),
-        Decoded::Number(MIDDLE)
-    );
 }
 
 #[test]

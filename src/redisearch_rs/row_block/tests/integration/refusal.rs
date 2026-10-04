@@ -13,109 +13,55 @@
 //! the block holds as RESP rows and then carries on down the RESP path, so a block that ended
 //! mid-row would either lose the rows before it or duplicate them.
 
-use crate::harness::{Decoded, decode, encode, lookup, row, try_encode_one};
+use crate::harness::{Decoded, decode, encode, lookup, row, too_deep};
 use pretty_assertions::assert_eq;
-use rlookup::RLookupKeyFlags;
-use row_block::{ColumnFilter, MAX_NESTING_DEPTH, RefusedRow, RowBlockWriter, TrioMember};
+use rlookup::{RLookupKeyFlags, RLookupRow};
+use row_block::{ColumnFilter, RefusedRow, RowBlockWriter, TrioMember};
 use std::ffi::CString;
 use value::SharedValue;
 
-/// A value nesting one level deeper than the format carries.
-fn too_deep() -> SharedValue {
-    (0..=MAX_NESTING_DEPTH).fold(SharedValue::new_num(1.0), |inner, _| {
-        SharedValue::new_array(vec![inner])
-    })
-}
-
 #[test]
-fn a_refused_row_leaves_only_the_schema_behind() {
-    // The refusal is found at the second column, so the bitmap and the first column's value
-    // are already in the buffer when the row is abandoned.
-    let lookup = lookup(&["a", "b", "c"]);
-    let row = row(
-        &lookup,
-        &[
-            ("a", SharedValue::new_num(1.0)),
-            ("b", too_deep()),
-            ("c", SharedValue::new_num(3.0)),
-        ],
-    );
-
-    let (outcome, block, nrows) = try_encode_one(&lookup, &row, TrioMember::Middle);
-
-    assert_eq!(outcome, Err(RefusedRow::TooDeeplyNested));
-    assert_eq!(nrows, 0, "a refused row is not counted");
-    assert_eq!(
-        block,
-        encode(&lookup, &[]),
-        "the buffer is back to the schema"
-    );
-    assert_eq!(decode(&block), Vec::<Vec<_>>::new());
-}
-
-#[test]
-fn a_refused_row_leaves_the_rows_before_it_intact() {
+fn a_refused_row_leaves_the_block_as_if_it_was_never_written() {
+    // Each refusal is found at the second column, so the bitmap and the first column's value
+    // are already in the buffer when the row is abandoned: once with no row before it, once
+    // after accepted rows. The writer must then go on accepting rows, since nothing about its
+    // state may depend on the caller stopping at the first refusal.
     let lookup = lookup(&["a", "b"]);
+    let bad = row(
+        &lookup,
+        &[("a", SharedValue::new_num(9.0)), ("b", too_deep())],
+    );
     let good = [
         row(&lookup, &[("a", SharedValue::new_num(1.0))]),
         row(&lookup, &[("b", SharedValue::new_num(2.0))]),
+        row(&lookup, &[("a", SharedValue::new_num(3.0))]),
     ];
-    let bad = row(
-        &lookup,
-        &[("a", too_deep()), ("b", SharedValue::new_num(9.0))],
-    );
 
     let mut writer = RowBlockWriter::new();
     writer
         .write_schema(&lookup, ColumnFilter::default())
         .expect("encodable");
-    for row in &good {
-        writer
-            .write_row(&lookup, row, TrioMember::Middle)
-            .expect("encodable");
-    }
-    assert_eq!(
-        writer.write_row(&lookup, &bad, TrioMember::Middle),
-        Err(RefusedRow::TooDeeplyNested)
-    );
+    let mut write = |row: &RLookupRow<'_>| writer.write_row(&lookup, row, TrioMember::Middle);
+    assert_eq!(write(&bad), Err(RefusedRow::TooDeeplyNested));
+    write(&good[0]).expect("encodable");
+    write(&good[1]).expect("encodable");
+    assert_eq!(write(&bad), Err(RefusedRow::TooDeeplyNested));
+    write(&good[2]).expect("encodable");
 
     assert_eq!(
         writer.nrows(),
         good.len(),
         "only the accepted rows are counted"
     );
-    assert_eq!(
-        writer.as_bytes(),
-        encode(&lookup, &good),
-        "the block is byte-identical to one that never saw the refused row"
-    );
+    assert_eq!(writer.as_bytes(), encode(&lookup, &good));
     assert_eq!(
         decode(writer.as_bytes()),
         vec![
             vec![("a".to_owned(), Decoded::Number(1.0))],
             vec![("b".to_owned(), Decoded::Number(2.0))],
+            vec![("a".to_owned(), Decoded::Number(3.0))],
         ]
     );
-}
-
-#[test]
-fn a_writer_keeps_accepting_rows_after_a_refusal() {
-    // The caller stops using the block on the first refusal, but nothing about the writer's
-    // state should depend on that: a rolled-back row must not corrupt the next one.
-    let lookup = lookup(&["a"]);
-    let bad = row(&lookup, &[("a", too_deep())]);
-    let good = row(&lookup, &[("a", SharedValue::new_num(5.0))]);
-
-    let mut writer = RowBlockWriter::new();
-    writer
-        .write_schema(&lookup, ColumnFilter::default())
-        .expect("encodable");
-    assert!(writer.write_row(&lookup, &bad, TrioMember::Middle).is_err());
-    writer
-        .write_row(&lookup, &good, TrioMember::Middle)
-        .expect("encodable");
-
-    assert_eq!(writer.as_bytes(), encode(&lookup, &[good]));
 }
 
 #[test]

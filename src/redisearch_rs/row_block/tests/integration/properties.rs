@@ -16,7 +16,7 @@
 use crate::harness::{Decoded, decode_into, decode_prefix, encode, lookup, row, try_decode};
 use proptest::prelude::*;
 use rlookup::RLookup;
-use row_block::{Block, MAGIC, VERSION};
+use row_block::{MAGIC, VERSION};
 
 /// Arbitrary values of every tag, nested a few levels deep.
 fn any_value() -> impl Strategy<Value = Decoded> {
@@ -48,103 +48,68 @@ fn any_rows(ncols: usize) -> impl Strategy<Value = Vec<Vec<Option<Decoded>>>> {
     )
 }
 
-/// The column names a block of `ncols` columns is built with.
-fn names(ncols: usize) -> Vec<String> {
-    (0..ncols).map(|i| format!("c{i}")).collect()
+/// A block of `rows` over columns `c0`, `c1`, ..., and the rows a decoder must return for it.
+fn build(rows: &[Vec<Option<Decoded>>], ncols: usize) -> (Vec<u8>, Vec<Vec<(String, Decoded)>>) {
+    let names: Vec<String> = (0..ncols).map(|i| format!("c{i}")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let lookup = lookup(&refs);
+
+    let present = |values: &[Option<Decoded>]| -> Vec<(usize, Decoded)> {
+        values
+            .iter()
+            .enumerate()
+            .filter_map(|(col, value)| Some((col, value.clone()?)))
+            .collect()
+    };
+    let encoded: Vec<_> = rows
+        .iter()
+        .map(|values| {
+            let fields: Vec<_> = present(values)
+                .into_iter()
+                .map(|(col, value)| (refs[col], value.to_value()))
+                .collect();
+            row(&lookup, &fields)
+        })
+        .collect();
+    let want = rows
+        .iter()
+        .map(|values| {
+            present(values)
+                .into_iter()
+                .map(|(col, value)| (names[col].clone(), value))
+                .collect()
+        })
+        .collect();
+    (encode(&lookup, &encoded), want)
 }
 
 proptest! {
-    /// Whatever the rows hold, a block decodes back to exactly what went in. This is the
-    /// property the whole format exists to provide.
+    /// Whatever the rows hold, a block decodes back to exactly what went in, through the
+    /// coordinator's decoder and through the replay path's reader alike. Columns from 1 to 17
+    /// put the presence bits on both sides of every bitmap byte boundary, and values of
+    /// several types in one column exercise retagging at every row position.
     #[test]
     fn every_block_round_trips((ncols, rows) in (1usize..18).prop_flat_map(|n| (Just(n), any_rows(n)))) {
-        let names = names(ncols);
-        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let lookup = lookup(&refs);
-
-        let encoded: Vec<_> = rows
-            .iter()
-            .map(|values| {
-                let present: Vec<_> = refs
-                    .iter()
-                    .zip(values)
-                    .filter_map(|(name, value)| value.as_ref().map(|v| (*name, v.to_value())))
-                    .collect();
-                row(&lookup, &present)
-            })
-            .collect();
-
-        let want: Vec<Vec<(String, Decoded)>> = rows
-            .iter()
-            .map(|values| {
-                names
-                    .iter()
-                    .zip(values)
-                    .filter_map(|(name, value)| {
-                        value.as_ref().map(|v| (name.clone(), v.clone()))
-                    })
-                    .collect()
-            })
-            .collect();
-
-        let (got, error) = decode_prefix(&encode(&lookup, &encoded));
-        prop_assert_eq!(error, None);
-        prop_assert_eq!(got, want);
+        let (block, want) = build(&rows, ncols);
+        prop_assert_eq!(decode_prefix(&block), (want.clone(), None));
+        prop_assert_eq!(decode_into(&block, &mut RLookup::new()), Ok(want));
     }
 
-    /// Cutting a valid block short must never panic, and must never invent or corrupt a row
-    /// that was fully inside the surviving prefix.
+    /// Cutting a valid block short must never panic, and must never invent, corrupt or
+    /// silently drop a row that was fully inside the surviving prefix.
     #[test]
-    fn truncating_a_block_never_panics_or_corrupts_earlier_rows(
+    fn truncating_a_block_yields_a_clean_error_after_the_rows_before_the_cut(
         (ncols, rows) in (1usize..10).prop_flat_map(|n| (Just(n), any_rows(n))),
     ) {
-        let names = names(ncols);
-        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let lookup = lookup(&refs);
-        let encoded: Vec<_> = rows
-            .iter()
-            .map(|values| {
-                let present: Vec<_> = refs
-                    .iter()
-                    .zip(values)
-                    .filter_map(|(name, value)| value.as_ref().map(|v| (*name, v.to_value())))
-                    .collect();
-                row(&lookup, &present)
-            })
-            .collect();
-
-        let block = encode(&lookup, &encoded);
-        let (want, _) = decode_prefix(&block);
-
+        let (block, want) = build(&rows, ncols);
         for len in 0..block.len() {
-            let (got, _) = decode_prefix(&block[..len]);
+            let (got, error) = decode_prefix(&block[..len]);
             prop_assert!(got.len() <= want.len());
             prop_assert_eq!(&got[..], &want[..got.len()]);
+            // A cut inside the rows is either on a row boundary, leaving fewer rows, or
+            // inside one, which is an error; a cut inside the schema is always an error.
+            prop_assert!(error.is_some() || got.len() < want.len(), "{} bytes", len);
         }
-    }
-
-    /// Arbitrary bytes behind a valid header must be reported as malformed, not crash the
-    /// decoder. A shard cannot be assumed to be the build the coordinator expects.
-    #[test]
-    fn arbitrary_row_bytes_decode_or_error(
-        garbage in prop::collection::vec(any::<u8>(), 0..256),
-        kind in any_kind_byte(),
-    ) {
-        let mut block = MAGIC.to_le_bytes().to_vec();
-        block.push(VERSION);
-        block.extend_from_slice(&1u16.to_le_bytes());
-        block.extend_from_slice(&1u16.to_le_bytes());
-        block.extend_from_slice(b"c\0");
-        block.push(kind);
-        block.extend_from_slice(&garbage);
-
-        // Every row costs at least its bitmap byte — even one whose only value is an empty
-        // typed null — so a decoder that made no progress —
-        // yielding rows forever off a fixed buffer — fails this bound rather than hanging.
-        let rows = Block::parse(&block)
-            .map(|parsed| parsed.rows().take_while(Result::is_ok).count())
-            .unwrap_or(0);
-        prop_assert!(rows <= garbage.len());
     }
 
     /// The coordinator's decoder must agree with the reader on arbitrary input: the same
@@ -178,6 +143,13 @@ proptest! {
         }
         block.extend_from_slice(&tail);
 
-        prop_assert_eq!(decode_into(&block, &mut coordinator), try_decode(&block));
+        let got = decode_into(&block, &mut coordinator);
+        prop_assert_eq!(&got, &try_decode(&block));
+        // Every row costs at least its bitmap byte — even one whose only values are empty
+        // typed nulls — so a decoder that made no progress, yielding rows forever off a
+        // fixed buffer, fails this bound rather than hanging.
+        if let Ok(rows) = got {
+            prop_assert!(rows.len() <= tail.len());
+        }
     }
 }
