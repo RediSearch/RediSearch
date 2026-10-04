@@ -7429,9 +7429,10 @@ class TestShardTimeout:
             env.assertEqual(_get_blocked_request_onfree_count(env), freed_before)
             env.assertEqual(len(replies), 1, message=replies)
             result = replies[0]
-            # The tail sorter has never executed: source recovery must not bypass
-            # its empty committed heap, even if producer mailboxes now hold rows.
-            env.assertEqual(result['results'], [], message=result)
+            # The initially empty sorter may recover upstream loaded rows, but
+            # must not cause an unfinished producer batch to be loaded.
+            expected_rows = [{'name': f'hello{i}'} for i in range(self.n_docs)] if loaded else []
+            env.assertEqual(result['results'], expected_rows, message=result)
             assert_timeout_warning(env, result, message=str(result))
             profiles = result['Profile']['Shards']
             env.assertEqual(len(profiles), 1, message=result)
@@ -7445,7 +7446,7 @@ class TestShardTimeout:
                     loader = next(p for p in processors if p['Type'] == 'Threadsafe-Loader')
                     env.assertEqual(loader['Results processed'], self.n_docs, message=result)
             for processor in result['Profile']['Coordinator']['Result processors profile']:
-                env.assertEqual(processor['Results processed'], 0, message=result)
+                env.assertEqual(processor['Results processed'], len(expected_rows), message=result)
                 env.assertGreaterEqual(processor['Time'], 0, message=result)
         finally:
             for point in (tail_point, loader_point):
