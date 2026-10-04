@@ -423,19 +423,6 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   req->base.reply.hasStoredResults = true;
 }
 
-static int populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, AREQ *req, cachedVars *cv) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
-      serializeResult(req, reply, res, cv);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
-}
-
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
@@ -731,67 +718,97 @@ static int rowBlockReplayFailed(AREQ *req, QueryProcessingCtx *qctx,
   return RS_RESULT_ERROR;
 }
 
+// Emits one chunk's rows, as a row block when the request allows it and as RESP rows
+// otherwise. The streaming and the buffered (aggregate-first) reply paths both go through it,
+// so a chunk's encoding never depends on which of them produced its rows.
+typedef struct {
+  RowBlockWriter *w;  // NULL while the chunk is on the RESP path
+} RowEmitter;
+
+static void rowEmitter_Init(RowEmitter *e, AREQ *req, const RedisModule_Reply *reply,
+                            const cachedVars *cv) {
+  e->w = NULL;
+  if (!useRowBlock(req, reply)) return;
+  uint32_t required, exclude;
+  rowBlockFlags(req, &required, &exclude);
+  RowBlockWriter *w = rowBlockWriter_Get();
+  // No columns to emit (an aggregate with no LOAD, say) means rows of zero bytes, which
+  // a block cannot count: reply in RESP, where an empty row is still a row.
+  if (RowBlockWriter_WriteSchema(w, cv->lastLookup, required, exclude) > 0) {
+    e->w = w;
+  }
+}
+
+// Returns false when a refused row's fallback could not replay the block; the caller must
+// then fail the query with rowBlockReplayFailed and emit nothing more.
+static bool rowEmitter_Emit(RowEmitter *e, AREQ *req, RedisModule_Reply *reply, SearchResult *r,
+                            cachedVars *cv) {
+  if (e->w) {
+    if (RowBlockWriter_WriteRow(e->w, cv->lastLookup, SearchResult_GetRowData(r),
+                                AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
+      return true;
+    }
+    RowBlockWriter *w = e->w;
+    e->w = NULL;
+    if (!rowBlockFallback(req, reply, w)) {
+      return false;
+    }
+  }
+  serializeResult(req, reply, r, cv);
+  return true;
+}
+
+static void rowEmitter_Finish(RowEmitter *e, RedisModule_Reply *reply, ChunkSerializeState *state) {
+  if (!e->w) return;
+  size_t blockLen;
+  const char *block = RowBlockWriter_Bytes(e->w, &blockLen);
+  RedisModule_Reply_StringBuffer(reply, block, blockLen);
+  state->rowBlock = true;
+  state->rowBlockRows = RowBlockWriter_RowCount(e->w);
+}
+
 // Both protocols use the same row payload; their wrappers retain counts, warnings and profile.
 static int serializeChunkRows(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
                               QueryProcessingCtx *qctx, int rc, cachedVars *cv,
                               ChunkSerializeState *state) {
-  const bool rowBlock = useRowBlock(req, reply);
-  RowBlockWriter *w = NULL;
-  bool inBlock = false;
-  uint32_t rbRequired = 0, rbExclude = 0;
-  if (rowBlock) rowBlockFlags(req, &rbRequired, &rbExclude);
-
-  if (rowBlock) {
-    w = rowBlockWriter_Get();
-    // No columns to emit (an aggregate with no LOAD, say) means rows of zero bytes, which
-    // a block cannot count: reply in RESP, where an empty row is still a row.
-    inBlock = RowBlockWriter_WriteSchema(w, cv->lastLookup, rbRequired, rbExclude) > 0;
-  }
+  RowEmitter e;
+  rowEmitter_Init(&e, req, reply, cv);
 
   if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-    if (inBlock &&
-        !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
-                                 AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
-      if (!rowBlockFallback(req, reply, w)) {
-        rc = rowBlockReplayFailed(req, qctx, state);
-        return rc;
+    do {
+      if (!rowEmitter_Emit(&e, req, reply, state->r, cv)) {
+        return rowBlockReplayFailed(req, qctx, state);
       }
-      inBlock = false;
-    }
-    if (!inBlock) {
-      serializeResult(req, reply, state->r, cv);
-    }
-    SearchResult_Clear(state->r);
-  } else {
-    if (inBlock) goto emit_block;
-    return rc;
+      SearchResult_Clear(state->r);
+    } while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK);
   }
 
-  while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-    if (inBlock &&
-        !RowBlockWriter_WriteRow(w, cv->lastLookup, SearchResult_GetRowData(state->r),
-                                 AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
-      if (!rowBlockFallback(req, reply, w)) {
-        rc = rowBlockReplayFailed(req, qctx, state);
-        return rc;
-      }
-      inBlock = false;
-    }
-    if (!inBlock) {
-      serializeResult(req, reply, state->r, cv);
-    }
-    SearchResult_Clear(state->r);
-  }
+  rowEmitter_Finish(&e, reply, state);
+  return rc;
+}
 
-emit_block:
-  if (inBlock) {
-    size_t blockLen;
-    const char *block = RowBlockWriter_Bytes(w, &blockLen);
-    RedisModule_Reply_StringBuffer(reply, block, blockLen);
-    state->rowBlock = true;
-    state->rowBlockRows = RowBlockWriter_RowCount(w);
-  }
+// The buffered counterpart of serializeChunkRows, for rows the pipeline aggregated before
+// replying (see startPipelineCommon). Consumes and frees `results` either way.
+static int populateReplyWithResults(AREQ *req, RedisModule_Reply *reply, SearchResult **results,
+                                    QueryProcessingCtx *qctx, int rc, cachedVars *cv,
+                                    ChunkSerializeState *state) {
+  RowEmitter e;
+  rowEmitter_Init(&e, req, reply, cv);
 
+  bool replayFailed = false;
+  array_foreach(results, res, {
+    if (!replayFailed && !rowEmitter_Emit(&e, req, reply, res, cv)) {
+      replayFailed = true;
+    }
+    SearchResult_Destroy(res);
+    rm_free(res);
+  });
+  array_free(results);
+
+  if (replayFailed) {
+    return rowBlockReplayFailed(req, qctx, state);
+  }
+  rowEmitter_Finish(&e, reply, state);
   return rc;
 }
 
@@ -819,7 +836,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
   // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
   if (state->results != NULL) {
-    populateReplyWithResults(reply, state->results, req, cv);
+    rc = populateReplyWithResults(req, reply, state->results, qctx, rc, cv, state);
     state->results = NULL;
     goto done_2;
   }
@@ -1041,7 +1058,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv);
+      rc = populateReplyWithResults(req, reply, state->results, qctx, rc, cv, state);
       state->results = NULL;
     } else {
       rc = serializeChunkRows(req, reply, rp, qctx, rc, cv, state);
