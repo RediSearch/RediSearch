@@ -13,6 +13,7 @@
 #include "spec.h"
 #include "search_ctx.h"
 #include "query_request.h"
+#include "pipeline_execution.h"
 #include "rmalloc.h"
 #include "common.h"
 #include "module.h"
@@ -20,6 +21,7 @@
 #include <chrono>
 #include "redismock/redismock.h"
 #include "search_result.h"
+#include "hybrid/hybrid_scoring.h"
 
 #include <thread>
 #include <chrono>
@@ -42,6 +44,7 @@ protected:
     MockUpstream(int max_docs = 3, int final_result = RS_RESULT_EOF, int sleep_ms = 0, int doc_id_offset = 0) {
       memset(this, 0, sizeof(*this));
       this->Next = NextFn;
+      this->Drain = RPDrain_EOF;
       this->max_docs = max_docs;
       this->final_result = final_result;
       this->sleep_ms = sleep_ms;
@@ -143,6 +146,13 @@ protected:
         SearchResult_Clear(&res);
       }
     } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
+    if (rc == RS_RESULT_TIMEDOUT) {
+      EXPECT_EQ(0, resultCount);
+      while (depleter->Drain(depleter, &res) == RP_DRAIN_OK) {
+        EXPECT_EQ(SearchResult_GetDocId(&res), ++resultCount);
+        SearchResult_Clear(&res);
+      }
+    }
     EXPECT_EQ(resultCount, expectedResults);
 
     SearchResult_Destroy(&res);
@@ -170,7 +180,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Basic) {
 
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_Timeout) {
   // Tests RPSafeDepleter handling of upstream timeout: background thread gets timeout,
-  // main thread waits on condition variable, then yields results and timeout.
+  // Next folds immediately; Drain yields the buffered partial results.
 
   // Mock upstream processor: yields 3 results, then timeout.
   const int n_docs = 3;
@@ -258,6 +268,281 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
   slowDepleter->Free(slowDepleter);
 }
 
+TEST_P(RPSafeDepleterTest, DrainDoesNotStartUnscheduledProducer) {
+  QueryProcessingCtx context = {};
+  MockUpstream upstream;
+  auto *depleter = RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0],
+                                    depleterPool);
+  QITR_PushRP(&context, &upstream);
+  QITR_PushRP(&context, depleter);
+  auto row = SearchResult_New();
+  EXPECT_FALSE(RPSafeDepleter_HasPublishedOutput(depleter));
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &row));
+  EXPECT_EQ(0, upstream.count);
+  SearchResult_Destroy(&row);
+  depleter->Free(depleter);
+}
+
+TEST_P(RPSafeDepleterTest, ReturnRecoversUpstreamBeforePublishingButFailDoesNotDrain) {
+  for (auto policy : {TimeoutPolicy_Return, TimeoutPolicy_Fail}) {
+    QueryProcessingCtx context = {};
+    context.timeoutPolicy = policy;
+    MockUpstream upstream(0, RS_RESULT_TIMEDOUT);
+    upstream.Drain = [](ResultProcessor *base, SearchResult *row) {
+      auto *self = static_cast<MockUpstream *>(base);
+      if (self->count == 1) return RP_DRAIN_EOF;
+      SearchResult_SetDocId(row, ++self->count);
+      return RP_DRAIN_OK;
+    };
+    auto *depleter =
+        RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+    QITR_PushRP(&context, &upstream);
+    QITR_PushRP(&context, depleter);
+    RPSafeDepleter_StartDepletion(depleter);
+    RPSafeDepleter_WaitForCompletion(depleter);
+    EXPECT_TRUE(RPSafeDepleter_HasPublishedOutput(depleter));
+    EXPECT_EQ(policy == TimeoutPolicy_Return ? 1 : 0, upstream.count);
+    auto row = SearchResult_New();
+    if (policy == TimeoutPolicy_Return) {
+      EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &row));
+      EXPECT_EQ(1, SearchResult_GetDocId(&row));
+      SearchResult_Clear(&row);
+    }
+    EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &row));
+    SearchResult_Destroy(&row);
+    depleter->Free(depleter);
+  }
+}
+
+TEST_P(RPSafeDepleterTest, MergerDrainPreservesPublishedProducerTimeout) {
+  QueryProcessingCtx producer = {}, consumer = {};
+  producer.timeoutPolicy = TimeoutPolicy_Return;
+  MockUpstream upstream(0, RS_RESULT_TIMEDOUT);
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  QITR_PushRP(&producer, &upstream);
+  QITR_PushRP(&producer, depleter);
+  RPSafeDepleter_StartDepletion(depleter);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  auto **inputs = array_new(ResultProcessor *, 1);
+  array_append(inputs, depleter);
+  RPStatus status[] = {RS_RESULT_OK};
+  auto *merger = RPHybridMerger_New(&searchContexts[0],
+      HybridScoringContext_NewRRF(60, 3, false), inputs, 1, nullptr, nullptr,
+      status, nullptr, nullptr);
+  merger->parent = &consumer;
+  auto row = SearchResult_New();
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, status[0]);
+  SearchResult_Destroy(&row);
+  merger->Free(merger);
+  depleter->Free(depleter);
+}
+
+TEST_P(RPSafeDepleterTest, ReturnPublishesUpstreamDrainErrorAfterRecoveredRow) {
+  QueryProcessingCtx context = {};
+  context.timeoutPolicy = TimeoutPolicy_Return;
+  MockUpstream upstream(0, RS_RESULT_TIMEDOUT);
+  upstream.Drain = [](ResultProcessor *base, SearchResult *row) {
+    auto *self = static_cast<MockUpstream *>(base);
+    if (self->count++) return RP_DRAIN_ERROR;
+    SearchResult_SetDocId(row, 1);
+    return RP_DRAIN_OK;
+  };
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  QITR_PushRP(&context, &upstream);
+  QITR_PushRP(&context, depleter);
+  RPSafeDepleter_StartDepletion(depleter);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  EXPECT_TRUE(RPSafeDepleter_HasPublishedOutput(depleter));
+  EXPECT_EQ(2, upstream.count);
+  auto row = SearchResult_New();
+  EXPECT_EQ(RP_DRAIN_ERROR, depleter->Drain(depleter, &row));
+  EXPECT_EQ(RP_DRAIN_ERROR, depleter->Drain(depleter, &row));
+  EXPECT_EQ(2, upstream.count);
+  SearchResult_Destroy(&row);
+  depleter->Free(depleter);
+}
+
+TEST_P(RPSafeDepleterTest, DrainUsesCompletedPublicationAndPreservesError) {
+  for (int terminal : {RS_RESULT_EOF, RS_RESULT_TIMEDOUT, RS_RESULT_ERROR}) {
+    SCOPED_TRACE(terminal);
+    QueryProcessingCtx context = {};
+    context.timeoutPolicy = TimeoutPolicy_Return;
+    MockUpstream upstream(3, terminal);
+    upstream.Drain = [](ResultProcessor *, SearchResult *) {
+      ADD_FAILURE() << "A nonempty producer must not replenish during recovery";
+      return RP_DRAIN_ERROR;
+    };
+    auto *depleter =
+        RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+    QITR_PushRP(&context, &upstream);
+    QITR_PushRP(&context, depleter);
+    RPSafeDepleter_StartDepletion(depleter);
+    RPSafeDepleter_WaitForCompletion(depleter);
+    const auto next = depleter->Next;
+    EXPECT_TRUE(RPSafeDepleter_HasPublishedOutput(depleter));
+    EXPECT_EQ(next, depleter->Next);
+    auto row = SearchResult_New();
+    if (terminal == RS_RESULT_ERROR) {
+      EXPECT_EQ(RP_DRAIN_ERROR, depleter->Drain(depleter, &row));
+    } else {
+      for (unsigned id = 1; id <= 3; ++id) {
+        EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &row));
+        EXPECT_EQ(id, SearchResult_GetDocId(&row));
+        SearchResult_Clear(&row);
+      }
+      EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &row));
+    }
+    EXPECT_EQ(3, upstream.count);
+    SearchResult_Destroy(&row);
+    depleter->Free(depleter);
+  }
+}
+
+TEST_P(RPSafeDepleterTest, DrainReturnsBeforeParkedProducerCompletes) {
+  struct ParkedSource : ResultProcessor {
+    std::promise<void> entered;
+    std::shared_future<void> resume;
+    explicit ParkedSource(std::shared_future<void> resume) : ResultProcessor{}, resume(resume) {
+      Next = [](ResultProcessor *base, SearchResult *) -> int {
+        auto *self = static_cast<ParkedSource *>(base);
+        self->entered.set_value();
+        self->resume.wait();
+        return RS_RESULT_EOF;
+      };
+    }
+  };
+  std::promise<void> resume;
+  ParkedSource upstream(resume.get_future().share());
+  auto parked = upstream.entered.get_future();
+  QueryProcessingCtx context = {};
+  auto *depleter =
+      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  QITR_PushRP(&context, &upstream);
+  QITR_PushRP(&context, depleter);
+  RPSafeDepleter_StartDepletion(depleter);
+  parked.wait();
+  auto recovery = std::async(std::launch::async, [&] {
+    auto row = SearchResult_New();
+    EXPECT_FALSE(RPSafeDepleter_HasPublishedOutput(depleter));
+    const auto status = depleter->Drain(depleter, &row);
+    SearchResult_Destroy(&row);
+    return status;
+  });
+  const auto ready = recovery.wait_for(std::chrono::seconds(1));
+  resume.set_value();
+  EXPECT_EQ(std::future_status::ready, ready);
+  EXPECT_EQ(RP_DRAIN_EOF, recovery.get());
+  RPSafeDepleter_WaitForCompletion(depleter);
+  depleter->Free(depleter);
+}
+
+TEST_P(RPSafeDepleterTest, OwnedRecoveryPublishesRowsWithoutCompletingParkedJob) {
+  struct Source : ResultProcessor {
+    unsigned calls = 0;
+    bool drained = false;
+    std::promise<void> parked;
+    std::promise<void> resume;
+    Source() : ResultProcessor{} {
+      Next = [](ResultProcessor *base, SearchResult *row) -> int {
+        auto *self = static_cast<Source *>(base);
+        if (++self->calls == 1) {
+          SearchResult_SetDocId(row, 1);
+          return RS_RESULT_OK;
+        }
+        auto *access = static_cast<PipelineAccess *>(base->parent->executionAccess);
+        auto resume = self->resume.get_future();
+        auto *parked = &self->parked;
+        PipelineAccess_ReleaseForWait(access);
+        parked->set_value();
+        resume.wait();
+        return PipelineAccess_ResumeAfterWait(access) ? RS_RESULT_EOF : RS_RESULT_TIMEDOUT;
+      };
+      Drain = [](ResultProcessor *base, SearchResult *row) {
+        auto *self = static_cast<Source *>(base);
+        if (self->drained) return RP_DRAIN_EOF;
+        self->drained = true;
+        SearchResult_SetDocId(row, 2);
+        return RP_DRAIN_OK;
+      };
+    }
+  } upstream;
+  auto *timeout = searchContexts[0].timeout;
+  QueryRequestTimeout_Init(timeout, TimeoutPolicy_ReturnStrict, 1000);
+  QueryRequestTimeout_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  auto *execution = PipelineExecution_New(timeout);
+  QueryProcessingCtx producer = {}, consumer = {};
+  auto *depleter = RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  QITR_PushRP(&producer, &upstream);
+  QITR_PushRP(&producer, depleter);
+  depleter->parent = &consumer;
+  RPSafeDepleter_SetExecution(depleter, execution);
+  auto parked = upstream.parked.get_future();
+  RPSafeDepleter_StartDepletion(depleter);
+  parked.wait();
+  QueryRequestTimeout_MarkTimedOut(timeout);
+  auto recovery = std::async(std::launch::async, [&] {
+    RPSafeDepleter_Recover(depleter);
+    EXPECT_TRUE(RPSafeDepleter_HasPublishedOutput(depleter));
+    auto row = SearchResult_New();
+    EXPECT_EQ(RP_DRAIN_OK, depleter->Drain(depleter, &row));
+    EXPECT_EQ(1, SearchResult_GetDocId(&row));
+    SearchResult_Clear(&row);
+    EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &row));
+    EXPECT_FALSE(upstream.drained);
+    SearchResult_Destroy(&row);
+  });
+  const auto ready = recovery.wait_for(std::chrono::seconds(1));
+  std::promise<void> joining;
+  auto joinStarted = joining.get_future();
+  auto joined = std::async(std::launch::async, [&] {
+    joining.set_value();
+    RPSafeDepleter_WaitForCompletion(depleter);
+  });
+  joinStarted.wait();
+  EXPECT_EQ(std::future_status::timeout, joined.wait_for(std::chrono::milliseconds(50)));
+  upstream.resume.set_value();
+  recovery.get();
+  joined.get();
+  EXPECT_EQ(std::future_status::ready, ready);
+  EXPECT_EQ(2, upstream.calls);
+  auto row = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, depleter->Next(depleter, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &row));
+  SearchResult_Destroy(&row);
+  depleter->Free(depleter);
+  PipelineExecution_Free(execution);
+}
+
+TEST_P(RPSafeDepleterTest, OwnedRecoveryBeforeProducerStartsRejectsLateExecution) {
+  QueryProcessingCtx producer = {}, consumer = {};
+  MockUpstream upstream;
+  upstream.Drain = RPDrain_EOF;
+  auto *timeout = searchContexts[0].timeout;
+  QueryRequestTimeout_Init(timeout, TimeoutPolicy_ReturnStrict, 1000);
+  QueryRequestTimeout_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  auto *execution = PipelineExecution_New(timeout);
+  auto *depleter = RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+  QITR_PushRP(&producer, &upstream);
+  QITR_PushRP(&producer, depleter);
+  depleter->parent = &consumer;
+  RPSafeDepleter_SetExecution(depleter, execution);
+  QueryRequestTimeout_MarkTimedOut(timeout);
+  RPSafeDepleter_Recover(depleter);
+  EXPECT_TRUE(RPSafeDepleter_HasPublishedOutput(depleter));
+  RPSafeDepleter_StartDepletion(depleter);
+  RPSafeDepleter_WaitForCompletion(depleter);
+  EXPECT_EQ(0, upstream.count);
+  auto row = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, depleter->Next(depleter, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, depleter->Drain(depleter, &row));
+  SearchResult_Destroy(&row);
+  depleter->Free(depleter);
+  PipelineExecution_Free(execution);
+}
+
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_Error) {
   // Tests RPSafeDepleter handling of upstream error: background thread gets error,
   // main thread waits on condition variable, then propagates the error.
@@ -268,6 +553,105 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Error) {
 
   // The last return code should be RS_RESULT_EOF, as the upstream last returned.
   ASSERT_EQ(runDepleterToCompletion(&mockUpstream, 0), RS_RESULT_EOF);
+}
+
+TEST_P(RPSafeDepleterTest, ConsumerOwnershipWaitResumesLocallyOrFoldsAfterDrain) {
+  for (bool cancel : {false, true}) {
+    SCOPED_TRACE(cancel);
+    struct Source : ResultProcessor {
+      std::promise<void> entered;
+      std::shared_future<void> resume;
+      bool produced = false;
+      explicit Source(std::shared_future<void> resume) : ResultProcessor{}, resume(resume) {
+        Next = [](ResultProcessor *base, SearchResult *row) -> int {
+          auto *self = static_cast<Source *>(base);
+          if (self->produced) return RS_RESULT_EOF;
+          self->entered.set_value();
+          self->resume.wait();
+          self->produced = true;
+          SearchResult_SetDocId(row, 7);
+          return RS_RESULT_OK;
+        };
+      }
+    };
+    std::promise<void> resume;
+    Source upstream(resume.get_future().share());
+    QueryProcessingCtx producer = {}, consumer = {};
+    auto *depleter =
+        RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+    QITR_PushRP(&producer, &upstream);
+    QITR_PushRP(&producer, depleter);
+    depleter->parent = &consumer;
+    consumer.endProc = consumer.rootProc = RPProfile_New(depleter, &consumer);
+    RPSafeDepleter_StartDepletion(depleter);
+    upstream.entered.get_future().wait();
+    QueryRequestTimeout timeout = {};
+    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    auto *execution = PipelineExecution_New(&timeout);
+    struct Work {
+      QueryProcessingCtx *context;
+      std::promise<void> entered;
+      int rc = RS_RESULT_ERROR;
+      unsigned calls = 0;
+      SearchResult row = SearchResult_New();
+    } work{&consumer};
+    auto entered = work.entered.get_future();
+    auto worker = std::async(std::launch::async, [&] {
+      return PipelineExecution_RunNext(
+          execution,
+          [](PipelineAccess *access, void *data) {
+            auto *work = static_cast<Work *>(data);
+            ++work->calls;
+            PipelineAccess_Publish(access, work->context);
+            work->entered.set_value();
+            work->rc = work->context->endProc->Next(work->context->endProc, &work->row);
+          },
+          &work);
+    });
+    entered.wait();
+    if (cancel) {
+      QueryRequestTimeout_MarkTimedOut(&timeout);
+      auto recovery = std::async(std::launch::async, [&] {
+        PipelineExecution_RunDrain(
+            execution,
+            [](PipelineAccess *access, void *) {
+              auto *context = PipelineAccess_Context(access);
+              auto row = SearchResult_New();
+              EXPECT_EQ(RP_DRAIN_EOF, context->endProc->Drain(context->endProc, &row));
+              SearchResult_Destroy(&row);
+            },
+            nullptr);
+      });
+      auto ready = recovery.wait_for(std::chrono::seconds(1));
+      resume.set_value();
+      recovery.get();
+      EXPECT_EQ(std::future_status::ready, ready);
+      EXPECT_FALSE(worker.get());
+      EXPECT_EQ(RS_RESULT_TIMEDOUT, work.rc);
+      EXPECT_EQ(1, RPProfile_GetCount(consumer.endProc));
+    } else {
+      // Prove the consumer released its gate before letting the producer finish;
+      // otherwise this test could pass entirely through the already-done path.
+      bool released = false;
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+      do {
+        released = PipelineExecution_RunNext(execution, [](PipelineAccess *, void *) {}, nullptr);
+        if (!released) std::this_thread::yield();
+      } while (!released && std::chrono::steady_clock::now() < deadline);
+      EXPECT_TRUE(released);
+      resume.set_value();
+      EXPECT_TRUE(worker.get());
+      EXPECT_EQ(RS_RESULT_OK, work.rc);
+      EXPECT_EQ(7, SearchResult_GetDocId(&work.row));
+    }
+    EXPECT_EQ(1, work.calls);
+    RPSafeDepleter_WaitForCompletion(depleter);
+    SearchResult_Destroy(&work.row);
+    consumer.endProc->Free(consumer.endProc);
+    depleter->Free(depleter);
+    PipelineExecution_Free(execution);
+  }
 }
 
 // Drive RPSafeDepleter_WaitForCompletion on a separate thread and assert it
@@ -304,6 +688,8 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
   QITR_PushRP(&qitr, depleter);
 
   RPSafeDepleter_MarkTimedOut(depleter);
+
+  EXPECT_TRUE(RPSafeDepleter_HasPublishedOutput(depleter));
 
   AssertWaitForCompletionDoesNotBlock(depleter);
 

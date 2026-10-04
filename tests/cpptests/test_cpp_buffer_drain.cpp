@@ -47,8 +47,7 @@ struct OwnedBufferSource : ResultProcessor {
     };
     Drain = [](ResultProcessor *base, SearchResult *) {
       ++static_cast<OwnedBufferSource *>(base)->drainCalls;
-      ADD_FAILURE() << "Accumulator recovery must stop at its local buffer";
-      return RP_DRAIN_ERROR;
+      return RP_DRAIN_EOF;
     };
   }
 };
@@ -117,7 +116,7 @@ class OwnedBufferDrainTest : public ::testing::Test {
       SearchResult_Clear(&row);
     }
     EXPECT_EQ(RP_DRAIN_EOF, status);
-    EXPECT_EQ(0, source.drainCalls);
+    if (rp->type != RP_SORTER) EXPECT_EQ(0, source.drainCalls);
     return scores;
   }
 };
@@ -128,7 +127,9 @@ TEST_F(OwnedBufferDrainTest, UnstartedAccumulatorsDoNotPullSource) {
     attach(processor);
     EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
     EXPECT_EQ(0, source.nextCalls);
-    EXPECT_EQ(0, source.drainCalls);
+    EXPECT_EQ(processor->type == RP_SORTER || processor->type == RP_DEPLETER ? 1 : 0,
+              source.drainCalls);
+    source.drainCalls = 0;
     rp->Free(rp);
     rp = nullptr;
   }
@@ -141,6 +142,65 @@ TEST_F(OwnedBufferDrainTest, SorterRecoversPartialTopNInNormalOrder) {
   const unsigned calls = source.nextCalls;
   EXPECT_EQ((std::vector<double>{4, 3, 2}), drain());
   EXPECT_EQ(calls, source.nextCalls);
+  EXPECT_EQ(0, source.drainCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, SorterAccumulatesUpstreamDrainBeforeYielding) {
+  source.scores.clear();
+  attach(RPSorter_NewByScore(3, nullptr));
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+  source.Drain = [](ResultProcessor *base, SearchResult *result) {
+    auto *self = static_cast<OwnedBufferSource *>(base);
+    if (self->drainCalls++) return RP_DRAIN_EOF;
+    SearchResult_SetScore(result, 5);
+    return RP_DRAIN_OK;
+  };
+  const unsigned nextCalls = source.nextCalls;
+  EXPECT_EQ((std::vector<double>{5}), drain());
+  EXPECT_EQ(2, source.drainCalls);
+  EXPECT_EQ(nextCalls, source.nextCalls);
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+  EXPECT_EQ(2, source.drainCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, SorterReturnResumesEmptyRecoveryOnSecondTimeout) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  source.scores.clear();
+  source.Drain = [](ResultProcessor *base, SearchResult *result) {
+    auto *self = static_cast<OwnedBufferSource *>(base);
+    const unsigned call = self->drainCalls++;
+    if (call % 2) return RP_DRAIN_EOF;
+    SearchResult_SetScore(result, call + 1);
+    return RP_DRAIN_OK;
+  };
+  attach(RPSorter_NewByScore(3, nullptr));
+  for (unsigned cycle = 0; cycle < 2; ++cycle) {
+    ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
+    const unsigned nextCalls = source.nextCalls;
+    EXPECT_EQ((std::vector<double>{double(cycle * 2 + 1)}), drain());
+    EXPECT_EQ((cycle + 1) * 2, source.drainCalls);
+    EXPECT_EQ(nextCalls, source.nextCalls);
+    EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+    EXPECT_EQ((cycle + 1) * 2, source.drainCalls);
+  }
+}
+
+TEST_F(OwnedBufferDrainTest, EmptyDepleterPassesUpstreamDrainWithoutNext) {
+  source.scores.clear();
+  source.Drain = [](ResultProcessor *base, SearchResult *result) {
+    auto *self = static_cast<OwnedBufferSource *>(base);
+    if (self->drainCalls++) return RP_DRAIN_EOF;
+    SearchResult_SetScore(result, 5);
+    return RP_DRAIN_OK;
+  };
+  attach(RPDepleter_New());
+  EXPECT_EQ(RP_DRAIN_OK, rp->Drain(rp, &row));
+  EXPECT_EQ(5, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+  EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+  EXPECT_EQ(2, source.drainCalls);
+  EXPECT_EQ(0, source.nextCalls);
 }
 
 TEST_F(OwnedBufferDrainTest, FieldSorterKeepsAscendingOrderAndNextPrefix) {
@@ -150,6 +210,7 @@ TEST_F(OwnedBufferDrainTest, FieldSorterKeepsAscendingOrderAndNextPrefix) {
   EXPECT_EQ(1, SearchResult_GetScore(&row));
   SearchResult_Clear(&row);
   EXPECT_EQ((std::vector<double>{2, 3, 4}), drain());
+  EXPECT_EQ(0, source.drainCalls);
 }
 
 TEST_F(OwnedBufferDrainTest, SorterReturnFoldsBeforeYieldingAndDrainDoesNotResumeSource) {

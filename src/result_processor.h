@@ -267,6 +267,9 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
 rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+// Successful output rows, including the counter processor's synthetic result.
+// Unlike invocation counts, this remains meaningful before any terminal call.
+uint64_t RPProfile_GetResultCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
@@ -274,6 +277,9 @@ void Profile_AddRPs(QueryProcessingCtx *qctx);
 // Close suspended cumulative intervals under ownership, after resume work or before
 // recovery. Never called by a worker that lost admission; recovery freezes its time.
 void Profile_ResumeRPs(QueryProcessingCtx *qctx);
+// Close a parked wrapper after reclaiming its owning domain, including wrappers
+// at a hybrid consumer boundary outside the tail's linear upstream chain.
+void RPProfile_Resume(ResultProcessor *rp);
 
 /*******************************************************************************************************************
  *  Normalizer Result Processor
@@ -317,6 +323,21 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 * @param pool Thread pool used to run the depletion job (must be non-NULL)
 */
 ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool);
+
+// Requires exclusive consumer access. True publishes the producer's final rows
+// and metadata; false grants no access to them and never waits for completion.
+// The request must remain alive, and producer-side mutation must end before
+// publication. Output readiness does not imply job completion. A launcher-resolved
+// timeout is already published.
+bool RPSafeDepleter_HasPublishedOutput(const ResultProcessor *base);
+
+struct PipelineExecution;
+// Borrow the upstream request's ownership domain before scheduling depletion.
+void RPSafeDepleter_SetExecution(ResultProcessor *base, struct PipelineExecution *execution);
+// Main has set the producer timeout and excluded its consumer. No other domain
+// may be held: recovery acquires the producer, not the consumer's tail gate.
+// Publishes recoverable output without claiming that the parked job has finished.
+void RPSafeDepleter_Recover(ResultProcessor *base);
 
 /**
 * Submit a safe depleter's depletion job to its thread pool. The caller decides
