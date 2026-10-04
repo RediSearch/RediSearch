@@ -30,7 +30,7 @@ TIMEOUT_WARNING = TIMEOUT_ERROR
 
 @skip(cluster=True)
 def test_owned_hybrid_timeout_preserves_completed_input_window():
-    """Owned recovery preserves SEARCH's completed window while VSIM is unvisited."""
+    """Owned recovery preserves a completed window while the other input is unfinished."""
     env = Env(protocol=3, moduleArgs='WORKERS 2 ON_TIMEOUT RETURN-STRICT TIMEOUT 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'window_idx', 'SCHEMA', 'kind', 'TAG',
@@ -38,34 +38,48 @@ def test_owned_hybrid_timeout_preserves_completed_input_window():
                'DISTANCE_METRIC', 'L2').ok()
     vector = np.array([1, 0], dtype=np.float32).tobytes()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'window:doc', 'kind', 'search', 'v', vector)
-    # No VSIM matches makes the recovered row deterministic even if its producer
-    # has not published yet. The merger must still visit that input to finish.
+    conn.execute_command('HSET', 'window:{doc}:search', 'kind', 'search', 'v', vector)
+    conn.execute_command('HSET', 'window:{doc}:vector', 'kind', 'vector', 'v', vector)
+    # Disjoint inputs make each row's score independent of whether the other
+    # producer has published rows when recovery starts.
     query = ['FT.HYBRID', 'window_idx', 'SEARCH', '@kind:{search}',
-             'VSIM', '@v', '$BLOB', 'FILTER', '@kind:{missing}',
+             'VSIM', '@v', '$BLOB', 'FILTER', '@kind:{vector}',
              'COMBINE', 'RRF', '2', 'WINDOW', '1', 'PARAMS', '2', 'BLOB', vector]
     expected = env.cmd(*query)
-    env.assertEqual(len(expected['results']), 1, message=expected)
-    point = 'AfterHybridInputWindow'
+    env.assertEqual(len(expected['results']), 2, message=expected)
+    points = ['AfterHybridSearchWindow', 'AfterHybridVsimWindow']
     replies = []
     worker = threading.Thread(target=call_and_store, args=(env.cmd, query, replies), daemon=True)
     try:
-        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        for point in points:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
         worker.start()
         wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+            lambda: (any(env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', p) == 1
+                         for p in points), {}),
             'merger did not finish its first input window')
+        completed = next(i for i, p in enumerate(points)
+                         if env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', p) == 1)
         client = wait_for_blocked_query_client(env, 'FT.HYBRID')
         env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
         worker.join(timeout=5)
         env.assertFalse(worker.is_alive(), message='recovery waited for the parked merger')
-        env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point).equal(1)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', points[completed]).equal(1)
         env.assertEqual(len(replies), 1, message=replies)
         result = replies[0]
-        env.assertEqual(result['results'], expected['results'], message=result)
-        env.assertEqual(result['warnings'], ['Timeout limit was reached (VSIM)'], message=result)
+        rows = result['results']
+        keys = [row['__key'] for row in rows]
+        env.assertContains(['window:{doc}:search', 'window:{doc}:vector'][completed], keys,
+                           message=result)
+        env.assertEqual(len(keys), len(set(keys)), message=result)
+        for row in rows:
+            env.assertContains(row, expected['results'], message=result)
+        unfinished = ['VSIM', 'SEARCH'][completed]
+        env.assertEqual(result['warnings'], [f'Timeout limit was reached ({unfinished})'],
+                        message=result)
     finally:
-        env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+        for point in points:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
         env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
         worker.join(timeout=5)
 

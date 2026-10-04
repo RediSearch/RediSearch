@@ -3146,7 +3146,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        numConsumed++;
 #ifdef ENABLE_ASSERT
        if (rc == RS_RESULT_OK &&
-           PipelineAccess_DebugPause(access, SYNC_POINT_AFTER_HYBRID_INPUT_WINDOW)) {
+           PipelineAccess_DebugPause(access, i == 0 ? SYNC_POINT_AFTER_HYBRID_SEARCH_WINDOW
+                                                   : SYNC_POINT_AFTER_HYBRID_VSIM_WINDOW)) {
          rm_free(consumed);
          return RS_RESULT_TIMEDOUT;
        }
