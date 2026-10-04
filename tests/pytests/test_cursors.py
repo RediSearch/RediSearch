@@ -751,12 +751,8 @@ def CursorOnCoordinator(env: Env):
                 for i in range(n_docs):
                     env.assertContains(i, result_set)
 
-# MOD-8483
-# Upon timeout, the sorter switches to yield mode until its heap is depleted.
-# Before the fix, the timeout flag was not reset after depleting the heap, causing subsequent FT.CURSOR READ
-# commands to always return empty results without depleting the cursor.
-# After the fix, the accumulated results until the timeout are returned, and the cursor is properly depleted.
 def testCursorDepletionNonStrictTimeoutPolicySortby():
+    """RETURN drains the sorter prefix and preserves the cursor for remaining input."""
     env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
 
@@ -779,14 +775,18 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
 
     # Verify that the accumulated results (up to timeout_res_count) are returned after timeout
     env.assertEqual(len(res['results']), timeout_res_count)
-    n_received = len(res['results'])
 
-    # Ensure the cursor is properly depleted after one FT.CURSOR READ
-    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-
-    # Cursor should be depleted after the first read
-    env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
-    env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ. First query got {n_received} results, read results:{len(res['results'])}")
+    env.assertNotEqual(cursor, 0, message=res)
+    rows = list(res['results'])
+    for _ in range(num_docs + 1):
+        if not cursor:
+            break
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        rows.extend(res['results'])
+    env.assertEqual(cursor, 0, message=res)
+    env.assertEqual(len(rows), num_docs)
+    env.assertEqual(sorted(int(row['extra_attributes']['n']) for row in rows),
+                    list(range(num_docs)))
 
     # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
     with TimeLimit(5, "shard cursors were not deleted"):
@@ -853,16 +853,7 @@ def testTimeoutPartialWithEmptyResults(env):
     VerifyTimeoutWarningResp3(env, res)
 
 def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
-    # The Normalizing result processor runs only on the shard, so each shard
-    # returns timeout_res_count results.
-    # Cursor read replies from each shard sequentially. It continues
-    # reading from a shard until that shard reaches its timeout_res_count.
-    # timeout_res_count must be less than cursor_count (expecting a timeout to occur)
-    # For example, with 3 shards, a cursor count of 5, and timeout_res_count of 3,
-    # the reads might return: shard1: 3, 2, shard2: 3, 2, shard3: 3, 2, any shard: 0 — totaling 5 results from each
-    # shard. The final 0 appears because the cursor read is triggered again, but
-    # no shard has more results left. Once all shards reach timeout_res_count,
-    # the cursor is fully depleted.
+    """RETURN preserves normalizer continuation after yielding a timed-out prefix."""
 
     env = Env(enableDebugCommand=True, protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
@@ -875,23 +866,26 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
     # Create a cursor that will timeout during accumulation of results
     timeout_res_count = 3
     cursor_count = 5
-    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'WITHCURSOR', 'count',
+    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'LOAD', '1', '@__key', 'WITHCURSOR', 'count',
                           cursor_count], timeout_res_count)
     VerifyTimeoutWarningResp3(env, res)
 
     # Verify that the accumulated results (up to timeout_res_count) are returned after timeout
     env.assertEqual(len(res['results']), timeout_res_count)
-    n_received = len(res['results'])
+    rows = list(res['results'])
 
-    # Read from the cursor until it's depleted
-    while cursor:
+    env.assertNotEqual(cursor, 0, message=res)
+    num_docs = 150 * env.shardsCount
+    for _ in range(num_docs + 1):
+        if not cursor:
+            break
         res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        # (len(res['results']) == 0 and cursor == 0) indicates that the cursor is depleted, as described above.
-        env.assertTrue(len(res['results']) == timeout_res_count or (len(res['results']) == 0 and cursor == 0))
-        n_received += len(res['results'])
+        rows.extend(res['results'])
 
-    # Verify total number of results received
-    env.assertEqual(n_received, env.shardsCount * timeout_res_count, message=f"expected to receive 9 results in total. Got {n_received} results")
+    env.assertEqual(cursor, 0, message=res)
+    env.assertEqual(len(rows), num_docs)
+    env.assertEqual(sorted(row['extra_attributes']['__key'] for row in rows),
+                    sorted(f'doc:{i}' for i in range(num_docs)))
     # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
     with TimeLimit(5, "shard cursors were not deleted"):
         while getCursorStats(env)['index_total'] != starting_cursor_count:
@@ -1251,4 +1245,3 @@ def testCursorReadsDocumentsWrittenBetweenReads(env):
     # already indexed when it started must all come back.
     env.assertEqual(sorted(f'doc:{i}' for i in range(seeded)),
                     sorted(k for k in keys if not k.startswith('doc:new')))
-

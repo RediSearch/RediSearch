@@ -945,9 +945,10 @@ def testInternalCursorReadsWithTimeoutResp3():
   timeout_after_n = 5
   res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
 
-  # RESP3: coordinator detects shard timeout and stops early after reading first shard's reply
-  # Results count equals first shard's reply length (timeout_after_n)
-  env.assertEqual(len(res['Results']['results']), timeout_after_n)
+  # Drain can recover other already-arrived shard batches, but must not request more rows.
+  env.assertIn(len(res['Results']['results']),
+               range(timeout_after_n, env.shardsCount * timeout_after_n + 1, timeout_after_n),
+               message=res)
 
   shards_profile = get_shards_profile(env, res)
   for shard_profile in shards_profile:
