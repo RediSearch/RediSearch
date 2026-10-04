@@ -55,6 +55,7 @@ query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
 reducers_ffi = { path = "../c_entrypoint/reducers_ffi" }
 result_processor_ffi = { path = "../c_entrypoint/result_processor_ffi" }
 rlookup_ffi = { path = "../c_entrypoint/rlookup_ffi" }
+row_block_ffi = { path = "../c_entrypoint/row_block_ffi" }
 search_result_ffi = { path = "../c_entrypoint/search_result_ffi" }
 slots_tracker_ffi = { path = "../c_entrypoint/slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../c_entrypoint/sorting_vector_ffi" }

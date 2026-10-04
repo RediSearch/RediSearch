@@ -105,6 +105,11 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
+  // Set by the internal `_ROW_BLOCK` argument: the coordinator asks for row blocks, so it is
+  // never sent a format it cannot decode.
+  bool internalRowBlock;
+  // Set by `_ROW_BLOCK_RESP3`, so RESP3 blocks only go to coordinators that asked for them.
+  bool internalRowBlockResp3;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
   // OOM policy
