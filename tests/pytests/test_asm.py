@@ -1193,3 +1193,76 @@ def test_hybrid_cursor_after_add_shard_migration():
                             f"migration), but got {len(all_results)}. Without the fix "
                             f"(foreground depletion), the cursor returns 0 results because "
                             f"the inverted index memory was freed after migration + GC.")
+
+
+@skip(cluster=False, min_shards=2)
+def test_import_end_drains_with_event_workers():
+    """At WORKERS 0 an ASM import grows the importing shard's pool to MIN_OPERATION_WORKERS, and
+    when the import ends with vector jobs still queued, the whole pool drains them before shrinking
+    to the maintenance floor."""
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 0', enableDebugCommand=True)
+    dim = 8
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    rng = np.random.default_rng(18989)
+    vectors = {f'doc-{i}:{{{i}}}': create_np_array_typed(rng.random(dim)).tobytes()
+               for i in range(CLUSTER_SLOTS)}
+    with env.getClusterConnectionIfNeeded() as con:
+        pipe = con.pipeline(transaction=False)
+        for key, vector in vectors.items():
+            pipe.execute_command('HSET', key, 'v', vector)
+        pipe.execute()
+    drain_workers(env)
+
+    dest, source = env.getConnection(1), env.getConnection(2)
+    log_path = os.path.join(dest.execute_command('CONFIG', 'GET', 'dir')[1],
+                            dest.execute_command('CONFIG', 'GET', 'logfile')[1])
+
+    def pool_state():
+        pipe = dest.pipeline(transaction=True)
+        pipe.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS')
+        pipe.execute_command(debug_cmd(), 'WORKERS', 'STATS')
+        n_threads, stats = pipe.execute()
+        stats = to_dict(stats)
+        return n_threads, stats['totalJobsDone'], stats['lowPriorityPendingJobs'] + stats['highPriorityPendingJobs']
+
+    env.assertEqual(pool_state()[0], 1)
+    # Paused, the imported vectors stay queued when the import ends, and the shrink is deferred.
+    dest.execute_command(debug_cmd(), 'WORKERS', 'PAUSE')
+    task_id = import_middle_slot_range(dest, source)
+    with TimeLimit(120, 'the import did not complete'):
+        while not is_migration_complete(dest, task_id) or not is_migration_complete(source, task_id):
+            time.sleep(0.1)
+    n_threads, done, queued = pool_state()
+    env.assertEqual(n_threads, 4)
+    env.assertGreater(queued, 0)
+    with open(log_path) as f:
+        log = f.read()
+    import_end = log.rfind('Got ASM import completed event')
+    env.assertGreater(import_end, -1)
+    deferred = re.search(r'Deferring the workers threadpool shrink from 4 to 1 threads until (\d+) jobs',
+                         log[import_end:])
+    env.assertTrue(deferred is not None, message='the import end did not defer the shrink')
+    if deferred:
+        env.assertEqual(int(deferred.group(1)), done + queued)
+
+    dest.execute_command(debug_cmd(), 'WORKERS', 'RESUME')
+    samples = []
+    with TimeLimit(60, 'the pool did not shrink to the floor'):
+        while True:
+            samples.append(pool_state())
+            if samples[-1][0] == 1:
+                break
+            time.sleep(0.01)
+    env.assertEqual([s for s in samples if s[2] > 0 and s[0] != 4], [])
+    env.assertEqual(samples[-1][2], 0, message=samples[-1])
+
+    drain_workers(env)
+    # Every job queued by the import ran exactly once.
+    env.assertEqual(getWorkersThpoolStatsFromShard(dest)['totalJobsDone'], done + queued)
+    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [1] * env.shardsCount)
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([len(vectors)])
+    for key in list(vectors)[::1024]:
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b AS score]', 'PARAMS', 2,
+                      'b', vectors[key], 'RETURN', 1, 'score', 'DIALECT', 2)
+        env.assertEqual((res[1], float(res[2][1])), (key, 0.0))
