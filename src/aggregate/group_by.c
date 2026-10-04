@@ -33,8 +33,8 @@
  * unique key) we want to keep this quite small!
  */
 typedef struct {
-  /** Contains the selected 'out' values used by the reducers output functions */
-  RLookupRow rowdata;
+  /** Key values retained for output, stored after the reducer data. */
+  RSValue **keyValues;
 
   /**
    * Contains the actual per-reducer data for the group, in an accumulating
@@ -56,7 +56,8 @@ static const int khid = 33;
 KHASH_MAP_INIT_INT64(khid, Group *);
 
 #define GROUPER_NREDUCERS(g) (array_len((g)->reducers))
-#define GROUP_BYTESIZE(parent) (sizeof(Group) + (sizeof(void *) * GROUPER_NREDUCERS(parent)))
+#define GROUP_BYTESIZE(parent) \
+  (sizeof(Group) + (sizeof(void *) * (GROUPER_NREDUCERS(parent) + GROUPER_NSRCKEYS(parent))))
 #define GROUPS_PER_BLOCK 1024
 #define GROUPER_NSRCKEYS(g) ((g)->nkeys)
 
@@ -108,29 +109,37 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   size_t elemSize = GROUP_BYTESIZE(g);
   Group *group = BlkAlloc_Alloc(&g->groupsAlloc, elemSize, GROUPS_PER_BLOCK * elemSize);
   memset(group, 0, elemSize);
-  group->rowdata = RLookupRow_New();
-
+  group->keyValues = (RSValue **)(group->accumdata + numReducers);
   for (size_t ii = 0; ii < numReducers; ++ii) {
     group->accumdata[ii] = g->reducers[ii]->NewInstance(g->reducers[ii]);
   }
 
-  /** Initialize the row data! */
+  // Keep key values in the group allocation so each retained group needs no row allocation.
+  RSValue **keySlots = group->keyValues;
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
-    const RLookupKey *dstkey = g->dstkeys[ii];
-    RLookup_WriteKey(dstkey, &group->rowdata, (RSValue *)groupvals[ii]);
+    keySlots[ii] = RSValue_IncrRef((RSValue *)groupvals[ii]);
   }
   return group;
 }
 
 static void moveGroupValues(const Grouper *g, Group *gr, SearchResult *r) {
+  RSValue **keySlots = gr->keyValues;
+  RLookupRow *dstrow = SearchResult_GetRowDataMut(r);
   for (size_t ii = 0; ii < g->nkeys; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
-    RLookupRow_MoveDynamicKey(dstkey, &gr->rowdata, SearchResult_GetRowDataMut(r));
+    RLookup_WriteOwnKey(dstkey, dstrow, keySlots[ii]);
+    keySlots[ii] = NULL;
   }
 }
 
 static void cleanupGroup(Grouper *g, Group *gr) {
-  RLookupRow_Reset(&gr->rowdata);
+  RSValue **keySlots = gr->keyValues;
+  for (size_t ii = 0; ii < g->nkeys; ++ii) {
+    if (keySlots[ii]) {
+      RSValue_DecrRef(keySlots[ii]);
+      keySlots[ii] = NULL;
+    }
+  }
   for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
     Reducer *reducer = g->reducers[ii];
     if (reducer->FreeInstance) {

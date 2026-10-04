@@ -748,6 +748,33 @@ void RS_dictReleaseIterator(dictIterator *iter)
     rm_free(iter);
 }
 
+size_t RS_dictTakeKeys(dict *d, dictKeyTakeFunction *takeKey, void *privdata)
+{
+    size_t count = 0;
+    assert(__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) == 0);
+
+    for (int table = 0; table < 2; table++) {
+        dictht *ht = &d->ht[table];
+        for (unsigned long i = 0; i < ht->size; i++) {
+            dictEntry *entry = ht->table[i];
+            while (entry) {
+                dictEntry *next = entry->next;
+                takeKey(privdata, entry->key);
+                dictFreeVal(d, entry);
+                rm_free(entry);
+                ht->used--;
+                count++;
+                entry = next;
+            }
+        }
+        rm_free(ht->table);
+        _dictReset(ht);
+    }
+    d->rehashidx = -1;
+    d->pauserehash = 0;
+    return count;
+}
+
 /* Return a random entry from the hash table. Useful to
  * implement randomized algorithms */
 dictEntry *RS_dictGetRandomKey(dict *d)

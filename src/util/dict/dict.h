@@ -105,6 +105,7 @@ typedef struct dictIterator {
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
+typedef void (dictKeyTakeFunction)(void *privdata, void *key);
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_SIZE     4
@@ -194,6 +195,10 @@ dictIterator *RS_dictGetIterator(dict *d);
 dictIterator *RS_dictGetSafeIterator(dict *d);
 dictEntry *RS_dictNext(dictIterator *iter);
 void RS_dictReleaseIterator(dictIterator *iter);
+/* Transfer ownership of every key to takeKey, leaving an empty reusable dict.
+ * The caller must release all iterators first. The callback must not fail or
+ * modify the dictionary; it takes ownership of each key. */
+size_t RS_dictTakeKeys(dict *d, dictKeyTakeFunction *takeKey, void *privdata);
 dictEntry *RS_dictGetRandomKey(dict *d);
 unsigned int RS_dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void RS_dictGetStats(char *buf, size_t bufsize, dict *d);
@@ -228,6 +233,7 @@ dictEntry **RS_dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_
 #define dictGetSafeIterator RS_dictGetSafeIterator
 #define dictNext RS_dictNext
 #define dictReleaseIterator RS_dictReleaseIterator
+#define dictTakeKeys RS_dictTakeKeys
 #define dictGetRandomKey RS_dictGetRandomKey
 #define dictGetSomeKeys RS_dictGetSomeKeys
 #define dictGetStats RS_dictGetStats

@@ -1,0 +1,24 @@
+# Synthetic heavy-GROUPBY repro: local 6-shard OSS cluster, no vectors.
+# The heavy query under investigation is non-KNN, so `vector_fields = 0` spends the
+# whole memory budget on documents/postings instead of HNSW graphs.
+url = "redis://127.0.0.1:7401"
+vocab_size = 512
+vocab_zipf_theta = 0.0
+
+[counts]
+creators = 100000
+posts    = 700000
+products = 4900000
+
+[index]
+name = "idx:bench"
+vector_fields = 0
+create_index = true
+topic_share = 0.26
+
+[seed]
+pipeline_depth = 512
+connections = 12
+
+[bench]
+duration_secs = 60
