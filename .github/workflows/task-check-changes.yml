@@ -35,8 +35,8 @@ jobs:
   change-checks:
     runs-on: ubuntu-slim
     outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
-      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-submodules.outputs.changed == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-submodules.outputs.changed == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       # "Only this category changed" is deliberately conservative: it requires the rest of the
@@ -50,6 +50,7 @@ jobs:
           steps.check-py-tests.outputs.any_modified != 'true' &&
           steps.check-other-tests.outputs.any_modified != 'true' &&
           steps.check-code.outputs.any_modified != 'true' &&
+          steps.check-submodules.outputs.changed != 'true' &&
           steps.check-cmake.outputs.any_modified != 'true' &&
           steps.check-workflows.outputs.any_modified != 'true'
         }}
@@ -59,6 +60,7 @@ jobs:
           steps.check-cpp-tests.outputs.any_modified != 'true' &&
           steps.check-other-tests.outputs.any_modified != 'true' &&
           steps.check-code.outputs.any_modified != 'true' &&
+          steps.check-submodules.outputs.changed != 'true' &&
           steps.check-cmake.outputs.any_modified != 'true' &&
           steps.check-workflows.outputs.any_modified != 'true'
         }}
@@ -118,6 +120,55 @@ jobs:
                 **/*.ico
                 **/*.pdf
           fetch_additional_submodule_history: true
+      # changed-files classifies a submodule pointer move by diffing inside the submodule,
+      # which fails here (submodules aren't checked out) and drops the path silently.
+      - name: Check if any submodule pointers were changed
+        id: check-submodules
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          # Same base/head as changed-files. Anything unresolvable counts as changed.
+          fail_closed() {
+            echo "::warning::$1; treating submodules as changed"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          case "$EVENT_NAME" in
+            pull_request)
+              head="$PR_HEAD_SHA"
+              base=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA") || fail_closed "No merge base for $PR_BASE_SHA and $PR_HEAD_SHA" ;;
+            merge_group)
+              base="$MERGE_GROUP_BASE_SHA"
+              head="$MERGE_GROUP_HEAD_SHA" ;;
+            push)
+              base="$PUSH_BEFORE_SHA"
+              head="$HEAD_SHA" ;;
+            *)
+              fail_closed "Unsupported event '$EVENT_NAME'" ;;
+          esac
+          for sha in "$base" "$head"; do
+            git cat-file -e "${sha}^{commit}" 2>/dev/null || fail_closed "Cannot resolve commit '$sha'"
+          done
+          mapfile -t paths < <(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}')
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_paths=$(git diff --name-only "$base" "$head" -- "${paths[@]}") || fail_closed "git diff $base $head failed"
+          if [ -n "$changed_paths" ]; then
+            echo "Submodule pointers changed between $base and $head:"
+            echo "$changed_paths"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No submodule pointer changed between $base and $head"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check if CMake files were changed
         id: check-cmake
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
