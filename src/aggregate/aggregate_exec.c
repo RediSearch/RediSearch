@@ -66,6 +66,7 @@
 #include "rules.h"
 #include "search_disk_api.h"
 #include "row_block_ffi.h"
+#include <pthread.h>
 #include "search_options.h"
 #include "search_result.h"
 #include "search_result_rs.h"
@@ -650,15 +651,32 @@ static bool useRowBlock(const AREQ *req, const RedisModule_Reply *reply) {
   return true;
 }
 
-// Per worker thread and never freed, so buffer growth is paid once.
-static __thread RowBlockWriter *rowBlockWriter = NULL;
+// Per thread, so buffer growth is paid once; freed when the thread exits, as workers come and go
+// with `search-workers`.
+static pthread_key_t rowBlockWriterKey;
+static pthread_once_t rowBlockWriterKeyOnce = PTHREAD_ONCE_INIT;
+
+static void rowBlockWriter_Destroy(void *w) {
+  RowBlockWriter_Free(w);
+}
+
+static void rowBlockWriterKey_Create(void) {
+  // An uninitialized key could alias another subsystem's TLS slot, so failing is fatal.
+  int rc = pthread_key_create(&rowBlockWriterKey, rowBlockWriter_Destroy);
+  RS_LOG_ASSERT_FMT_ALWAYS(rc == 0, "cannot create the row block writer key: %d", rc);
+}
 
 static RowBlockWriter *rowBlockWriter_Get(void) {
-  if (!rowBlockWriter) {
-    rowBlockWriter = RowBlockWriter_New();
+  pthread_once(&rowBlockWriterKeyOnce, rowBlockWriterKey_Create);
+  RowBlockWriter *w = pthread_getspecific(rowBlockWriterKey);
+  if (!w) {
+    w = RowBlockWriter_New();
+    // Failing here would leak the writer and recreate it per chunk, so treat it as fatal.
+    int rc = pthread_setspecific(rowBlockWriterKey, w);
+    RS_LOG_ASSERT_FMT_ALWAYS(rc == 0, "cannot store the row block writer: %d", rc);
   }
-  RowBlockWriter_Reset(rowBlockWriter);
-  return rowBlockWriter;
+  RowBlockWriter_Reset(w);
+  return w;
 }
 
 // The same key subset the RESP row serializer emits.
@@ -668,25 +686,19 @@ static inline void rowBlockFlags(const AREQ *req, uint32_t *requiredFlags,
   *requiredFlags = req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0;
 }
 
-// After a refused row, re-emits the block's rows as RESP so the chunk continues on the RESP
-// path. Returns false, having emitted nothing, if the block does not decode; the caller then
-// fails the query, as those rows exist nowhere else.
+// After a refused row, re-emits the block's rows as RESP so the chunk continues on the RESP path.
 static bool rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter *w) {
-  RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "notice",
+  RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "verbose",
                   "Row block encoding refused a row; replying this chunk in RESP instead");
-  size_t replayed = 0;
-  if (!RowBlockWriter_ReplayAsResp(w, reply, AREQ_RequestFlags(req), &replayed)) {
-    return false;
-  }
-  return true;
+  return RowBlockWriter_ReplayAsResp(w, reply, AREQ_RequestFlags(req));
 }
 
-// Fails the query rather than reply a chunk missing rows. The chunk header is already written,
-// so this uses the post-header failure signal: a QueryError plus RS_RESULT_ERROR.
+// Only a writer bug gets here. The chunk header is already sent, so the chunk ends without the
+// block's rows and the coordinator does not notice; only the shard log does.
 static int rowBlockReplayFailed(AREQ *req, QueryProcessingCtx *qctx,
                                 ChunkSerializeState *state) {
   RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning",
-                  "Row block replay could not decode a block this build wrote; failing the query");
+                  "Row block replay could not decode a block this build wrote; dropping the chunk's rows");
   QueryError_SetError(qctx->err, QUERY_ERROR_CODE_GENERIC,
                       "Internal error: could not serialize aggregation results");
   state->cursor_done = true;

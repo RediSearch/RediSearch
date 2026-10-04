@@ -103,6 +103,82 @@ def row_block_buffered_reply(env):
                             env.assertGreater(reply[b'row_block_rows'], 0, message=context)
 
 
+def row_block_streaming_reply(env):
+    """Shards that stream rows send each chunk as one block holding exactly the LIMITed rows."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    add_docs(env, 300)
+    assert_keys_on_every_shard(env)
+
+    limit = 5
+    with internal_shard_connections(env) as shards:
+        for shard in shards:
+            reply = shard.execute_command('_FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
+                                          'LIMIT', 0, limit, row_block_token(env))
+            results = shard_rows(env, reply)
+            env.assertEqual(len(results), 1)
+            env.assertTrue(isinstance(results[0], bytes))
+            if env.protocol == 3:
+                env.assertEqual(reply[b'row_block_rows'], limit)
+
+
+def row_block_mid_chunk_fallback(env):
+    """A schema that grows within a chunk makes the shard finish it in RESP, as without the token."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'common', 'TEXT').ok()
+    count = 30
+    # A field per document: each shard's LOAD * schema grows with every row.
+    add_docs(env, count, fields=lambda i: ['common', 'x', f'field{i}', i])
+    assert_keys_on_every_shard(env)
+
+    query = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LIMIT', 0, count]
+    with internal_shard_connections(env) as shards:
+        for shard in shards:
+            legacy = shard.execute_command(*query)
+            reply = shard.execute_command(*query, row_block_token(env))
+            env.assertEqual(reply, legacy)
+            env.assertFalse(any(isinstance(row, bytes) for row in shard_rows(env, reply)))
+        # FAIL loads every row before encoding any, so the block carries the grown schema
+        # instead of falling back.
+        with all_shards_config(env, ON_TIMEOUT_CONFIG, 'fail'):
+            for shard in shards:
+                results = shard_rows(env, shard.execute_command(*query, row_block_token(env)))
+                env.assertEqual(len(results), 1)
+                env.assertTrue(isinstance(results[0], bytes))
+
+
+def row_block_empty_chunk(env):
+    """A chunk with columns but no rows is still a block, with a zero row count."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    add_docs(env, 30)
+    with internal_shard_connections(env) as shards:
+        for shard in shards:
+            reply = shard.execute_command('_FT.AGGREGATE', 'idx', '@n:[1000 1000]', 'LOAD', 1,
+                                          '@n', row_block_token(env))
+            results = shard_rows(env, reply)
+            env.assertEqual(len(results), 1)
+            env.assertTrue(isinstance(results[0], bytes))
+            if env.protocol == 3:
+                env.assertEqual(reply[b'row_block_rows'], 0)
+
+
+def row_block_unsupported_extras(env):
+    """Requests asking for per-row extras a block cannot carry get RESP rows."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'text', 'TEXT').ok()
+    add_docs(env, 30, fields=lambda i: ['n', i, 'text', 'word'])
+    assert_keys_on_every_shard(env)
+
+    extras = {
+        'WITHRAWIDS': ['WITHRAWIDS'],
+        '_REQUIRED_FIELDS': ['_REQUIRED_FIELDS', 1, 'n'],
+    }
+    with internal_shard_connections(env) as shards:
+        for name, extra in extras.items():
+            query = ['_FT.AGGREGATE', 'idx', 'word', *extra, 'LOAD', 1, '@n', 'LIMIT', 0, 30]
+            for shard in shards:
+                legacy = shard.execute_command(*query)
+                env.assertEqual(shard.execute_command(*query, row_block_token(env)), legacy,
+                                message=name)
+
+
 def row_block_no_columns(env):
     """With no column to carry, shards reply RESP rows."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -127,6 +203,55 @@ def test_row_block_buffered_reply_resp3():
 @skip(cluster=False)
 def test_row_block_buffered_reply():
     row_block_buffered_reply(Env())
+
+
+@skip(cluster=False)
+def test_row_block_streaming_reply_resp3():
+    row_block_streaming_reply(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_streaming_reply():
+    row_block_streaming_reply(Env())
+
+
+@skip(cluster=False)
+def test_row_block_mid_chunk_fallback_resp3():
+    row_block_mid_chunk_fallback(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_mid_chunk_fallback():
+    row_block_mid_chunk_fallback(Env())
+
+
+@skip(cluster=False)
+def test_row_block_empty_chunk_resp3():
+    row_block_empty_chunk(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_empty_chunk():
+    row_block_empty_chunk(Env())
+
+
+@skip(cluster=False)
+def test_row_block_unsupported_extras_resp3():
+    row_block_unsupported_extras(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_unsupported_extras():
+    row_block_unsupported_extras(Env())
+
+
+@skip(cluster=False)
+def test_row_block_token_is_internal_only():
+    """A user command must not accept the internal arguments."""
+    env = Env()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for token in ('_ROW_BLOCK', '_ROW_BLOCK_RESP3'):
+        env.expect('FT.AGGREGATE', 'idx', '*', token).error()
 
 
 @skip(cluster=False)

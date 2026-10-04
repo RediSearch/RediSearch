@@ -62,7 +62,7 @@ struct RowBlockWriter *RowBlockWriter_New(void);
  * Re-emits the rows appended so far as the RESP rows the row serializer would have produced, for a chunk that has to
  * abandon its block after rows went into it (they exist nowhere else).
  *
- * Returns false, having emitted nothing, if the block does not decode: the caller then fails the query. The whole
+ * Returns false, having emitted nothing, if the block does not decode, which only a writer bug can cause. The whole
  * block is checked before the first row is emitted, since a reply cannot be retracted.
  *
  * # Safety
@@ -70,11 +70,10 @@ struct RowBlockWriter *RowBlockWriter_New(void);
  * 1. Same contract as [`RowBlockWriter_Bytes`]'s `w`.
  * 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building an array, and must outlive
  *    this call.
- * 3. `nelem` must be a non-null, writable pointer to a `size_t`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Reply *reply, uint32_t req_flags, size_t *nelem);
+bool RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Reply *reply, uint32_t req_flags);
 
 /**
  * # Safety

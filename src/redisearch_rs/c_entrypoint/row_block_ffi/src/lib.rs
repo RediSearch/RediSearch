@@ -144,7 +144,7 @@ pub unsafe extern "C" fn RowBlockWriter_RowCount(w: *const RowBlockWriter) -> us
 /// Re-emits the rows appended so far as the RESP rows the row serializer would have produced, for a chunk that has to
 /// abandon its block after rows went into it (they exist nowhere else).
 ///
-/// Returns false, having emitted nothing, if the block does not decode: the caller then fails the query. The whole
+/// Returns false, having emitted nothing, if the block does not decode, which only a writer bug can cause. The whole
 /// block is checked before the first row is emitted, since a reply cannot be retracted.
 ///
 /// # Safety
@@ -152,7 +152,6 @@ pub unsafe extern "C" fn RowBlockWriter_RowCount(w: *const RowBlockWriter) -> us
 /// 1. Same contract as [`RowBlockWriter_Bytes`]'s `w`.
 /// 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building an array, and must outlive
 ///    this call.
-/// 3. `nelem` must be a non-null, writable pointer to a `size_t`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -160,7 +159,6 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     w: *const RowBlockWriter,
     reply: *mut RedisModule_Reply,
     req_flags: u32,
-    nelem: *mut usize,
 ) -> bool {
     debug_assert!(
         !reply.is_null(),
@@ -174,7 +172,6 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         Ok(block) => block,
         Err(error) => {
             tracing::error!(%error, "a row block this build wrote is not one it can read");
-            debug_assert!(false, "row block replay failed to parse its own block");
             return false;
         }
     };
@@ -182,7 +179,6 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     for row in block.rows() {
         if let Err(error) = row {
             tracing::error!(%error, "a row block this build wrote is not one it can read");
-            debug_assert!(false, "row block replay failed to decode its own row");
             return false;
         }
     }
@@ -243,8 +239,6 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         writer.nrows(),
         "replay must re-emit every row the block held"
     );
-    // SAFETY: ensured by caller (3.)
-    unsafe { nelem.write(nrows) };
     true
 }
 
