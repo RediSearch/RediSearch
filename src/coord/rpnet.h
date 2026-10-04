@@ -14,6 +14,7 @@
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,10 +71,31 @@ typedef struct {
   double knnShardWindowRatio;  // SHARD_K_RATIO
   size_t knnKTokenPos;         // Byte offset of K within the query string
   size_t knnKTokenLen;         // Length of K token in bytes
+
+  // Where this RP's wall time goes, for profiled requests only (see `profileBreakdown`): its
+  // single "Time" figure mixes waiting on shards, converting rows and freeing replies.
+  struct {
+    // Blocked popping shard replies: shard, network and IO-thread time, not coordinator work.
+    rs_wall_clock_ns_t waitTime;
+    // Turning reply rows into lookup rows. Includes freeing value nodes, which
+    // MRReply_ToValue does as it consumes them.
+    rs_wall_clock_ns_t convertTime;
+    // Freeing fully consumed reply trees; excludes the error path and RP teardown.
+    rs_wall_clock_ns_t freeTime;
+    uint64_t replies;
+    uint64_t fields;
+  } breakdown;
+
+  // Whether to maintain `breakdown`. Timed per row, not per field: a clock pair per field
+  // would distort the profiled run.
+  bool profileBreakdown;
 } RPNet;
 
 
 void rpnetFree(ResultProcessor *rp);
+
+// Appends the time breakdown to the RP's open profile map; a no-op when not profiled.
+void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
