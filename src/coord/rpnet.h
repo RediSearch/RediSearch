@@ -73,47 +73,32 @@ typedef struct {
   size_t knnKTokenPos;         // Byte offset of K within the query string
   size_t knnKTokenLen;         // Length of K token in bytes
 
-  // Breakdown of where this RP's wall time goes, accumulated only when the request is
-  // profiled (see `profileBreakdown`). The Network RP dominates coordinator time on heavy
-  // distributed aggregations, but its single "Time" figure conflates three very different
-  // costs, so attributing it was guesswork. Splitting them shows whether the coordinator is
-  // starved by the shards, spending its own CPU materializing rows, or paying for the
-  // reply tree's destruction.
+  // Where this RP's wall time goes, for profiled requests only (see `profileBreakdown`): its
+  // single "Time" figure mixes waiting on shards, converting rows and freeing replies.
   struct {
-    // Blocked popping the next shard reply off the channel: shard execution plus network
-    // plus IO-thread parse latency. Not coordinator work.
+    // Blocked popping shard replies: shard, network and IO-thread time, not coordinator work.
     rs_wall_clock_ns_t waitTime;
-    // Turning a reply's rows into lookup rows - MRReply to RSValue conversion and the
-    // by-name row writes. Coordinator CPU, and where per-field allocation lands. Note
-    // that MRReply_ToValue frees each value node as it consumes it, so the release of
-    // value nodes is counted here rather than in `freeTime`.
+    // Turning reply rows into lookup rows. Includes freeing value nodes, which
+    // MRReply_ToValue does as it consumes them.
     rs_wall_clock_ns_t convertTime;
-    // Freeing exhausted reply trees, on the path that retires a fully consumed reply.
-    // Excludes the error path and RP teardown, which are not per-reply costs. Since value
-    // nodes are already gone (see `convertTime`), what this releases is the row and field
-    // arrays plus one string node per field *name* - names that every row repeats.
+    // Freeing fully consumed reply trees; excludes the error path and RP teardown.
     rs_wall_clock_ns_t freeTime;
-    // Shard replies popped, and field values converted, over the request's lifetime.
     uint64_t replies;
     uint64_t fields;
   } breakdown;
-  // Decoder for a compact row block (the `row_block` Rust crate), when the shard sent one
-  // instead of per-row RESP maps. Created on the first block this RP receives; its block,
-  // whose buffer it took from `current.rows`, is active only while that reply is current.
+  // Created on the first row block this RP receives; its block is active only while the reply
+  // it came from is current.
   RowBlockDecoder *blockDecoder;
 
-  // Whether to maintain `breakdown`. Timing costs two clock reads per row, so it is
-  // confined to profiled requests. Deliberately per-row and not per-field: a clock pair
-  // per field cost ~25% of query wall time on a wide distributed aggregation, enough to
-  // make the profiled run unrepresentative of the unprofiled one.
+  // Whether to maintain `breakdown`. Timed per row, not per field: a clock pair per field
+  // would distort the profiled run.
   bool profileBreakdown;
 } RPNet;
 
 
 void rpnetFree(ResultProcessor *rp);
 
-// Append the Network RP's time breakdown to the profile map already opened for it. A
-// no-op when the request was not profiled.
+// Appends the time breakdown to the RP's open profile map; a no-op when not profiled.
 void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
 void RPNet_resetCurrent(RPNet *nc);

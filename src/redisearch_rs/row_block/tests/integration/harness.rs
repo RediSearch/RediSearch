@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Shared scaffolding: building lookups and rows, encoding them, and comparing what comes
-//! back out.
+//! Shared scaffolding: building lookups and rows, encoding them, and comparing what comes back out.
 
 use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
 use row_block::{
@@ -21,7 +20,6 @@ use std::{
 };
 use value::{SharedValue, Value};
 
-/// A lookup whose keys are all plain output columns.
 pub fn lookup(columns: &[&str]) -> RLookup<'static> {
     lookup_with_flags(
         &columns
@@ -45,7 +43,6 @@ pub fn lookup_with_flags(columns: &[(&str, RLookupKeyFlags)]) -> RLookup<'static
     lookup
 }
 
-/// A row holding `values` for the named columns and nothing for the rest.
 pub fn row(lookup: &RLookup<'_>, values: &[(&str, SharedValue)]) -> RLookupRow<'static> {
     let mut row = RLookupRow::new();
     for (name, value) in values {
@@ -59,17 +56,11 @@ pub fn row(lookup: &RLookup<'_>, values: &[(&str, SharedValue)]) -> RLookupRow<'
     row
 }
 
-/// Encodes `rows` as one block, panicking if the writer refuses anything.
-///
-/// The filter is the empty one, which selects every key, so a test that is not about
-/// [`ColumnFilter`] does not have to mention it.
-///
-/// [`ColumnFilter`]: row_block::ColumnFilter
+/// Encodes `rows` as one block with every key a column, panicking if the writer refuses anything.
 pub fn encode(lookup: &RLookup<'_>, rows: &[RLookupRow<'_>]) -> Vec<u8> {
     encode_with_trio(lookup, rows, TrioMember::Middle)
 }
 
-/// Like [`encode`], but choosing which member a top-level trio field resolves to.
 pub fn encode_with_trio(
     lookup: &RLookup<'_>,
     rows: &[RLookupRow<'_>],
@@ -88,7 +79,6 @@ pub fn encode_with_trio(
     writer.as_bytes().to_vec()
 }
 
-/// A decoded value, in a form tests can build, print and compare.
 #[derive(Debug, Clone)]
 pub enum Decoded {
     Number(f64),
@@ -99,8 +89,8 @@ pub enum Decoded {
     Map(Vec<(Decoded, Decoded)>),
 }
 
-// Numbers compare by bit pattern rather than by value: this is a wire format, so `NaN` must
-// survive a round trip as the same `NaN`, and `-0.0` must not come back as `0.0`.
+// Numbers compare by bit pattern rather than by value: this is a wire format, so `NaN` must survive a round trip as the
+// same `NaN`, and `-0.0` must not come back as `0.0`.
 impl PartialEq for Decoded {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -115,10 +105,7 @@ impl PartialEq for Decoded {
 }
 
 impl Decoded {
-    /// Flattens a decoded [`Value`] for comparison.
-    ///
-    /// Panics on anything the decoder cannot produce, which is how a decoder that started
-    /// producing it would be caught.
+    /// Panics on anything the decoder should never produce.
     pub fn from_value(value: &Value) -> Self {
         match value {
             Value::Number(number) => Self::Number(*number),
@@ -136,7 +123,6 @@ impl Decoded {
         }
     }
 
-    /// The `SharedValue` a row would hold for this value, for feeding the encoder.
     pub fn to_value(&self) -> SharedValue {
         match self {
             Self::Number(number) => SharedValue::new_num(*number),
@@ -168,11 +154,9 @@ pub fn columns_of(block: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// Every row of the block as name / value pairs, in schema order, decoded the way the
-/// coordinator decodes it.
+/// Every row of the block as name / value pairs, in schema order, decoded the way the coordinator decodes it.
 pub fn decode(block: &[u8]) -> Vec<Vec<(String, Decoded)>> {
-    // A fresh lookup creates the columns' keys in schema order, which is the order
-    // `decode_into` reads them back in.
+    // A fresh lookup creates the columns' keys in schema order, which is the order `decode_into` reads them back in.
     decode_into(block, &mut RLookup::new()).expect("the block decodes")
 }
 
@@ -187,8 +171,8 @@ pub fn try_decode(block: &[u8]) -> Result<Vec<Vec<(String, Decoded)>>, DecodeErr
 
 /// The rows a possibly malformed block yields before its first error, and that error.
 ///
-/// Unlike [`try_decode`] this keeps the rows decoded before the failure, which is what a
-/// truncated block has to be judged by.
+/// Unlike [`try_decode`] this keeps the rows decoded before the failure, which is what a truncated block has to be
+/// judged by.
 pub fn decode_prefix(block: &[u8]) -> (Vec<Vec<(String, Decoded)>>, Option<DecodeError>) {
     let parsed = match Block::parse(block) {
         Ok(parsed) => parsed,
@@ -212,8 +196,8 @@ fn field_of((name, value): &(&CStr, SharedValue)) -> (String, Decoded) {
     )
 }
 
-/// Decodes `block` through [`RowBlockDecoder`] into rows of `lookup`, read back as name /
-/// value pairs in `lookup`'s key order.
+/// Decodes `block` through [`RowBlockDecoder`] into rows of `lookup`, read back as name / value pairs in `lookup`'s key
+/// order.
 pub fn decode_into(
     block: &[u8],
     lookup: &mut RLookup<'_>,
@@ -242,23 +226,20 @@ pub fn decode_into(
     Ok(rows)
 }
 
-/// Hands `decoder` a copy of `block` in a buffer of its own, the way the coordinator hands it
-/// a shard reply's.
-///
-/// The lookup half of [`RowBlockDecoder::begin`]'s contract is left to the caller, whose
-/// [`RowBlockDecoder::next_row`] calls have to uphold it anyway.
+/// Hands `decoder` a copy of `block` in a buffer of its own. The lookup half of [`RowBlockDecoder::begin`]'s contract
+/// is left to the caller's [`RowBlockDecoder::next_row`] calls.
 pub fn begin(
     decoder: &mut RowBlockDecoder,
     lookup: &mut RLookup<'_>,
     block: &[u8],
 ) -> Result<(), DecodeError> {
     let (buffer, len) = allocate(block);
-    // SAFETY: `buffer` is a fresh allocation of `len` bytes that nothing else refers to, and
-    // `release` frees it the way it was allocated.
+    // SAFETY: `buffer` is a fresh allocation of `len` bytes that nothing else refers to, and `release` frees it the way
+    // it was allocated.
     unsafe { decoder.begin(lookup, buffer, len, release) }
 }
 
-/// Copies `bytes` into a buffer from the allocator the Redis module allocator is mocked by.
+/// Copies `bytes` into a buffer from the mocked Redis module allocator.
 pub fn allocate(bytes: &[u8]) -> (NonNull<u8>, usize) {
     let buffer = redis_mock::allocator::alloc_shim(bytes.len().max(1)).cast::<u8>();
     let buffer = NonNull::new(buffer).expect("the allocation succeeded");
@@ -267,9 +248,6 @@ pub fn allocate(bytes: &[u8]) -> (NonNull<u8>, usize) {
     (buffer, bytes.len())
 }
 
-/// Frees a buffer from [`allocate`]; the [`Dealloc`](value::shared_buffer::Dealloc) the
-/// decoder is handed.
-///
 /// # Safety
 ///
 /// 1. `buffer` must come from [`allocate`] and not be freed since.
@@ -277,7 +255,6 @@ pub unsafe fn release(buffer: NonNull<u8>, _len: usize) {
     redis_mock::allocator::free_shim(buffer.as_ptr().cast());
 }
 
-/// Builds a header for `ncols` columns, then whatever `rest` adds.
 pub fn block(ncols: u16, rest: &[&[u8]]) -> Vec<u8> {
     let mut bytes = MAGIC.to_le_bytes().to_vec();
     bytes.push(VERSION);
@@ -298,7 +275,6 @@ pub fn typed_column(name: u8, kind: ColumnKind) -> Vec<u8> {
     bytes
 }
 
-/// A valid, reasonably varied block, used as the starting point for corruption.
 pub fn valid_block() -> Vec<u8> {
     let lookup = lookup(&["a", "bb", "ccc"]);
     encode(
@@ -324,15 +300,14 @@ pub fn valid_block() -> Vec<u8> {
     )
 }
 
-/// Where a malformed block is caught: by [`Block::parse`] / [`RowBlockDecoder::begin`], or by
-/// the row that holds the corruption. The coordinator reports the two differently.
+/// Where a malformed block is caught: by [`Block::parse`] / [`RowBlockDecoder::begin`], or by the row that holds the
+/// corruption. The coordinator reports the two differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Schema,
     Row,
 }
 
-/// A malformed block and the error the reader must report for it.
 pub struct Malformed {
     pub what: &'static str,
     pub block: Vec<u8>,
@@ -340,7 +315,6 @@ pub struct Malformed {
     pub phase: Phase,
 }
 
-/// One block for every way the format can be malformed.
 pub fn malformed_blocks() -> Vec<Malformed> {
     use DecodeError::*;
     use Phase::*;
@@ -349,13 +323,13 @@ pub fn malformed_blocks() -> Vec<Malformed> {
     let mut bad_magic = valid.clone();
     bad_magic[0] ^= 0xff;
     let magic = u32::from_le_bytes(bad_magic[..4].try_into().unwrap());
-    // Not read as best-effort: another version may have reused a tag, so guessing at the
-    // payloads would produce wrong values rather than an error.
+    // Not read as best-effort: another version may have reused a tag, so guessing at the payloads would produce wrong
+    // values rather than an error.
     let mut bad_version = valid.clone();
     bad_version[4] = VERSION.wrapping_add(1);
 
-    // One array tag plus a count of 1 buys a level of recursion, so a few kilobytes of block
-    // would otherwise recurse deep enough to overflow the stack.
+    // One array tag plus a count of 1 buys a level of recursion, so a few kilobytes of block would otherwise recurse
+    // deep enough to overflow the stack.
     let mut nested = vec![0b1u8];
     for _ in 0..10_000 {
         nested.push(Tag::Array as u8);
@@ -393,8 +367,8 @@ pub fn malformed_blocks() -> Vec<Malformed> {
         ),
         case("truncated header", valid[..6].to_vec(), Truncated, Schema),
         case("truncated schema", valid[..10].to_vec(), Truncated, Schema),
-        // Every column costs at least four bytes, so this is caught before the decoder tries
-        // to reserve room for 65535 names.
+        // Every column costs at least four bytes, so this is caught before the decoder tries to reserve room for 65535
+        // names.
         case(
             "absurd column count",
             block(u16::MAX, &[&TAGGED_COLUMN]),
@@ -407,8 +381,8 @@ pub fn malformed_blocks() -> Vec<Malformed> {
             MalformedName,
             Schema,
         ),
-        // An interior NUL would make the name the decoder hands on shorter than its declared
-        // length, so the two sides would disagree about which column this is.
+        // An interior NUL would make the name the decoder hands on shorter than its declared length, so the two sides
+        // would disagree about which column this is.
         case(
             "interior NUL in a name",
             block(1, &[&2u16.to_le_bytes(), b"a\0", &[0, 0]]),
@@ -459,8 +433,8 @@ pub fn malformed_blocks() -> Vec<Malformed> {
             UnknownTag { tag: 0 },
             Row,
         ),
-        // Without the count checks these would be handed to `Vec::with_capacity`, turning
-        // four corrupt bytes into a multi-gigabyte allocation.
+        // Without the count checks these would be handed to `Vec::with_capacity`, turning four corrupt bytes into a
+        // multi-gigabyte allocation.
         case(
             "absurd array count",
             tagged(&[&[Tag::Array as u8], &u32::MAX.to_le_bytes()]),
@@ -473,8 +447,8 @@ pub fn malformed_blocks() -> Vec<Malformed> {
             ImplausibleCount { count: u32::MAX },
             Row,
         ),
-        // A map entry is a key *and* a value, so it costs two bytes at the very least; a count
-        // checked against one byte per entry would run off the end.
+        // A map entry is a key *and* a value, so it costs two bytes at the very least; a count checked against one byte
+        // per entry would run off the end.
         case(
             "map count only half backed",
             tagged(&[
@@ -512,7 +486,6 @@ pub fn malformed_blocks() -> Vec<Malformed> {
     ]
 }
 
-/// A value nesting one level deeper than the format carries.
 pub fn too_deep() -> SharedValue {
     (0..=MAX_NESTING_DEPTH).fold(SharedValue::new_num(1.0), |inner, _| {
         SharedValue::new_array(vec![inner])

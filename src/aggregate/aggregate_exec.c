@@ -633,28 +633,16 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * Returns the final rc value and updates state accordingly.
  */
 
-// ---- compact row-block encoding for the internal coordinator<->shard path ----------------
-//
-// When enabled, a chunk's rows travel as ONE binary bulk string instead of one RESP map per
-// row (see the `row_block` Rust crate). Restricted to internal (coordinator-dispatched)
-// aggregate requests; client-facing replies retain their normal RESP2 or RESP3 shape.
-//
-// The reply shape is unchanged apart from the rows themselves: [total, <block>] instead of
-// [total, row, row, ...] in RESP2, or a single block in the RESP3 results array.
-// The coordinator distinguishes blocks from legacy rows by the element's reply type.
-//
-// A block carries a row's fields and nothing else, so any request asking for the per-row
-// extras `serializeResult` can prepend - id, score, payload, sortkey, required fields - stays
-// on the RESP path: encoding it would drop them silently. The aggregate fan-out asks for none
-// of them, so this only bars a hand-rolled internal request.
+// Row blocks (the `row_block` Rust crate): for coordinator-dispatched aggregates, a chunk's rows
+// go out as one bulk string in place of the rows array's elements. A block carries only the row
+// fields, so requests asking for the per-row extras `serializeResult` can add stay on RESP.
 #define ROW_BLOCK_UNSUPPORTED_FLAGS                                        \
   (QEXEC_F_IS_SEARCH | QEXEC_F_SEND_NOFIELDS | QEXEC_F_SEND_SCORES |       \
    QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS | QEXEC_F_SEND_SORTKEYS |    \
    QEXEC_F_REQUIRED_FIELDS)
 
 static bool useRowBlock(const AREQ *req, const RedisModule_Reply *reply) {
-  // Driven by the coordinator's request, not by this shard's config: see
-  // RequestConfig::internalRowBlock for why the sender owns the decision.
+  // Decided by the coordinator's request (see RequestConfig::internalRowBlock).
   if (!req->reqConfig.internalRowBlock) return false;
   if (reply->resp3 && !req->reqConfig.internalRowBlockResp3) return false;
   if (!IsInternal(req)) return false;
@@ -662,9 +650,7 @@ static bool useRowBlock(const AREQ *req, const RedisModule_Reply *reply) {
   return true;
 }
 
-// One writer per worker thread, reused across chunks so buffer growth is paid once. Never
-// freed: a worker thread that encoded one chunk will encode more, and the buffer is what
-// makes the second chunk cheap.
+// Per worker thread and never freed, so buffer growth is paid once.
 static __thread RowBlockWriter *rowBlockWriter = NULL;
 
 static RowBlockWriter *rowBlockWriter_Get(void) {
@@ -682,15 +668,9 @@ static inline void rowBlockFlags(const AREQ *req, uint32_t *requiredFlags,
   *requiredFlags = req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0;
 }
 
-// Give up on the block for this chunk, after the writer refused a row it cannot encode.
-// The rows already in the block are re-emitted as RESP rows and the caller carries on down
-// the RESP path, refused row included, so the chunk degrades to the encoding a shard with
-// the format off would have used instead of losing values or the rows around them.
-//
-// Returns false when the block did not decode, which means this build's encoder and decoder
-// disagree. Nothing has been emitted in that case, and the caller must fail the query: the
-// rows are recoverable from nowhere else, and replying the chunk without them would report
-// partial aggregation results as complete ones.
+// After a refused row, re-emits the block's rows as RESP so the chunk continues on the RESP
+// path. Returns false, having emitted nothing, if the block does not decode; the caller then
+// fails the query, as those rows exist nowhere else.
 static bool rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter *w) {
   RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "notice",
                   "Row block encoding refused a row; replying this chunk in RESP instead");
@@ -701,13 +681,8 @@ static bool rowBlockFallback(AREQ *req, RedisModule_Reply *reply, RowBlockWriter
   return true;
 }
 
-// The block did not decode, so the rows it held cannot be replied and exist nowhere else.
-// Fail the query rather than reply the chunk without them: a short aggregation reply is
-// indistinguishable from a complete one, so silently dropping rows would corrupt results.
-// A hard error reply is no longer available here - RedisModule_Reply has written the chunk
-// header through to the client and offers no way to retract it - so this uses the same
-// post-header failure signal as the rest of the pipeline: a QueryError plus RS_RESULT_ERROR,
-// which _replyWarnings reports and which ends the cursor.
+// Fails the query rather than reply a chunk missing rows. The chunk header is already written,
+// so this uses the post-header failure signal: a QueryError plus RS_RESULT_ERROR.
 static int rowBlockReplayFailed(AREQ *req, QueryProcessingCtx *qctx,
                                 ChunkSerializeState *state) {
   RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning",
@@ -718,9 +693,8 @@ static int rowBlockReplayFailed(AREQ *req, QueryProcessingCtx *qctx,
   return RS_RESULT_ERROR;
 }
 
-// Emits one chunk's rows, as a row block when the request allows it and as RESP rows
-// otherwise. The streaming and the buffered (aggregate-first) reply paths both go through it,
-// so a chunk's encoding never depends on which of them produced its rows.
+// Emits one chunk's rows, as a row block when the request allows it. Shared by the streaming
+// and buffered reply paths so both encode alike.
 typedef struct {
   RowBlockWriter *w;  // NULL while the chunk is on the RESP path
 } RowEmitter;
@@ -732,15 +706,13 @@ static void rowEmitter_Init(RowEmitter *e, AREQ *req, const RedisModule_Reply *r
   uint32_t required, exclude;
   rowBlockFlags(req, &required, &exclude);
   RowBlockWriter *w = rowBlockWriter_Get();
-  // No columns to emit (an aggregate with no LOAD, say) means rows of zero bytes, which
-  // a block cannot count: reply in RESP, where an empty row is still a row.
+  // Zero columns would make zero-byte rows, which a block cannot count.
   if (RowBlockWriter_WriteSchema(w, cv->lastLookup, required, exclude) > 0) {
     e->w = w;
   }
 }
 
-// Returns false when a refused row's fallback could not replay the block; the caller must
-// then fail the query with rowBlockReplayFailed and emit nothing more.
+// Returns false when rowBlockFallback failed; the caller then calls rowBlockReplayFailed.
 static bool rowEmitter_Emit(RowEmitter *e, AREQ *req, RedisModule_Reply *reply, SearchResult *r,
                             cachedVars *cv) {
   if (e->w) {
@@ -787,8 +759,7 @@ static int serializeChunkRows(AREQ *req, RedisModule_Reply *reply, ResultProcess
   return rc;
 }
 
-// The buffered counterpart of serializeChunkRows, for rows the pipeline aggregated before
-// replying (see startPipelineCommon). Consumes and frees `results` either way.
+// The buffered counterpart of serializeChunkRows. Consumes and frees `results`.
 static int populateReplyWithResults(AREQ *req, RedisModule_Reply *reply, SearchResult **results,
                                     QueryProcessingCtx *qctx, int rc, cachedVars *cv,
                                     ChunkSerializeState *state) {
@@ -997,7 +968,7 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   const bool cursor_done = state->cursor_done;
   RedisModule_Reply_ArrayEnd(reply); // >results
   if (state->rowBlock) {
-    // Preserve the legacy whole-chunk count even when the coordinator stops at LIMIT.
+    // The whole chunk's count, even when the coordinator stops at LIMIT.
     RedisModule_ReplyKV_LongLong(reply, "row_block_rows", state->rowBlockRows);
   }
 

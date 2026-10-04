@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! The header and schema: the exact bytes, which keys become columns, and the cases a caller
-//! must fall back to RESP for.
+//! The header and schema: the exact bytes, which keys become columns, and the cases a caller must fall back to RESP
+//! for.
 
 use crate::harness::{Decoded, bytes, columns_of, decode, encode, lookup, lookup_with_flags, row};
 use pretty_assertions::assert_eq;
@@ -18,8 +18,8 @@ use value::SharedValue;
 
 #[test]
 fn header_and_schema_bytes_are_exactly_the_documented_layout() {
-    // The decoder on the other end of the internal path is a separate build in principle, so
-    // this is the test that fails if the layout is ever changed by accident.
+    // The decoder on the other end of the internal path is a separate build in principle, so this is the test that
+    // fails if the layout is ever changed by accident.
     let lookup = lookup(&["ab", "c"]);
     let block = encode(&lookup, &[]);
 
@@ -96,8 +96,8 @@ fn a_block_with_no_rows_is_just_its_schema() {
 
 #[test]
 fn a_lookup_with_no_visible_keys_declares_no_columns() {
-    // Rows would be zero bytes long, which no reader can count, so the caller has to reply in
-    // RESP. `write_schema` reporting zero is how it finds out.
+    // Rows would be zero bytes long, which no reader can count, so the caller has to reply in RESP. `write_schema`
+    // reporting zero is how it finds out.
     let mut writer = RowBlockWriter::new();
     assert_eq!(
         writer.write_schema(&lookup(&[]), ColumnFilter::default()),
@@ -144,8 +144,8 @@ fn the_filter_selects_the_same_columns_the_resp_serializer_would() {
 
 #[test]
 fn a_filtered_out_column_is_absent_from_rows_too() {
-    // The schema and the rows must agree on the columns, or the presence bitmap describes a
-    // different set of columns than the schema declares.
+    // The schema and the rows must agree on the columns, or the presence bitmap describes a different set of columns
+    // than the schema declares.
     let lookup = lookup_with_flags(&[
         ("plain", RLookupKeyFlags::empty()),
         ("hidden", RLookupKeyFlag::Hidden.into()),
@@ -184,9 +184,9 @@ fn a_filtered_out_column_is_absent_from_rows_too() {
 
 #[test]
 fn a_column_name_too_long_for_its_length_field_is_refused() {
-    // The length is a `u16` but the full name plus its terminator follows it, so writing a
-    // truncated length would leave the decoder reading the name's tail as the next field —
-    // and every field after it in the block. Reachable through `LOAD ... AS <alias>`.
+    // The length is a `u16` but the full name plus its terminator follows it, so writing a truncated length would leave
+    // the decoder reading the name's tail as the next field — and every field after it in the block. Reachable through
+    // `LOAD ... AS <alias>`.
     let over = "x".repeat(usize::from(u16::MAX) + 1);
     let mut writer = RowBlockWriter::new();
     assert_eq!(
@@ -241,8 +241,8 @@ fn reset_discards_the_block_and_lets_a_new_schema_be_written() {
 
 #[test]
 fn presence_bits_cross_bitmap_bytes() {
-    // Seventeen columns take three bitmap bytes, the last holding a single bit: the one an
-    // off-by-one in the byte count would drop.
+    // Seventeen columns take three bitmap bytes, the last holding a single bit: the one an off-by-one in the byte count
+    // would drop.
     let names: Vec<String> = (0..17).map(|i| format!("c{i}")).collect();
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
     let lookup = lookup(&refs);

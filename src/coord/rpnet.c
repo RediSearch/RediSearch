@@ -37,15 +37,13 @@
 
 #define CURSOR_EOF 0
 
-// Add the time since `start` to `*acc`, for the profile breakdown in RPNet::breakdown.
 // Callers guard on RPNet::profileBreakdown so unprofiled requests read no clocks.
 static inline void accumulateSince(rs_wall_clock_ns_t *acc, rs_wall_clock *start) {
   *acc += rs_wall_clock_elapsed_ns(start);
 }
 
 // Converts an MRReply to an RSValue, consuming the reply. String buffers can be
-// transferred directly because hiredis uses the Redis module allocator (as can row blocks;
-// see blockBegin).
+// transferred directly because hiredis uses the Redis module allocator.
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
@@ -105,22 +103,9 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 }
 
 
-// ---- compact row-block decoding ---------------------------------------------------------
-//
-// A shard running with `search-internal-row-block-format` sends a chunk's rows as one binary
-// bulk string instead of one RESP map per row, which collapses ~15 reply objects per row to
-// one per chunk and drops the repeated field names from the wire. Format: the `row_block`
-// Rust crate.
-//
-// Detection is by reply type, not by negotiation: the rows element is a string for a block
-// and an array for the legacy per-row encoding, so a coordinator decodes whatever it is sent.
-
-// Hand the block in `rows` to the decoder as its active block, resolving its columns to
-// RLookupKeys once for the whole block. Returns false on a malformed block, which the caller
-// reports as a shard error.
-//
-// The decoder takes the reply's string buffer rather than borrowing it: decoded string values
-// point into the block instead of copying out of it, and outlive the reply.
+// A shard asked for row blocks (the `row_block` Rust crate) sends a chunk's rows as one bulk
+// string rather than an array of RESP rows; the reply type tells the two apart. The decoder
+// takes over the string's buffer, since decoded strings point into it and outlive the reply.
 static bool blockBegin(RPNet *nc, MRReply *rows) {
   if (!nc->blockDecoder) nc->blockDecoder = RowBlockDecoder_New();
   size_t len;
@@ -386,8 +371,6 @@ int getNextReply(RPNet *nc) {
   return RS_RESULT_OK;
 }
 
-// Emit the Network RP's wait/convert/free breakdown, when it was collected. Kept next to
-// the instrumentation it reports so the two cannot drift apart.
 void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor *rp) {
   const RPNet *nc = (const RPNet *)rp;
   if (!nc->profileBreakdown) return;
@@ -453,7 +436,6 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
-    // The active block, if any, came from the reply just dropped.
     if (nc->blockDecoder) RowBlockDecoder_End(nc->blockDecoder);
 }
 
@@ -494,7 +476,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 take_reply:
   if (rows) {
-    // A row block is consumed by cursor position; the legacy encoding by element index.
     const bool exhausted = blockActive(nc) ? !RowBlockDecoder_HasRows(nc->blockDecoder)
                                            : (nc->curIdx == MRReply_Length(rows));
     if (exhausted) {
@@ -530,9 +511,7 @@ take_reply:
     int ret = getNextReply(nc);
     if (nc->profileBreakdown) {
       accumulateSince(&nc->breakdown.waitTime, &waitStart);
-      // A popped reply is signalled by current.root, not by the return code:
-      // getNextReply also returns RS_RESULT_OK with a NULL root when the channel is
-      // momentarily empty but shards are still pending, and the caller re-enters.
+      // RS_RESULT_OK with a NULL root means the channel was momentarily empty.
       if (nc->current.root) nc->breakdown.replies++;
     }
     if (ret == RS_RESULT_EOF) {
@@ -647,9 +626,7 @@ take_reply:
     }
   }
 
-  // A chunk that produced no rows still carries a header and schema, so its reply is longer
-  // than the bare `[total]` getNextReply drops for the legacy encoding, and the row decoder
-  // below would read it as a truncated row. Retire it and take the next reply instead.
+  // An empty chunk's block still has a schema, so getNextReply's empty-reply check misses it.
   if (blockActive(nc) && !RowBlockDecoder_HasRows(nc->blockDecoder)) {
     goto take_reply;
   }
@@ -665,7 +642,7 @@ take_reply:
     }
     if (nc->profileBreakdown) {
       accumulateSince(&nc->breakdown.convertTime, &convertStart);
-      // Every column counts, present in this row or not: a block row spans the whole schema.
+      // A block row counts every column, present or not.
       nc->breakdown.fields += RowBlockDecoder_ColumnCount(nc->blockDecoder);
     }
     return RS_RESULT_OK;

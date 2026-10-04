@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Decoded strings borrowing from their block instead of copying out of it, and the bound on
-//! how much memory the borrows may keep alive.
+//! Decoded strings borrowing from their block instead of copying out of it, and the bound on how much memory the
+//! borrows may keep alive.
 
 use crate::harness::{Decoded, begin, bytes, encode, lookup, row};
 use pretty_assertions::assert_eq;
@@ -16,8 +16,7 @@ use rlookup::{RLookup, RLookupRow};
 use row_block::{RowBlockDecoder, decoder::MAX_PINNED_BYTES};
 use value::{SharedValue, Value, shared_buffer::MAX_SHARED_OFFSET};
 
-/// A block of `rows` rows, each holding one string of `len` bytes in column `s` and a number
-/// in column `n`.
+/// `rows` rows of a `len`-byte string in column `s` and a number in column `n`.
 fn string_block(rows: usize, len: usize) -> Vec<u8> {
     let shard = lookup(&["s", "n"]);
     let rows: Vec<_> = (0..rows)
@@ -33,8 +32,8 @@ fn string_block(rows: usize, len: usize) -> Vec<u8> {
     encode(&shard, &rows)
 }
 
-/// Makes `block` `decoder`'s active block and decodes all of it, returning each row's values
-/// in schema order. The rows themselves are dropped, as a streaming pipeline drops them.
+/// Makes `block` `decoder`'s active block and decodes all of it, returning each row's values in schema order. The rows
+/// themselves are dropped, as a streaming pipeline drops them.
 fn decode_values(decoder: &mut RowBlockDecoder, block: &[u8]) -> Vec<Vec<SharedValue>> {
     let mut coordinator = RLookup::new();
     begin(decoder, &mut coordinator, block).expect("the block parses");
@@ -133,9 +132,9 @@ fn a_string_too_far_into_its_block_is_copied() {
 
 #[test]
 fn past_the_pinning_budget_strings_are_copied_until_blocks_are_released() {
-    // One string kept per block — a `GROUPBY` key, say — pins every block it came from. Once
-    // that passes the budget the decoder stops sharing, so the retained memory stays bounded
-    // by the budget plus one block instead of growing with the stream.
+    // One string kept per block — a `GROUPBY` key, say — pins every block it came from. Once that passes the budget the
+    // decoder stops sharing, so the retained memory stays bounded by the budget plus one block instead of growing with
+    // the stream.
     let block = string_block(64, 1024);
     let mut decoder = RowBlockDecoder::new();
 

@@ -7,12 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Reading a block back: the inverse of [`crate::writer`], over the same byte layout.
-//!
-//! Two consumers: the coordinator, which decodes the blocks shards send it through
-//! [`crate::RowBlockDecoder`], and the encoder's own fallback path, which replays a block it
-//! just wrote as ordinary RESP rows. The input is untrusted in both: a block is bytes, and
-//! there is no cheap way to prove the bytes came from this build.
+//! Reading a block back. Used by [`crate::RowBlockDecoder`] on the coordinator and by the shard's RESP replay fallback;
+//! the input is treated as untrusted in both.
 
 use crate::{ColumnKind, MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get};
 use std::ffi::CStr;
@@ -21,68 +17,43 @@ use value::{SharedBuffer, SharedValue, Value};
 /// Why a block could not be decoded.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DecodeError {
-    /// A field ran past the end of the block.
     #[error("block ends mid-field")]
     Truncated,
 
-    /// The block does not open with [`MAGIC`].
     #[error("block opens with {magic:#010x} rather than the row block magic")]
-    BadMagic {
-        /// The four bytes found where the magic belongs.
-        magic: u32,
-    },
+    BadMagic { magic: u32 },
 
-    /// The block is not the [`VERSION`] this build speaks.
     #[error("block declares format version {version}, which this build does not read")]
-    UnsupportedVersion {
-        /// The version byte found in the header.
-        version: u8,
-    },
+    UnsupportedVersion { version: u8 },
 
-    /// A schema name is not the NUL-terminated string of its declared length — either the
-    /// terminator is missing or the name contains an interior NUL.
+    /// The terminator is missing, or the name contains an interior NUL.
     #[error("schema name is not terminated at its declared length")]
     MalformedName,
 
-    /// A tag byte no [`Tag`] uses. Its payload length is unknown, so the cursor cannot be
-    /// advanced past it and the rest of the block is unreadable.
+    /// Its payload length is unknown, so nothing after it can be read.
     #[error("value carries tag {tag}, which no version of this format writes")]
-    UnknownTag {
-        /// The unrecognised tag byte.
-        tag: u8,
-    },
+    UnknownTag { tag: u8 },
 
-    /// A string payload not followed by the NUL the layout puts after every string.
     #[error("string is not terminated at its declared length")]
     UnterminatedString,
 
-    /// A schema kind byte no [`ColumnKind`] uses. Every value of the column would have an
-    /// unknown layout, so no row can be read.
     #[error("column declares kind {kind}, which no version of this format writes")]
-    UnknownColumnKind {
-        /// The unrecognised kind byte.
-        kind: u8,
-    },
+    UnknownColumnKind { kind: u8 },
 
-    /// A length or count field larger than the bytes left in the block could satisfy. Caught
-    /// before it is used to size an allocation.
+    /// A length or count larger than the rest of the block could hold, caught before it sizes an allocation.
     #[error("length field of {count} exceeds what the rest of the block can hold")]
-    ImplausibleCount {
-        /// The offending length or element count.
-        count: u32,
-    },
+    ImplausibleCount { count: u32 },
 
     /// Nesting beyond [`MAX_NESTING_DEPTH`].
     #[error("value nests deeper than the format carries")]
     TooDeeplyNested,
 
-    /// Bytes follow a schema declaring no columns. Rows would be zero bytes long there, so
-    /// the trailing bytes cannot be split into rows at all — see the [crate] docs.
+    /// Bytes follow a schema with no columns, where rows would be zero bytes long.
     #[error("block declares no columns yet carries row bytes")]
     RowsWithoutColumns,
 }
 
-/// A parsed block: its schema, plus the row bytes still to be decoded.
+/// A parsed header and schema, plus the undecoded rows.
 #[derive(Debug)]
 pub struct Block<'a> {
     names: Vec<&'a CStr>,
@@ -90,21 +61,19 @@ pub struct Block<'a> {
     rows: &'a [u8],
 }
 
-/// One decoded row: the columns the row held a value for, in schema order.
+/// The present columns of one decoded row, in schema order.
 #[derive(Debug)]
 pub struct Row<'a> {
     fields: Vec<(&'a CStr, SharedValue)>,
 }
 
 impl<'a> Row<'a> {
-    /// The row's present columns as name / value pairs, in schema order.
     pub fn fields(&self) -> &[(&'a CStr, SharedValue)] {
         &self.fields
     }
 }
 
 impl<'a> Block<'a> {
-    /// Parses a block's header and schema, leaving its rows for [`Block::rows`].
     pub fn parse(bytes: &'a [u8]) -> Result<Self, DecodeError> {
         let mut cursor = Cursor { bytes };
 
@@ -118,9 +87,7 @@ impl<'a> Block<'a> {
         }
         let ncols = cursor.take_u16()?;
 
-        // Every column costs a length field, a terminator and a kind at the very least, so a
-        // count the rest of the block cannot cover is corrupt — reject it before sizing
-        // `names`.
+        // Reject a column count the remaining bytes cannot back before sizing allocations from it.
         const MIN_BYTES_PER_COLUMN: usize = size_of::<u16>() + 2;
         if usize::from(ncols) * MIN_BYTES_PER_COLUMN > cursor.bytes.len() {
             return Err(DecodeError::Truncated);
@@ -148,22 +115,18 @@ impl<'a> Block<'a> {
         })
     }
 
-    /// The block's column names, in schema order.
     pub fn columns(&self) -> &[&'a CStr] {
         &self.names
     }
 
-    /// The block's column kinds, in schema order.
     pub fn kinds(&self) -> &[ColumnKind] {
         &self.kinds
     }
 
-    /// The bytes following the schema, for a [`RowReader`].
     pub const fn row_bytes(&self) -> &'a [u8] {
         self.rows
     }
 
-    /// Decodes the block's rows, stopping at the first malformed one.
     pub fn rows(&self) -> Rows<'a, '_> {
         Rows {
             block: self,
@@ -172,10 +135,8 @@ impl<'a> Block<'a> {
     }
 }
 
-/// Iterator over a [`Block`]'s rows, yielded by [`Block::rows`].
-///
-/// Fuses on the first error: a block that stops making sense mid-row cannot be resynchronised,
-/// since row boundaries are implied by the values themselves.
+/// Iterator over a [`Block`]'s rows. Fuses on the first error: row boundaries are implied by the values, so there is
+/// nothing to resynchronise to.
 #[derive(Debug)]
 pub struct Rows<'a, 'block> {
     block: &'block Block<'a>,
@@ -200,14 +161,7 @@ impl<'a> Iterator for Rows<'a, '_> {
 
 impl std::iter::FusedIterator for Rows<'_, '_> {}
 
-/// Decodes the rows section of a block one row at a time, handing each present field to a
-/// caller-supplied sink instead of collecting it.
-///
-/// This is the primitive under both [`Rows`] and [`crate::RowBlockDecoder`]: the latter cannot
-/// hold a [`Block`] across calls from C, so it rebuilds a reader over the bytes it has not
-/// consumed yet on every row.
-///
-/// Fuses on the first error, for the reason given on [`Rows`].
+/// Decodes rows one at a time into a caller-supplied sink. Fuses on the first error, like [`Rows`].
 #[derive(Debug)]
 pub struct RowReader<'a, 'k> {
     cursor: Cursor<'a>,
@@ -216,19 +170,15 @@ pub struct RowReader<'a, 'k> {
     failed: bool,
 }
 
-/// Where a decoded string's bytes come from.
 #[derive(Debug, Clone, Copy)]
 enum Strings<'b> {
-    /// Copied out of the block.
     Copied,
-    /// Borrowed from the block, which this buffer holds — falling back to a copy for a string
-    /// [`SharedBuffer::share`] cannot borrow.
+    /// Borrowed from this buffer where [`SharedBuffer::share`] can, copied otherwise.
     Shared(&'b SharedBuffer),
 }
 
 impl<'a, 'k> RowReader<'a, 'k> {
-    /// A reader over `rows`, the bytes following the schema of a block whose columns have the
-    /// given `kinds`.
+    /// A reader over the bytes following a schema whose columns have `kinds`.
     ///
     /// # Panics
     ///
@@ -246,13 +196,11 @@ impl<'a, 'k> RowReader<'a, 'k> {
         }
     }
 
-    /// Like [`RowReader::new`], but decoding strings as borrows of `buffer` instead of copies,
-    /// so that the values keep the block alive rather than duplicating its bytes.
+    /// Like [`RowReader::new`], but decoded strings borrow from `buffer` instead of copying.
     ///
     /// # Panics
     ///
-    /// Panics if `rows` is not part of `buffer`'s bytes, or for the reason
-    /// [`RowReader::new`] does.
+    /// Panics if `rows` is not part of `buffer`'s bytes, or as [`RowReader::new`] does.
     pub fn sharing(rows: &'a [u8], kinds: &'k [ColumnKind], buffer: &'k SharedBuffer) -> Self {
         let whole = buffer.as_bytes().as_ptr_range();
         let part = rows.as_ptr_range();
@@ -266,22 +214,17 @@ impl<'a, 'k> RowReader<'a, 'k> {
         }
     }
 
-    /// Whether no row is left to read, either because the bytes ran out on a row boundary or
-    /// because an earlier row failed to decode.
+    /// True once the bytes ran out on a row boundary or a row failed to decode.
     pub const fn is_exhausted(&self) -> bool {
         self.failed || self.cursor.bytes.is_empty()
     }
 
-    /// The bytes after the last row read.
     pub const fn remaining(&self) -> &'a [u8] {
         self.cursor.bytes
     }
 
-    /// Decodes the next row, calling `sink` with each present column's index and value, in
-    /// schema order.
-    ///
-    /// On error `sink` may already have been called for the columns before the malformed one;
-    /// the reader is then exhausted.
+    /// Decodes the next row, calling `sink` with each present column's index and value. On error `sink` may already
+    /// have seen the columns before the malformed one.
     ///
     /// # Panics
     ///
@@ -316,7 +259,6 @@ impl<'a, 'k> RowReader<'a, 'k> {
     }
 }
 
-/// Decodes one tagged value nested `depth` levels below a row field.
 fn decode_value(
     cursor: &mut Cursor<'_>,
     strings: Strings<'_>,
@@ -326,8 +268,6 @@ fn decode_value(
     decode_payload(cursor, strings, tag, depth)
 }
 
-/// Decodes the payload of a value whose `tag` is already known, nested `depth` levels below
-/// a row field.
 fn decode_payload(
     cursor: &mut Cursor<'_>,
     strings: Strings<'_>,
@@ -377,9 +317,7 @@ fn decode_payload(
     })
 }
 
-/// The length of the value of `kind` at the start of `bytes`, without decoding it.
-///
-/// For the writer, which re-encodes rows it already wrote when a column's kind changes.
+/// The length of the value of `kind` at the start of `bytes`, for the writer's re-encoding of earlier rows.
 pub(crate) fn value_len(bytes: &[u8], kind: ColumnKind) -> Result<usize, DecodeError> {
     let mut cursor = Cursor { bytes };
     match kind {
@@ -389,13 +327,11 @@ pub(crate) fn value_len(bytes: &[u8], kind: ColumnKind) -> Result<usize, DecodeE
     Ok(bytes.len() - cursor.bytes.len())
 }
 
-/// Steps over one tagged value; the skipping counterpart of [`decode_value`].
 fn skip_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<(), DecodeError> {
     let tag = cursor.take_tag()?;
     skip_payload(cursor, tag, depth)
 }
 
-/// Steps over one payload; the skipping counterpart of [`decode_payload`].
 fn skip_payload(cursor: &mut Cursor<'_>, tag: Tag, depth: u32) -> Result<(), DecodeError> {
     if depth > MAX_NESTING_DEPTH {
         return Err(DecodeError::TooDeeplyNested);
@@ -423,17 +359,15 @@ fn skip_payload(cursor: &mut Cursor<'_>, tag: Tag, depth: u32) -> Result<(), Dec
     Ok(())
 }
 
-/// The fewest bytes a tagged value can occupy: a bare [`Tag::Null`] is its tag alone.
+/// A bare [`Tag::Null`] is the smallest tagged value.
 const MIN_BYTES_PER_VALUE: usize = 1;
 
-/// Little-endian read head over a block's bytes.
 #[derive(Debug)]
 struct Cursor<'a> {
     bytes: &'a [u8],
 }
 
 impl<'a> Cursor<'a> {
-    /// Consumes `n` bytes.
     const fn take(&mut self, n: usize) -> Result<&'a [u8], DecodeError> {
         if n > self.bytes.len() {
             return Err(DecodeError::Truncated);
@@ -443,7 +377,6 @@ impl<'a> Cursor<'a> {
         Ok(taken)
     }
 
-    /// Consumes a fixed-width little-endian scalar.
     fn take_array<const N: usize>(&mut self) -> Result<[u8; N], DecodeError> {
         let taken = self.take(N)?;
         Ok(taken.try_into().expect("`take` yields exactly `N` bytes"))
@@ -465,7 +398,6 @@ impl<'a> Cursor<'a> {
         Ok(f64::from_le_bytes(self.take_array()?))
     }
 
-    /// Consumes a [`Tag::String`] payload, returning the string without its NUL.
     fn take_string(&mut self) -> Result<&'a [u8], DecodeError> {
         let len = self.take_count(1)?;
         let stored = self.take(len + 1)?;
@@ -475,17 +407,13 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// Consumes a value's tag byte.
     fn take_tag(&mut self) -> Result<Tag, DecodeError> {
         let byte = self.take_u8()?;
         Tag::from_byte(byte).ok_or(DecodeError::UnknownTag { tag: byte })
     }
 
-    /// Consumes one of the layout's `u32` length fields, rejecting a count the remaining bytes
-    /// cannot possibly satisfy at `bytes_per_element` bytes apiece.
-    ///
-    /// Without this a hostile count would be handed straight to `Vec::with_capacity`, turning
-    /// a few corrupt bytes into a multi-gigabyte allocation.
+    /// Consumes a `u32` count, rejecting one the remaining bytes cannot back at `bytes_per_element` apiece, so a
+    /// corrupt count never sizes an allocation.
     fn take_count(&mut self, bytes_per_element: usize) -> Result<usize, DecodeError> {
         let count = self.take_u32()?;
         if (count as usize).saturating_mul(bytes_per_element) > self.bytes.len() {

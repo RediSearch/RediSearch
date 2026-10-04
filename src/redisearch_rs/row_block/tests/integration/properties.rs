@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Properties that must hold for every block, rather than for the hand-picked shapes the
-//! other modules cover.
+//! Properties that must hold for every block, rather than for the hand-picked shapes the other modules cover.
 
 // proptest calls getcwd(), which Miri does not support.
 #![cfg(not(miri))]
@@ -18,7 +17,6 @@ use proptest::prelude::*;
 use rlookup::RLookup;
 use row_block::{MAGIC, VERSION};
 
-/// Arbitrary values of every tag, nested a few levels deep.
 fn any_value() -> impl Strategy<Value = Decoded> {
     let leaf = prop_oneof![
         any::<f64>().prop_map(Decoded::Number),
@@ -40,7 +38,7 @@ fn any_kind_byte() -> impl Strategy<Value = u8> {
     0u8..=6
 }
 
-/// Arbitrary rows over `ncols` columns: `Some` where the row holds a value.
+/// `Some` where the row holds a value.
 fn any_rows(ncols: usize) -> impl Strategy<Value = Vec<Vec<Option<Decoded>>>> {
     prop::collection::vec(
         prop::collection::vec(prop::option::of(any_value()), ncols),
@@ -84,10 +82,9 @@ fn build(rows: &[Vec<Option<Decoded>>], ncols: usize) -> (Vec<u8>, Vec<Vec<(Stri
 }
 
 proptest! {
-    /// Whatever the rows hold, a block decodes back to exactly what went in, through the
-    /// coordinator's decoder and through the replay path's reader alike. Columns from 1 to 17
-    /// put the presence bits on both sides of every bitmap byte boundary, and values of
-    /// several types in one column exercise retagging at every row position.
+    /// Whatever the rows hold, a block decodes back to exactly what went in, through the coordinator's decoder and
+    /// through the replay path's reader alike. Columns from 1 to 17 put the presence bits on both sides of every bitmap
+    /// byte boundary, and values of several types in one column exercise retagging at every row position.
     #[test]
     fn every_block_round_trips((ncols, rows) in (1usize..18).prop_flat_map(|n| (Just(n), any_rows(n)))) {
         let (block, want) = build(&rows, ncols);
@@ -95,8 +92,8 @@ proptest! {
         prop_assert_eq!(decode_into(&block, &mut RLookup::new()), Ok(want));
     }
 
-    /// Cutting a valid block short must never panic, and must never invent, corrupt or
-    /// silently drop a row that was fully inside the surviving prefix.
+    /// Cutting a valid block short must never panic, and must never invent, corrupt or silently drop a row that was
+    /// fully inside the surviving prefix.
     #[test]
     fn truncating_a_block_yields_a_clean_error_after_the_rows_before_the_cut(
         (ncols, rows) in (1usize..10).prop_flat_map(|n| (Just(n), any_rows(n))),
@@ -106,15 +103,15 @@ proptest! {
             let (got, error) = decode_prefix(&block[..len]);
             prop_assert!(got.len() <= want.len());
             prop_assert_eq!(&got[..], &want[..got.len()]);
-            // A cut inside the rows is either on a row boundary, leaving fewer rows, or
-            // inside one, which is an error; a cut inside the schema is always an error.
+            // A cut inside the rows is either on a row boundary, leaving fewer rows, or inside one, which is an error;
+            // a cut inside the schema is always an error.
             prop_assert!(error.is_some() || got.len() < want.len(), "{} bytes", len);
         }
     }
 
-    /// The coordinator's decoder must agree with the reader on arbitrary input: the same
-    /// rows where the reader decodes, the same error where it fails, and never a panic or an
-    /// out-of-bounds read — the bytes come straight off the network.
+    /// The coordinator's decoder must agree with the reader on arbitrary input: the same rows where the reader decodes,
+    /// the same error where it fails, and never a panic or an out-of-bounds read — the bytes come straight off the
+    /// network.
     #[test]
     fn the_decoder_agrees_with_the_reader_on_arbitrary_bytes(
         tail in prop::collection::vec(any::<u8>(), 0..256),
@@ -123,8 +120,8 @@ proptest! {
     ) {
         let mut coordinator = RLookup::new();
         if garbage_header {
-            // Column names are arbitrary here and may repeat, which folds columns together in
-            // the coordinator's lookup, so only the outcome is comparable.
+            // Column names are arbitrary here and may repeat, which folds columns together in the coordinator's lookup,
+            // so only the outcome is comparable.
             let got = decode_into(&tail, &mut coordinator).map(|rows| rows.len());
             let want = try_decode(&tail).map(|rows| rows.len());
             prop_assert_eq!(got, want);
@@ -145,9 +142,8 @@ proptest! {
 
         let got = decode_into(&block, &mut coordinator);
         prop_assert_eq!(&got, &try_decode(&block));
-        // Every row costs at least its bitmap byte — even one whose only values are empty
-        // typed nulls — so a decoder that made no progress, yielding rows forever off a
-        // fixed buffer, fails this bound rather than hanging.
+        // Every row costs at least its bitmap byte — even one whose only values are empty typed nulls — so a decoder
+        // that made no progress, yielding rows forever off a fixed buffer, fails this bound rather than hanging.
         if let Ok(rows) = got {
             prop_assert!(rows.len() <= tail.len());
         }

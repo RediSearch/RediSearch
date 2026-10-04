@@ -9,9 +9,9 @@
 
 //! Refusing a row.
 //!
-//! A refused row must leave the block exactly as it was: the caller's fallback re-emits what
-//! the block holds as RESP rows and then carries on down the RESP path, so a block that ended
-//! mid-row would either lose the rows before it or duplicate them.
+//! A refused row must leave the block exactly as it was: the caller's fallback re-emits what the block holds as RESP
+//! rows and then carries on down the RESP path, so a block that ended mid-row would either lose the rows before it or
+//! duplicate them.
 
 use crate::harness::{Decoded, decode, encode, lookup, row, too_deep};
 use pretty_assertions::assert_eq;
@@ -22,10 +22,9 @@ use value::SharedValue;
 
 #[test]
 fn a_refused_row_leaves_the_block_as_if_it_was_never_written() {
-    // Each refusal is found at the second column, so the bitmap and the first column's value
-    // are already in the buffer when the row is abandoned: once with no row before it, once
-    // after accepted rows. The writer must then go on accepting rows, since nothing about its
-    // state may depend on the caller stopping at the first refusal.
+    // Each refusal is found at the second column, so the bitmap and the first column's value are already in the buffer
+    // when the row is abandoned: once with no row before it, once after accepted rows. The writer must then go on
+    // accepting rows, since nothing about its state may depend on the caller stopping at the first refusal.
     let lookup = lookup(&["a", "b"]);
     let bad = row(
         &lookup,
@@ -66,8 +65,8 @@ fn a_refused_row_leaves_the_block_as_if_it_was_never_written() {
 
 #[test]
 fn a_lookup_that_grew_after_the_schema_refuses_its_rows() {
-    // The presence bitmap is sized from the declared column count, so a column that appeared
-    // afterwards has no bit to set. Refusing beats writing a row the decoder would misread.
+    // The presence bitmap is sized from the declared column count, so a column that appeared afterwards has no bit to
+    // set. Refusing beats writing a row the decoder would misread.
     let mut lookup = lookup(&["a"]);
     let mut writer = RowBlockWriter::new();
     assert_eq!(writer.write_schema(&lookup, ColumnFilter::default()), Ok(1));

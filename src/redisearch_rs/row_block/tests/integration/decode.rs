@@ -9,8 +9,8 @@
 
 //! Malformed input.
 //!
-//! Every one of these must produce a `DecodeError` — never a panic, never a read past the
-//! buffer, and never an allocation sized from a number the block cannot back up.
+//! Every one of these must produce a `DecodeError` — never a panic, never a read past the buffer, and never an
+//! allocation sized from a number the block cannot back up.
 
 use crate::harness::{Malformed, Phase, TAGGED_COLUMN, begin, block, malformed_blocks, try_decode};
 use pretty_assertions::assert_eq;
@@ -33,9 +33,8 @@ fn every_malformed_block_is_rejected_by_the_reader_and_the_decoder_alike() {
             "{what} failed in the wrong phase"
         );
 
-        // The coordinator reports a failed `begin` and a failed `next_row` differently, and
-        // a failure must leave no block behind either way. Starting from an active block
-        // makes the failure tear one down.
+        // The coordinator reports a failed `begin` and a failed `next_row` differently, and a failure must leave no
+        // block behind either way. Starting from an active block makes the failure tear one down.
         let mut coordinator = RLookup::new();
         let mut decoder = RowBlockDecoder::new();
         let valid = block(1, &[&TAGGED_COLUMN, &[0]]);
@@ -66,8 +65,8 @@ fn an_empty_schema_without_rows_is_a_valid_block() {
 
 #[test]
 fn the_row_iterator_stops_at_the_first_error() {
-    // Row boundaries are implied by the values themselves, so there is nothing to resynchronise
-    // to: continuing would emit garbage rows for as long as the buffer lasts.
+    // Row boundaries are implied by the values themselves, so there is nothing to resynchronise to: continuing would
+    // emit garbage rows for as long as the buffer lasts.
     let corrupt = block(1, &[&TAGGED_COLUMN, &[0b1, 200], &[0b1, 200]]);
     let parsed = Block::parse(&corrupt).expect("the header and schema are intact");
     let outcomes: Vec<_> = parsed.rows().map(|row| row.is_ok()).collect();

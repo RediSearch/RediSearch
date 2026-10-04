@@ -534,9 +534,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   APPEND_LITERAL("_NUM_SSTRING");
-  // Ask for the compact row-block encoding only when this coordinator can decode it.
-  // Older shards reject the unknown argument, so the config must stay off until the whole
-  // fleet is upgraded; see RSGlobalConfig.internalRowBlockFormat.
+  // See RSGlobalConfig.internalRowBlockFormat.
   if (RSGlobalConfig.internalRowBlockFormat) {
     if (resp3) {
       APPEND_LITERAL("_ROW_BLOCK_RESP3");

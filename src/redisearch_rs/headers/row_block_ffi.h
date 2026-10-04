@@ -27,37 +27,17 @@ typedef struct RLookup RLookup;
 typedef struct RLookupRow RLookupRow;
 
 /**
- * Decodes one shard reply's block at a time into lookup rows.
+ * Decodes one block at a time into lookup rows, for a caller that yields a row per call back into C.
  *
- * Built for a caller that cannot hold a borrow across calls — the coordinator's network
- * result processor, which yields one row per call back into C. [`RowBlockDecoder::begin`]
- * takes over the block's buffer, parses the header and schema and resolves every column to
- * a lookup key once, so that [`RowBlockDecoder::next_row`] writes each value by key instead
- * of by name.
- *
- * Decoded strings borrow from the block rather than copying out of it, within the limit set
- * by [`MAX_PINNED_BYTES`].
- *
- * One decoder serves every block a result processor receives: its tables keep their
- * capacity from block to block.
- *
- * Opaque to C, which may only hold a pointer to one and pass it back to the `row_block_ffi`
- * entrypoints.
+ * [`RowBlockDecoder::begin`] takes over the block's buffer and resolves each column to a lookup key once;
+ * [`RowBlockDecoder::next_row`] writes values by key. Decoded strings borrow from the block, within
+ * [`MAX_PINNED_BYTES`].
  */
 typedef struct RowBlockDecoder RowBlockDecoder;
 
 /**
- * Growable output buffer for building one block.
- *
- * Reused from chunk to chunk via [`RowBlockWriter::reset`], so the per-chunk allocation cost
- * is amortised to zero after the first.
- *
- * Every chunk starts with [`RowBlockWriter::write_schema`], which fixes the columns, and
- * then appends rows with [`RowBlockWriter::write_row`]. [`RowBlockWriter::as_bytes`] is the
- * finished block.
- *
- * Opaque to C: the writer owns a heap buffer, so C may only hold a pointer to one and pass
- * it back to the `row_block_ffi` entrypoints.
+ * Builds one block per chunk: [`RowBlockWriter::write_schema`], then [`RowBlockWriter::write_row`] per row. Reused
+ * across chunks via [`RowBlockWriter::reset`].
  */
 typedef struct RowBlockWriter RowBlockWriter;
 
@@ -66,28 +46,22 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Takes over the `len` bytes at `buf` and makes them the active block, resolving its columns
- * in `lk`; see [`RowBlockDecoder::begin`].
- *
- * Returns false, leaving no block active, if the header or schema is malformed. Either way
- * the buffer now belongs to the decoder, and to the string values it decodes: it is freed
- * with `RedisModule_Free` when the last of them is gone.
+ * See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema. Either way the buffer now belongs to
+ * the decoder and its strings, and is freed with `RedisModule_Free`.
  *
  * # Safety
  *
  * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
- * 2. `lk` must be a non-null pointer to a [valid] `RLookup`, and the rest of
- *    [`RowBlockDecoder::begin`]'s contract on its `lookup` must hold.
- * 3. `buf` must be a non-null pointer to `len` bytes allocated with `RedisModule_Alloc`,
- *    which the caller gives up: it must not access or free them afterwards.
- * 4. The Redis allocator must be initialized, and stay so until the buffer is freed.
+ * 2. `lk` must be a non-null pointer to a [valid] `RLookup` meeting [`RowBlockDecoder::begin`]'s `lookup` contract.
+ * 3. `buf` must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
+ * 4. The Redis allocator must stay initialized until the buffer is freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool RowBlockDecoder_Begin(struct RowBlockDecoder *d, struct RLookup *lk, char *buf, size_t len);
 
 /**
- * The active block's column count; see [`RowBlockDecoder::ncols`].
+ * See [`RowBlockDecoder::ncols`].
  *
  * # Safety
  *
@@ -96,7 +70,7 @@ bool RowBlockDecoder_Begin(struct RowBlockDecoder *d, struct RLookup *lk, char *
 size_t RowBlockDecoder_ColumnCount(const struct RowBlockDecoder *d);
 
 /**
- * Ends the active block, if any; see [`RowBlockDecoder::end`].
+ * See [`RowBlockDecoder::end`].
  *
  * # Safety
  *
@@ -105,8 +79,6 @@ size_t RowBlockDecoder_ColumnCount(const struct RowBlockDecoder *d);
 void RowBlockDecoder_End(struct RowBlockDecoder *d);
 
 /**
- * Releases a decoder, ending its active block if any.
- *
  * # Safety
  *
  * 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`] and not freed since.
@@ -114,7 +86,7 @@ void RowBlockDecoder_End(struct RowBlockDecoder *d);
 void RowBlockDecoder_Free(struct RowBlockDecoder *d);
 
 /**
- * Whether the active block still holds a row; see [`RowBlockDecoder::has_rows`].
+ * See [`RowBlockDecoder::has_rows`].
  *
  * # Safety
  *
@@ -123,7 +95,7 @@ void RowBlockDecoder_Free(struct RowBlockDecoder *d);
 bool RowBlockDecoder_HasRows(const struct RowBlockDecoder *d);
 
 /**
- * Whether a block is active; see [`RowBlockDecoder::is_active`].
+ * See [`RowBlockDecoder::is_active`].
  *
  * # Safety
  *
@@ -132,32 +104,26 @@ bool RowBlockDecoder_HasRows(const struct RowBlockDecoder *d);
 bool RowBlockDecoder_IsActive(const struct RowBlockDecoder *d);
 
 /**
- * Allocates a decoder with no active block. Free it with [`RowBlockDecoder_Free`].
+ * Free it with [`RowBlockDecoder_Free`].
  */
 struct RowBlockDecoder *RowBlockDecoder_New(void);
 
 /**
- * Decodes the active block's next row into `row`; see [`RowBlockDecoder::next_row`].
- *
- * Returns false, leaving no block active, if the row is truncated or malformed.
+ * See [`RowBlockDecoder::next_row`]; returns false for a malformed row.
  *
  * # Safety
  *
- * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable;
- *    and [`RowBlockDecoder_HasRows`] must be true for it.
- * 2. The lookup passed to the [`RowBlockDecoder_Begin`] call that started the active block
- *    must still satisfy that call's contract.
- * 3. `row` must be a non-null pointer to a [valid] `RLookupRow`, not aliased for the
- *    duration of the call.
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable; and
+ *    [`RowBlockDecoder_HasRows`] must be true for it.
+ * 2. The lookup given to [`RowBlockDecoder_Begin`] for this block must still satisfy its contract.
+ * 3. `row` must be a non-null pointer to a [valid], unaliased `RLookupRow`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool RowBlockDecoder_NextRow(struct RowBlockDecoder *d, struct RLookupRow *row);
 
 /**
- * Borrows the block built so far, writing its length to `len`.
- *
- * The returned pointer stays valid until the next call that appends to or resets `w`.
+ * The block built so far, valid until the next call that appends to or resets `w`.
  *
  * # Safety
  *
@@ -167,8 +133,6 @@ bool RowBlockDecoder_NextRow(struct RowBlockDecoder *d, struct RLookupRow *row);
 const char *RowBlockWriter_Bytes(const struct RowBlockWriter *w, size_t *len);
 
 /**
- * Releases a writer and its buffer.
- *
  * # Safety
  *
  * 1. `w` must be a non-null pointer returned by [`RowBlockWriter_New`] and not freed since.
@@ -176,39 +140,22 @@ const char *RowBlockWriter_Bytes(const struct RowBlockWriter *w, size_t *len);
 void RowBlockWriter_Free(struct RowBlockWriter *w);
 
 /**
- * Allocates a writer with no header written yet. Free it with [`RowBlockWriter_Free`].
- *
- * One writer is meant to serve every chunk of a request, and every request a thread handles:
- * [`RowBlockWriter_Reset`] keeps the buffer capacity that earlier chunks grew.
+ * Free it with [`RowBlockWriter_Free`]; reuse it across chunks with [`RowBlockWriter_Reset`].
  */
 struct RowBlockWriter *RowBlockWriter_New(void);
 
 /**
- * Emits the rows appended so far as ordinary RESP rows, reporting whether it could.
+ * Re-emits the rows appended so far as the RESP rows the row serializer would have produced, for a chunk that has to
+ * abandon its block after rows went into it (they exist nowhere else).
  *
- * Returns `false`, having emitted nothing and leaving `nelem` untouched, when the block does
- * not decode. That cannot happen for a block this process just wrote, so it means the encoder
- * and decoder disagree; the caller's contract is to fail the query rather than reply rows it
- * cannot vouch for. The whole block is decoded before the first row is emitted precisely so
- * that failure is all-or-nothing: `RedisModule_Reply` writes through to the client with no way
- * to retract, so detecting the disagreement half way through would leave a partial reply that
- * can no longer be turned into an error.
- *
- * The encoder read backwards, for abandoning a block after rows have already gone into it:
- * those rows exist nowhere else - the pipeline row they came from is long released - and a
- * chunk's reply carries either a block or RESP rows, never both. Each row is emitted as the
- * same name/value map the RESP row serializer produces, so a chunk that falls back is
- * indistinguishable on the wire from one a shard with the format off would have sent.
- *
- * Only rows are replayed. The block never carried the per-row extras (id, score, sortkey)
- * that `serializeResult` can add, so a request that asks for those cannot use blocks in the
- * first place.
+ * Returns false, having emitted nothing, if the block does not decode: the caller then fails the query. The whole
+ * block is checked before the first row is emitted, since a reply cannot be retracted.
  *
  * # Safety
  *
  * 1. Same contract as [`RowBlockWriter_Bytes`]'s `w`.
- * 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building
- *    an array, and must outlive this call.
+ * 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building an array, and must outlive
+ *    this call.
  * 3. `nelem` must be a non-null, writable pointer to a `size_t`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -216,8 +163,6 @@ struct RowBlockWriter *RowBlockWriter_New(void);
 bool RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Reply *reply, uint32_t req_flags, size_t *nelem);
 
 /**
- * Discards the block, keeping the allocated capacity for the next chunk.
- *
  * # Safety
  *
  * 1. Same contract as [`RowBlockWriter_Free`]'s `w`, except that the writer stays usable.
@@ -225,8 +170,6 @@ bool RowBlockWriter_ReplayAsResp(const struct RowBlockWriter *w, RedisModule_Rep
 void RowBlockWriter_Reset(struct RowBlockWriter *w);
 
 /**
- * Returns the number of rows stored by this writer.
- *
  * # Safety
  *
  * Same contract as [`RowBlockWriter_Bytes`]'s `w`.
@@ -234,21 +177,15 @@ void RowBlockWriter_Reset(struct RowBlockWriter *w);
 size_t RowBlockWriter_RowCount(const struct RowBlockWriter *w);
 
 /**
- * Appends one row, reading values for the schema's columns out of `row`.
- *
- * Returns false when the row holds a value the format cannot represent, in which case
- * nothing is appended for it: the block still holds exactly the rows written before, so the
- * caller can emit it as is or discard it, but must not treat this row as encoded.
- *
- * `req_flags` (a `QEFlags` bit set) and `api_version` select how a row field stored as a trio
- * resolves; see [`TrioMember`].
+ * See [`RowBlockWriter::write_row`]; returns false for a refused row. `req_flags` (`QEFlags`) and `api_version` select
+ * the [`TrioMember`].
  *
  * # Safety
  *
- * 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and a schema declaring at least one
- *    column must have been written since the writer was created or reset.
- * 2. `lk` must be a non-null pointer to a [valid] `RLookup` that outlives this call, and the
- *    same one the schema was written from.
+ * 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and a schema declaring at least one column must have been
+ *    written since the writer was created or reset.
+ * 2. `lk` must be a non-null pointer to a [valid] `RLookup` that outlives this call, and the same one the schema was
+ *    written from.
  * 3. `row` must be a non-null pointer to a [valid] `RLookupRow` that outlives this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -256,20 +193,13 @@ size_t RowBlockWriter_RowCount(const struct RowBlockWriter *w);
 bool RowBlockWriter_WriteRow(struct RowBlockWriter *w, const struct RLookup *lk, const struct RLookupRow *row, uint32_t req_flags, unsigned int api_version);
 
 /**
- * Writes the header and the schema taken from `lk`'s visible keys, and returns how many
- * columns it declares.
- *
- * `required_flags` / `exclude_flags` are `RLookup_F` bit sets selecting the same key subset the
- * RESP serializer would emit; see [`ColumnFilter`].
- *
- * A zero return means this chunk cannot be encoded and the caller must reply in RESP
- * instead: either the schema has no columns, or it holds a name the format cannot carry.
- * Both leave the writer empty.
+ * See [`RowBlockWriter::write_schema`]; `required_flags` / `exclude_flags` are the `RLookup_F` sets of a
+ * [`ColumnFilter`]. Returns 0, and the caller replies in RESP, when the chunk cannot be encoded.
  *
  * # Safety
  *
- * 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and no schema may have been written
- *    since the writer was created or reset.
+ * 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and no schema may have been written since the writer was created
+ *    or reset.
  * 2. `lk` must be a non-null pointer to a [valid] `RLookup` that outlives this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

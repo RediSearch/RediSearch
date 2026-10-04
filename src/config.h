@@ -105,14 +105,10 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
-  // Set when a coordinator asked this shard, via the internal `_ROW_BLOCK` argument, to
-  // encode aggregation rows as one compact binary block per chunk (src/aggregate/row_block.h).
-  // The decision belongs to the sender: an old coordinator cannot ask, so it can never be
-  // sent a format it does not understand, and a shard's own config never enables the format
-  // on its own. This mirrors `_SLOTS_INFO` and `_COORD_DISPATCH_TIME`, where the coordinator
-  // opts in and the shard tolerates absence.
+  // Set by the internal `_ROW_BLOCK` argument: the coordinator asks for row blocks, so it is
+  // never sent a format it cannot decode.
   bool internalRowBlock;
-  // A separate token prevents RESP3 blocks being sent to RESP2-only coordinators.
+  // Set by `_ROW_BLOCK_RESP3`, so RESP3 blocks only go to coordinators that asked for them.
   bool internalRowBlockResp3;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
@@ -216,10 +212,8 @@ typedef struct {
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
-  // Encode internal coordinator<->shard aggregation rows as one compact binary block per
-  // chunk instead of one RESP map per row (see src/aggregate/row_block.h). Off by default:
-  // a shard only emits blocks when asked, and only a coordinator of the same version knows
-  // to decode them, so this must not be enabled mid-upgrade.
+  // Coordinator side: ask shards for row blocks (the `row_block` Rust crate). Shards that do not
+  // know the argument reject it, so keep this off until every node is upgraded.
   bool internalRowBlockFormat;
   // When enabled (default), using new relabel API instead of deleting and
   // re-adding to index.

@@ -9,8 +9,8 @@
 
 //! End-to-end tests for the row block wire format.
 //!
-//! Everything goes through the public encoder and decoder, driven the way the aggregate reply
-//! path drives them: build an `RLookup`, write a schema, append rows, read the bytes back.
+//! Everything goes through the public encoder and decoder, driven the way the aggregate reply path drives them: build
+//! an `RLookup`, write a schema, append rows, read the bytes back.
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;

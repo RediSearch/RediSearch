@@ -21,11 +21,7 @@ def config_value(conn, config=ROW_BLOCK_CONFIG):
 
 
 def row_block_env(**kwargs):
-    """An Env whose servers start with the row-block transport on, from their config file.
-
-    The flag has no module-argument form, so it reaches the servers through
-    `redisConfigFile`, the way an operator's redis.conf would set it.
-    """
+    """An Env whose servers start with row blocks on, set in the config file (the flag has no module argument)."""
     path = os.path.join(tempfile.gettempdir(), f'rs_test_row_block_{os.getpid()}.conf')
     with open(path, 'w') as f:
         if Defaults.redis_config_file:
@@ -50,11 +46,7 @@ def row_block_format(env, enabled):
 
 
 def row_block_modes(env):
-    """Yields 'no' with the coordinator's flag turned off, then 'yes' with it as `env` started.
-
-    For an Env from `row_block_env`, so the 'yes' pass exercises the startup config rather
-    than a runtime CONFIG SET.
-    """
+    """Yields 'no' with the flag turned off, then 'yes' with it as a `row_block_env` started."""
     with row_block_format(env, 'no'):
         yield 'no'
     env.assertEqual(config_value(env.getConnection()), 'yes')
@@ -138,12 +130,8 @@ def assert_same_as_legacy(env, *query, normalize=lambda reply: reply):
 
 
 def assert_blocks_used(env, missing, query, *args):
-    """Asserts the shards replied `FT.AGGREGATE idx <query> <args>` as blocks.
-
-    A block carries a slot for every column, an absent field's included, while a RESP row
-    carries only the fields it has; so the coordinator's `Fields converted` count grows by
-    exactly the `missing` absent fields once blocks are in use.
-    """
+    """Asserts the shards replied as blocks: a block row counts every column, a RESP row only the fields it has, so
+    `Fields converted` grows by exactly the `missing` absent fields."""
     counts = {}
     for enabled in row_block_modes(env):
         profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', query, *args)
@@ -459,121 +447,101 @@ def row_block_json(env):
 
 @skip(cluster=False)
 def test_row_block_buffered_reply_resp3():
-    """RESP3 buffered replies carry a block and its row count."""
     row_block_buffered_reply(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_buffered_reply():
-    """RESP2 buffered replies carry a block."""
     row_block_buffered_reply(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_cursor_values_resp3():
-    """RESP3 keeps public cursor/profile wrappers while shard rows use blocks."""
     row_block_cursor_values(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_cursor_values():
-    """RESP2 preserves values across shard/client cursors and profile replies."""
     row_block_cursor_values(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_reducer_arrays_resp3():
-    """RESP3 preserves reducer arrays and numeric partial sums."""
     row_block_reducer_arrays(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_reducer_arrays():
-    """RESP2 preserves reducer arrays and numeric partial sums."""
     row_block_reducer_arrays(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_dynamic_schema_fallback_resp3():
-    """RESP3 replay must wrap previously encoded rows just like ordinary rows."""
     row_block_dynamic_schema_fallback(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_dynamic_schema_fallback():
-    """RESP2 replays earlier encoded rows when LOAD * changes the schema."""
     row_block_dynamic_schema_fallback(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_resp3_counts():
-    """RESP3 counts, with the flag off at startup and switched on at runtime."""
     row_block_counts(Env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_counts():
-    """RESP2 shard totals and WITHCOUNT match the legacy encoding's."""
     row_block_counts(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_no_columns_resp3():
-    """RESP3 zero-column rows fall back to RESP."""
     row_block_no_columns(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_no_columns():
-    """RESP2 zero-column rows fall back to RESP."""
     row_block_no_columns(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_partial_matches_resp3():
-    """RESP3 empty and single-shard result sets."""
     row_block_partial_matches(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_partial_matches():
-    """RESP2 empty and single-shard result sets."""
     row_block_partial_matches(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_scores_resp3():
-    """RESP3 ADDSCORES under each scorer."""
     row_block_scores(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_scores():
-    """RESP2 ADDSCORES under each scorer."""
     row_block_scores(row_block_env())
 
 
 @skip(cluster=False)
 def test_row_block_timeout_return_resp3():
-    """RESP3 partial results and timeout warning match the legacy encoding's."""
     row_block_timeout_return(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_timeout_return():
-    """RESP2 partial results match the legacy encoding's."""
     row_block_timeout_return(row_block_env())
 
 
 @skip(cluster=False, no_json=True)
 def test_row_block_json_resp3():
-    """RESP3 JSON values, including FORMAT EXPAND."""
     row_block_json(row_block_env(protocol=3))
 
 
 @skip(cluster=False, no_json=True)
 def test_row_block_json():
-    """RESP2 JSON values under DIALECT 2 and 3."""
     row_block_json(row_block_env())
 
 

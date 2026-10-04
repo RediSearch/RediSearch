@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! The coordinator's decoder: blocks decoded straight into lookup rows, the way the network
-//! result processor drives it.
+//! The coordinator's decoder: blocks decoded straight into lookup rows, the way the network result processor drives it.
 
 use crate::harness::{
     Decoded, begin, bytes, decode_into, encode, lookup, row, try_decode, valid_block,
@@ -31,8 +30,8 @@ fn columns_the_coordinator_already_knows_reuse_its_keys() {
     let shard = lookup(&["a", "b"]);
     let block = encode(&shard, &[row(&shard, &[("b", SharedValue::new_num(2.0))])]);
 
-    // The coordinator's key for `b` comes first and `a` is unknown to it, so a decoder that
-    // mapped columns by position instead of by name would write `b`'s value under `a`.
+    // The coordinator's key for `b` comes first and `a` is unknown to it, so a decoder that mapped columns by position
+    // instead of by name would write `b`'s value under `a`.
     let mut coordinator = lookup(&["z", "b"]);
     let before = coordinator.iter().count();
     assert_eq!(
@@ -48,9 +47,8 @@ fn columns_the_coordinator_already_knows_reuse_its_keys() {
 
 #[test]
 fn a_created_key_outlives_the_block_it_was_named_in() {
-    // The lookup is handed names that point into the block, which is freed once its rows are
-    // read while the key lives on. Under Miri a key still borrowing its name is a
-    // use-after-free here.
+    // The lookup is handed names that point into the block, which is freed once its rows are read while the key lives
+    // on. Under Miri a key still borrowing its name is a use-after-free here.
     let shard = lookup(&["dynamic"]);
     let block = encode(
         &shard,

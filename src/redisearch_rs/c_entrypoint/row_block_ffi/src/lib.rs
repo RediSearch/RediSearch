@@ -7,12 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! C entrypoint for the [`row_block`] wire format: the encoder used by the shard-side
-//! aggregate reply path, and the decoder the coordinator's network result processor
-//! (`src/coord/rpnet.c`) reads shard replies with.
-//!
-//! The format itself, including which facts are a contract with that decoder, is documented
-//! on the [`row_block`] crate.
+//! C entrypoint for the [`row_block`] format: the shard's encoder and RESP replay, and the coordinator's decoder.
 
 use ffi::{
     RedisModule_Reply, SendReplyFlags, SendReplyFlags_SENDREPLY_FLAG_EXPAND,
@@ -27,17 +22,12 @@ use std::{
     ptr::NonNull,
 };
 
-/// Allocates a writer with no header written yet. Free it with [`RowBlockWriter_Free`].
-///
-/// One writer is meant to serve every chunk of a request, and every request a thread handles:
-/// [`RowBlockWriter_Reset`] keeps the buffer capacity that earlier chunks grew.
+/// Free it with [`RowBlockWriter_Free`]; reuse it across chunks with [`RowBlockWriter_Reset`].
 #[unsafe(no_mangle)]
 pub extern "C" fn RowBlockWriter_New() -> *mut RowBlockWriter {
     Box::into_raw(Box::new(RowBlockWriter::new()))
 }
 
-/// Releases a writer and its buffer.
-///
 /// # Safety
 ///
 /// 1. `w` must be a non-null pointer returned by [`RowBlockWriter_New`] and not freed since.
@@ -48,8 +38,6 @@ pub unsafe extern "C" fn RowBlockWriter_Free(w: *mut RowBlockWriter) {
     drop(unsafe { Box::from_raw(w) });
 }
 
-/// Discards the block, keeping the allocated capacity for the next chunk.
-///
 /// # Safety
 ///
 /// 1. Same contract as [`RowBlockWriter_Free`]'s `w`, except that the writer stays usable.
@@ -59,20 +47,13 @@ pub unsafe extern "C" fn RowBlockWriter_Reset(w: *mut RowBlockWriter) {
     unsafe { writer_mut(w) }.reset();
 }
 
-/// Writes the header and the schema taken from `lk`'s visible keys, and returns how many
-/// columns it declares.
-///
-/// `required_flags` / `exclude_flags` are `RLookup_F` bit sets selecting the same key subset the
-/// RESP serializer would emit; see [`ColumnFilter`].
-///
-/// A zero return means this chunk cannot be encoded and the caller must reply in RESP
-/// instead: either the schema has no columns, or it holds a name the format cannot carry.
-/// Both leave the writer empty.
+/// See [`RowBlockWriter::write_schema`]; `required_flags` / `exclude_flags` are the `RLookup_F` sets of a
+/// [`ColumnFilter`]. Returns 0, and the caller replies in RESP, when the chunk cannot be encoded.
 ///
 /// # Safety
 ///
-/// 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and no schema may have been written
-///    since the writer was created or reset.
+/// 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and no schema may have been written since the writer was created
+///    or reset.
 /// 2. `lk` must be a non-null pointer to a [valid] `RLookup` that outlives this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -97,21 +78,15 @@ pub unsafe extern "C" fn RowBlockWriter_WriteSchema(
     }
 }
 
-/// Appends one row, reading values for the schema's columns out of `row`.
-///
-/// Returns false when the row holds a value the format cannot represent, in which case
-/// nothing is appended for it: the block still holds exactly the rows written before, so the
-/// caller can emit it as is or discard it, but must not treat this row as encoded.
-///
-/// `req_flags` (a `QEFlags` bit set) and `api_version` select how a row field stored as a trio
-/// resolves; see [`TrioMember`].
+/// See [`RowBlockWriter::write_row`]; returns false for a refused row. `req_flags` (`QEFlags`) and `api_version` select
+/// the [`TrioMember`].
 ///
 /// # Safety
 ///
-/// 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and a schema declaring at least one
-///    column must have been written since the writer was created or reset.
-/// 2. `lk` must be a non-null pointer to a [valid] `RLookup` that outlives this call, and the
-///    same one the schema was written from.
+/// 1. Same contract as [`RowBlockWriter_Reset`]'s `w`, and a schema declaring at least one column must have been
+///    written since the writer was created or reset.
+/// 2. `lk` must be a non-null pointer to a [valid] `RLookup` that outlives this call, and the same one the schema was
+///    written from.
 /// 3. `row` must be a non-null pointer to a [valid] `RLookupRow` that outlives this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -143,9 +118,7 @@ pub unsafe extern "C" fn RowBlockWriter_WriteRow(
     }
 }
 
-/// Borrows the block built so far, writing its length to `len`.
-///
-/// The returned pointer stays valid until the next call that appends to or resets `w`.
+/// The block built so far, valid until the next call that appends to or resets `w`.
 ///
 /// # Safety
 ///
@@ -163,8 +136,6 @@ pub unsafe extern "C" fn RowBlockWriter_Bytes(
     bytes.as_ptr().cast()
 }
 
-/// Returns the number of rows stored by this writer.
-///
 /// # Safety
 ///
 /// Same contract as [`RowBlockWriter_Bytes`]'s `w`.
@@ -174,31 +145,17 @@ pub unsafe extern "C" fn RowBlockWriter_RowCount(w: *const RowBlockWriter) -> us
     unsafe { writer_ref(w) }.nrows()
 }
 
-/// Emits the rows appended so far as ordinary RESP rows, reporting whether it could.
+/// Re-emits the rows appended so far as the RESP rows the row serializer would have produced, for a chunk that has to
+/// abandon its block after rows went into it (they exist nowhere else).
 ///
-/// Returns `false`, having emitted nothing and leaving `nelem` untouched, when the block does
-/// not decode. That cannot happen for a block this process just wrote, so it means the encoder
-/// and decoder disagree; the caller's contract is to fail the query rather than reply rows it
-/// cannot vouch for. The whole block is decoded before the first row is emitted precisely so
-/// that failure is all-or-nothing: `RedisModule_Reply` writes through to the client with no way
-/// to retract, so detecting the disagreement half way through would leave a partial reply that
-/// can no longer be turned into an error.
-///
-/// The encoder read backwards, for abandoning a block after rows have already gone into it:
-/// those rows exist nowhere else - the pipeline row they came from is long released - and a
-/// chunk's reply carries either a block or RESP rows, never both. Each row is emitted as the
-/// same name/value map the RESP row serializer produces, so a chunk that falls back is
-/// indistinguishable on the wire from one a shard with the format off would have sent.
-///
-/// Only rows are replayed. The block never carried the per-row extras (id, score, sortkey)
-/// that `serializeResult` can add, so a request that asks for those cannot use blocks in the
-/// first place.
+/// Returns false, having emitted nothing, if the block does not decode: the caller then fails the query. The whole
+/// block is checked before the first row is emitted, since a reply cannot be retracted.
 ///
 /// # Safety
 ///
 /// 1. Same contract as [`RowBlockWriter_Bytes`]'s `w`.
-/// 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building
-///    an array, and must outlive this call.
+/// 2. `reply` must be a non-null pointer to a [valid] `RedisModule_Reply` currently building an array, and must outlive
+///    this call.
 /// 3. `nelem` must be a non-null, writable pointer to a `size_t`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -226,8 +183,6 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         }
     };
 
-    // Decode every row before emitting any of it, so a mid-block error cannot strand a
-    // half-written reply. See this function's returns-`false` contract.
     for row in block.rows() {
         if let Err(error) = row {
             tracing::error!(%error, "a row block this build wrote is not one it can read");
@@ -240,7 +195,6 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     let resp3 = unsafe { (*reply).resp3 };
     let mut nrows = 0;
     for row in block.rows() {
-        // Already proven decodable by the validation pass above.
         let Ok(row) = row else {
             unreachable!("row decoded during validation but not during replay")
         };
@@ -260,8 +214,7 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         // SAFETY: ensured by caller (2.)
         unsafe { ffi::RedisModule_Reply_Map(reply) };
         for (name, value) in row.fields() {
-            // SAFETY: ensured by caller (2.); `name` is borrowed from the writer's buffer,
-            // which this function does not touch.
+            // SAFETY: ensured by caller (2.); `name` borrows the writer's buffer, untouched here.
             unsafe {
                 ffi::RedisModule_Reply_StringBuffer_FFI(reply, name.as_ptr(), name.count_bytes())
             };
@@ -299,14 +252,12 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
     true
 }
 
-/// Allocates a decoder with no active block. Free it with [`RowBlockDecoder_Free`].
+/// Free it with [`RowBlockDecoder_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn RowBlockDecoder_New() -> *mut RowBlockDecoder {
     Box::into_raw(Box::new(RowBlockDecoder::new()))
 }
 
-/// Releases a decoder, ending its active block if any.
-///
 /// # Safety
 ///
 /// 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`] and not freed since.
@@ -317,21 +268,15 @@ pub unsafe extern "C" fn RowBlockDecoder_Free(d: *mut RowBlockDecoder) {
     drop(unsafe { Box::from_raw(d) });
 }
 
-/// Takes over the `len` bytes at `buf` and makes them the active block, resolving its columns
-/// in `lk`; see [`RowBlockDecoder::begin`].
-///
-/// Returns false, leaving no block active, if the header or schema is malformed. Either way
-/// the buffer now belongs to the decoder, and to the string values it decodes: it is freed
-/// with `RedisModule_Free` when the last of them is gone.
+/// See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema. Either way the buffer now belongs to
+/// the decoder and its strings, and is freed with `RedisModule_Free`.
 ///
 /// # Safety
 ///
 /// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
-/// 2. `lk` must be a non-null pointer to a [valid] `RLookup`, and the rest of
-///    [`RowBlockDecoder::begin`]'s contract on its `lookup` must hold.
-/// 3. `buf` must be a non-null pointer to `len` bytes allocated with `RedisModule_Alloc`,
-///    which the caller gives up: it must not access or free them afterwards.
-/// 4. The Redis allocator must be initialized, and stay so until the buffer is freed.
+/// 2. `lk` must be a non-null pointer to a [valid] `RLookup` meeting [`RowBlockDecoder::begin`]'s `lookup` contract.
+/// 3. `buf` must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
+/// 4. The Redis allocator must stay initialized until the buffer is freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -357,8 +302,6 @@ pub unsafe extern "C" fn RowBlockDecoder_Begin(
     }
 }
 
-/// Releases a block buffer [`RowBlockDecoder_Begin`] was given.
-///
 /// # Safety
 ///
 /// 1. `block` must have been allocated with `RedisModule_Alloc`, and not be freed since.
@@ -370,7 +313,7 @@ unsafe fn rm_free(block: NonNull<u8>, _len: usize) {
     unsafe { free(block.as_ptr().cast()) };
 }
 
-/// Whether a block is active; see [`RowBlockDecoder::is_active`].
+/// See [`RowBlockDecoder::is_active`].
 ///
 /// # Safety
 ///
@@ -381,7 +324,7 @@ pub unsafe extern "C" fn RowBlockDecoder_IsActive(d: *const RowBlockDecoder) -> 
     unsafe { decoder_ref(d) }.is_active()
 }
 
-/// Whether the active block still holds a row; see [`RowBlockDecoder::has_rows`].
+/// See [`RowBlockDecoder::has_rows`].
 ///
 /// # Safety
 ///
@@ -392,7 +335,7 @@ pub unsafe extern "C" fn RowBlockDecoder_HasRows(d: *const RowBlockDecoder) -> b
     unsafe { decoder_ref(d) }.has_rows()
 }
 
-/// The active block's column count; see [`RowBlockDecoder::ncols`].
+/// See [`RowBlockDecoder::ncols`].
 ///
 /// # Safety
 ///
@@ -403,18 +346,14 @@ pub unsafe extern "C" fn RowBlockDecoder_ColumnCount(d: *const RowBlockDecoder) 
     unsafe { decoder_ref(d) }.ncols()
 }
 
-/// Decodes the active block's next row into `row`; see [`RowBlockDecoder::next_row`].
-///
-/// Returns false, leaving no block active, if the row is truncated or malformed.
+/// See [`RowBlockDecoder::next_row`]; returns false for a malformed row.
 ///
 /// # Safety
 ///
-/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable;
-///    and [`RowBlockDecoder_HasRows`] must be true for it.
-/// 2. The lookup passed to the [`RowBlockDecoder_Begin`] call that started the active block
-///    must still satisfy that call's contract.
-/// 3. `row` must be a non-null pointer to a [valid] `RLookupRow`, not aliased for the
-///    duration of the call.
+/// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable; and
+///    [`RowBlockDecoder_HasRows`] must be true for it.
+/// 2. The lookup given to [`RowBlockDecoder_Begin`] for this block must still satisfy its contract.
+/// 3. `row` must be a non-null pointer to a [valid], unaliased `RLookupRow`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -437,7 +376,7 @@ pub unsafe extern "C" fn RowBlockDecoder_NextRow(
     }
 }
 
-/// Ends the active block, if any; see [`RowBlockDecoder::end`].
+/// See [`RowBlockDecoder::end`].
 ///
 /// # Safety
 ///
@@ -448,8 +387,6 @@ pub unsafe extern "C" fn RowBlockDecoder_End(d: *mut RowBlockDecoder) {
     unsafe { decoder_mut(d) }.end();
 }
 
-/// Reinterprets an `RLookup_F` bit pair as the column predicate.
-///
 /// # Panics
 ///
 /// Panics if either set carries a bit no `RLookup_F` flag defines.
@@ -460,16 +397,12 @@ fn column_filter(required_flags: u32, exclude_flags: u32) -> ColumnFilter {
     }
 }
 
-/// Reinterprets a `QEFlags` bit set.
-///
-/// Unknown bits are dropped rather than rejected: only the two flags below are consulted, and
-/// a request may legitimately carry flags a given build does not know.
+/// Unknown bits are dropped: only a few flags are consulted.
 fn query_flags(req_flags: u32) -> QEFlags {
     QEFlags::from_bits_truncate(req_flags)
 }
 
-/// The member a row field stored as a trio resolves to, chosen exactly as the RESP row
-/// serializer (`RedisModule_Reply_RLookupRow`) chooses it.
+/// Chosen as `RedisModule_Reply_RLookupRow` chooses it.
 fn trio_member(req_flags: QEFlags, api_version: c_uint) -> TrioMember {
     if req_flags.contains(QEFlag::FormatExpand) {
         TrioMember::Right
@@ -480,7 +413,7 @@ fn trio_member(req_flags: QEFlags, api_version: c_uint) -> TrioMember {
     }
 }
 
-/// The `SendReplyFlags` a request's `QEFlags` imply, as `serializeResult` derives them.
+/// As `serializeResult` derives them.
 fn send_reply_flags(req_flags: QEFlags) -> SendReplyFlags {
     let mut flags: SendReplyFlags = 0;
     if req_flags.contains(QEFlag::Typed) {
@@ -494,8 +427,7 @@ fn send_reply_flags(req_flags: QEFlags) -> SendReplyFlags {
 
 /// # Safety
 ///
-/// 1. `w` must be a non-null pointer returned by [`RowBlockWriter_New`], not freed since,
-///    which outlives `'a`.
+/// 1. `w` must be a non-null pointer returned by [`RowBlockWriter_New`], not freed since, which outlives `'a`.
 unsafe fn writer_ref<'a>(w: *const RowBlockWriter) -> &'a RowBlockWriter {
     debug_assert!(!w.is_null(), "row block writer pointer must not be NULL");
     // SAFETY: ensured by caller (1.)
@@ -504,8 +436,7 @@ unsafe fn writer_ref<'a>(w: *const RowBlockWriter) -> &'a RowBlockWriter {
 
 /// # Safety
 ///
-/// 1. Same contract as [`writer_ref`]'s `w`, and no other reference to the writer may be live
-///    for `'a`.
+/// 1. Same contract as [`writer_ref`]'s `w`, and no other reference to the writer may be live for `'a`.
 unsafe fn writer_mut<'a>(w: *mut RowBlockWriter) -> &'a mut RowBlockWriter {
     debug_assert!(!w.is_null(), "row block writer pointer must not be NULL");
     // SAFETY: ensured by caller (1.)
@@ -514,8 +445,7 @@ unsafe fn writer_mut<'a>(w: *mut RowBlockWriter) -> &'a mut RowBlockWriter {
 
 /// # Safety
 ///
-/// 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`], not freed since,
-///    which outlives `'a`.
+/// 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`], not freed since, which outlives `'a`.
 unsafe fn decoder_ref<'a>(d: *const RowBlockDecoder) -> &'a RowBlockDecoder {
     debug_assert!(!d.is_null(), "row block decoder pointer must not be NULL");
     // SAFETY: ensured by caller (1.)
@@ -524,8 +454,7 @@ unsafe fn decoder_ref<'a>(d: *const RowBlockDecoder) -> &'a RowBlockDecoder {
 
 /// # Safety
 ///
-/// 1. Same contract as [`decoder_ref`]'s `d`, and no other reference to the decoder may be
-///    live for `'a`.
+/// 1. Same contract as [`decoder_ref`]'s `d`, and no other reference to the decoder may be live for `'a`.
 unsafe fn decoder_mut<'a>(d: *mut RowBlockDecoder) -> &'a mut RowBlockDecoder {
     debug_assert!(!d.is_null(), "row block decoder pointer must not be NULL");
     // SAFETY: ensured by caller (1.)

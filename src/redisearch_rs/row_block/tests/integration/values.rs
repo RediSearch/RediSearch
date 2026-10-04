@@ -7,15 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Values the encoder maps onto another tag or resolves before writing, and the limits on
-//! what it writes. Plain round trips of every tag are the property tests' job.
+//! Values the encoder maps onto another tag or resolves before writing, and the limits on what it writes. Plain round
+//! trips of every tag are the property tests' job.
 
 use crate::harness::{Decoded, decode, encode, lookup, row};
 use pretty_assertions::assert_eq;
 use row_block::{MAX_NESTING_DEPTH, RefusedRow, RowBlockWriter, TrioMember};
 use value::{SharedValue, Value};
 
-/// Round trips one value stored in a single-column row.
 fn round_trip(value: SharedValue) -> Decoded {
     let lookup = lookup(&["v"]);
     let block = encode(&lookup, &[row(&lookup, &[("v", value)])]);
@@ -45,7 +44,6 @@ fn references_resolve_to_their_target() {
 
 #[test]
 fn nesting_up_to_the_limit_round_trips_and_beyond_it_is_refused() {
-    /// An array nesting `depth` levels below the row field.
     fn nest(depth: u32) -> Decoded {
         (0..depth).fold(Decoded::Number(1.0), |inner, _| Decoded::Array(vec![inner]))
     }
@@ -80,8 +78,8 @@ fn a_row_carries_every_column_in_schema_order() {
         )],
     );
 
-    // Schema order, not the order the row was populated in: the presence bitmap indexes
-    // columns positionally, so a reordering would silently mislabel every value.
+    // Schema order, not the order the row was populated in: the presence bitmap indexes columns positionally, so a
+    // reordering would silently mislabel every value.
     assert_eq!(
         decode(&block),
         vec![vec![

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Building a block: see the [crate] docs for the byte layout it produces.
+//! Building a block in the [crate]-level layout.
 
 use crate::{
     ColumnKind, MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get, reader::value_len,
@@ -15,142 +15,92 @@ use crate::{
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::Value;
 
-/// Starting capacity of a fresh [`RowBlockWriter`]'s buffer.
-///
-/// This only sizes the first chunk a writer builds; [`RowBlockWriter::reset`] keeps whatever
-/// capacity later chunks grew it to.
+/// Sizes only a writer's first chunk; [`RowBlockWriter::reset`] keeps the capacity later chunks grew.
 const INITIAL_CAPACITY: usize = 8192;
 
-/// Which subset of a lookup's keys a block carries as its columns.
-///
-/// Mirrors the predicate the RESP row serializer (`RedisModule_Reply_RLookupRow`) applies, so
-/// that a chunk carries the same fields whichever encoding it ends up using. Keys a lookup has
-/// tombstoned are skipped by [`RLookup::iter`] itself and need no flag to exclude them.
+/// Which of a lookup's keys become columns: the same predicate `RedisModule_Reply_RLookupRow` applies, so a chunk
+/// carries the same fields in either encoding.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ColumnFilter {
-    /// A key is a column only if it carries *every* one of these flags.
+    /// Flags a column key must all carry.
     pub required: RLookupKeyFlags,
-    /// A key is a column only if it carries *none* of these flags.
+    /// Flags a column key must carry none of.
     pub excluded: RLookupKeyFlags,
 }
 
 impl ColumnFilter {
-    /// Whether `key` is one of the columns this filter selects.
     fn accepts(&self, key: &RLookupKey<'_>) -> bool {
         key.flags.contains(self.required) && !key.flags.intersects(self.excluded)
     }
 }
 
-/// Which member of a [`Value::Trio`] a row field resolves to.
-///
-/// A trio bundles the three shapes a multi-value document field can reply as. Only a field the
-/// row stores as a trio *directly* gets this choice: nested trios take
-/// [`TrioMember::Middle`] unconditionally, which is what the RESP path does and what
-/// [`RowBlockWriter::write_row`] therefore reproduces.
+/// Which member of a [`Value::Trio`] stored directly in a row field is written. Nested trios always take
+/// [`TrioMember::Middle`], as on the RESP path.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TrioMember {
-    /// The single-value form, replied to clients predating the multi-value API.
+    /// The single-value form, for clients predating the multi-value API.
     Left,
-    /// The multi-value form.
     Middle,
-    /// The expanded form, requested with `FORMAT EXPAND`.
+    /// The `FORMAT EXPAND` form.
     Right,
 }
 
-/// Why a schema could not be encoded, leaving the caller to reply in RESP instead.
+/// Why a schema could not be encoded; the caller replies in RESP instead.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SchemaError {
-    /// A column name longer than the `u16` the layout gives its length. Refused rather than
-    /// truncated: the full name plus its terminator follows the length on the wire, so a
-    /// truncated length would leave the decoder reading a name's tail as the next field.
+    /// A column name longer than its `u16` length field can hold.
     #[error("column name of {len} bytes exceeds the encodable maximum")]
-    NameTooLong {
-        /// The offending name's length in bytes, excluding its NUL terminator.
-        len: usize,
-    },
+    NameTooLong { len: usize },
 
-    /// More columns than the `u16` the header gives their count.
     #[error("more columns than the block header can count")]
     TooManyColumns,
 }
 
-/// Why a row could not be encoded.
-///
-/// Nothing is appended for a refused row: the block still holds exactly the rows written
-/// before it, so the caller may emit it as is or discard it, but must not treat the refused
-/// row as encoded. Encoding an unrepresentable value as null instead would silently destroy
-/// it, which is the one outcome a wire format may never produce.
+/// Why a row could not be encoded. Nothing is appended for a refused row, which is never written lossily instead.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RefusedRow {
-    /// A value still held an indirection after resolution — only reachable if [`Value`] grew
-    /// a variant that indirects and the resolution step was not extended with it.
+    /// Only reachable if [`Value`] grows an indirecting variant `resolve_nested` does not follow.
     #[error("value still holds an unresolved indirection")]
     UnresolvedIndirection,
 
-    /// A string, array or map whose length does not fit the `u32` the layout gives it.
+    /// A string, array or map length that does not fit its `u32` field.
     #[error("value length of {len} exceeds the encodable maximum")]
-    ValueTooLong {
-        /// The offending byte length, element count or entry count.
-        len: usize,
-    },
+    ValueTooLong { len: usize },
 
-    /// Nesting beyond [`MAX_NESTING_DEPTH`].
     #[error("value nests deeper than the format carries")]
     TooDeeplyNested,
 
-    /// The lookup no longer selects exactly the columns the schema declared, so the presence
-    /// bitmap cannot describe the row. Only reachable if the lookup or the filter changed
-    /// between [`RowBlockWriter::write_schema`] and this row.
+    /// The lookup gained or lost columns since [`RowBlockWriter::write_schema`].
     #[error("lookup no longer matches the schema's column count")]
     ColumnCountChanged,
 }
 
-/// Growable output buffer for building one block.
-///
-/// Reused from chunk to chunk via [`RowBlockWriter::reset`], so the per-chunk allocation cost
-/// is amortised to zero after the first.
-///
-/// Every chunk starts with [`RowBlockWriter::write_schema`], which fixes the columns, and
-/// then appends rows with [`RowBlockWriter::write_row`]. [`RowBlockWriter::as_bytes`] is the
-/// finished block.
-///
-/// Opaque to C: the writer owns a heap buffer, so C may only hold a pointer to one and pass
-/// it back to the `row_block_ffi` entrypoints.
+/// Builds one block per chunk: [`RowBlockWriter::write_schema`], then [`RowBlockWriter::write_row`] per row. Reused
+/// across chunks via [`RowBlockWriter::reset`].
 #[cheadergen::config(export, opaque)]
 #[derive(Debug)]
 pub struct RowBlockWriter {
     buf: Vec<u8>,
-    /// Rows appended since the last reset, so a replay path can check it re-emitted every row
-    /// the block held.
     nrows: usize,
-    /// Recorded by [`RowBlockWriter::write_schema`] so rows cannot be selected by a different
-    /// predicate than the schema was.
+    /// The schema's filter, so rows are selected by the same predicate.
     filter: ColumnFilter,
-    /// Columns declared in the header, for bitmap sizing.
     ncols: u16,
-    /// Set once the header and schema have been written.
     header_written: bool,
-    /// One entry per schema column, in schema order.
     columns: Vec<Column>,
-    /// Offset of the first row in [`RowBlockWriter::buf`].
     rows_at: usize,
-    /// The state of every column the row being appended changed, as it was before the row:
-    /// what a refused row restores, and what re-encoding the earlier rows reads them by.
+    /// The pre-row state of each column the current row changed: restored if the row is refused, and the kinds earlier
+    /// rows are re-encoded from if it is accepted.
     undo: Vec<(u16, Column)>,
-    /// The previous buffer, kept for its capacity: re-encoding builds the new rows here and
-    /// then swaps the two.
+    /// Kept for its capacity: re-encoding builds into it and swaps it with `buf`.
     spare: Vec<u8>,
 }
 
-/// What the writer knows about one schema column.
 #[derive(Copy, Clone, Debug)]
 struct Column {
-    /// The kind every value written to this column so far conforms to.
     kind: ColumnKind,
-    /// Whether a value has fixed [`Column::kind`] yet. Until then it holds a placeholder,
-    /// which no row contradicts since no row holds a value for the column.
+    /// Until a value fixes it, [`Column::kind`] is a placeholder no row contradicts.
     fixed: bool,
-    /// Offset of the column's kind byte in the schema, for backpatching.
+    /// Offset of the kind byte, for backpatching.
     kind_at: usize,
 }
 
@@ -161,7 +111,6 @@ impl Default for RowBlockWriter {
 }
 
 impl RowBlockWriter {
-    /// Creates a writer with no header written yet.
     pub fn new() -> Self {
         Self {
             buf: Vec::with_capacity(INITIAL_CAPACITY),
@@ -176,7 +125,7 @@ impl RowBlockWriter {
         }
     }
 
-    /// Discards the block, keeping the allocated capacity for the next one.
+    /// Discards the block, keeping the capacity.
     pub fn reset(&mut self) {
         self.buf.clear();
         self.nrows = 0;
@@ -188,22 +137,16 @@ impl RowBlockWriter {
         self.undo.clear();
     }
 
-    /// The block built so far, ready to be sent.
     pub fn as_bytes(&self) -> &[u8] {
         &self.buf
     }
 
-    /// How many rows [`RowBlockWriter::write_row`] has accepted since the last reset.
     pub const fn nrows(&self) -> usize {
         self.nrows
     }
 
-    /// Writes the header and the schema `filter` selects from `lookup`, and returns how many
-    /// columns it declares. Must be called once per chunk, before any row.
-    ///
-    /// A zero column count means this chunk cannot be encoded at all — see the [crate] docs —
-    /// and so does any error. Either way the writer is left empty, so the caller can only
-    /// reply in RESP.
+    /// Writes the header and the schema `filter` selects from `lookup`, returning the column count. Zero columns or an
+    /// error leave the writer empty, and the caller replies in RESP.
     ///
     /// # Panics
     ///
@@ -233,8 +176,6 @@ impl RowBlockWriter {
         }
     }
 
-    /// Appends the header and schema, leaving a half-written block behind on error for
-    /// [`RowBlockWriter::write_schema`] to discard.
     fn append_schema(
         &mut self,
         lookup: &RLookup<'_>,
@@ -243,8 +184,7 @@ impl RowBlockWriter {
         self.buf.extend_from_slice(&MAGIC.to_le_bytes());
         self.buf.push(VERSION);
 
-        // The column count is not known until the keys have been walked, so reserve its slot
-        // and backpatch rather than iterating twice.
+        // Backpatched once the keys have been walked.
         let ncols_at = self.buf.len();
         self.buf.extend_from_slice(&0u16.to_le_bytes());
 
@@ -257,8 +197,6 @@ impl RowBlockWriter {
 
             self.buf.extend_from_slice(&name_len.to_le_bytes());
             self.buf.extend_from_slice(name);
-            // The terminator lets a decoder resolve the name by pointing straight into the
-            // block; `CStr` is why the name itself cannot contain one.
             self.buf.push(0);
 
             let column = Column {
@@ -274,18 +212,9 @@ impl RowBlockWriter {
         Ok(ncols)
     }
 
-    /// Appends one row, reading the schema's columns out of `row`.
-    ///
-    /// `trio` is the member a field stored as a [`Value::Trio`] resolves to; see
-    /// [`TrioMember`].
-    ///
-    /// The first value a column receives fixes its kind to that value's [`Tag`]. A value of
-    /// another tag in a later row turns the column [`ColumnKind::Tagged`] for the rest of the
-    /// block, which re-encodes every row written so far — a copy of the block, at most once
-    /// per column per block, and never for a chunk whose columns keep their types.
-    ///
-    /// On error nothing is appended for the row and no column kind changes — see
-    /// [`RefusedRow`].
+    /// Appends one row. A column's first value fixes its kind; a later value of another [`Tag`] turns it
+    /// [`ColumnKind::Tagged`] and re-encodes the rows written so far (at most once per column per block). A refused
+    /// row changes neither the bytes nor any column kind.
     ///
     /// # Panics
     ///
@@ -301,7 +230,6 @@ impl RowBlockWriter {
             "a row cannot be written before the chunk's schema"
         );
 
-        // The bitmap sits at the row's first byte, so this doubles as the rollback point.
         let row_at = self.buf.len();
         self.buf.resize(row_at + bitmap_bytes(self.ncols), 0);
         self.undo.clear();
@@ -315,8 +243,6 @@ impl RowBlockWriter {
                 Ok(())
             }
             Err(error) => {
-                // Roll the half-written row back so the block ends on a row boundary and stays
-                // decodable, whether the caller emits it or throws it away.
                 self.buf.truncate(row_at);
                 for (col, before) in self.undo.drain(..) {
                     self.columns[usize::from(col)] = before;
@@ -327,7 +253,6 @@ impl RowBlockWriter {
         }
     }
 
-    /// Appends a row's presence bits and values, with the bitmap already zeroed at `row_at`.
     fn append_row(
         &mut self,
         lookup: &RLookup<'_>,
@@ -355,23 +280,16 @@ impl RowBlockWriter {
         Ok(())
     }
 
-    /// Appends one top-level row field to column `col`, fixing or widening the column's kind
-    /// to fit it.
-    ///
-    /// Only this row is encoded under a widened kind here; the rows before it are re-encoded
-    /// once the row is accepted, by [`RowBlockWriter::retag_rows_before`].
+    /// Appends a row field, fixing or widening its column's kind. Earlier rows are re-encoded only once the row is
+    /// accepted, by [`RowBlockWriter::retag_rows_before`].
     fn append_field(
         &mut self,
         col: u16,
         value: &Value,
         trio: TrioMember,
     ) -> Result<(), RefusedRow> {
-        // The RESP row serializer applies the three-way trio choice exactly once, and only to
-        // a value the row stores as a trio directly: its trio test does not follow references,
-        // and everything below a field is emitted by the generic value serializer, whose own
-        // trio case takes the middle member whatever was asked for. `resolve_nested` is the
-        // mirror of that generic path, so resolving here and there is the whole of the
-        // distinction.
+        // As in the RESP row serializer: only a trio stored directly in the field (not behind a reference) gets the
+        // three-way choice; `resolve_nested` mirrors the generic value serializer for everything else.
         let top = match value {
             Value::Trio(members) => match trio {
                 TrioMember::Left => members.left(),
@@ -405,8 +323,6 @@ impl RowBlockWriter {
         self.append_payload(value, 0)
     }
 
-    /// Whether the row being appended turned column `col` from typed to
-    /// [`ColumnKind::Tagged`], leaving the rows before it to re-encode.
     fn retagged(&self, col: u16) -> bool {
         self.undo.iter().any(|(undone, before)| {
             *undone == col
@@ -416,14 +332,10 @@ impl RowBlockWriter {
         })
     }
 
-    /// Re-encodes the rows before `row_at` for the columns the row at `row_at` retagged.
-    ///
-    /// A typed value is its tagged encoding minus the tag, so re-encoding is splicing each
-    /// retagged column's old tag in front of its values; everything else, the row at
-    /// `row_at` included, is copied verbatim.
+    /// Re-encodes the rows before `row_at` for the columns the row at `row_at` retagged. A typed value is its tagged
+    /// encoding minus the tag, so this splices the old tag in front of each such value and copies the rest.
     fn retag_rows_before(&mut self, row_at: usize) {
-        // The kinds the earlier rows were written under: what each column was before this row
-        // changed it, and the current kind of every column the row left alone.
+        // The kinds the earlier rows were written under.
         let mut before: Vec<ColumnKind> = self.columns.iter().map(|column| column.kind).collect();
         for (col, column) in &self.undo {
             before[usize::from(*col)] = column.kind;
@@ -461,15 +373,12 @@ impl RowBlockWriter {
         self.spare = std::mem::replace(&mut self.buf, out);
     }
 
-    /// Appends one tagged value nested `depth` levels below a row field.
     fn append_value(&mut self, value: &Value, depth: u32) -> Result<(), RefusedRow> {
         let value = resolve_nested(value);
         self.buf.push(tag_of(value)? as u8);
         self.append_payload(value, depth)
     }
 
-    /// Appends the payload of an already resolved value nested `depth` levels below a row
-    /// field, without its tag.
     fn append_payload(&mut self, value: &Value, depth: u32) -> Result<(), RefusedRow> {
         if depth > MAX_NESTING_DEPTH {
             return Err(RefusedRow::TooDeeplyNested);
@@ -498,17 +407,13 @@ impl RowBlockWriter {
         Ok(())
     }
 
-    /// Appends a [`Tag::String`] payload.
     fn append_string(&mut self, bytes: &[u8]) -> Result<(), RefusedRow> {
         self.append_count(bytes.len())?;
         self.buf.extend_from_slice(bytes);
-        // The terminator lets a decoder hand out the string in place: a string value must be
-        // NUL-terminated, and the block is the only memory the bytes are in.
         self.buf.push(0);
         Ok(())
     }
 
-    /// Appends one of the layout's `u32` length fields.
     fn append_count(&mut self, count: usize) -> Result<(), RefusedRow> {
         let count = u32::try_from(count).map_err(|_| RefusedRow::ValueTooLong { len: count })?;
         self.buf.extend_from_slice(&count.to_le_bytes());
@@ -516,24 +421,21 @@ impl RowBlockWriter {
     }
 }
 
-/// The tag an already resolved value is written with.
 const fn tag_of(value: &Value) -> Result<Tag, RefusedRow> {
     Ok(match value {
         Value::Number(_) => Tag::Number,
         Value::String(_) | Value::RedisString(_) => Tag::String,
-        // `Undefined` is what the RESP path replies as null too, and carries nothing to lose.
+        // RESP replies `Undefined` as null too.
         Value::Null | Value::Undefined => Tag::Null,
         Value::Array(_) => Tag::Array,
         Value::Map(_) => Tag::Map,
-        // Deliberately no catch-all arm, so that a variant added to `Value` is a compile
-        // error here instead of quietly taking a lossy path. These two are resolved away by
-        // `resolve_nested`, which is where a new indirecting variant belongs.
+        // No catch-all arm, so a new `Value` variant is a compile error here. These two are resolved by
+        // `resolve_nested`.
         Value::Ref(_) | Value::Trio(_) => return Err(RefusedRow::UnresolvedIndirection),
     })
 }
 
-/// Follows the indirection a nested value carries, the way the generic RESP value serializer
-/// does: references are dereferenced, and a trio resolves to its middle member.
+/// Follows references, and resolves a trio to its middle member, as the generic RESP value serializer does.
 fn resolve_nested(mut value: &Value) -> &Value {
     loop {
         match value {

@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Column kinds: typed columns that drop the per-value tag, and the columns whose values
-//! disagree on a type and have to keep it.
+//! Column kinds: typed columns that drop the per-value tag, and the columns whose values disagree on a type and have to
+//! keep it.
 
 use crate::harness::{Decoded, bytes, decode, encode, lookup, row, too_deep};
 use pretty_assertions::assert_eq;
@@ -16,7 +16,6 @@ use rlookup::{RLookup, RLookupRow};
 use row_block::{Block, ColumnFilter, ColumnKind, RefusedRow, RowBlockWriter, Tag, TrioMember};
 use value::SharedValue;
 
-/// One value of every tag.
 fn one_of_each() -> Vec<(Decoded, Tag)> {
     vec![
         (Decoded::Number(1.5), Tag::Number),
@@ -30,7 +29,7 @@ fn one_of_each() -> Vec<(Decoded, Tag)> {
     ]
 }
 
-/// A single-column block holding `values`, one per row, and the column kind it declares.
+/// A block of `values`, one per row, in column `v`, and that column's kind.
 fn single_column(values: &[Decoded]) -> (Vec<u8>, ColumnKind) {
     let lookup = lookup(&["v"]);
     let rows: Vec<_> = values
@@ -56,8 +55,8 @@ fn a_columns_kind_follows_the_types_of_its_values() {
         .into_iter()
         .map(|(value, tag)| (vec![value; 3], ColumnKind::Typed(tag)))
         .collect();
-    // A `LOAD` field can be numeric in one document and a string in another, and a field can
-    // hold an array in one row and a scalar in the next: neither forces a RESP fallback.
+    // A `LOAD` field can be numeric in one document and a string in another, and a field can hold an array in one row
+    // and a scalar in the next: neither forces a RESP fallback.
     for values in [
         vec![Decoded::Array(vec![bytes("a")]), bytes("a")],
         vec![Decoded::Map(vec![]), Decoded::Array(vec![])],
@@ -86,8 +85,8 @@ fn a_columns_kind_follows_the_types_of_its_values() {
 
 #[test]
 fn a_conflict_mid_row_keeps_the_columns_around_it_intact() {
-    // The conflicting row retags two columns at once, one of them right after a typed column
-    // it has already written when the first conflict is found.
+    // The conflicting row retags two columns at once, one of them right after a typed column it has already written
+    // when the first conflict is found.
     let lookup = lookup(&["a", "b", "c"]);
     let num = |n: f64| Decoded::Number(n);
     let rows: Vec<[Option<Decoded>; 3]> = vec![
@@ -134,9 +133,9 @@ fn a_conflict_mid_row_keeps_the_columns_around_it_intact() {
 
 #[test]
 fn columns_without_values_or_with_only_nulls_cost_only_presence_bits() {
-    // A null is a value, not an absence — the coordinator replies it as a null field — so it
-    // sets its presence bit, but in a column of nothing else it has no payload at all. A
-    // column no row holds keeps the placeholder kind it was declared with.
+    // A null is a value, not an absence — the coordinator replies it as a null field — so it sets its presence bit, but
+    // in a column of nothing else it has no payload at all. A column no row holds keeps the placeholder kind it was
+    // declared with.
     let lookup = lookup(&["empty", "nulls"]);
     let rows: Vec<_> = (0..10)
         .map(|_| row(&lookup, &[("nulls", SharedValue::null_static())]))
@@ -156,9 +155,9 @@ fn columns_without_values_or_with_only_nulls_cost_only_presence_bits() {
 
 #[test]
 fn a_refused_row_does_not_change_any_column_kind() {
-    // The refused row would fix one column and retag another before its last column is found
-    // unencodable; the block afterwards must be the one it would be without that row. The
-    // replay fallback then reads it back through the reader, retagged column included.
+    // The refused row would fix one column and retag another before its last column is found unencodable; the block
+    // afterwards must be the one it would be without that row. The replay fallback then reads it back through the
+    // reader, retagged column included.
     let lookup = lookup(&["fresh", "typed", "mixed", "bad"]);
     let num = SharedValue::new_num;
     let good = [
