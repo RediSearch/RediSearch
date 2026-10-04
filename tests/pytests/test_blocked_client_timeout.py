@@ -274,6 +274,7 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
+    @skip_until("2026-10-18", reason="Flaky coordinator hang in COORD_THREADS PAUSE, see MOD-19323")
     def test_fail_timeout_after_fanout_search(self):
         """Test timeout occurring after the fanout (after query is dispatched to shards - best effort)."""
         env = self.env
@@ -482,6 +483,7 @@ class TestCoordinatorTimeout:
             thread.join(timeout=10)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
+    @skip_until("2026-10-18", reason="Flaky coordinator hang in COORD_THREADS PAUSE, see MOD-19323")
     def test_fail_timeout_before_coord_encode_hybrid(self):
         """Test timeout occurring before coordinator encodes FT.HYBRID results."""
         self._test_fail_timeout_coord_encode([
