@@ -70,7 +70,8 @@ impl RowBlockDecoder {
     ///
     /// 1. `block` must stay [valid] for reads, and unmodified, until the block ends: by [`RowBlockDecoder::end`], the
     ///    next call to this method, or dropping the decoder.
-    /// 2. `lookup` must outlive, and not be cleaned up before, every [`RowBlockDecoder::next_row`] for this block.
+    /// 2. `lookup` must outlive, and not be cleaned up before, every [`RowBlockDecoder::next_row`] for this block,
+    ///    and no exclusive reference to one of its keys may be live during a call.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn begin(
@@ -118,6 +119,7 @@ impl RowBlockDecoder {
     /// # Safety
     ///
     /// 1. The contract of the [`RowBlockDecoder::begin`] call that started the active block must still hold.
+    /// 2. `row` must belong to the lookup that call was given.
     pub unsafe fn next_row(&mut self, row: &mut RLookupRow<'_>) -> Result<(), DecodeError> {
         assert!(self.has_rows(), "no row is left in the active block");
         // SAFETY: `rows` is a suffix of the block `begin` was given, still valid and unmodified per (1.).

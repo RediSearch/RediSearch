@@ -103,6 +103,7 @@ fn a_lookup_with_no_visible_keys_declares_no_columns() {
         writer.write_schema(&lookup(&[]), ColumnFilter::default()),
         Ok(0)
     );
+    assert!(writer.as_bytes().is_empty());
 }
 
 #[test]

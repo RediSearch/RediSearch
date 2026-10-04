@@ -170,6 +170,7 @@ pub fn try_decode(block: &[u8]) -> Result<Vec<Vec<(String, Decoded)>>, DecodeErr
 ///
 /// Unlike [`try_decode`] this keeps the rows decoded before the failure, which is what a truncated block has to be
 /// judged by.
+#[cfg(not(miri))] // Only the property tests use it, and Miri skips them.
 pub fn decode_prefix(block: &[u8]) -> (Vec<Vec<(String, Decoded)>>, Option<DecodeError>) {
     let parsed = match Block::parse(block) {
         Ok(parsed) => parsed,

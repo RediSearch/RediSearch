@@ -72,3 +72,14 @@ fn the_row_iterator_stops_at_the_first_error() {
     let outcomes: Vec<_> = parsed.rows().map(|row| row.is_ok()).collect();
     assert_eq!(outcomes, vec![false]);
 }
+
+#[test]
+fn a_reader_without_columns_refuses_row_bytes_instead_of_spinning() {
+    let mut reader = row_block::RowReader::new(&[0], &[]);
+    assert!(!reader.is_exhausted());
+    assert_eq!(
+        reader.read_row(|_, _| unreachable!("no column to sink")),
+        Err(row_block::DecodeError::RowsWithoutColumns)
+    );
+    assert!(reader.is_exhausted());
+}

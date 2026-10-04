@@ -216,6 +216,10 @@ impl<'a, 'k> RowReader<'a, 'k> {
         sink: &mut impl FnMut(u16, SharedValue),
     ) -> Result<(), DecodeError> {
         let ncols = self.kinds.len() as u16;
+        // Rows of a column-less schema are zero bytes long, so this would succeed without consuming input.
+        if ncols == 0 {
+            return Err(DecodeError::RowsWithoutColumns);
+        }
         let bitmap = self.cursor.take(bitmap_bytes(ncols))?;
         for (col, kind) in (0..ncols).zip(self.kinds) {
             if bitmap_get(bitmap, col) {
@@ -250,7 +254,7 @@ fn decode_payload(
         Tag::Null => SharedValue::null_static(),
         Tag::Array => {
             let count = cursor.take_count(MIN_BYTES_PER_VALUE)?;
-            let mut items = Vec::with_capacity(count);
+            let mut items = Vec::with_capacity(count.min(MAX_PREALLOCATED));
             for _ in 0..count {
                 items.push(decode_value(cursor, depth + 1)?);
             }
@@ -258,7 +262,7 @@ fn decode_payload(
         }
         Tag::Map => {
             let count = cursor.take_count(2 * MIN_BYTES_PER_VALUE)?;
-            let mut entries = Vec::with_capacity(count);
+            let mut entries = Vec::with_capacity(count.min(MAX_PREALLOCATED));
             for _ in 0..count {
                 let key = decode_value(cursor, depth + 1)?;
                 let value = decode_value(cursor, depth + 1)?;
@@ -310,6 +314,10 @@ fn skip_payload(cursor: &mut Cursor<'_>, tag: Tag, depth: u32) -> Result<(), Dec
     }
     Ok(())
 }
+
+/// Caps the capacity reserved up front for a collection. A count is only checked against the bytes left, which
+/// nested collections share, so reserving all of it would multiply a block's size by the nesting depth.
+const MAX_PREALLOCATED: usize = 1024;
 
 /// A bare [`Tag::Null`] is the smallest tagged value.
 const MIN_BYTES_PER_VALUE: usize = 1;

@@ -49,7 +49,7 @@ pub use decoder::RowBlockDecoder;
 pub use reader::{Block, DecodeError, Row, RowReader, Rows};
 pub use writer::{ColumnFilter, RefusedRow, RowBlockWriter, SchemaError, TrioMember};
 
-/// Spells `RSBR` as little-endian bytes.
+/// Spells `RBSR` as little-endian bytes.
 pub const MAGIC: u32 = 0x5253_4252;
 
 pub const VERSION: u8 = 4;

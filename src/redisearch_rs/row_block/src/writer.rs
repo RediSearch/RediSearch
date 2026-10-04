@@ -162,6 +162,11 @@ impl RowBlockWriter {
         );
 
         match self.append_schema(lookup, filter) {
+            // No rows can follow a schema with no columns, so leave the writer empty rather than half-written.
+            Ok(0) => {
+                self.reset();
+                Ok(0)
+            }
             Ok(ncols) => {
                 self.filter = filter;
                 self.ncols = ncols;
@@ -236,7 +241,7 @@ impl RowBlockWriter {
 
         match self.append_row(lookup, row, trio, row_at) {
             Ok(()) => {
-                if self.undo.iter().any(|(col, _)| self.retagged(*col)) {
+                if self.undo.iter().any(|entry| self.retags(entry)) {
                     self.retag_rows_before(row_at);
                 }
                 self.nrows += 1;
@@ -323,13 +328,11 @@ impl RowBlockWriter {
         self.append_payload(value, 0)
     }
 
-    fn retagged(&self, col: u16) -> bool {
-        self.undo.iter().any(|(undone, before)| {
-            *undone == col
-                && before.fixed
-                && before.kind != ColumnKind::Tagged
-                && self.columns[usize::from(col)].kind == ColumnKind::Tagged
-        })
+    /// Whether the current row widened the column `undone` from a typed kind to [`ColumnKind::Tagged`].
+    fn retags(&self, (undone, before): &(u16, Column)) -> bool {
+        before.fixed
+            && before.kind != ColumnKind::Tagged
+            && self.columns[usize::from(*undone)].kind == ColumnKind::Tagged
     }
 
     /// Re-encodes the rows before `row_at` for the columns the row at `row_at` retagged. A typed value is its tagged
@@ -340,12 +343,12 @@ impl RowBlockWriter {
         for (col, column) in &self.undo {
             before[usize::from(*col)] = column.kind;
         }
-        let splice: Vec<Option<Tag>> = (0..self.ncols)
-            .map(|col| match before[usize::from(col)] {
-                ColumnKind::Typed(tag) if self.retagged(col) => Some(tag),
-                _ => None,
-            })
-            .collect();
+        let mut splice: Vec<Option<Tag>> = vec![None; usize::from(self.ncols)];
+        for entry in self.undo.iter().filter(|entry| self.retags(entry)) {
+            if let ColumnKind::Typed(tag) = entry.1.kind {
+                splice[usize::from(entry.0)] = Some(tag);
+            }
+        }
 
         let mut out = std::mem::take(&mut self.spare);
         out.clear();

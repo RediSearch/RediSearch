@@ -10,11 +10,12 @@
 //! The coordinator's decoder: blocks decoded straight into lookup rows, the way the network result processor drives it.
 
 use crate::harness::{
-    Decoded, begin, bytes, decode_into, encode, lookup, row, try_decode, valid_block,
+    Decoded, TAGGED_COLUMN, begin, block, bytes, decode_into, encode, lookup, row, try_decode,
+    typed_column, valid_block,
 };
 use pretty_assertions::assert_eq;
 use rlookup::{RLookup, RLookupRow};
-use row_block::RowBlockDecoder;
+use row_block::{ColumnKind, RowBlockDecoder, Tag};
 use std::ffi::CString;
 use value::SharedValue;
 
@@ -143,4 +144,45 @@ fn reading_past_the_last_row_panics() {
     let mut target = RLookupRow::new();
     // SAFETY: `coordinator` outlives the decoder.
     let _ = unsafe { decoder.next_row(&mut target) };
+}
+
+#[test]
+fn a_repeated_column_name_resolves_to_one_key_and_the_last_value_wins() {
+    let number = ColumnKind::Typed(Tag::Number);
+    let mut rows = vec![0b11];
+    rows.extend_from_slice(&1.0f64.to_le_bytes());
+    rows.extend_from_slice(&2.0f64.to_le_bytes());
+    let block = block(
+        2,
+        &[
+            &typed_column(b'a', number),
+            &typed_column(b'a', number),
+            &rows,
+        ],
+    );
+
+    let mut coordinator = RLookup::new();
+    assert_eq!(
+        decode_into(&block, &mut coordinator),
+        Ok(vec![vec![("a".to_owned(), Decoded::Number(2.0))]])
+    );
+    assert_eq!(coordinator.iter().count(), 1);
+}
+
+#[test]
+fn a_collection_longer_than_the_up_front_reservation_still_decodes() {
+    const LEN: u32 = 4096;
+    let mut rows = vec![0b1, Tag::Array as u8];
+    rows.extend_from_slice(&LEN.to_le_bytes());
+    rows.resize(rows.len() + LEN as usize, Tag::Null as u8);
+    let block = block(1, &[&TAGGED_COLUMN, &rows]);
+
+    let mut coordinator = RLookup::new();
+    assert_eq!(
+        decode_into(&block, &mut coordinator),
+        Ok(vec![vec![(
+            "a".to_owned(),
+            Decoded::Array(vec![Decoded::Null; LEN as usize])
+        )]])
+    );
 }
