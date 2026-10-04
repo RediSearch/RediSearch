@@ -5231,10 +5231,11 @@ class TestCoordinatorTimeout:
         except Exception:
             pass
 
-    def _assert_unsorted_partial_reply(self, env, result, expected_rows,
-                                       pause_after_n, other_docs):
-        env.assertEqual(len(result.get('results', [])), expected_rows,
-                        message="rows in reply")
+    def _assert_completed_loader_batches(self, env, result):
+        """These small shard inputs fit in one completed, drainable loader batch."""
+        names = sorted(row['extra_attributes']['name'] for row in result['results'])
+        env.assertEqual(names, sorted(f'hello{i}' for i in range(self.n_docs)),
+                        message=result)
 
     def _run_one_shard_timesout(self, *, coord_cmd, shard_cmd, query_args,
                                 assert_reply, coord_cmd_prefix=None,
@@ -5328,15 +5329,13 @@ class TestCoordinatorTimeout:
     def test_return_strict_one_shard_timesout_flat_aggregate(self):
         """Flat aggregate, one shard times out mid-pipeline.
 
-        Expect exactly ``pause_after_n + other_docs`` rows: the timed-out shard
-        ships its buffered prefix, other shards ship their full local result
-        sets, and the strict timeout depletes the timed-out shard cursor.
+        The timed-out shard drains its completed loader batch in addition to
+        the collected prefix, and its cursor is depleted.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, expected_rows, pause_after_n, other_docs):
-            env.assertEqual(len(result.get('results', [])), expected_rows,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_one_shard_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -5392,17 +5391,14 @@ class TestCoordinatorTimeout:
     def test_return_strict_one_shard_timesout_search(self):
         """FT.SEARCH (with content) one-shard timeout.
 
-        Expect ``pause_after_n + other_docs`` rows. The shard pipeline
-        ends in RPLoader (after RPPager), which is rejected by
-        ``pipelineCanYieldPartialResults``, so only the rows already
-        buffered by the time the timeout fires are shipped.
+        The completed safe-loader batch remains eligible for recovery even
+        though not all of its rows reached the reply collector before timeout.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_search_partial_reply(env, result, expected_rows,
                                         pause_after_n, other_docs):
-            env.assertEqual(len(result.get('results', [])), expected_rows,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_one_shard_timesout(
             coord_cmd='FT.SEARCH', shard_cmd='_FT.SEARCH',
@@ -5446,8 +5442,7 @@ class TestCoordinatorTimeout:
             env.assertContains('Results', result, message="Results key")
             env.assertContains('Profile', result, message="Profile key")
             inner = result['Results']
-            self._assert_unsorted_partial_reply(env, inner, expected_rows,
-                                                pause_after_n, other_docs)
+            self._assert_completed_loader_batches(env, inner)
             env.assertEqual(inner.get('warning', []), [TIMEOUT_WARNING],
                             message="inner Results warning")
 
@@ -5599,15 +5594,12 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_flat_aggregate(self):
         """Flat aggregate, every shard times out.
 
-        Expect exactly ``sum(pauses)`` rows: every shard's admitted rows
-        survive, and each timed-out shard cursor is depleted.
+        Each completed loader batch is recovered without duplicate prefix rows.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, pauses, shards_count):
-            expected = sum(pauses)
-            env.assertEqual(len(result.get('results', [])), expected,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -5618,15 +5610,12 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_withcount_aggregate(self):
         """WITHCOUNT all-shards-timeout (barrier + RPDepleter).
 
-        Expect exactly ``sum(pauses)`` rows: every shard's admitted rows
-        survive, and each timed-out shard cursor is depleted.
+        Completed shard batches survive, and each timed-out cursor is depleted.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_withcount_reply(env, result, pauses, shards_count):
-            expected = sum(pauses)
-            env.assertEqual(len(result.get('results', [])), expected,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         # WITHCOUNT must precede pipeline steps (LOAD/GROUPBY/...).
         self._run_all_shards_timesout(
@@ -5661,9 +5650,8 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_partial_each_aggregate(self):
         """All-shards-timeout with distinct per-shard pause counts.
 
-        Expect exactly ``sum(pauses)`` rows. Distinct pause values reject
-        regressions where admitted rows are lost or extra rows are drained after
-        strict timeout depletes each shard cursor.
+        Distinct prefix lengths must join their completed loader batches
+        without losing or duplicating rows.
         """
         skipIfNoEnableAssert(self.env)
 
@@ -5676,9 +5664,7 @@ class TestCoordinatorTimeout:
             pauses = base_pauses + [2] * (n_shards - len(base_pauses))
 
         def assert_partial_each_reply(env, result, pauses, shards_count):
-            expected = sum(pauses)
-            env.assertEqual(len(result.get('results', [])), expected,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',

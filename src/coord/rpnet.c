@@ -117,52 +117,46 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
   return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
 }
 
-// Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
-// Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
-//
-// Shard warnings are always recorded on the AREQ / QueryError so the reply
-// emitter can surface them. A shard's TIMEDOUT warning additionally controls
-// whether the coord pipeline should keep draining:
-//   - TimeoutPolicy_ReturnStrict: keep draining the remaining shards. The
-//     warning flag is forwarded via QEXEC_S_SHARD_TIMED_OUT_WARNING; the
-//     coord's own deadline (handled by the strict timeout callback) is the
-//     authoritative stop signal.
-//   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
-//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
-static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, bool draining) {
+// Record RESP3 batch warnings for serialization; report whether timeout was present.
+static bool recordReplyWarnings(RPNet *nc) {
   bool shard_timed_out = false;
-  // Check for warnings (resp3 only)
-  if (is_resp3) {
-    RS_ASSERT(nc->current.meta);
-    MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
-    size_t num_warnings = MRReply_Length(warning);
-    // Iterate over all warnings in the array
-    for (size_t i = 0; i < num_warnings; i++) {
-      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
-      // Set an error to be later picked up and sent as a warning
-      if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
-        RS_ASSERT(nc->areq);
-        shard_timed_out = true;
-        nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
-      } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-      } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
-        QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-      } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
-        RS_ASSERT(nc->areq);
-        AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
-      } else if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
-        RS_ASSERT(nc->areq);
-        nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
-      }
+  RS_ASSERT(nc->current.meta);
+  MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
+  size_t num_warnings = MRReply_Length(warning);
+  // Iterate over all warnings in the array
+  for (size_t i = 0; i < num_warnings; i++) {
+    const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
+    // Set an error to be later picked up and sent as a warning
+    if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
+      RS_ASSERT(nc->areq);
+      shard_timed_out = true;
+      nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+    } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
+      QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+    } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
+      QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+    } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+      RS_ASSERT(nc->areq);
+      AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
+    } else if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
+      RS_ASSERT(nc->areq);
+      nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
     }
   }
+  return shard_timed_out;
+}
 
+static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, bool draining) {
+  // STRICT records warnings on admission: the output budget can stop Next
+  // before it revisits this batch for cleanup. Other policies still decide
+  // whether to terminate only after yielding the batch.
+  bool shard_timed_out = is_resp3 &&
+                         nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict &&
+                         recordReplyWarnings(nc);
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (shard_timed_out && !draining &&
-      nc->areq->base.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+  if (shard_timed_out && !draining) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -347,19 +341,24 @@ static int getNextReplyMode(RPNet *nc, bool draining) {
   if (nc->cmd.protocol == 3) { // RESP3
     meta = MRReply_ArrayElement(root, 0);
     if (nc->cmd.forProfiling) {
-      meta = MRReply_MapElement(meta, "results"); // profile has an extra level
+      meta = MRReply_MapElement(meta, "results");  // profile has an extra level
     }
     rows = MRReply_MapElement(meta, "results");
-  } else { // RESP2
+  } else {  // RESP2
     rows = MRReply_ArrayElement(root, 0);
   }
 
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
+  if (meta && nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    recordReplyWarnings(nc);
+  }
 
-  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
+  const size_t empty_rows_len =
+      nc->cmd.protocol == 3 ? 0 : 1;  // RESP2 has the first element as the number of results.
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY,
+                rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3, draining);
