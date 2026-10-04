@@ -1215,8 +1215,10 @@ def test_import_end_drains_with_event_workers():
     drain_workers(env)
 
     dest, source = env.getConnection(1), env.getConnection(2)
-    log_path = os.path.join(dest.execute_command('CONFIG', 'GET', 'dir')[1],
-                            dest.execute_command('CONFIG', 'GET', 'logfile')[1])
+
+    def log_path(conn):
+        return os.path.join(conn.execute_command('CONFIG', 'GET', 'dir')[1],
+                            conn.execute_command('CONFIG', 'GET', 'logfile')[1])
 
     def pool_state():
         pipe = dest.pipeline(transaction=True)
@@ -1236,7 +1238,7 @@ def test_import_end_drains_with_event_workers():
     n_threads, done, queued = pool_state()
     env.assertEqual(n_threads, 4)
     env.assertGreater(queued, 0)
-    with open(log_path) as f:
+    with open(log_path(dest)) as f:
         log = f.read()
     import_end = log.rfind('Got ASM import completed event')
     env.assertGreater(import_end, -1)
@@ -1260,6 +1262,19 @@ def test_import_end_drains_with_event_workers():
     drain_workers(env)
     # Every job queued by the import ran exactly once.
     env.assertEqual(getWorkersThpoolStatsFromShard(dest)['totalJobsDone'], done + queued)
+
+    # The source trims the migrated slots after a delay, and that trim is an event of its own.
+    with TimeLimit(30, 'the source did not trim the migrated slots'):
+        while True:
+            with open(log_path(source)) as f:
+                if 'Got ASM trim completed event' in f.read():
+                    break
+            time.sleep(0.1)
+    with TimeLimit(30, 'the shards did not settle on the maintenance floor'):
+        while any(conn.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS') != 1 or
+                  getWorkersThpoolStatsFromShard(conn)['numThreadsAlive'] != 1
+                  for conn in env.getOSSMasterNodesConnectionList()):
+            time.sleep(0.1)
     env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [1] * env.shardsCount)
     env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([len(vectors)])
     for key in list(vectors)[::1024]:
