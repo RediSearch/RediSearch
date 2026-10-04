@@ -441,7 +441,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   uint64_t exist = 0;
   uint64_t nprefixes_u64 = 0;
   double score_default = 0.0;
-  RSLanguage lang_default = DEFAULT_LANGUAGE;
+  uint64_t lang_default_u64 = DEFAULT_LANGUAGE;
   bool index_all = false;
   SchemaRule *rule = NULL;
   IndexSpec *sp = NULL;
@@ -489,7 +489,14 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
   score_default = LoadDouble_IOError(rdb, goto cleanup);
-  lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+  lang_default_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  if (lang_default_u64 >= RS_LANG_UNSUPPORTED) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "RDB Load: Invalid default language (%llu)",
+                                     (unsigned long long)lang_default_u64);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
   if (encver >= INDEX_INDEXALL_VERSION) {
     index_all = LoadUnsigned_IOError(rdb, goto cleanup);
   }
@@ -500,12 +507,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     goto cleanup;
   }
   rule->score_default = score_default;
-  if (RSLanguage_ToString(lang_default) != NULL) {
-    rule->lang_default = lang_default;
-  } else {
-    RedisModule_LogIOError(rdb, "warning", "invalid default language in schema rule");
-    rule->lang_default = DEFAULT_LANGUAGE;
-  }
+  rule->lang_default = (RSLanguage)lang_default_u64;
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB

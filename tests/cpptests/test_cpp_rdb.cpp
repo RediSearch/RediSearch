@@ -944,6 +944,75 @@ TEST_F(RdbMockTest, testSchemaPrefixesRdbLoadExceedsLimit) {
     QueryError_ClearError(&status);
 }
 
+// A schema rule whose persisted default language is not a language must fail
+// to load, not be loaded with some other language in its place.
+TEST_F(RdbMockTest, testSchemaRuleRdbLoadRejectsInvalidDefaultLanguage) {
+    // 1 << 32 narrows to RS_LANG_ENGLISH, so it shows the check runs on the
+    // value as stored rather than after the cast to RSLanguage.
+    const uint64_t invalid[] = {RS_LANG_UNSUPPORTED, RS_LANG_UNSET, (uint64_t)1 << 32};
+    for (uint64_t lang : invalid) {
+        RedisModuleIO *io = RMCK_CreateRdbIO();
+        std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+            RMCK_FreeRdbIO(io);
+        });
+        ASSERT_TRUE(io != nullptr);
+
+        const char *type = "HASH";
+        RMCK_SaveStringBuffer(io, type, strlen(type) + 1);
+        RMCK_SaveUnsigned(io, 0);  // prefixes
+        for (int i = 0; i < 4; ++i) {
+            RMCK_SaveUnsigned(io, 0);  // no filter, language, score, or payload field
+        }
+        RMCK_SaveDouble(io, 1.0);  // score_default
+        RMCK_SaveUnsigned(io, lang);
+        RMCK_SaveUnsigned(io, 0);  // index_all
+        io->read_pos = 0;
+
+        QueryError status = QueryError_Default();
+        // The rejection comes before the rule is attached, so the ref is never used.
+        int rc = SchemaRule_RdbLoad(INVALID_STRONG_REF, io, INDEX_CURRENT_VERSION, &status);
+
+        EXPECT_EQ(REDISMODULE_ERR, rc) << "language " << lang << " was accepted";
+        const char *err_msg = QueryError_GetUserError(&status);
+        ASSERT_TRUE(err_msg != nullptr) << "language " << lang;
+        std::string expected = "RDB Load: Invalid default language (" + std::to_string(lang) + ")";
+        EXPECT_NE(std::string(err_msg).find(expected), std::string::npos)
+            << "Expected: " << expected << ", got: " << err_msg;
+        QueryError_ClearError(&status);
+    }
+}
+
+TEST_F(RdbMockTest, testSchemaRuleDefaultLanguageRdbRoundtrip) {
+    for (int lang = 0; lang < RS_LANG_UNSUPPORTED; ++lang) {
+        const char *name = RSLanguage_ToString((RSLanguage)lang);
+        ASSERT_TRUE(name != nullptr) << "language " << lang;
+        const char *args[] = {"LANGUAGE", name, "SCHEMA", "title", "TEXT"};
+        QueryError err = QueryError_Default();
+        StrongRef original_ref = IndexSpec_ParseC(NULL, "lang_idx", args, std::size(args), &err);
+        ASSERT_FALSE(QueryError_HasError(&err)) << name << ": " << QueryError_GetUserError(&err);
+        IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_ref);
+        ASSERT_TRUE(spec != nullptr);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+            spec, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+        ASSERT_EQ(lang, spec->rule->lang_default) << name;
+
+        RedisModuleIO *io = RMCK_CreateRdbIO();
+        std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+            io, [](RedisModuleIO *x) { RMCK_FreeRdbIO(x); });
+        ASSERT_TRUE(io != nullptr);
+        IndexSpec_RdbSave(io, spec, 0);
+        ASSERT_EQ(0, RMCK_IsIOError(io));
+
+        io->read_pos = 0;
+        QueryError status = QueryError_Default();
+        IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+        ASSERT_TRUE(loaded != nullptr) << name << ": " << QueryError_GetUserError(&status);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+            loaded, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+        EXPECT_EQ(lang, loaded->rule->lang_default) << name;
+    }
+}
+
 TEST_F(RdbMockTest, testStopWordListRdbLoadExceedsLimit) {
     // Test that loading a stopword list with more elements than
     // MAX_STOPWORDLIST_SIZE fails.
