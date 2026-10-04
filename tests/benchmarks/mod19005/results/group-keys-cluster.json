@@ -1,0 +1,2114 @@
+{
+  "started_utc": "2026-10-04T18:32:18.526995+00:00",
+  "cluster_control": "/tmp/mod19005-tip-profile/cluster.py",
+  "cluster_workdir": "/tmp/mod19005-tip-profile",
+  "ports": [
+    7401,
+    7402,
+    7403,
+    7404,
+    7405,
+    7406
+  ],
+  "query": [
+    "FT.AGGREGATE",
+    "idx:bench",
+    "(((term00*|term01*)) ((@post_type:{timeline}=>{$weight:0}) (@type:{post|product}=>{$weight:0})) ((@type:{post|product}=>{$weight:0}) | ((@type:{post}=>{$weight:1}))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:3.000000} | (((@media_type:{video}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{post}=>{$weight:1})))=>{$weight:1.500000} | (((@styled:{true}=>{$weight:1}) (@type:{product}=>{$weight:1})))=>{$weight:0.750000}))",
+    "SCORER",
+    "BM25STD.TANH",
+    "ADDSCORES",
+    "LOAD",
+    "8",
+    "type",
+    "__key",
+    "post_id",
+    "AS",
+    "parent_id",
+    "product_id",
+    "AS",
+    "children_id",
+    "TIMEOUT",
+    "120000",
+    "APPLY",
+    "(case(exists(@iscore), @iscore, 1.0) + 0.000000) * @__score",
+    "AS",
+    "the_score",
+    "APPLY",
+    "0",
+    "AS",
+    "vector_distance",
+    "APPLY",
+    "format(\"%s::%s\", case(exists(@children_id), @children_id, '') , @the_score)",
+    "AS",
+    "children_scores",
+    "GROUPBY",
+    "2",
+    "@parent_id",
+    "@profile_id",
+    "REDUCE",
+    "SUM",
+    "1",
+    "the_score",
+    "AS",
+    "the_score",
+    "REDUCE",
+    "SUM",
+    "1",
+    "__score",
+    "AS",
+    "bm25_score",
+    "REDUCE",
+    "TOLIST",
+    "1",
+    "children_scores",
+    "AS",
+    "children_scores",
+    "REDUCE",
+    "MIN",
+    "1",
+    "vector_distance",
+    "AS",
+    "vector_distance",
+    "REDUCE",
+    "MAX",
+    "1",
+    "created_at",
+    "AS",
+    "created_at",
+    "SORTBY",
+    "2",
+    "@the_score",
+    "DESC",
+    "LIMIT",
+    "0",
+    "400",
+    "DIALECT",
+    "2"
+  ],
+  "expected_docs": 5700000,
+  "rounds": 2,
+  "timed_queries_per_arm_round": 5,
+  "warmup_queries": 5,
+  "rowblock_required": "yes on every node",
+  "completed_utc": "2026-10-04T18:36:38.833314+00:00",
+  "runs": [
+    {
+      "round": 0,
+      "arm": "baseline",
+      "module_sha256": "51ceced84b838d7e9a52978c107a16d1eca46d6689abdf590f4990fa9b1c9994",
+      "queries": 5,
+      "samples_ms": [
+        1723.867951,
+        1790.977446,
+        1783.223582,
+        1710.684936,
+        1781.35552
+      ],
+      "p50_ms": 1781.35552,
+      "mean_ms": 1758.021887,
+      "complete_400_groups_verified": true,
+      "result_matches_baseline": true,
+      "cpu_delta_s": [
+        {
+          "port": 7401,
+          "sys_s": 0.6169,
+          "user_s": 9.895952000000001
+        },
+        {
+          "port": 7402,
+          "sys_s": 0.048148999999999886,
+          "user_s": 3.8647319999999965
+        },
+        {
+          "port": 7403,
+          "sys_s": 0.059230000000000116,
+          "user_s": 3.8356220000000008
+        },
+        {
+          "port": 7404,
+          "sys_s": 0.048872999999999944,
+          "user_s": 3.798000000000002
+        },
+        {
+          "port": 7405,
+          "sys_s": 0.047088999999999936,
+          "user_s": 3.8500699999999988
+        },
+        {
+          "port": 7406,
+          "sys_s": 0.05130699999999999,
+          "user_s": 3.876873
+        }
+      ],
+      "memory_measurement": "before/after only; not peak",
+      "host_quiet_check": {
+        "window_s": 3.0,
+        "max_busy_fraction": 0.2,
+        "observations": [
+          {
+            "window_s": 3.0,
+            "busy_fraction": 0.03596069412502614
+          }
+        ]
+      },
+      "coordinator_cpu_ms_per_query": 2102.5704,
+      "all_nodes_cpu_ms_per_query": 5998.5594,
+      "noncoordinator_wire_MB_per_query": 49.9239042,
+      "coordinator_profile": {
+        "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+        "Total profile time": "2121.14871",
+        "Parsing time": "0.179303",
+        "Workers queue time": "0",
+        "Pipeline creation time": "0",
+        "Warning": [
+          "None"
+        ],
+        "Result processors profile": [
+          [
+            "Type",
+            "Network",
+            "Time",
+            "1012.018499",
+            "Results processed",
+            667868,
+            "Shard-Wait-Time",
+            "774.269976",
+            "Row-Convert-Time",
+            "192.373483",
+            "Reply-Free-Time",
+            "1.523182",
+            "Shard replies",
+            672,
+            "Fields converted",
+            4675076
+          ],
+          [
+            "Type",
+            "Grouper",
+            "Time",
+            "963.136477",
+            "Results processed",
+            273282
+          ],
+          [
+            "Type",
+            "Sorter",
+            "Time",
+            "142.6806079999999",
+            "Results processed",
+            400
+          ]
+        ]
+      },
+      "shards_profile": [
+        {
+          "Shard ID": "c75981439785b0304d73c84162ae6befbc1fe695",
+          "Total profile time": "1008.982354",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "321.74845",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "29.807653000000016",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.50131699999997",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "87.81787500000002",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "11.852927000000022",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "137.16894999999994",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "274.690332",
+              "Results processed",
+              111047
+            ]
+          ]
+        },
+        {
+          "Shard ID": "29971489396c4a4debbbcff7307d3188a4feb11f",
+          "Total profile time": "1022.398989",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "333.040397",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.22668600000003",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.486333",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "89.57835399999999",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.987426999999968",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "143.67767099999998",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "268.92432800000006",
+              "Results processed",
+              111267
+            ]
+          ]
+        },
+        {
+          "Shard ID": "aae109a75ff8919d804a6f27367ec005b2e5beed",
+          "Total profile time": "1029.13486",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "333.359209",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.522954999999968",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "40.25139999999999",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "89.727983",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "13.163601000000028",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "145.67769100000004",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "271.382978",
+              "Results processed",
+              111253
+            ]
+          ]
+        },
+        {
+          "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+          "Total profile time": "1049.336272",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "326.734436",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.585698999999977",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "42.17572899999999",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "88.840078",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.303798000000029",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "144.399161",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "296.45838000000003",
+              "Results processed",
+              111208
+            ]
+          ]
+        },
+        {
+          "Shard ID": "5f98842fcbbafa935019f26e71c8b768bb4e5440",
+          "Total profile time": "1047.996208",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "339.008602",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.822457999999983",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "40.388149",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "91.03244800000004",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.572048999999993",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "147.06404999999995",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "279.43315100000007",
+              "Results processed",
+              111570
+            ]
+          ]
+        },
+        {
+          "Shard ID": "966e614639a88fe821f097e0ed9a5cf7939f4dbc",
+          "Total profile time": "1062.394979",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "335.700118",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.612942000000032",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "40.14806699999997",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "91.40750000000003",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.581344999999999",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "147.09743500000002",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "298.43972099999996",
+              "Results processed",
+              111523
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "round": 0,
+      "arm": "candidate",
+      "module_sha256": "b7780b88644d719943f4741cd921902058a9a441ae46641a4656eac1e4035faa",
+      "queries": 5,
+      "samples_ms": [
+        1702.431359,
+        1737.022321,
+        1730.96938,
+        1691.400666,
+        1725.131103
+      ],
+      "p50_ms": 1725.131103,
+      "mean_ms": 1717.3909658,
+      "complete_400_groups_verified": true,
+      "result_matches_baseline": true,
+      "cpu_delta_s": [
+        {
+          "port": 7401,
+          "sys_s": 0.5885410000000002,
+          "user_s": 9.69782
+        },
+        {
+          "port": 7402,
+          "sys_s": 0.05301300000000009,
+          "user_s": 3.764982
+        },
+        {
+          "port": 7403,
+          "sys_s": 0.05096600000000007,
+          "user_s": 3.8105709999999995
+        },
+        {
+          "port": 7404,
+          "sys_s": 0.0470799999999999,
+          "user_s": 3.727014999999998
+        },
+        {
+          "port": 7405,
+          "sys_s": 0.0509170000000001,
+          "user_s": 3.7651269999999997
+        },
+        {
+          "port": 7406,
+          "sys_s": 0.050458000000000114,
+          "user_s": 3.823678000000001
+        }
+      ],
+      "memory_measurement": "before/after only; not peak",
+      "host_quiet_check": {
+        "window_s": 3.0,
+        "max_busy_fraction": 0.2,
+        "observations": [
+          {
+            "window_s": 3.0,
+            "busy_fraction": 0.06429319371727749
+          }
+        ]
+      },
+      "coordinator_cpu_ms_per_query": 2057.2722,
+      "all_nodes_cpu_ms_per_query": 5886.0336,
+      "noncoordinator_wire_MB_per_query": 49.9241458,
+      "coordinator_profile": {
+        "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+        "Total profile time": "2086.307421",
+        "Parsing time": "0.157549",
+        "Workers queue time": "0",
+        "Pipeline creation time": "0",
+        "Warning": [
+          "None"
+        ],
+        "Result processors profile": [
+          [
+            "Type",
+            "Network",
+            "Time",
+            "1010.616589",
+            "Results processed",
+            667868,
+            "Shard-Wait-Time",
+            "754.910551",
+            "Row-Convert-Time",
+            "207.228817",
+            "Reply-Free-Time",
+            "1.236881",
+            "Shard replies",
+            672,
+            "Fields converted",
+            4675076
+          ],
+          [
+            "Type",
+            "Grouper",
+            "Time",
+            "932.0020870000001",
+            "Results processed",
+            273282
+          ],
+          [
+            "Type",
+            "Sorter",
+            "Time",
+            "141.48395200000004",
+            "Results processed",
+            400
+          ]
+        ]
+      },
+      "shards_profile": [
+        {
+          "Shard ID": "966e614639a88fe821f097e0ed9a5cf7939f4dbc",
+          "Total profile time": "989.562874",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "319.540547",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.44063799999998",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.173242000000016",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "87.69485100000003",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "11.893891999999994",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "138.50878399999993",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "254.374095",
+              "Results processed",
+              111523
+            ]
+          ]
+        },
+        {
+          "Shard ID": "c75981439785b0304d73c84162ae6befbc1fe695",
+          "Total profile time": "1001.890304",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "324.473242",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.339621999999963",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.505877",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "89.06098200000002",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "11.853227000000004",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "139.918927",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "257.96666500000003",
+              "Results processed",
+              111047
+            ]
+          ]
+        },
+        {
+          "Shard ID": "29971489396c4a4debbbcff7307d3188a4feb11f",
+          "Total profile time": "1008.61",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "326.89942",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.241821999999956",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.65196300000002",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "88.92555599999997",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.074036000000035",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "141.82295400000004",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "259.49610599999994",
+              "Results processed",
+              111267
+            ]
+          ]
+        },
+        {
+          "Shard ID": "5f98842fcbbafa935019f26e71c8b768bb4e5440",
+          "Total profile time": "1018.31427",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "334.231394",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.208866999999998",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.39981899999998",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "90.46041000000002",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.636212",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "147.22717799999992",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "256.0261220000001",
+              "Results processed",
+              111570
+            ]
+          ]
+        },
+        {
+          "Shard ID": "aae109a75ff8919d804a6f27367ec005b2e5beed",
+          "Total profile time": "1020.104163",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "332.397156",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.896990000000017",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.825624000000005",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "90.707628",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.780627999999979",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "145.56126200000006",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "258.9413139999999",
+              "Results processed",
+              111253
+            ]
+          ]
+        },
+        {
+          "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+          "Total profile time": "1026.431444",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "328.404558",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.983517000000006",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "42.11621500000001",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "89.66147799999999",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.225877999999966",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "146.892811",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "263.4355800000001",
+              "Results processed",
+              111208
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "arm": "candidate",
+      "module_sha256": "b7780b88644d719943f4741cd921902058a9a441ae46641a4656eac1e4035faa",
+      "queries": 5,
+      "samples_ms": [
+        1738.591268,
+        1686.51615,
+        1732.297187,
+        1648.084839,
+        1666.584933
+      ],
+      "p50_ms": 1686.51615,
+      "mean_ms": 1694.4148754,
+      "complete_400_groups_verified": true,
+      "result_matches_baseline": true,
+      "cpu_delta_s": [
+        {
+          "port": 7401,
+          "sys_s": 0.5664629999999999,
+          "user_s": 9.566967999999996
+        },
+        {
+          "port": 7402,
+          "sys_s": 0.045599000000000056,
+          "user_s": 3.731701000000001
+        },
+        {
+          "port": 7403,
+          "sys_s": 0.05287700000000006,
+          "user_s": 3.815630999999996
+        },
+        {
+          "port": 7404,
+          "sys_s": 0.04954999999999998,
+          "user_s": 3.812652
+        },
+        {
+          "port": 7405,
+          "sys_s": 0.04596900000000004,
+          "user_s": 3.789609999999996
+        },
+        {
+          "port": 7406,
+          "sys_s": 0.056246999999999936,
+          "user_s": 3.699573000000001
+        }
+      ],
+      "memory_measurement": "before/after only; not peak",
+      "host_quiet_check": {
+        "window_s": 3.0,
+        "max_busy_fraction": 0.2,
+        "observations": [
+          {
+            "window_s": 3.0,
+            "busy_fraction": 0.07139865996649916
+          }
+        ]
+      },
+      "coordinator_cpu_ms_per_query": 2026.6861999999994,
+      "all_nodes_cpu_ms_per_query": 5846.5679999999975,
+      "noncoordinator_wire_MB_per_query": 49.916948399999995,
+      "coordinator_profile": {
+        "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+        "Total profile time": "2063.923467",
+        "Parsing time": "0.161045",
+        "Workers queue time": "0",
+        "Pipeline creation time": "0",
+        "Warning": [
+          "None"
+        ],
+        "Result processors profile": [
+          [
+            "Type",
+            "Network",
+            "Time",
+            "991.097932",
+            "Results processed",
+            667868,
+            "Shard-Wait-Time",
+            "750.654207",
+            "Row-Convert-Time",
+            "195.019158",
+            "Reply-Free-Time",
+            "1.051255",
+            "Shard replies",
+            672,
+            "Fields converted",
+            4675076
+          ],
+          [
+            "Type",
+            "Grouper",
+            "Time",
+            "920.592624",
+            "Results processed",
+            273282
+          ],
+          [
+            "Type",
+            "Sorter",
+            "Time",
+            "148.32625499999995",
+            "Results processed",
+            400
+          ]
+        ]
+      },
+      "shards_profile": [
+        {
+          "Shard ID": "aae109a75ff8919d804a6f27367ec005b2e5beed",
+          "Total profile time": "990.147457",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "322.678634",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.837354000000005",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "37.66196600000001",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "88.02704499999999",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.094160999999986",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "139.82117799999997",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "251.788452",
+              "Results processed",
+              111253
+            ]
+          ]
+        },
+        {
+          "Shard ID": "5f98842fcbbafa935019f26e71c8b768bb4e5440",
+          "Total profile time": "991.516693",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "319.798438",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.484267000000045",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.67945599999996",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "87.36321100000004",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "11.816917999999987",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "137.8143",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "255.76663399999995",
+              "Results processed",
+              111570
+            ]
+          ]
+        },
+        {
+          "Shard ID": "966e614639a88fe821f097e0ed9a5cf7939f4dbc",
+          "Total profile time": "993.982952",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "320.75252",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.77153199999998",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.52279900000002",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "87.89661799999999",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "11.929760999999985",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "138.06416500000006",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "256.49703",
+              "Results processed",
+              111523
+            ]
+          ]
+        },
+        {
+          "Shard ID": "c75981439785b0304d73c84162ae6befbc1fe695",
+          "Total profile time": "1004.020204",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "323.86865",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.015780000000007",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "38.67887200000001",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "89.12905599999999",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.17198099999996",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "140.78639099999998",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "258.59841900000004",
+              "Results processed",
+              111047
+            ]
+          ]
+        },
+        {
+          "Shard ID": "29971489396c4a4debbbcff7307d3188a4feb11f",
+          "Total profile time": "1022.417196",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "337.252791",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "33.369069000000025",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.129948999999954",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "90.83902800000004",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.491964999999993",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "146.23948699999994",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "255.684659",
+              "Results processed",
+              111267
+            ]
+          ]
+        },
+        {
+          "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+          "Total profile time": "1033.666181",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "333.788339",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.59461799999997",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "42.81950900000004",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "90.58709899999997",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "13.152468999999996",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "151.67696800000004",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "260.41212599999994",
+              "Results processed",
+              111208
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "arm": "baseline",
+      "module_sha256": "51ceced84b838d7e9a52978c107a16d1eca46d6689abdf590f4990fa9b1c9994",
+      "queries": 5,
+      "samples_ms": [
+        1769.997159,
+        1755.760826,
+        1748.58577,
+        1698.955815,
+        1716.862035
+      ],
+      "p50_ms": 1748.58577,
+      "mean_ms": 1738.032321,
+      "complete_400_groups_verified": true,
+      "result_matches_baseline": true,
+      "cpu_delta_s": [
+        {
+          "port": 7401,
+          "sys_s": 0.6598439999999999,
+          "user_s": 9.739306
+        },
+        {
+          "port": 7402,
+          "sys_s": 0.04006299999999996,
+          "user_s": 3.847260999999996
+        },
+        {
+          "port": 7403,
+          "sys_s": 0.05643199999999993,
+          "user_s": 3.871745000000004
+        },
+        {
+          "port": 7404,
+          "sys_s": 0.05707699999999982,
+          "user_s": 3.8580419999999975
+        },
+        {
+          "port": 7405,
+          "sys_s": 0.035887,
+          "user_s": 3.836649999999999
+        },
+        {
+          "port": 7406,
+          "sys_s": 0.05780099999999999,
+          "user_s": 3.803737999999999
+        }
+      ],
+      "memory_measurement": "before/after only; not peak",
+      "host_quiet_check": {
+        "window_s": 3.0,
+        "max_busy_fraction": 0.2,
+        "observations": [
+          {
+            "window_s": 3.0,
+            "busy_fraction": 0.0875392670157068
+          }
+        ]
+      },
+      "coordinator_cpu_ms_per_query": 2079.83,
+      "all_nodes_cpu_ms_per_query": 5972.769199999999,
+      "noncoordinator_wire_MB_per_query": 49.9170152,
+      "coordinator_profile": {
+        "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+        "Total profile time": "2155.226218",
+        "Parsing time": "0.154963",
+        "Workers queue time": "0",
+        "Pipeline creation time": "0",
+        "Warning": [
+          "None"
+        ],
+        "Result processors profile": [
+          [
+            "Type",
+            "Network",
+            "Time",
+            "1020.463758",
+            "Results processed",
+            667868,
+            "Shard-Wait-Time",
+            "771.462282",
+            "Row-Convert-Time",
+            "200.842108",
+            "Reply-Free-Time",
+            "1.704469",
+            "Shard replies",
+            672,
+            "Fields converted",
+            4675076
+          ],
+          [
+            "Type",
+            "Grouper",
+            "Time",
+            "987.248704",
+            "Results processed",
+            273282
+          ],
+          [
+            "Type",
+            "Sorter",
+            "Time",
+            "144.61915",
+            "Results processed",
+            400
+          ]
+        ]
+      },
+      "shards_profile": [
+        {
+          "Shard ID": "c75981439785b0304d73c84162ae6befbc1fe695",
+          "Total profile time": "1023.673939",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "323.523092",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.068956999999955",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "40.608438000000035",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "88.57709999999997",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.047049000000015",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "139.924014",
+              "Results processed",
+              128653
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "279.40317100000004",
+              "Results processed",
+              111047
+            ]
+          ]
+        },
+        {
+          "Shard ID": "966e614639a88fe821f097e0ed9a5cf7939f4dbc",
+          "Total profile time": "1035.108502",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "327.399669",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.343195999999978",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.395126000000005",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "89.07613099999998",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.910055999999997",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "140.71880300000004",
+              "Results processed",
+              128519
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "283.871041",
+              "Results processed",
+              111523
+            ]
+          ]
+        },
+        {
+          "Shard ID": "5f98842fcbbafa935019f26e71c8b768bb4e5440",
+          "Total profile time": "1039.655961",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "330.071649",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "30.778076999999996",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.51645300000001",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "90.29403400000001",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.446208000000013",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "143.84382399999998",
+              "Results processed",
+              128446
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "282.833338",
+              "Results processed",
+              111570
+            ]
+          ]
+        },
+        {
+          "Shard ID": "aae109a75ff8919d804a6f27367ec005b2e5beed",
+          "Total profile time": "1047.718359",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "337.056402",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.782512999999994",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.83990299999999",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "91.26728600000001",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.503244999999993",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "146.38798800000006",
+              "Results processed",
+              129042
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "281.1233299999999",
+              "Results processed",
+              111253
+            ]
+          ]
+        },
+        {
+          "Shard ID": "29971489396c4a4debbbcff7307d3188a4feb11f",
+          "Total profile time": "1051.211383",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "335.941713",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "31.562864999999988",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "39.951325999999995",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "91.91663100000005",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "12.918366999999932",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "146.66370600000005",
+              "Results processed",
+              128699
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "283.06478500000003",
+              "Results processed",
+              111267
+            ]
+          ]
+        },
+        {
+          "Shard ID": "def6fb6aa2db9deff8f3643e78de52b196d8aee1",
+          "Total profile time": "1087.276215",
+          "Warning": [
+            "None"
+          ],
+          "Result processors profile": [
+            [
+              "Type",
+              "Index",
+              "Time",
+              "342.739582",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Scorer",
+              "Time",
+              "32.247569",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Key Name Loader",
+              "Time",
+              "43.67347699999999",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Operator *",
+              "Time",
+              "92.640262",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Literal 0",
+              "Time",
+              "13.140897999999993",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Projector - Function format",
+              "Time",
+              "153.86816699999997",
+              "Results processed",
+              128932
+            ],
+            [
+              "Type",
+              "Grouper",
+              "Time",
+              "294.69738900000004",
+              "Results processed",
+              111208
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "paired_round_changes": [
+    {
+      "round": 0,
+      "p50_change_pct": -3.1562715229355276,
+      "coordinator_cpu_change_pct": -2.1544201326148316,
+      "all_nodes_cpu_change_pct": -1.875880398883778
+    },
+    {
+      "round": 1,
+      "p50_change_pct": -3.5497040559811954,
+      "coordinator_cpu_change_pct": -2.555199223013449,
+      "all_nodes_cpu_change_pct": -2.112942854045008
+    }
+  ]
+}
