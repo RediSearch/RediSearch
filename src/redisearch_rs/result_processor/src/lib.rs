@@ -103,8 +103,8 @@ pub trait ResultProcessor {
     ///
     /// For exceptional error cases, this method should return `Err(Error)`.
     ///
-    /// In both cases `Ok(None)` and `Err(_)` indicate to the caller that calling `next`
-    /// will not yield values anymore, thus ending iteration.
+    /// `Ok(None)` and errors end iteration. Blocking waits are internal to the
+    /// execution call; denied ownership readmission propagates [`Error::TimedOut`].
     fn next(&mut self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error>;
 
     /// Recover already-available output under exclusive pipeline access.
@@ -258,7 +258,7 @@ impl Upstream<'_> {
     ///
     /// # Errors
     ///
-    /// Returns `Err(_)` for exceptional error cases.
+    /// Returns errors according to [`ResultProcessor::next`].
     pub fn next(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
         // SAFETY: the live upstream has the common C prefix. Do not create a
         // reference to Header's Rust-only debug suffix for a C processor.
