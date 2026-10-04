@@ -983,15 +983,43 @@ def test_hybrid_query_with_text_vamana_batches():
 
     k = 12
     query_data = create_np_array_typed([1] * dim, data_type)
+
+    def assert_batch_reply_is_valid(query, expected_text, allowed_doc_ids):
+        result = execute_hybrid_query(
+            env, query, query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
+        ).res
+        env.assertEqual(result[0], k, message=result)
+        env.assertEqual(len(result), 1 + 2 * k, message=result)
+
+        doc_ids = result[1::2]
+        env.assertEqual(len(set(doc_ids)), k, message=result)
+        scores = []
+        for doc_id, fields in zip(doc_ids, result[2::2]):
+            numeric_id = int(doc_id)
+            env.assertIn(numeric_id, allowed_doc_ids, message=result)
+            env.assertEqual(fields[0], '__v_score', message=result)
+            env.assertAlmostEqual(dim * (numeric_id - 1) ** 2, float(fields[1]),
+                                  EPSILONS[data_type], message=result)
+            env.assertEqual(fields[2:], ['t', expected_text], message=result)
+            scores.append(float(fields[1]))
+
+        env.assertEqual(scores, sorted(scores), message=result)
+
     expected_res = [k]
     for doc_id in range(1, k + 1):
         expected_res.append(str(doc_id))
         expected_res.append(['__v_score', str(dim * (doc_id - 1) ** 2), 't', 'text value'])
 
-    # Query the initial corpus before any document has been updated.
+    # Small batches use approximate graph search, so check reply integrity separately from recall.
+    assert_batch_reply_is_valid(
+        f'(@t:(text value))=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
+        'text value', set(range(1, index_size + 1)),
+    )
+
+    # Exact nearest-neighbor recall requires a batch large enough to visit the corpus.
     execute_hybrid_query(
         env,
-        f'(@t:(text value))=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
+        f'(@t:(text value))=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE {index_size}]',
         query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
     ).equal(expected_res)
 
@@ -1018,9 +1046,13 @@ def test_hybrid_query_with_text_vamana_batches():
         expected_res.append(str(doc_id))
         expected_res.append(['__v_score', str(dim * (doc_id - 1) ** 2), 't', 'other'])
 
+    assert_batch_reply_is_valid(
+        f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
+        'other', set(updated_doc_ids),
+    )
     execute_hybrid_query(
         env,
-        f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
+        f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE {index_size}]',
         query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
     ).equal(expected_res)
 
