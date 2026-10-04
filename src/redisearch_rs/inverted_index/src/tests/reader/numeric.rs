@@ -9,10 +9,12 @@
 
 use std::ptr;
 
-use crate::{FilterNumericReader, IndexReader, NumericFilter, RSIndexResult};
+use crate::{FilterNumericReader, IndexReader, NumericFilter};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]
+#[expect(deprecated, reason = "exhaustive struct literal")]
 fn reading_filter_based_on_numeric_filter() {
     // Make an iterator with three records having different numeric values. The second record will be
     // filtered out based on the numeric filter.
@@ -27,14 +29,14 @@ fn reading_filter_based_on_numeric_filter() {
         max: 15.0,
         min_inclusive: true,
         max_inclusive: true,
-        field_spec: ptr::null(),
+        field_index: rqe_core::RS_INVALID_FIELD_INDEX,
         geo_filter: ptr::null(),
         ascending: true,
         limit: 10,
         offset: 0,
     };
 
-    let mut reader = FilterNumericReader::new(&filter, iter.into_iter());
+    let mut reader = FilterNumericReader::new(filter, iter.into_iter());
     let mut result = RSIndexResult::build_numeric(0.0).build();
 
     let found = reader.next_record(&mut result).unwrap();

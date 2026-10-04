@@ -15,7 +15,8 @@ on:
 
 jobs:
   trigger:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: {} # curls a Netlify build hook
+    runs-on: ubuntu-slim
     steps:
       # TODO: Use netlify/actions/build@master action instead of curl
       - run: |

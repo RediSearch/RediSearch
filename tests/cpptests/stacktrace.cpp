@@ -1,4 +1,13 @@
 /*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+/*
  * Test-only helper: install a SIGSEGV handler that prints a stack trace and
  * then re-raises SIGSEGV, so crashes are still visible to ctest/CI but we
  * also get diagnostics on stderr.

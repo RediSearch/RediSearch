@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude (e.g., "all,!intel")'
+        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude a platform on every architecture, and "!platform~arch" to exclude a single platform/architecture combination (e.g., "all,!intel,!macos-26~x86_64")'
         type: string
         default: all
       architecture:
@@ -20,6 +20,10 @@ on:
         default: false
       include-sanitize:
         description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
+      include-ubsan:
+        description: 'Include UBSan C/C++ unit-test job in matrix'
         type: boolean
         default: false
       separate-coordinator-job:
@@ -36,7 +40,7 @@ on:
 
 jobs:
   generate:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
@@ -78,6 +82,7 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3.23', 'x86_64'),
               ('alpine:3.23', 'aarch64'),
+              ('macos-14', 'x86_64'),
               ('macos-14', 'aarch64'),
               ('macos-15', 'x86_64'),
               ('macos-15', 'aarch64'),
@@ -85,11 +90,17 @@ jobs:
               ('macos-26', 'aarch64'),
               ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
+          # Explicit-only platforms are selectable by name, but intentionally
+          # excluded from "all". Keep "all" stable for existing callers.
+          optional_combinations = [
+              ('ubuntu:latest', 'x86_64'),
+          ]
 
           platform_filter = os.environ["INPUT_PLATFORM"]
           architecture_filter = os.environ["INPUT_ARCHITECTURE"]
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+          include_ubsan = "${{ inputs.include-ubsan }}" == "true"
           separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
 
           def add_matrix_entries(items, platform, architecture, job_type):
@@ -100,16 +111,37 @@ jobs:
               else:
                   items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'all'})
 
+          def add_unit_only_matrix_entry(items, platform, architecture, job_type):
+              items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'unit'})
+
           # Parse comma-separated filters
-          platform_list = [p.strip() for p in platform_filter.split(',')]
-          exclude_list = [p[1:] for p in platform_list if p.startswith('!')]
+          platform_list = [p.strip() for p in platform_filter.split(',') if p.strip()]
+          # Exclusions come in two forms:
+          #   "!platform"       -> drop that platform on every architecture
+          #   "!platform~arch"  -> drop a single platform/architecture combination
+          # ("~" separates arch because "-" already appears in platform names, e.g. macos-26.)
+          exclude_platforms = set()
+          exclude_combinations = set()
+          for token in (p[1:] for p in platform_list if p.startswith('!')):
+              platform_part, sep, architecture_part = token.partition('~')
+              if sep:
+                  exclude_combinations.add((platform_part, architecture_part))
+              else:
+                  exclude_platforms.add(platform_part)
+          requested_optional_combinations = [
+              (platform, architecture)
+              for platform, architecture in optional_combinations
+              if platform in platform_list
+          ]
+          candidate_combinations = all_combinations + requested_optional_combinations
 
           # Filter combinations based on inputs
           filtered_combinations = [
               (platform, architecture)
-              for platform, architecture in all_combinations
+              for platform, architecture in candidate_combinations
               if (platform in platform_list or 'all' in platform_list) and
-                 (platform not in exclude_list) and
+                 (platform not in exclude_platforms) and
+                 ((platform, architecture) not in exclude_combinations) and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
@@ -125,6 +157,10 @@ jobs:
           # Add sanitize job if requested (only on ubuntu:latest x86_64)
           if include_sanitize:
               add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'sanitize')
+
+          # Add UBSan C/C++ unit-test job if requested (only on ubuntu:latest x86_64)
+          if include_ubsan:
+              add_unit_only_matrix_entry(matrix_items, 'ubuntu:latest', 'x86_64', 'ubsan')
 
           # Check if matrix has any jobs
           has_jobs = len(matrix_items) > 0

@@ -1,50 +1,12 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import time
-
-# The output for this test can be used for recreating documentation for `FT.INFO`
-@skip()
-def testInfo(env):
-  count = 345678
-  conn = env.getConnection()
-  pl = conn.pipeline()
-
-  idx = 'wikipedia'
-
-  for i in range(count):
-    geo = '1.23456,1.' + str(i / float(count))
-    pl.execute_command('HSET', 'doc%d' % i, 'title', 'hello%d' % i,
-                                            'body', '%dhello%dworld%dhow%dare%dyou%dtoday%d' % (i, i, i, i, i, i, i),
-                                            'n', i / 17.0,
-                                            'geo', geo)
-    if i % 10000 == 0:
-      pl.execute()
-  pl.execute()
-
-  env.expect('FT.CREATE', idx, 'STOPWORDS', 3, 'TLV', 'summer', '2020',
-                               'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                                         'body', 'TEXT',
-                                         'id', 'NUMERIC',
-                                         'subject location', 'GEO').ok()
-
-  waitForIndex(env, idx)
-
-  for i in range(count):
-    pl.execute_command('DEL', 'doc%d' % i)
-    if i % 10000 == 0:
-      pl.execute()
-      forceInvokeGC(env, idx)
-  pl.execute()
-
-  #  GC stats
-  for i in range(25):
-    forceInvokeGC(env, idx)
-
-  # cursor stats
-  #query = ['FT.AGGREGATE', idx, '*', 'WITHCURSOR']
-  #res = env.cmd(*query)
-  #env.cmd('FT.CURSOR', 'READ', idx, str(res[1]))
-
-  #print info
 
 def test_vecsim_info():
   env = Env(protocol=3)
@@ -55,6 +17,10 @@ def test_vecsim_info():
                      "dim": dim, "flags": []}
     additional_params = {"M": 12, "ef_construction": 100} if alg == "HNSW" else {}
     info_expected.update(additional_params)
+    # EF_RUNTIME is not set at creation here, so FT.INFO must report the default
+    # (HNSW_DEFAULT_EF_RT). FLAT has no EF_RUNTIME.
+    if alg == "HNSW":
+      info_expected["ef_runtime"] = 10
     # for each data type
     for type in ["FLOAT32", "FLOAT64"]:
       info_expected["data_type"] = type
@@ -74,6 +40,18 @@ def test_vecsim_info():
 
         # drop index
         env.expect('FT.DROPINDEX', 'idx').ok()
+
+  # A non-default EF_RUNTIME set at creation must be surfaced in FT.INFO. This is the incident
+  # scenario (MOD-16147): a CRDB member's index was recreated with a different ef_runtime than its
+  # peer, causing a latency mismatch that was invisible because FT.INFO did not expose the value.
+  env.expect('FT.CREATE', 'idx_efr', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', 8,
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 200).ok()
+  # The non-default value must also survive an RDB save/reload (serialization round-trip), so it
+  # stays visible after a restart/replica load - the exact context of the CRDB incident.
+  for _ in env.reloadingIterator():
+    info = env.executeCommand('ft.info', 'idx_efr')
+    env.assertEqual(info["attributes"][0]["ef_runtime"], 200)
+  env.expect('FT.DROPINDEX', 'idx_efr').ok()
 
 def test_numeric_info(env):
   env.cmd('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
@@ -155,6 +133,46 @@ def test_info_text_tag_overhead(env):
   env.assertEqual(float(res['tag_overhead_sz_mb']), 24. / 1024 / 1024)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
 
+@skip(cluster=True)
+def test_total_inverted_index_blocks_per_spec(env):
+  """Regression test for MOD-15781: `FT.INFO total_inverted_index_blocks` must reflect only the
+  queried spec's blocks, not the process-global block count summed across all in-memory
+  indexes."""
+
+  conn = getConnectionByEnv(env)
+
+  # Two indexes with deliberately different sizes so a global-counter bug would surface as
+  # both reports having the same (summed) value. PREFIX keeps each spec isolated so each
+  # doc gets indexed into exactly one of them.
+  env.expect('FT.CREATE', 'small_idx', 'PREFIX', 1, 'small:', 'SCHEMA', 'tag1', 'TAG').ok()
+  env.expect('FT.CREATE', 'large_idx', 'PREFIX', 1, 'large:', 'SCHEMA', 'tag1', 'TAG').ok()
+
+  # Each unique tag value gets its own inverted index (with at least one block), so a unique
+  # tag per doc maximises block count per doc.
+  for i in range(50):
+    conn.execute_command('HSET', f'small:{i}', 'tag1', f'sm{i}')
+  for i in range(500):
+    conn.execute_command('HSET', f'large:{i}', 'tag1', f'lg{i}')
+
+  small_blocks = int(index_info(env, 'small_idx')['total_inverted_index_blocks'])
+  large_blocks = int(index_info(env, 'large_idx')['total_inverted_index_blocks'])
+
+  # Each unique tag yields one DocIdsOnly inverted index with a single block. With a
+  # process-global counter (the pre-fix bug) both reports would equal the sum and `small_blocks`
+  # would equal `large_blocks`; with a per-spec counter `large_blocks` is ~10x `small_blocks`.
+  env.assertGreaterEqual(small_blocks, 50, message=f'small={small_blocks}, large={large_blocks}')
+  env.assertGreaterEqual(large_blocks, 500, message=f'small={small_blocks}, large={large_blocks}')
+  env.assertGreater(large_blocks, small_blocks * 5,
+                    message=f'per-spec counter regressed to a global sum: '
+                            f'small={small_blocks}, large={large_blocks}')
+
+  # Dropping `large_idx` must not change `small_idx`'s block count.
+  env.expect('FT.DROPINDEX', 'large_idx', 'DD').ok()
+  small_blocks_after_drop = int(index_info(env, 'small_idx')['total_inverted_index_blocks'])
+  env.assertEqual(small_blocks_after_drop, small_blocks,
+                  message=f'dropping a sibling spec must not change this spec\'s block count: '
+                          f'before={small_blocks} after={small_blocks_after_drop}')
+
 def test_vecsim_info_stats_memory():
   env = Env(protocol=3)
   vec_size = 6
@@ -176,8 +194,11 @@ def test_vecsim_info_stats_marked_deleted():
   data_type = 'FLOAT16'
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
   load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok() # wait for HNSW graph construction to finish
-  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok() # pause to prevent repair jobs on the graph
+  # Run the worker-pool sync on every shard: in cluster mode the docs (and the GC below) are
+  # spread across all shards, so draining/pausing only the default shard leaves the other shards'
+  # repair jobs racing the GC, which flakily leaves vectors marked-deleted (MOD-16881).
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN') # wait for HNSW graph construction to finish
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE') # pause to prevent repair jobs on the graph
 
   # Set the GC clean threshold to 0
   run_command_on_all_shards(env, config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
@@ -190,9 +211,9 @@ def test_vecsim_info_stats_marked_deleted():
   info = index_info(env, 'idx')
   env.assertTrue("field statistics" in info)
   env.assertEqual(info["field statistics"][0]["marked_deleted"], docs_to_delete)
-  env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
   # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
   res = run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx', '100000')
   env.assertTrue(all([r == 'DONE' for r in res]))
   info = index_info(env, 'idx')

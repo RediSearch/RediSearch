@@ -1,0 +1,9 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 139
+expression: reply
+---
+{
+  "Type": "METRIC SORTED BY ID - VECTOR DISTANCE",
+  "Vector search mode": "RANGE_QUERY"
+}

@@ -9,17 +9,23 @@
 
 use std::ffi::c_void;
 
-use super::{IndexReader, IndexReaderCore, NumericReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult};
-use ffi::{FieldSpec, IndexFlags, t_docId};
+use super::{
+    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
+};
+use crate::{DecodedBy, Decoder, InvertedIndex};
+use ffi::IndexFlags;
+use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldIndex, RS_INVALID_FIELD_INDEX};
 
 /// Filter details to apply to numeric values
-/// cbindgen:rename-all=CamelCase
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
+#[cheadergen::config(export, rename_all = "camelCase")]
 pub struct NumericFilter {
-    /// The field specification which this filter is acting on
-    pub field_spec: *const FieldSpec,
+    /// Stable index of the field this filter acts on, into `IndexSpec.fields`.
+    /// Re-derive the `FieldSpec` from this at evaluation time, rather than a
+    /// pointer captured when the filter was built, which could already be freed.
+    pub field_index: FieldIndex,
 
     /// Beginning of the range
     pub min: f64,
@@ -40,20 +46,23 @@ pub struct NumericFilter {
     pub ascending: bool,
 
     /// Minimum number of results needed
+    #[deprecated(note = "pagination state, not part of the filter: the caller paginating owns it")]
     pub limit: usize,
 
     /// Number of results to skip
+    #[deprecated(note = "pagination state, not part of the filter: the caller paginating owns it")]
     pub offset: usize,
 }
 
 impl Default for NumericFilter {
+    #[expect(deprecated, reason = "initialises the deprecated fields")]
     fn default() -> Self {
         Self {
             min: 0.0,
             max: f64::MAX,
             min_inclusive: true,
             max_inclusive: true,
-            field_spec: std::ptr::null(),
+            field_index: RS_INVALID_FIELD_INDEX,
             geo_filter: std::ptr::null(),
             ascending: true,
             limit: 0,
@@ -83,29 +92,85 @@ impl NumericFilter {
 /// specified filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterNumericReader<'filter, IR> {
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** When the inner reader `IR` is
+///    layout-compatible with its suspended form (invariant 1 on
+///    [`RawIndexReaderCore`](crate::RawIndexReaderCore)), so is
+///    `FilterNumericReader<IR>`: it is `#[repr(C)]` and `IR` is its only
+///    mode-dependent field. This is the layout compatibility the
+///    [`SuspendableReader`]/[`ResumableReader`] contract requires. Enforced by
+///    the `const _` proof below.
+#[repr(C)]
+pub struct FilterNumericReader<IR> {
     /// The numeric filter that is used to filter the records.
-    filter: &'filter NumericFilter,
+    filter: NumericFilter,
 
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
 
-impl<'filter, 'index, IR: NumericReader<'index>> FilterNumericReader<'filter, IR> {
+// Compile-time proof of invariant 1 on `FilterNumericReader`, for a
+// representative concrete numeric-encoded inner reader. The inner reader's own
+// layout compatibility is invariant 1 on `RawIndexReaderCore`.
+const _: () = {
+    use crate::RawIndexReaderCore;
+    use crate::codec::numeric::Numeric;
+    use ref_mode::{Active, Suspended};
+    use std::mem::{align_of, offset_of, size_of};
+    type A = FilterNumericReader<RawIndexReaderCore<Active<'static>, Numeric>>;
+    type S = FilterNumericReader<RawIndexReaderCore<Suspended, Numeric>>;
+    assert!(offset_of!(A, filter) == offset_of!(S, filter));
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
-    pub const fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+    pub const fn new(filter: NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
 }
 
-impl<'filter, 'index, E> FilterNumericReader<'filter, IndexReaderCore<'index, E>> {
-    /// Get the numeric filter used by this reader.
-    pub const fn filter(&self) -> &NumericFilter {
-        self.filter
+/// `FilterNumericReader<IR>` suspends to `FilterNumericReader<IR::Suspended>`
+/// — only the inner reader switches modes.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterNumericReader`] (const
+/// proof there), given `IR`'s own layout compatibility.
+unsafe impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
+    type Suspended = FilterNumericReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterNumericReader<RS>` resumes to
+/// `FilterNumericReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
+/// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
+/// the resumed core reader provides.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterNumericReader`] (const
+/// proof there).
+unsafe impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
+where
+    for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // read-lock obligation, which we forward unchanged to the inner reader.
+        unsafe { self.inner.refresh_pointers() }
     }
 }
 
-impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericReader<'index, IR> {
+impl<'index, E> FilterNumericReader<IndexReaderCore<'index, E>> {
+    /// Get the numeric filter used by this reader.
+    pub const fn filter(&self) -> &NumericFilter {
+        &self.filter
+    }
+}
+
+impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericReader<IR> {
     /// Get the next record from the inner reader that matches the numeric filter.
     ///
     /// # Safety
@@ -137,7 +202,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
@@ -156,7 +221,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         self.inner.skip_to(doc_id)
     }
 
@@ -179,14 +244,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
     }
-
-    fn refresh_buffer_pointers(&mut self) {
-        self.inner.refresh_buffer_pointers();
-    }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterNumericReader<'filter, IndexReaderCore<'index, E>>
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<IndexReaderCore<'index, E>>
 {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
@@ -212,4 +273,4 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 }
 
 /// A [`FilterNumericReader`] wrapping a [`NumericReader`] is also a [`NumericReader`].
-impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterNumericReader<'index, IR> {}
+impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterNumericReader<IR> {}

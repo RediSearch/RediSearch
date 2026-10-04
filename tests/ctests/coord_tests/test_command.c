@@ -13,6 +13,13 @@
 
 // Test suite for MRCommand API functions
 
+// Build the shared three-argument test command around one variable argument.
+static MRCommand newTestCommand(const char *test_arg) {
+    const char *argv[] = {"FT.SEARCH", "myindex", test_arg};
+    const size_t lens[] = {sizeof("FT.SEARCH") - 1, sizeof("myindex") - 1, strlen(test_arg)};
+    return MR_NewCommandArgvLen(3, argv, lens);
+}
+
 // Test the fallback case when replacement string is longer than original
 // MRCommand_ReplaceArgSubstring has two code paths:
 // 1. Optimization: pad with spaces when newLen <= oldLen (no reallocation)
@@ -25,7 +32,7 @@ void testReplaceArgSubstringFallback() {
     const char *expected = "hgreetings world";
 
     // Create a command with a test argument
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", test_arg);
+    MRCommand cmd = newTestCommand(test_arg);
 
     int arg_index = 2;
     size_t pos = 1;
@@ -50,7 +57,7 @@ void testReplaceArgSubstringOptimization() {
     const char *expected = "hhi   world";
 
     // Create a command with a test argument
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", test_arg);
+    MRCommand cmd = newTestCommand(test_arg);
 
     int arg_index = 2;
     size_t pos = 1;

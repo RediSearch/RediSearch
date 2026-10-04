@@ -20,10 +20,17 @@ Guidelines for writing new tests for Rust code.
 
 ## Code organization
 
-1. Put tests under the `tests` directory of the relevant crate if they don't rely on private APIs.
-2. The `tests` directory should be organized as a crate, with a `main.rs` file and all tests in modules.
-   Refer to the `trie_rs/tests` directory as an example.
-3. If the test *must* rely on private APIs, co-locate them with the code they test, using a `#[cfg(test)]` module.
+1. Put tests for public (`pub`) items under the crate's `tests` directory. Two layouts are
+   in use and both are fine — **match whichever the crate already has**:
+   - **`tests/integration/`** — one test crate with its own `main.rs` and a module per
+     area (`trie_rs`, `geo`, `query_eval`, …). Prefer this for a new crate: it compiles as
+     a single unit instead of one binary per file.
+   - **Cargo's default layout** — one integration binary per `tests/*.rs` file (`varint`,
+     `fork_gc`, `rlookup`, …).
+2. If the test *must* rely on private APIs, co-locate it with the code it tests, using a
+   `#[cfg(test)]` module. Integration tests cannot reach `pub(crate)` or private items,
+   so this is the only option for them — but prefer exercising the behavior through the
+   public API where you can, per guideline 2 above.
 
 ## Dealing with extern C symbols
 

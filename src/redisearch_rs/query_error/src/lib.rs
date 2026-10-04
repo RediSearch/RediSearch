@@ -29,8 +29,7 @@ pub const fn query_error_code_max_value() -> u8 {
 /// `error_code_full_msg_equals_prefix_plus_default_msg` validates this by iterating
 /// all codes and will panic if gaps are introduced.
 ///
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Default, EnumCount, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorCode {
@@ -88,11 +87,9 @@ pub enum QueryErrorCode {
     VectorNotAllowed,
     OutOfMemory,
     UnavailableSlots,
-    FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
-    FlexSkipInitialScanMissingArgument,
     VectorBlobSizeMismatch,
     VectorLenBad,
     NumericValueInvalid,
@@ -105,6 +102,7 @@ pub enum QueryErrorCode {
     FlexUnsupportedArgument,
     SafeDepleterFailure,
     FlexUnsupportedQuery,
+    DiskIteratorCreation,
 }
 
 impl Debug for QueryErrorCode {
@@ -412,11 +410,6 @@ impl QueryErrorCode {
                 default_msg: c"Query requires unavailable slots",
                 default_full_msg: c"SEARCH_SLOTS_UNAVAIL Query requires unavailable slots",
             },
-            Self::FlexLimitNumberOfIndexes => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES ",
-                default_msg: c"Flex index limit was reached",
-                default_full_msg: c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES Flex index limit was reached",
-            },
             Self::FlexUnsupportedField => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_FIELD ",
                 default_msg: c"Unsupported field for Flex index",
@@ -431,11 +424,6 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_DISK_CREATION ",
                 default_msg: c"Could not create disk index",
                 default_full_msg: c"SEARCH_DISK_CREATION Could not create disk index",
-            },
-            Self::FlexSkipInitialScanMissingArgument => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT ",
-                default_msg: c"Flex index requires SKIPINITIALSCAN argument",
-                default_full_msg: c"SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT Flex index requires SKIPINITIALSCAN argument",
             },
             Self::VectorBlobSizeMismatch => ErrorCodeStrings {
                 prefix: c"SEARCH_VECTOR_BLOB_SIZE_MISMATCH ",
@@ -496,7 +484,12 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
                 default_msg: c"Unsupported query type for Flex indexes",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
-            }
+            },
+            Self::DiskIteratorCreation => ErrorCodeStrings {
+                prefix: c"SEARCH_DISK_ITERATOR_CREATION ",
+                default_msg: c"Could not create disk iterator",
+                default_full_msg: c"SEARCH_DISK_ITERATOR_CREATION Could not create disk iterator",
+            },
         }
     }
 }
@@ -565,6 +558,50 @@ impl QueryError {
         self.private_message = message;
     }
 
+    /// Sets the error code and message, automatically prefixing the
+    /// private message with the error code's prefix string.
+    ///
+    /// The `message` is used as the public message verbatim. The private
+    /// message is formed by prepending [`QueryErrorCode::prefix_c_str`]
+    /// to `message`.
+    pub fn set_error(&mut self, code: QueryErrorCode, message: &str) {
+        if !self.is_ok() {
+            return;
+        }
+
+        let public_message = CString::new(message.to_owned());
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let private_message = CString::new(format!("{prefix}{message}"));
+
+        self.code = code;
+        self.public_message = public_message.ok();
+        self.private_message = private_message.ok().or(self.public_message.clone());
+    }
+
+    /// Sets the error code and a message split by user data, the Rust analogue of
+    /// `QueryError_SetWithUserDataFmt`.
+    ///
+    /// `message` (which must not contain user data) becomes the public message,
+    /// shown even under obfuscation. `user_data` is appended verbatim after
+    /// `message`, behind the error-code prefix, to form the private message, so
+    /// any user-controlled content it carries is hidden when the error is
+    /// displayed obfuscated.
+    ///
+    /// This does not mutate the error if it already has one set.
+    pub fn set_with_user_data(&mut self, code: QueryErrorCode, message: &str, user_data: &str) {
+        if !self.is_ok() {
+            return;
+        }
+
+        let public_message = CString::new(message.to_owned());
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let private_message = CString::new(format!("{prefix}{message}{user_data}"));
+
+        self.code = code;
+        self.public_message = public_message.ok();
+        self.private_message = private_message.ok().or(self.public_message.clone());
+    }
+
     /// Sets code, public message, and private message independently.
     /// The public message is for obfuscated display; the private message
     /// (typically prefix + detail) is what gets sent to the client and
@@ -598,14 +635,18 @@ impl QueryError {
         self.private_message = None;
         self.public_message = None;
     }
+
+    /// Clears the warnings, leaving the error code and messages untouched.
+    pub fn clear_warnings(&mut self) {
+        self.warnings = Warnings::default();
+    }
 }
 
 // Enum for query warnings
 // Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
 // Its current purpose is only to serve as a lightweight identifier that can
 // be passed to functions and easily handled via switch/case logic.
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Debug, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryWarningCode {
@@ -617,6 +658,7 @@ pub enum QueryWarningCode {
     OutOfMemoryCoord,
     UnavailableSlots,
     AsmInaccurateResults,
+    MaxTimeoutCapped,
 }
 
 impl QueryWarningCode {
@@ -637,6 +679,9 @@ impl QueryWarningCode {
             Self::UnavailableSlots => c"Query requires unavailable slots",
             Self::AsmInaccurateResults => {
                 c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
+            }
+            Self::MaxTimeoutCapped => {
+                c"Query TIMEOUT exceeded the configured maximum (search-_max-foreground-timeout-limit) while search-workers is disabled; effective timeout was capped"
             }
         }
     }
@@ -674,6 +719,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `QueryError`
     /// structure exactly.
+    #[cheadergen::config(rename = "QueryError")]
     #[repr(C, align(8))]
     pub struct OpaqueQueryError(Size<38>);
 
@@ -683,6 +729,27 @@ pub mod opaque {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `clear` and `clear_warnings` are complements: each resets its half of the state and
+    /// leaves the other untouched, so a caller can end a cycle with both or demote an error to a
+    /// warning with the first alone.
+    #[test]
+    fn clear_and_clear_warnings_are_complements() {
+        let mut err = QueryError::default();
+        err.set_code_and_message(QueryErrorCode::Generic, None);
+        err.warnings_mut().set_reached_max_prefix_expansions();
+        err.warnings_mut().set_out_of_memory();
+
+        err.clear_warnings();
+        assert!(!err.warnings().reached_max_prefix_expansions());
+        assert!(!err.warnings().out_of_memory());
+        assert_eq!(err.code(), QueryErrorCode::Generic);
+
+        err.warnings_mut().set_out_of_memory();
+        err.clear();
+        assert_eq!(err.code(), QueryErrorCode::default());
+        assert!(err.warnings().out_of_memory());
+    }
 
     /// Verify that `default_full_msg` equals `prefix + default_msg` for every variant.
     /// This catches any drift when a prefix or message is updated without updating the full string.

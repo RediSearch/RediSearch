@@ -16,8 +16,14 @@
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
 #include "rmutil/args.h"
-#include "query_error.h"
 #include "json.h"
+#include "ttl_table.h"
+
+// Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
+// Forward-declared here to avoid pulling the entire disk-API surface into document.h.
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -93,7 +99,7 @@ typedef struct Document {
   float score;
   t_docId docId;
   t_expirationTimePoint docExpirationTime;
-  FieldExpiration* fieldExpirations;
+  FieldExpirations fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
@@ -122,6 +128,17 @@ typedef struct Document {
 #define UNDERSCORE_PAYLOAD "__payload"
 #define UNDERSCORE_LANGUAGE "__language"
 
+// What this update knows about whether a field's value was changed.
+typedef enum {
+  // Changed. Must stay zero: the per-field array is `rm_calloc`'d, so this is also what a field
+  // nothing was recorded for reads as.
+  ChangedFieldInd_VerifiedYes = 0,
+  // Not known either way.
+  ChangedFieldInd_Unverified,
+  // Unchanged.
+  ChangedFieldInd_VerifiedNo,
+} ChangedFieldInd;
+
 struct RSAddDocumentCtx;
 
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
@@ -147,6 +164,11 @@ typedef struct {
 // When loading the document we are after the iterators phase, where we already verified the expiration time of the field and document
 // We don't allow any lazy expiration to happen here
 #define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
+
+// Returns the absolute expiration time of an already-opened key as a
+// t_expirationTimePoint, or {0,0} if the key has no TTL. Wraps
+// RedisModule_GetAbsExpire so callers share a single ms->timespec conversion.
+t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey);
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
@@ -202,9 +224,51 @@ void Document_Clear(Document *doc);
  * the document must then be freed using Document_Free().
  *
  * The document must already have the docKey set
+ *
+ * `openKey` is an optional already-open handle for the document key. Pass it when
+ * the caller already holds the key open and pinned (e.g. the async scan key
+ * callback) so the load reuses the handle instead of opening the same key a second
+ * time, which is unsafe while the caller's handle is live; pass NULL otherwise. The
+ * caller retains ownership of `openKey` and must keep it valid for the duration of
+ * the call.
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
+
+// Outcome of Document_ProbeFieldsPresent. Kept distinct from a bool so a probe that could not
+// be resolved is never mistaken for confirmed absence.
+typedef enum {
+  // At least one of the probed fields is present.
+  DOCUMENT_FIELDS_PRESENT,
+  // Every probed field is confirmed absent.
+  DOCUMENT_FIELDS_ABSENT,
+  // Presence could not be determined (unexpected key type, RedisJSON unavailable, or the
+  // JSON root could not be read off the key). Callers must not treat this as absence.
+  DOCUMENT_FIELDS_PROBE_FAILED,
+} DocumentFieldsProbeResult;
+
+/**
+ * Checks whether `key` (already open, of `type`) has at least one of spec->fields[start, end)
+ * present, without loading or validating field values. Resolves each field the same way full
+ * field loading does -- Hash via FieldSpec.fieldPath and RedisModule_HashGet (as in
+ * Document_LoadSchemaFieldHash), JSON via FieldSpec.fieldPath and the RedisJSON API (as in
+ * Document_LoadSchemaFieldJson) -- so Hash aliases and nested/multi-value JSONPaths resolve
+ * the same way here as they do for the full load.
+ */
+DocumentFieldsProbeResult Document_ProbeFieldsPresent(const IndexSpec *spec, RedisModuleKey *key,
+                                                      DocumentType type, t_fieldIndex start,
+                                                      t_fieldIndex end);
+
+/**
+ * Append a `FieldExpiration` entry for `field` (at position `ii` in
+ * `spec->fields`) to `*out` when the hash key has a TTL on that field; no-op
+ * otherwise. Calling this in `spec->fields` order keeps `*out` sorted by
+ * `t_fieldIndex`, which is the invariant the TTL table relies on.
+ */
+void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
+                                      size_t ii, FieldExpirations *out);
 
 /**
  * Load all the fields into the document.
@@ -290,6 +354,18 @@ typedef struct RSAddDocumentCtx {
 
   // Scratch space used by per-type field preprocessors (see the source)
   struct FieldIndexerData *fdatas;
+
+  /** Whether each VECTOR field's value was changed by this update.
+   *  Schema-indexed rather than living in `fdatas` because
+   *  `Indexer_HandleReplacedDocVectorAndGeometry` walks the schema, not the document: a
+   *  vector field absent from this version of the document still has an old entry to
+   *  drop, and would not be reachable through a document-field-indexed array.
+   */
+  ChangedFieldInd *fieldChanges;
+
+  /** The doc-id this key mapped to before this update, or 0 if it was not
+   *  indexed. */
+  t_docId oldDocId;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
   uint32_t specFlags;    // Cached index flags
@@ -297,7 +373,34 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  // Disk-mode-only state. `batch` is NULL outside disk mode; the other fields
+  // are unused there.
+  struct {
+    SearchDiskWriteBatchHandle *batch;
+    uint32_t oldDocLen;
+    // Optional already-open key handle for the document, supplied by the caller
+    // (e.g. the async scan key callback, where the engine hands us an open,
+    // pinned key). When non-NULL, applyDocTable updates the DocIdMeta mapping
+    // through this handle (DocIdMeta_SetWithOpenKey) instead of reopening the key by
+    // name. The caller retains ownership; it must outlive AddDocumentCtx_Submit.
+    RedisModuleKey *openKey;
+  } disk;
 } RSAddDocumentCtx;
+
+// Whether schema field `f_idx`'s value was changed by this update. A NULL aCtx or an unmarked
+// update reads as `ChangedFieldInd_VerifiedYes`: no mark means no basis for a move.
+static inline ChangedFieldInd AddDocumentCtx_FieldChange(const RSAddDocumentCtx *aCtx,
+                                                      t_fieldIndex f_idx) {
+  if (!aCtx || !aCtx->fieldChanges) return ChangedFieldInd_VerifiedYes;
+  return aCtx->fieldChanges[f_idx];
+}
+
+/**
+ * Whether field `f_idx`'s existing vector entry is to be moved onto this update's new doc-id,
+ * rather than re-added.
+ */
+bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx);
 
 /**
  * Creates a new context used for adding documents. Once created, call
@@ -306,7 +409,7 @@ typedef struct RSAddDocumentCtx {
  * - client is a blocked client which will be used as the context for this
  *   operation.
  * - sp is the index that this document will be added to
- * - base is the document to be index. The context will take ownership of the
+ * - base is the document to be indexed. The context will take ownership of the
  *   document's contents (but not the structure itself). Thus, you should not
  *   call Document_Free on the document after a successful return of this
  *   function.

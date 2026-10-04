@@ -14,23 +14,23 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
+#include "rqe_core.h"
 #include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
-#include "types_rs.h"
-#include "query_term.h"
 
-typedef uint64_t t_docId;
+typedef struct RSQueryTerm RSQueryTerm;
+typedef struct RawIndexResult_Active RSIndexResult;
+typedef struct RSOffsetVector RSOffsetVector;
+typedef uint32_t RSTokenFlags;
+
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
 #define RS_INVALID_FIELD_ID (t_fieldId)-1
-// Used to identify any field index within the spec, not just textual fields
-typedef uint16_t t_fieldIndex;
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
 struct timespec;
-typedef struct timespec t_expirationTimePoint;
 
 typedef uint64_t t_uniqueId;
 #define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned
@@ -39,22 +39,14 @@ typedef uint64_t t_uniqueId;
 
 #define DOCID_MAX UINT64_MAX
 
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-/* 64 bit architectures use 128 bit field masks and up to 128 fields */
-typedef __uint128_t t_fieldMask;
-#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
-#else
-/* 32 bit architectures use 64 bits and 64 fields only */
-typedef uint64_t t_fieldMask;
-#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
-#endif
-
 #include "sorting_vector.h"
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 #define REDISEARCH_UNINITIALIZED -1
-#define BAD_POINTER ((void *)0xBAAAAAAD)
+// Integer form of BAD_POINTER, exposed so Rust can recognize the sentinel.
+#define BAD_POINTER_ADDR 0xBAAAAAAD
+#define BAD_POINTER ((void *)BAD_POINTER_ADDR)
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
@@ -88,9 +80,14 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
-  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
-                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
+  Document_HasExpiration =
+      0x10,  // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen =
+      0x20,  // Document was failed to opened by a loader (might expired) but not yet marked as
+             // deleted. This is an optimization to avoid attempting opening the document for
+             // loading. May be used UN-ATOMICALLY
+  Document_HasPayloadSlot =
+      0x40,  // RAM allocation includes the trailing pointer, even without a payload.
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)
@@ -131,7 +128,7 @@ typedef struct RSDocumentMetadata_s {
    * Inlined to avoid a TTL-table lookup on the result-processor hot path. */
   int64_t expirationTimeNs;
 
-  struct RSSortingVector sortVector;
+  RSSortingVector sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;

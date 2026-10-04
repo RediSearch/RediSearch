@@ -26,6 +26,9 @@
 template <typename T>
 using Optional = boost::optional<T>;
 
+void RMCK_FreeKeyMetaForKey(const std::string &key);
+void RMCK_FreeAllKeyMeta();
+
 struct RedisModuleString : public std::string {
   using std::string::string;
 
@@ -271,6 +274,8 @@ struct KVDB {
   }
 
   bool erase(const std::string &key) {
+    RMCK_FreeKeyMetaForKey(key);
+
     auto e = db.find(key);
     if (e == db.end()) {
       return false;
@@ -282,6 +287,8 @@ struct KVDB {
   }
 
   void clear() {
+    RMCK_FreeAllKeyMeta();
+
     for (auto it : db) {
       it.second->decref();
     }
@@ -308,10 +315,17 @@ struct RedisModuleCtx {
   bool automemory = false;
   std::set<RedisModuleString *> allocstrs;
   std::set<RedisModuleKey *> allockeys;
+  // Slot range arrays returned by RedisModule_ClusterGet{Local,ByNodeId}SlotRanges
+  // are tracked here while auto-memory is on; the ctx destructor frees them,
+  // mirroring the real Redis server's auto-memory behavior. Entries are removed
+  // when callers explicitly invoke RedisModule_ClusterFreeSlotRanges.
+  std::set<RedisModuleSlotRangeArray *> alloc_slot_ranges;
   std::vector<std::vector<std::string>> propagated_commands;
   KVDB *db = NULL;
   uint32_t dbid = 0;
   std::string last_error;  // Store the last error message from ReplyWithError
+  int ctx_flags = 0;                   // Returned by RedisModule_GetContextFlags
+  std::vector<std::string> reply_log;  // Collection open/close calls, for reply builder tests
 
   RedisModuleCtx(uint32_t dbid = 0);
 

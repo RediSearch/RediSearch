@@ -22,8 +22,7 @@ const char* nu_utf16_read_bom(const char *encoded, nu_utf16_bom_t *bom) {
 			bom->validread = nu_utf16le_validread;
 #endif
 		}
-	}
-	else {
+	} else {
 		if (bom != 0) {
 #ifdef NU_WITH_UTF16_WRITER
 			bom->write_bom = nu_utf16be_write_bom;
@@ -40,8 +39,7 @@ const char* nu_utf16_read_bom(const char *encoded, nu_utf16_bom_t *bom) {
 
 		if (bom0 == 0xFE && bom1 == 0xFF) {
 			return encoded + 2;
-		}
-		else {
+		} else {
 			return encoded;
 		}
 	}
@@ -56,7 +54,7 @@ const char* nu_utf16_read_bom(const char *encoded, nu_utf16_bom_t *bom) {
 char* nu_utf16le_write_bom(char *encoded) {
 	unsigned char *p = (unsigned char *)(encoded);
 
-	*(p)     = 0xFF;
+	*(p) = 0xFF;
 	*(p + 1) = 0xFE;
 
 	return encoded + 2;
@@ -65,7 +63,7 @@ char* nu_utf16le_write_bom(char *encoded) {
 char* nu_utf16be_write_bom(char *encoded) {
 	unsigned char *p = (unsigned char *)(encoded);
 
-	*(p)     = 0xFE;
+	*(p) = 0xFE;
 	*(p + 1) = 0xFF;
 
 	return encoded + 2;

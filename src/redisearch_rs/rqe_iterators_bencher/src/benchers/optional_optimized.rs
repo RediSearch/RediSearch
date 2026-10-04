@@ -22,7 +22,7 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
+use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{
     IdList, RQEIterator, SkipToOutcome, optional::Optional, optional_optimized::OptionalOptimized,
     wildcard::new_wildcard_iterator_optimized,
@@ -41,11 +41,8 @@ impl Default for Bencher {
         let context = TestContext::wildcard(1..=Self::MAX_DOC_ID);
         let context_sparse =
             TestContext::wildcard((1..=Self::MAX_DOC_ID).step_by(Self::SPARSE_STEP));
-        // SAFETY: no iterators have been created from these contexts yet.
-        unsafe {
-            context.set_index_all(true);
-            context_sparse.set_index_all(true);
-        }
+        context.spec_write().rule_mut().set_index_all(true);
+        context_sparse.spec_write().rule_mut().set_index_all(true);
         Self {
             context,
             context_sparse,
@@ -72,10 +69,7 @@ impl Bencher {
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
+        super::group(c, label, Self::MEASUREMENT_TIME, Self::WARMUP_TIME)
     }
 
     pub fn bench(&self, c: &mut Criterion) {

@@ -65,8 +65,27 @@ int _testRemoveEscape(char *str, char *strAfter, int lenAfter) {
   return 0;
 }
 
+// The empty pattern in a buffer sized like a resolved query parameter —
+// rm_calloc(1, len + 1), one byte — so a write past it is outside the
+// allocation and visible to AddressSanitizer, unlike the stack-buffer case in
+// test_removeEscape, which only pins the returned length.
+int test_removeEscapeEmpty() {
+  char *pattern = rm_calloc(1, 1);
+  ASSERT(pattern != NULL);
+
+  ASSERT_EQUAL(0, Wildcard_RemoveEscape(pattern, 0));
+  ASSERT_EQUAL('\0', pattern[0]);
+
+  rm_free(pattern);
+  return 0;
+}
+
 int test_removeEscape() {
   char buf[16];
+
+  // empty pattern is returned unchanged
+  memcpy(buf, "", 1);
+  _testRemoveEscape(buf, "", 0);
 
   memcpy(buf, "foo", 4);
   _testRemoveEscape(buf, "foo", 3);
@@ -170,6 +189,18 @@ int _testMatch(char *pattern, char *str, match_t expected) {
   match_t actual = Wildcard_MatchChar(pattern, strlen(pattern), str, strlen(str));
   //printf("%d %s\n", i++, str);
   ASSERT_EQUAL(expected, actual);
+
+  // Wildcard_MatchRune implements the same algorithm over runes and must agree with
+  // Wildcard_MatchChar on every input -- run every case through both.
+  rune patternRunes[65], strRunes[64];
+  size_t patternLen = strlen(pattern), strLen = strlen(str);
+  for (size_t i = 0; i < patternLen; ++i) patternRunes[i] = (rune)(unsigned char)pattern[i];
+  // Wildcard_MatchRune assumes a NUL-terminated pattern (see wildcard.h) -- a pattern ending
+  // in '*' reads one rune past patternLen after skipping the trailing star(s).
+  patternRunes[patternLen] = 0;
+  for (size_t i = 0; i < strLen; ++i) strRunes[i] = (rune)(unsigned char)str[i];
+  match_t actualRune = Wildcard_MatchRune(patternRunes, patternLen, strRunes, strLen);
+  ASSERT_EQUAL(expected, actualRune);
   return 0;
 }
 
@@ -214,6 +245,15 @@ int test_match() {
   _testMatch("f?o*bar", "bar", NO_MATCH);
   _testMatch("*f?o*bar", "bar", PARTIAL_MATCH);
 
+  // Literal '*' in the string, at a position the pattern's '*' backtracks onto
+  // (https://github.com/RediSearch/RediSearch/issues/5895): Wildcard_MatchRune used to
+  // check the literal/'?' branch before the '*' branch, so a literal '*' in the string
+  // matched the pattern's '*' operator as an ordinary character and the backtrack
+  // re-entered the same state forever.
+  _testMatch("*abc123*", "456a*456", PARTIAL_MATCH);
+  _testMatch("a*b", "a*b", FULL_MATCH);
+  _testMatch("*abc*", "xxabcyy", FULL_MATCH);
+
   return 0;
 }
 
@@ -221,6 +261,7 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(test_StarBreak);
   TESTFUNC(test_removeEscape);
+  TESTFUNC(test_removeEscapeEmpty);
   TESTFUNC(test_trimPattern);
   TESTFUNC(test_match); 
 });

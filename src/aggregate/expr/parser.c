@@ -30,6 +30,8 @@
 #include "expression.h"
 #include "exprast.h"
 #include "parser.h"
+#include "aggregate/functions/function.h"
+#include "rmalloc.h"
 
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
@@ -360,8 +362,12 @@ struct yyParser {
 typedef struct yyParser yyParser;
 
 #include <assert.h>
+#include <math.h>
+#include <stdbool.h>
+#include <string.h>
 #ifndef NDEBUG
 #include <stdio.h>
+
 static FILE *yyTraceFILE = 0;
 static char *yyTracePrompt = 0;
 #endif /* NDEBUG */

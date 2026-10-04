@@ -8,14 +8,19 @@
 */
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
-#include "triemap.h"
+#include "util/hash/hash.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "triemap_ffi.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
+#include "util/likely.h"
 #include "rmutil/rm_assert.h"
-#include <ctype.h>
 #include "rdb.h"
-
-#define MAX_STOPWORDLIST_SIZE 1024
+#include "util/arr/arr.h"
 
 typedef struct StopWordList {
   TrieMap *m;
@@ -174,6 +179,15 @@ void StopWordList_FreeGlobals(void) {
 StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
   StopWordList *sl = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  if (unlikely(elements > MAX_STOPWORDLIST_SIZE)) {
+    RedisModule_LogIOError(
+        rdb, "warning",
+        "RDB Load: Stopword list size (%llu) exceeds maximum allowed (%d)",
+        (unsigned long long)elements, MAX_STOPWORDLIST_SIZE);
+    goto cleanup;
+  }
+
   sl = rm_malloc(sizeof(*sl));
   sl->m = NewTrieMap();
   sl->refcount = 1;
@@ -250,32 +264,31 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
     stopwords = array_ensure_append_n(stopwords, str, len);
     stopwords = array_ensure_append_n(stopwords, "\",", 2);
   }
-  stopwords[array_len(stopwords)-1] = '\0';
+  // NUL-terminate: an empty list gets a fresh NUL, otherwise the trailing comma becomes one.
+  uint32_t stopwords_len = array_len(stopwords);
+  if (stopwords_len == 0) {
+    stopwords = array_ensure_append_1(stopwords, "\0");
+  } else {
+    stopwords[stopwords_len - 1] = '\0';
+  }
   RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
   array_free(stopwords);
   TrieMapIterator_Free(it);
 }
 
-char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
-  *size = TrieMap_NUniqueKeys(sl->m);
-  if (*size == 0) {
-    return NULL;
-  }
-
-  char **list = rm_malloc((*size) * sizeof(*list));
-
+static void fingerprintStopwords(Sha1Context *hash, const void *value) {
+  const StopWordList *sl = value;
+  Sha1_UpdateU64(hash, TrieMap_NUniqueKeys(sl->m));
   TrieMapIterator *it = TrieMap_Iterate(sl->m);
-  char *str;
+  char *word;
   tm_len_t len;
-  void *ptr;
-  size_t i = 0;
-
-  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
-    list[i++] = rm_strndup(str, len);
+  void *unused;
+  while (TrieMapIterator_Next(it, &word, &len, &unused)) {
+    Sha1_UpdateBuffer(hash, word, len);
   }
-
   TrieMapIterator_Free(it);
-  RS_LOG_ASSERT(i == *size, "actual size must equal expected size");
+}
 
-  return list;
+uint64_t StopWordList_Fingerprint(const StopWordList *sl) {
+  return Sha1_ComputeValue(fingerprintStopwords, sl);
 }

@@ -6,13 +6,24 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <string.h>
+
 #include "document.h"
-#include "err.h"
-#include "util/logging.h"
+#include "indexes.h"
 #include "module.h"
-#include "rmutil/rm_assert.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "query_error_ffi.h"
+#include "aggregate/reducer.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
 #include "query_error.h"
+#include "redismodule.h"
+#include "rmutil/args.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/references.h"
+#include "util/strconv.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
@@ -53,11 +64,7 @@ part of the document,
 indexing. Defaults to
 English.
    If an unsupported language is sent, the command returns an error.
-   The supported languages are:
-
-   > "arabic",  "armenian",  "danish",    "dutch",     "english",   "finnish",    "french",
-   > "german",  "hindi",     "hungarian", "italian",   "norwegian", "portuguese", "romanian",
-   > "russian", "serbian",   "spanish",   "swedish",   "tamil",     "turkish",    "yiddish"
+   The supported languages are defined in RSLanguage in "src/language.h".
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
@@ -235,7 +242,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);

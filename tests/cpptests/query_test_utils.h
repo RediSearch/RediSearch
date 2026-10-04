@@ -73,7 +73,7 @@ class QASTCXX : public QueryAST {
    * Check if a query string is valid with the specified validation flags
    * This is a generic validation method that can be used with any validation flags
    */
-  bool isValidQuery(const char *s, QAST_ValidationFlags validationFlags) {
+  bool isValidQuery(const char *s, QASTValidationFlagsSet validationFlags) {
     // Parse the query using version 2 parser
     if (!parse(s, 2)) {
       return false;

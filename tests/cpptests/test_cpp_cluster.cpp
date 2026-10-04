@@ -9,9 +9,10 @@
 
 #include "gtest/gtest.h"
 #include "common.h"
+#include "indexes.h"
 #include "redismock/redismock.h"
 
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 extern "C" {
 #include "dictionary.h"
 }
@@ -31,7 +32,7 @@ protected:
             ctx = nullptr;
         }
         for (auto &spec_ref : specs) {
-            IndexSpec_RemoveFromGlobals(spec_ref, false);
+            Indexes_RemoveSpecFromGlobals(spec_ref, false);
         }
         specs.clear();
     }

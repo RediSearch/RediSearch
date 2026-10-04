@@ -11,7 +11,7 @@
 #include "common.h"
 #include "index_utils.h"
 #include "rules.h"
-#include "redisearch_api.h"
+#include "llapi_test_helpers.h"
 #include "obfuscation/hidden_unicode.h"
 #include "rmutil/args.h"
 #include "util/arr.h"
@@ -110,6 +110,49 @@ TEST_F(SchemaRuleTest, testCreateFromACEmpty) {
 
   get_spec(ism)->rule = rule;
   Spec_AddToDict(ism);
+  freeSpec(ism);
+}
+
+// Exceeding MAX_SCHEMA_PREFIXES via the AC path must return NULL with an error
+// without touching the (potentially fake) prefix pointers.
+TEST_F(SchemaRuleTest, testCreateFromACTooManyPrefixes) {
+  auto ism = RediSearch_CreateIndex("idx_rule_ac_overlimit", NULL);
+  ASSERT_NE(ism, nullptr);
+
+  ArgsCursor ac = {};
+  ac.argc = MAX_SCHEMA_PREFIXES + 1;  // fake count; the check fires before iteration
+
+  SchemaRuleArgs args = {0};
+  args.type = "HASH";
+
+  QueryError status = QueryError_Default();
+  SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
+  ASSERT_EQ(rule, nullptr);
+  ASSERT_TRUE(QueryError_HasError(&status));
+  ASSERT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_LIMIT);
+  QueryError_ClearError(&status);
+
+  freeSpec(ism);
+}
+
+// Exceeding MAX_SCHEMA_PREFIXES via the C-array path must return NULL with an
+// error without dereferencing the (NULL) prefix array.
+TEST_F(SchemaRuleTest, testCreateFromCArrayTooManyPrefixes) {
+  auto ism = RediSearch_CreateIndex("idx_rule_arr_overlimit", NULL);
+  ASSERT_NE(ism, nullptr);
+
+  SchemaRuleArgs args = {0};
+  args.type = "HASH";
+  args.nprefixes = MAX_SCHEMA_PREFIXES + 1;  // check fires before iteration
+  args.prefixes = nullptr;
+
+  QueryError status = QueryError_Default();
+  SchemaRule *rule = SchemaRule_Create(&args, {ism}, &status);
+  ASSERT_EQ(rule, nullptr);
+  ASSERT_TRUE(QueryError_HasError(&status));
+  ASSERT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_LIMIT);
+  QueryError_ClearError(&status);
+
   freeSpec(ism);
 }
 

@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 import bz2
@@ -107,34 +114,47 @@ class TestAggregate():
             self.env.assertContains('avg_price', row)
 
         # Test aliasing
+        # The order of the groups themselves is not guaranteed without SORTBY, so sort by
+        # avgPrice to get the same deterministic group as in the first part of this test.
         cmd = ['FT.AGGREGATE', 'games', 'sony', 'GROUPBY', '1', '@brand',
-               'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice']
+               'REDUCE', 'avg', '1', '@price', 'AS', 'avgPrice',
+               'SORTBY', '2', '@avgPrice', 'DESC']
         res = self.env.cmd(*cmd)
         first_row = to_dict(res[1])
-        self.env.assertEqual(17, int(float(first_row['avgPrice'])))
+        self.env.assertEqual(109, int(float(first_row['avgPrice'])))
         _test_withcount(self.env, cmd)
 
     def testCountDistinct(self):
+        # The order of the groups themselves is not guaranteed without SORTBY, so sort by
+        # count_distinct(title) to get a deterministic group (the one with the most documents).
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT_DISTINCT', '1', '@title', 'AS', 'count_distinct(title)',
-               'REDUCE', 'COUNT', '0'
+               'REDUCE', 'COUNT', '0',
+               'SORTBY', '2', '@count_distinct(title)', 'DESC'
                ]
         res = self.env.cmd(*cmd)[1:]
         # print res
         row = to_dict(res[0])
-        self.env.assertEqual(1484, int(row['count_distinct(title)']))
+        exact_count = int(row['count_distinct(title)'])
+        self.env.assertEqual(1484, exact_count)
         _test_withcount(self.env, cmd)
 
+        # Same as above, but for the approximate COUNT_DISTINCTISH reducer. COUNT_DISTINCTISH
+        # is a HyperLogLog estimate (HLL_PRECISION_BITS == 8, i.e. 256 registers, so a
+        # standard error of ~1/sqrt(256) == ~6.5% per estimate), and its exact value depends
+        # on the hash function used internally; allow ~3 standard errors of slack and just
+        # check that it is close to the exact count above.
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT_DISTINCTISH', '1', '@title', 'AS', 'count_distinctish(title)',
-               'REDUCE', 'COUNT', '0'
+               'REDUCE', 'COUNT', '0',
+               'SORTBY', '2', '@count_distinctish(title)', 'DESC'
                ]
         res = self.env.cmd(*cmd)[1:]
         # print res
         row = to_dict(res[0])
-        self.env.assertEqual(1461, int(row['count_distinctish(title)']))
+        self.env.assertAlmostEqual(exact_count, int(row['count_distinctish(title)']), delta=exact_count * 0.20)
         _test_withcount(self.env, cmd)
 
     def testQuantile(self):
@@ -179,11 +199,15 @@ class TestAggregate():
         expected = ['brand', '', 'count', '1518', 'dt', '2018-01-31T16:45:44Z',
                     'parsed_dt', '1517417144']
 
+        # The order of the groups themselves is not guaranteed without SORTBY, so sort by
+        # count to get a deterministic group (the one with the most documents).
+
         # Skip on Alpine Linux, as its strptime() doesn't support '%FT%TZ' format
         if distro_name != 'alpine linux':
             cmd = ['FT.AGGREGATE', 'games', '*',
                 'GROUPBY', '1', '@brand',
                 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'SORTBY', '2', '@count', 'DESC',
                 'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                 'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
                 'LIMIT', '0', '1']
@@ -197,6 +221,7 @@ class TestAggregate():
         cmd = ['FT.AGGREGATE', 'games', '*',
                 'GROUPBY', '1', '@brand',
                 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'SORTBY', '2', '@count', 'DESC',
                 'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
                 'APPLY', 'parsetime(@dt, "%Y-%m-%dT%H:%M:%SZ")', 'as',
                 'parsed_dt', 'LIMIT', '0', '1']
@@ -588,7 +613,10 @@ class TestAggregate():
                           'GROUPBY', 1, '@brand',
                           'REDUCE', 'MIN', 1, '@price',
                           'LIMIT', 0, 1)
-        self.env.assertEqual([292, ['brand', '', '__generated_aliasminprice', '0']], rv)
+        # The order of the groups themselves is not guaranteed without SORTBY, so just check
+        # the auto-generated reducer alias name, regardless of which group ends up first.
+        self.env.assertEqual(292, rv[0])
+        self.env.assertEqual('__generated_aliasminprice', rv[1][2])
 
         rv = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
                           'GROUPBY', 1, '@brand',
@@ -803,6 +831,26 @@ def testAggregateGroupByOnEmptyField(env):
     for var in expected:
         env.assertContains(var, res)
 
+
+def testReducerAliasesMayReuseDocumentControlFieldNames(env):
+    """Reducer aliases are query output, not schema document-control fields."""
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCORE_FIELD', '__score',
+        'LANGUAGE_FIELD', '__language',
+        'PAYLOAD_FIELD', '__payload',
+        'SCHEMA', 't', 'TEXT'
+    ).ok()
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', '{doc}:1', 't', 'value')
+
+    for alias in ('__score', '__language', '__payload'):
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*',
+            'GROUPBY', '0',
+            'REDUCE', 'COUNT', '0', 'AS', alias
+        ).equal([1, [alias, '1']])
+
 def test_groupby_array(env: Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
   with env.getClusterConnectionIfNeeded() as con:
@@ -822,6 +870,99 @@ def test_groupby_array(env: Env):
   for row in res:
     env.assertContains(row, exp)
   env.assertEqual(len(res), len(exp), message=f'{res} != {exp}')
+
+def test_groupby_array_group_limit_boundary():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 4')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1', 't1', 'foo,bar', 't2', 'baz,qux')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', 'split(@t1, ",")', 'AS', 't1',
+                'APPLY', 'split(@t2, ",")', 'AS', 't2',
+                'GROUPBY', '2', '@t1', '@t2',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+  env.assertEqual(res[0], 4)
+  env.assertEqual(len(res), 5)
+
+def test_groupby_tag_group_limit_boundary():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 4')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(4):
+      con.execute_command('HSET', f'doc{i}', 'g', f'g{i}')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'GROUPBY', '1', '@g',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+  env.assertEqual(res[0], 4)
+  env.assertEqual(len(res), 5)
+
+@skip(cluster=True)
+def test_groupby_array_row_expansion_limit():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 3')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             't1', 'TEXT', 'SORTABLE',
+             't2', 'TEXT', 'SORTABLE',
+             'tag1', 'TAG',
+             'tag2', 'TAG').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1',
+                        't1', 'foo,bar',
+                        't2', 'baz,qux',
+                        'tag1', 'red,blue',
+                        'tag2', 'circle,square')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'LOAD', '2', '@tag1', '@tag2',
+             'APPLY', 'split(@tag1, ",")', 'AS', 'tag1_values',
+             'APPLY', 'split(@tag2, ",")', 'AS', 'tag2_values',
+             'GROUPBY', '2', '@tag1_values', '@tag2_values',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'APPLY', 'split(@t1, ",")', 'AS', 't1',
+             'APPLY', 'split(@t2, ",")', 'AS', 't2',
+             'GROUPBY', '2', '@t1', '@t2',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
+
+@skip(cluster=True)
+def test_groupby_total_group_limit():
+  env = Env(moduleArgs='MAX_AGGREGATE_GROUPS 3')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(4):
+      con.execute_command('HSET', f'doc{i}', 'g', f'g{i}')
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'GROUPBY', '1', '@g',
+             'REDUCE', 'COUNT', '0', 'AS', 'count').error() \
+      .contains('MAX_AGGREGATE_GROUPS') \
+      .contains('3')
+
+@skip(cluster=False)
+def test_groupby_coordinator_group_limit_uses_shard_count():
+  env = Env(shardsCount=3, protocol=3, moduleArgs='MAX_AGGREGATE_GROUPS 2')
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'g', 'TAG', 'SORTABLE').ok()
+  shard_tags = ['shard:0', 'shard:1', 'shard:3']
+  conn = getConnectionByEnv(env)
+  for i, shard_tag in enumerate(shard_tags):
+    conn.execute_command('HSET', f'doc:{i}{{{shard_tag}}}', 'g', f'g{i}')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'GROUPBY', '1', '@g',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+
+  env.assertEqual(len(res['results']), 3)
+  env.assertEqual(sorted(row['extra_attributes']['g'] for row in res['results']),
+                  ['g0', 'g1', 'g2'])
 
 def testMultiSortBy(env):
     conn = getConnectionByEnv(env)
@@ -974,6 +1115,63 @@ def testLoadAll(env):
         env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
         env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
         env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
+
+def testLoadAllManyDynamicFields(env):
+    """LOAD * over documents with disjoint field sets: the reply lookup keeps
+    absorbing new keys while the query executes (it is sealed append-only at
+    pipeline-build time). In cluster mode this also exercises the coordinator's
+    RPNet lookup, which appends each field name it first sees in a shard reply."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'common', 'TEXT').ok()
+    n_docs = 24
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'common', 'x', f'field{i}', i)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LIMIT', '0', str(n_docs))
+    # Row order is not deterministic across shards; each row's field order is.
+    # Compare the exact multiset of rows, each as its sorted (name, value) pairs.
+    rows = sorted(sorted([row[i], row[i + 1]] for i in range(0, len(row), 2)) for row in res[1:])
+    exp = sorted(sorted([['common', 'x'], [f'field{i}', str(i)]]) for i in range(n_docs))
+    env.assertEqual(rows, exp)
+
+def testLoadAllWideCoordinatorRow(env):
+    """LOAD * preserves every dynamic field in a wide coordinator row."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'marker', 'TEXT').ok()
+    fields = {f'field{i}': i for i in range(24)}
+    conn.execute_command(
+        'HSET', '{wide}:1', 'marker', 'x', *itertools.chain.from_iterable(fields.items()))
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(
+        dict(zip(res[1][::2], res[1][1::2])),
+        {'marker': 'x', **{k: str(v) for k, v in fields.items()}})
+
+def testSealedMultiGroupByCursor(env):
+    """Finalize each GROUPBY input after implicit loads, and resume the final sealed lookup."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'category', 'TAG', 'amount', 'NUMERIC').ok()
+    for i in range(6):
+        conn.execute_command('HSET', f'{{sealed}}:{i}', 'category', str(i % 3),
+                             'amount', i + 1, f'dynamic{i}', i)
+
+    for load in ([], ['LOAD', '*']):
+        res, cursor = env.cmd(
+            'FT.AGGREGATE', 'idx', '*', *load,
+            'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', '@amount', 'AS', 'total',
+            'APPLY', '@total + 1', 'AS', 'total',
+            'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', '@total', 'AS', 'total',
+            'SORTBY', '2', '@category', 'ASC', 'WITHCURSOR', 'COUNT', '1')
+        rows = res[1:]
+        while cursor:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '1')
+            rows.extend(res[1:])
+        env.assertEqual(rows, [
+            ['category', '0', 'total', '6'],
+            ['category', '1', 'total', '8'],
+            ['category', '2', 'total', '10'],
+        ])
 
 def testLimitIssue(env):
     #ticket 66895
@@ -1166,6 +1364,15 @@ def testGroupProperties(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
 
+    max_groupby_properties = (1 << 16) - 1
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', str(max_groupby_properties + 1), '@t').error().contains(
+                    'Bad arguments for GROUPBY: Expected an argument, but none provided')
+    too_many_properties = ['@t'] * (max_groupby_properties + 1)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', str(len(too_many_properties)), *too_many_properties).error().contains(
+                    'Bad arguments for GROUPBY: Value is outside acceptable bounds')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '-1').error().contains(
+                    'Bad arguments for GROUPBY: Value is outside acceptable bounds')
+
     # Check groupby properties
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(
                     'Bad arguments for GROUPBY: Unknown property `t`. Did you mean `@t`?')
@@ -1236,7 +1443,9 @@ def testGroupAfterSort(env):
     #
     # and since `n` is not in the scope when we get to the second sorter, the query fails. ([0] is returned)
 
-    env.assertEqual(res, expected)
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], expected[0])
+    env.assertEqual(sorted(res[1:]), sorted(expected[1:]))
 
     # CASE 2 #
     conn.execute_command('HSET', 'doc5', 't', 'AAAA', 'n', '0')
@@ -1269,7 +1478,9 @@ def testGroupAfterSort(env):
     #    with `n == 1` will get the the last aggregation and the final result will include 3 row:
     #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
 
-    env.assertEqual(res, expected)
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], expected[0])
+    env.assertEqual(sorted(res[1:]), sorted(expected[1:]))
 
 
 def testWithKNN(env):
@@ -1386,8 +1597,27 @@ def test_aggregate_filter_on_missing_indexed_values():
 def test_aggregate_group_by_on_missing_values():
     env = setup_missing_values_index(False)
     # Search for the documents with the indexed fields (sanity)
-    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
+    res = env.cmd('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1')
+    expected = [2, ['num1', '3'], ['num1', None]]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], expected[0])
+    env.assertEqual(sorted(res[1:], key=str), sorted(expected[1:], key=str))
     env.flush()
+
+def test_aggregate_groupby_two_tag_fields_not_conflated_by_hash_collision(env):
+    # Values are chosen so that a naive list hash that doesn't separate fields would collide:
+    # hash(["ab", "c"]) == hash(["a", "bc"]). The two documents must land in separate groups.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't1', 'TAG', 't2', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:0', 't1', 'ab', 't2', 'c')
+    conn.execute_command('HSET', 'doc:1', 't1', 'a', 't2', 'bc')
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '2', '@t1', '@t2',
+            'REDUCE', 'COUNT', '0', 'AS', 'n',
+        'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC'
+    )
+    env.assertEqual(res, [2, ['t1', 'a', 't2', 'bc', 'n', '1'], ['t1', 'ab', 't2', 'c', 'n', '1']])
 
 def test_aggregate_group_by_on_missing_indexed_values():
     def group_by_result_to_dict(lst):
@@ -1492,33 +1722,101 @@ def testeAggregateBadApplyFunction(env):
         .contains("Unknown function name 'unexisting_function'")
 
 
-# This is an existing bug, but it's not related to WITHCOUNT.
-# def testWithoutCountWithSortBy(env):
-#     """Tests that we sort correctly when using WITHOUTCOUNT and SORTBY"""
-#     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'TEXT')
-#     env.expect('CONFIG', 'SET', 'search-default-dialect', 2).ok()
-#     conn = getConnectionByEnv(env)
+def testWithoutCountWithSortBy(env):
+    """Tests that we sort correctly when using WITHOUTCOUNT and SORTBY"""
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA',
+            't', 'TEXT',  'n', 'NUMERIC', 'm', 'NUMERIC')
+    env.expect('CONFIG', 'SET', 'search-default-dialect', 2).ok()
+    conn = getConnectionByEnv(env)
 
-#     n_docs = 1000
-#     # Add documents
-#     for i in range(1, n_docs):
-#         conn.execute_command('HSET', f'doc{i}', 't', f'{chr(i%26 + 97)}', 'n', str(n_docs - i))
+    n_docs = 1_000
+    # Add documents
+    for i in range(1, n_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'{chr(i%26 + 97)}',
+                             'n', str(n_docs - i), 'm', str((n_docs - i) % 5))
 
-#     queries = [
-#         ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@n', 'ASC', 'LOAD', '2', 't', 'n', 'LIMIT', '0', '4'],
-#         ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@n', 'ASC', 'LOAD', '2', 't', 'n'],
-#         ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@n', 'ASC', '@t', 'DESC', 'LOAD', '2', 't', 'n'],
-#         ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@n', 'DESC', '@t', 'DESC', 'LOAD', '2', 't', 'n'],
-#     ]
+    queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@n', 'ASC', 'LOAD', '2', 't', 'n', 'LIMIT', '0', '4'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@n', 'ASC', 'LOAD', '2', 't', 'n'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@n', 'ASC', '@t', 'DESC', 'LOAD', '2', 't', 'n'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@n', 'DESC', '@t', 'DESC', 'LOAD', '2', 't', 'n'],
+        # Test with duplicate values in the numeric field
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@m', 'ASC', 'LOAD', '2', 't', 'm', 'LIMIT', '0', '4'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@m', 'ASC', 'LOAD', '2', 't', 'm'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@m', 'ASC', '@t', 'DESC', 'LOAD', '2', 't', 'm'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@m', 'DESC', '@t', 'DESC', 'LOAD', '2', 't', 'm'],
+    ]
 
-#     for query_withoutcount in queries:
-#         # Replace WITHOUTCOUNT with WITHCOUNT
-#         query_withcount = query_withoutcount.copy()
-#         query_withcount.remove('WITHOUTCOUNT')
-#         query_withcount.insert(3, 'WITHCOUNT')
+    for query_withoutcount in queries:
+        # Replace WITHOUTCOUNT with WITHCOUNT
+        query_withcount = query_withoutcount.copy()
+        query_withcount.remove('WITHOUTCOUNT')
+        query_withcount.insert(3, 'WITHCOUNT')
 
-#         res_withcount = conn.execute_command(*query_withcount)
-#         res_withoutcount = conn.execute_command(*query_withoutcount)
+        res_withcount = conn.execute_command(*query_withcount)
+        res_withoutcount = conn.execute_command(*query_withoutcount)
+        env.assertEqual(res_withoutcount[1:], res_withcount[1:])
 
-#         env.assertNotEqual(res_withoutcount[0], res_withcount[0])
-#         env.assertEqual(res_withoutcount[1:], res_withcount[1:])
+
+def testAggregateWithoutCountSortByThenGroupBy(env):
+    """Test SORTBY (no MAX) followed by GROUPBY, with WITHOUTCOUNT"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE', 'brand', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'zeta', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:2', 'title', 'alpha', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:3', 'title', 'mike', 'brand', 'acme')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '1', '@title',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res, [1, ['brand', 'acme', 'cnt', '3']])
+
+    # A LIMIT after the GROUPBY adds a trailing arrange step without sort keys.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '1', '@title',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'LIMIT', '0', '10')
+    env.assertEqual(res, [1, ['brand', 'acme', 'cnt', '3']])
+
+    # A SORTBY between two GROUPBYs.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'SORTBY', '2', '@cnt', 'DESC',
+        'GROUPBY', '1', '@cnt', 'REDUCE', 'COUNT', '0', 'AS', 'num')
+    env.assertEqual(res, [1, ['cnt', '3', 'num', '1']])
+
+
+def testAggregateWithoutCountSortByThenGroupByFirstValueOrdering(env):
+    """Test SORTBY preceding GROUPBY must still order rows seen by order-sensitive reducers"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE', 'brand', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    # Inserted out of title order, so a dropped sorter would surface as the wrong FIRST_VALUE.
+    conn.execute_command('HSET', 'doc:1', 'title', 'zeta', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:2', 'title', 'alpha', 'brand', 'acme')
+    conn.execute_command('HSET', 'doc:3', 'title', 'mike', 'brand', 'acme')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'ASC',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha']])
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'DESC',
+        'GROUPBY', '1', '@brand', 'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'zeta']])
+
+    # MAX must keep the top rows by @title, not the first rows in index order.
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '2', '@title', 'ASC', 'MAX', '1',
+        'GROUPBY', '1', '@brand',
+        'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first',
+        'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha', 'cnt', '1']])

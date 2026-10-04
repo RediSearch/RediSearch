@@ -15,8 +15,19 @@
 #include "util/arr.h"
 #include "util/strconv.h"
 #include <stdbool.h>
+#include "hiredis/sds.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define SYNONYM_PREFIX_CHAR '~'
+
+typedef enum {
+  SYNONYM_MAP_OK,
+  SYNONYM_MAP_ERR_MAX_TERMS,
+  SYNONYM_MAP_ERR_MAX_GROUP_IDS,
+} SynonymMapResult;
 
 /**
  * Holding a term data
@@ -24,8 +35,8 @@
  *  ids - array of synonyms group ids that the term is belong to
  */
 typedef struct {
-  char* term;
-  char** groupIds;
+  sds term;
+  arrayof(sds) groupIds;
 } TermData;
 
 /**
@@ -56,16 +67,22 @@ void SynonymMap_Free(SynonymMap* smap);
  * synonyms - RedisModuleString array contains the terms to add to the synonym map
  * size - RedisModuleString array size
  * id - the synonym group id to update
+ * Returns SYNONYM_MAP_OK on success,
+ * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached,
+ * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
  */
-void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size, const char* groupId);
+SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size, const char* groupId);
 
 /**
  * Add new synonym group
  * smap - the synonym map
  * synonyms - char* array contains the terms to add to the synonym map
  * size - char* array size
+ * Returns SYNONYM_MAP_OK on success,
+ * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached,
+ * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
  */
-void SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size);
+SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size);
 
 /**
  * Updating an already existing synonym group
@@ -73,8 +90,11 @@ void SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms
  * synonyms - char* array contains the terms to add to the synonym map
  * size - char* array size
  * id - the synonym group id to update
+ * Returns SYNONYM_MAP_OK on success,
+ * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
+ * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached
  */
-void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId);
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId);
 
 /**
  * Return all the ids of a given term
@@ -113,8 +133,24 @@ SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap);
 void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
 
 /**
+ * Stable 64-bit hash of the synonym content: equal maps hash equal on any host, regardless
+ * of dict iteration order.
+ */
+uint64_t SynonymMap_Fingerprint(const SynonymMap* smap);
+
+/**
  * Loading smap from an rdb
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
+
+/**
+ * Loading a single term's data from an rdb.
+ * Returns NULL on error (including when group IDs exceed MAX_SYNONYM_GROUP_IDS).
+ */
+TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* SRC_SYNONYM_MAP_H_ */

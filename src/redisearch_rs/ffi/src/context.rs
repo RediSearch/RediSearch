@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RedisModuleCtx;
+use redis_module::raw::RedisModuleCtx;
 
 unsafe extern "C" {
     static mut RSDummyContext: *mut RedisModuleCtx;

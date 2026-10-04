@@ -64,6 +64,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
+    distinct: bool,
 ) -> *mut ffi::Reducer {
     // SAFETY: ensured by caller (1.); `input_key` points to a valid
     // `RLookupKey` that outlives the returned reducer.
@@ -82,6 +83,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
         sort_key_names,
         sort_asc_map,
         limit,
+        distinct,
     ));
 
     cr.reducer_mut()

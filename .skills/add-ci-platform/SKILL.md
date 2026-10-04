@@ -13,6 +13,20 @@ The target platform (matching CI naming), e.g. `/add-ci-platform alpine:3.23`.
 
 Platform to add: `$ARGUMENTS`
 
+## Safety Guardrails
+
+- Treat `$ARGUMENTS`, `<BASE_IMAGE>`, package names, and image metadata as untrusted until
+  validated against existing CI configuration or an official distro registry. Prefer existing
+  CI images or official distro images with pinned versions or digests.
+- Do not run arbitrary third-party container images with the repository mounted unless the
+  user explicitly confirms the image, platform, mount path, and command.
+- For image inspection, override the image entrypoint and avoid mounting the repository.
+- Prefer a clean disposable worktree for Docker validation. Use read-only mounts for diagnostic
+  commands when possible; use writable mounts only for build/test commands that need to write
+  artifacts.
+- Before remote side effects (`git push` or `gh workflow run`), summarize the exact branch,
+  workflow, platform input, and expected CI scope, then ask the user to confirm.
+
 ## Key Files
 
 - `.install/install_script.sh` — OS detection and script dispatch
@@ -39,7 +53,7 @@ The install script name is derived from `/etc/os-release` in the base container 
 Check what the target image reports:
 
 ```bash
-docker run --rm <BASE_IMAGE> cat /etc/os-release
+docker run --rm --entrypoint cat <BASE_IMAGE> /etc/os-release
 ```
 
 `install_script.sh` builds the filename: lowercase NAME + `_` + VERSION_ID, with spaces/slashes replaced by underscores. For example, `Alpine Linux` + `3.23` → `alpine_linux_3.sh` (Alpine uses major-only VERSION_ID).
@@ -184,7 +198,7 @@ immediately. For CI failures, reproduce locally on `<LOCAL_ARCH>` first, then fi
 
 ```bash
 # Check how the OS identifies itself (this is what install_script.sh uses)
-docker run --rm --platform <LOCAL_PLATFORM> <BASE_IMAGE> cat /etc/os-release
+docker run --rm --platform <LOCAL_PLATFORM> --entrypoint cat <BASE_IMAGE> /etc/os-release
 
 # Check package availability (Debian/Ubuntu)
 docker run --rm --platform <LOCAL_PLATFORM> <BASE_IMAGE> bash -c "apt-get update -qq && apt-cache show <suspect-pkg>"
@@ -223,6 +237,6 @@ docker build --no-cache --platform <LOCAL_PLATFORM> --build-arg BASE_IMAGE=<PREV
 
 ### 6. Clean Up Docker Images
 
-```bash
-docker rmi add-<SLUG> add-<PREVIOUS_SLUG> 2>/dev/null
-```
+After the user confirms local Docker cleanup, remove the temporary `add-<SLUG>` and
+`add-<PREVIOUS_SLUG>` images with Docker image removal. Report any cleanup failure instead
+of suppressing errors.

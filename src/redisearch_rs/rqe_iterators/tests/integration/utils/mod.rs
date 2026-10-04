@@ -14,23 +14,25 @@ pub(crate) use mock_enterprise_iterators::{MOCK_DISK_WILDCARD_TOP_ID, init_enter
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 pub(crate) use wildcard_helper::WildcardHelper;
 
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
 
-/// A mock iterator that produces results with a specific `t_fieldMask`.
+/// A mock iterator that produces results with a specific [`FieldMask`](inverted_index::FieldMask).
 ///
 /// Each [`read`](RQEIterator::read) yields the next doc_id from the
 /// pre-configured list with the fixed `mask` written into
 /// `RSIndexResult::field_mask`.
 pub(crate) struct FieldMaskMock {
     doc_ids: Vec<u64>,
+    /// Index of the next document to serve, [`past_end_cursor`] once we ran past
+    /// the last one.
     next: usize,
     result: RSIndexResult<'static>,
-    mask: inverted_index::t_fieldMask,
+    mask: inverted_index::FieldMask,
 }
 
 impl FieldMaskMock {
-    pub(crate) fn new(doc_ids: Vec<u64>, mask: inverted_index::t_fieldMask) -> Self {
+    pub(crate) fn new(doc_ids: Vec<u64>, mask: inverted_index::FieldMask) -> Self {
         Self {
             doc_ids,
             next: 0,
@@ -42,11 +44,15 @@ impl FieldMaskMock {
 
 impl RQEIterator<'static> for FieldMaskMock {
     fn current(&mut self) -> Option<&mut RSIndexResult<'static>> {
+        if self.next == past_end_cursor(self.doc_ids.len()) {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
         if self.next >= self.doc_ids.len() {
+            self.next = past_end_cursor(self.doc_ids.len());
             return Ok(None);
         }
         self.result.doc_id = self.doc_ids[self.next];
@@ -63,6 +69,7 @@ impl RQEIterator<'static> for FieldMaskMock {
             self.next += 1;
         }
         if self.next >= self.doc_ids.len() {
+            self.next = past_end_cursor(self.doc_ids.len());
             return Ok(None);
         }
         self.result.doc_id = self.doc_ids[self.next];
@@ -75,9 +82,9 @@ impl RQEIterator<'static> for FieldMaskMock {
         }
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'static>, RQEIteratorError> {
         Ok(rqe_iterators::RQEValidateStatus::Ok)
     }
@@ -96,7 +103,7 @@ impl RQEIterator<'static> for FieldMaskMock {
     }
 
     fn at_eof(&self) -> bool {
-        self.next >= self.doc_ids.len()
+        self.next == past_end_cursor(self.doc_ids.len())
     }
 
     fn type_(&self) -> IteratorType {
@@ -108,11 +115,22 @@ impl RQEIterator<'static> for FieldMaskMock {
     }
 }
 
-use ffi::t_docId;
+use rqe_core::DocId;
 use std::collections::BTreeSet;
 
+/// The cursor value the mock iterators in these tests use to record that a
+/// `read`/`skip_to` ran past their last document, given the number of documents
+/// they hold.
+///
+/// A cursor equal to `len` cannot express it: that is also the state while still
+/// sitting on the last document, and [`RQEIterator::current`] has to tell the two
+/// apart (it is `Some` on the last document, `None` past it).
+pub(crate) fn past_end_cursor(len: usize) -> usize {
+    len + 1
+}
+
 /// Drain all documents from an iterator and return their doc_ids.
-pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
+pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<DocId> {
     let mut docs = Vec::new();
     while let Some(r) = it.read().unwrap() {
         docs.push(r.doc_id);
@@ -123,7 +141,7 @@ pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t
 /// Create a single [`Mock`] child and return it as a boxed trait object
 /// together with a handle to its [`MockData`].
 pub(crate) fn create_mock_1<const N: usize>(
-    doc_ids: [t_docId; N],
+    doc_ids: [DocId; N],
 ) -> (Box<dyn RQEIterator<'static>>, MockData) {
     let mock = Mock::new(doc_ids);
     let data = mock.data();
@@ -133,8 +151,8 @@ pub(crate) fn create_mock_1<const N: usize>(
 /// Create two [`Mock`] children and return them as a `Vec` of boxed trait
 /// objects together with a two-element array of [`MockData`] handles.
 pub(crate) fn create_mock_2<const A: usize, const B: usize>(
-    a: [t_docId; A],
-    b: [t_docId; B],
+    a: [DocId; A],
+    b: [DocId; B],
 ) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 2]) {
     let m1 = Mock::new(a);
     let m2 = Mock::new(b);
@@ -146,9 +164,9 @@ pub(crate) fn create_mock_2<const A: usize, const B: usize>(
 /// Create three [`Mock`] children and return them as a `Vec` of boxed trait
 /// objects together with a three-element array of [`MockData`] handles.
 pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
-    a: [t_docId; A],
-    b: [t_docId; B],
-    c: [t_docId; C],
+    a: [DocId; A],
+    b: [DocId; B],
+    c: [DocId; C],
 ) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 3]) {
     let m1 = Mock::new(a);
     let m2 = Mock::new(b);
@@ -166,11 +184,11 @@ pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
 pub(crate) fn create_union_children(
     num_children: usize,
     base_result_set: &[u64],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<t_docId>) {
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<DocId>) {
     let mut expected = BTreeSet::new();
     let children: Vec<Box<dyn RQEIterator<'static>>> = (1..=num_children)
         .map(|i| {
-            let doc_ids: Vec<t_docId> = base_result_set.iter().map(|&x| x * i as u64).collect();
+            let doc_ids: Vec<DocId> = base_result_set.iter().map(|&x| x * i as u64).collect();
             expected.extend(doc_ids.iter().copied());
             MockVec::new_boxed(doc_ids)
         })

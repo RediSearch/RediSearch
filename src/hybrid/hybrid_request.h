@@ -1,6 +1,16 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #pragma once
 
 #include "aggregate/aggregate.h"
+#include "query_request.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_debug.h"
@@ -21,16 +31,10 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
-    /* Arguments converted to sds. Received on input */
-    // We need to copy the arguments so rlookup keys can point to them
-    // in short lifetime of the strings
-    sds *args;
-    size_t nargs;
+    QueryRequest base;
 
     arrayof(AREQ*) requests;
     size_t nrequests;
-    QueryError tailPipelineError;
-    QueryError *errors;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
@@ -41,80 +45,66 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout/reply callbacks
-    // In Shard level, HybridRequest has two reference counting mechanisms working together:
-    // 1. StrongRef (RefManager.strong_refcount) - for cursor lifetime and cross-thread sharing
-    // 2. syncCtx.refcount - for timeout callback coordination (BlockedQueryNode)
-    // Both are valid: StrongRef_Release calls HybridRequest_DecrRef (via FreeHybridRequest callback),
-    // so the syncCtx.refcount initial value of 1 is implicitly owned by the StrongRef system.
-    // Additional HybridRequest_IncrRef calls (e.g., from BlockHybridQueryClientWithTimeout) safely
-    // add to syncCtx.refcount, and all decrements will happen correctly during cleanup.
-    RequestSyncCtx syncCtx;
-
-    // Flag to indicate whether to skip timeout checks using clock checks
-    bool skipTimeoutChecks;
-
-    bool useReplyCallback;
-
-    // State for reply_callback path (FAIL policy with workers in coordinator mode)
-    // Background thread stores results here, then calls UnblockClient.
-    // The reply_callback reads from here to build the reply on the main thread.
-    ChunkReplyState storedReplyState;
-
-    // Mutex for synchronizing cursor creation with timeout callback.
-    // Protects cursor array access to ensure proper cleanup on timeout.
-    pthread_mutex_t cursorMutex;
-
-    // Array of cursors for reply_callback path (internal hybrid search).
-    // Protected by cursorMutex to synchronize with timeout callback.
-    // Cleanup is handled by:
-    // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and frees cursors if they were already created
-    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
-    arrayof(struct Cursor*) cursors;
-
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
+
+    // Thread pool ID used for coordinator depletion and tail continuation jobs.
+    // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
+    // and scheduleHybridTail.
+    int poolId;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
-// Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-bool HybridRequest_TimedOut(HybridRequest *req);
-void HybridRequest_SetTimedOut(HybridRequest *req);
+#ifdef __cplusplus
+static_assert(offsetof(HybridRequest, base) == 0,
+              "QueryRequest must be HybridRequest's first member");
+#else
+_Static_assert(offsetof(HybridRequest, base) == 0,
+               "QueryRequest must be HybridRequest's first member");
+#endif
 
-// Cursor mutex wrappers for synchronizing cursor creation with timeout callback
-static inline void HybridRequest_LockCursors(HybridRequest *req) {
-  pthread_mutex_lock(&req->cursorMutex);
+static inline HybridRequest *QueryRequest_GetHybrid(QueryRequest *request) {
+  RS_ASSERT(request != NULL);
+  RS_ASSERT(request->kind == QUERY_REQUEST_KIND_HYBRID);
+  return (HybridRequest *)request;
 }
 
-static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
-  pthread_mutex_unlock(&req->cursorMutex);
+// The pipeline stage the hybrid request had reached, used to attribute a timeout.
+static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
+  return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
+}
+// Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
+  QueryRequest_SetExecutionPhase(&req->base, (int)stage);
+}
+// Propagates a hybrid timeout to every subquery AREQ so blocked RPNet waits
+// observe the abort after their channels are woken.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
+
+// A parked MR pop may be blocked on the hybrid request's own channel or a
+// subquery's channel. Wake every possible reader after publishing cancellation.
+void HybridRequest_WakeAbortChannels(HybridRequest *req);
+
+static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
+  return req->base.async.requiresAggregateResultsSync;
 }
 
-static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return !req->skipTimeoutChecks;
-}
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
 
-static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  req->skipTimeoutChecks = skipTimeoutChecks;
-  // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
-  if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
-  }
-  // Propagate to all AREQ subqueries
-  for (size_t i = 0; i < req->nrequests; i++) {
-    if (req->requests[i]) {
-      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
-    }
-  }
-}
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req);
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // We keep a strong ref mainly for the sake of cursors amd life time management
-  // On the caller side it needs to know when he can free the hybrid request - especially when an error occurred.
-  StrongRef hybrid_ref;
+  // Borrowed; the cycle owns the request (see QueryRequest).
+  HybridRequest *hreq;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
@@ -129,25 +119,32 @@ typedef struct blockedClientHybridCtx {
  * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
  * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
+ * @param argv The command argv, not NULL; the container and every sub-request
+ *   hold the full command (main-thread only — see QueryRequestArgs.argv)
+ * @param argc Number of strings in argv
 */
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is reachable from another owner (e.g. the blocked-client cycle).
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
+ * @param argv The full command argv each sub-request holds; not NULL
+ * @param argc Number of strings in argv
  */
-void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
-/*
-* We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
-* For example lookup keys
-*/
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
+/** Starts the selected timeout source for the container and every subquery. */
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind);
+
+/* Wrap the request's held argv (taken at construction) in a parse cursor.
+ * The caller's argc bounds the parse; the holds may cover a superset (the
+ * coordinator debug flow strips trailing debug params). */
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc);
 
 /**
  * Build the depletion pipeline for hybrid search processing.
@@ -162,11 +159,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModul
  * AREQ3 -> [Individual Pipeline] -> Depleter3
  *
  * @param req The HybridRequest containing multiple AREQ search requests
- * @param params Pipeline parameters including synchronization settings
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground);
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground);
 
 /**
  * Open the score key in the tail lookup for writing the final score.
@@ -203,9 +199,21 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
  * @param req The HybridRequest containing the tail pipeline for merging
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status);
+
+/**
+ * Free the heap-owned members of a HybridPipelineParams (scoring and EXPLAINSCORE
+ * contexts) and NULL them out, without freeing the params struct itself.
+ *
+ * Safe to call repeatedly and after ownership has been transferred to the merger
+ * (the relevant pointers are NULLed on transfer, so this becomes a no-op). Use it
+ * to release a stack- or caller-owned HybridPipelineParams on an error path before
+ * the merge pipeline is built; freeHybridParams() calls it for heap-allocated params.
+ */
+void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -214,29 +222,24 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  * @param req The HybridRequest to build the pipeline for
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
- * Increment the reference count of the HybridRequest.
- * @param req the request to increment
- * @return the request (for chaining)
+ * Free a HybridRequest and all its associated resources.
+ * Owner-only: see the ownership contract on QueryRequest.
  */
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
+void HybridRequest_Free(HybridRequest *req);
 
-/**
- * Decrement the reference count of the HybridRequest.
- * If the reference count reaches 0, the request is freed.
- * @param req the request to decrement
- */
-void HybridRequest_DecrRef(HybridRequest *req);
+QueryError *HybridRequest_GetFatalError(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc);
 
 /**
  * Add information to validation error messages based on request type (VSIM/SEARCH subquery).

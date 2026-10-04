@@ -1,0 +1,16 @@
+[package]
+name = "rdb_io"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+redis-module.workspace = true
+workspace_hack.workspace = true

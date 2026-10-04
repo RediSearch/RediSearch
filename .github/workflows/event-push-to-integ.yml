@@ -2,6 +2,10 @@ name: Push to Master or Version Branch
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -10,11 +14,17 @@ on:
 
 jobs:
   check-what-changed:
+    permissions: # actions/checkout
+      contents: read
     uses: ./.github/workflows/task-check-changes.yml
 
   benchmark:
     needs: check-what-changed
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
+    permissions:
+      contents: read
+      actions: read   # fetch-failed-run-logs (triage) reads job logs via the actions REST API
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
     with:
@@ -23,5 +33,8 @@ jobs:
   micro-benchmarks:
     needs: check-what-changed
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit

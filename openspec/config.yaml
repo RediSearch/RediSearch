@@ -1,0 +1,22 @@
+schema: spec-driven
+
+# Project context shown to AI tooling when drafting artifacts.
+context: |
+  RediSearch is a Redis module for full-text search, secondary indexing, and
+  vector similarity search. The codebase is primarily C, with an ongoing port
+  to Rust under `src/redisearch_rs/`.
+
+  Commands are prefixed `FT.` (e.g. FT.CREATE, FT.SEARCH, FT.AGGREGATE).
+  Large changes (new commands/options, new field or index types, behavior or
+  persistence-format changes) follow the spec-driven workflow documented in
+  `docs/CONTRIBUTING-specs.md`. The artifacts and maintainer review are the
+  gate; this OpenSpec layout is one convenient way to produce them.
+
+# Per-artifact rules (optional). See docs/CONTRIBUTING-specs.md for guidance.
+rules:
+  proposal:
+    - Keep it to roughly a page; no code.
+    - Two sections only: "## Why" and "## What Changes".
+  tasks:
+    - One top-level task should map to one reviewable commit or PR.
+    - Include explicit tasks for tests (unit, Rust, and/or Python end-to-end).

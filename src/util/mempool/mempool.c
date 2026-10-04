@@ -7,11 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "mempool.h"
+
 #include <sys/param.h>
-#include <stdio.h>
 #include <pthread.h>
+
 #include "rmalloc.h"
 #include "config.h"
+#include "redismodule.h"
 
 struct mempool_t {
   void **entries;

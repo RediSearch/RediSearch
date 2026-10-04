@@ -7,58 +7,158 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::{CStr, CString, c_char};
 use std::ptr::NonNull;
+use std::sync::OnceLock;
+use std::time::SystemTime;
+use tracing::level_filters::LevelFilter;
 
-/// Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
-#[unsafe(no_mangle)]
-pub extern "C" fn TracingRedisModule_Init(ctx: Option<NonNull<ffi::RedisModuleCtx>>) {
-    tracing_redismodule::init(ctx);
+/// Parses a redis `loglevel` config value into a `tracing` level.
+///
+/// # Panics
+///
+/// Panics if `level` is not valid UTF-8, or is not one of the redis log levels
+/// `debug`, `verbose`, `notice`, or `warning`.
+///
+/// # Safety
+///
+/// `level` must point to a valid, null-terminated C string.
+unsafe fn parse_level(level: *const c_char) -> LevelFilter {
+    // Safety: the caller guarantees a valid, null-terminated C string.
+    let level = unsafe { CStr::from_ptr(level) };
+    let level = level.to_str().expect("redis loglevel must be valid UTF-8");
+
+    match level {
+        "debug" => LevelFilter::TRACE,
+        "verbose" => LevelFilter::DEBUG,
+        "notice" => LevelFilter::INFO,
+        "warning" => LevelFilter::WARN,
+        "nothing" => LevelFilter::OFF,
+        other => panic!("invalid redis loglevel: {other:?}"),
+    }
 }
 
-/// Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+/// Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
 ///
-/// Panic messages will be logged through `tracing` at the `ERROR` level.
+/// `level` is the initial redis `loglevel` config value the filter is set to.
+///
+/// A null `ctx` is accepted: traces are then logged through a null module
+/// context, which `RedisModule_Log` explicitly permits.
+///
+/// # Safety
+///
+/// `level` must point to a valid, null-terminated C string. `ctx` must either
+/// be null or point to a valid `RedisModuleCtx`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TracingRedisModule_Init(
+    ctx: *mut redis_module::RedisModuleCtx,
+    level: *const c_char,
+) {
+    // Safety: forwarded to the caller's contract on `level`.
+    let level = unsafe { parse_level(level) };
+    tracing_redismodule::init(NonNull::new(ctx), level);
+}
+
+/// Updates the `tracing` log level filter from a redis `loglevel` config value
+/// (one of `debug`, `verbose`, `notice`, `warning`).
+///
+/// # Safety
+///
+/// `level` must point to a valid, null-terminated C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TracingRedisModule_SetLogLevel(level: *const c_char) {
+    // Safety: forwarded to the caller's contract on `level`.
+    let level = unsafe { parse_level(level) };
+    tracing_redismodule::set_log_level(level);
+}
+
+/// Details of a Rust panic, stashed by the hook installed in
+/// [`RustPanicHook_Init`] and emitted inside the crash report by
+/// [`AddToInfo_RustBacktrace`].
+///
+/// Values are stored without truncation as null-terminated C strings. Interior
+/// null bytes are sanitized by [`info_cstring`]. `payload` and `location`
+/// match the rendering of the hook's `tracing::error!` log line: the literal
+/// `None` for a non-string payload or a missing location. `recorded_at` is
+/// captured at hook time by [`format_utc_timestamp`]. The backtrace is also
+/// captured and rendered by the hook so the fatal-signal callback only reads
+/// immutable buffers.
+///
+/// The stash outlives the panic: a panic crossing an `extern "C"` boundary
+/// aborts right away, but a panic that unwinds and is caught, or one on a
+/// Rust-only thread, leaves the stash populated until a later, possibly
+/// unrelated crash, where it reads as that crash's cause. `recorded_at` lets
+/// the reader tell the two apart by comparing it against the crash log line's
+/// own timestamp prefix.
+struct StashedPanic {
+    payload: CString,
+    location: CString,
+    recorded_at: CString,
+    backtrace: CString,
+}
+
+/// The process-wide stash, written by the hook installed in
+/// [`RustPanicHook_Init`] and read by [`AddToInfo_RustBacktrace`].
+///
+/// A [`OnceLock`] rather than a mutex: [`AddToInfo_RustBacktrace`] runs from
+/// Redis's fatal signal handler, where pthread_mutex_lock is not
+/// async-signal-safe. First-write-wins: the hook fires twice per crash (the
+/// real panic, then the nested "panic in a function that cannot unwind"
+/// panic at the `extern "C"` boundary), and the second `set` is dropped.
+static PANIC_STASH: OnceLock<StashedPanic> = OnceLock::new();
+
+/// Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
+///
+/// Panic messages will be logged through `tracing` at the `ERROR` level, and
+/// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
+/// the crash report.
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPanicHook_Init() {
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        // We don't capture a backtrace here, since it should be included
-        // in the crash report generated by the module info function
-        // if `for_crash_report` is set to `true`.
+        let payload = panic_info.payload_as_str().unwrap_or("None");
+        let location = panic_info
+            .location()
+            .map_or("None".to_owned(), |location| location.to_string());
         tracing::error!(
             panic.payload = panic_info.payload_as_str(),
             panic.location = panic_info.location().map(|l| l.to_string()),
             "A panic occurred in the Rust code",
         );
 
+        // The log line above lands above the crash report's START marker,
+        // outside the span users are asked to copy; the stash rides the
+        // module INFO callback instead, which runs inside the report. Avoid
+        // rebuilding it when the hook fires again for the nested FFI panic.
+        if PANIC_STASH.get().is_none() {
+            let _ = PANIC_STASH.set(StashedPanic {
+                payload: info_cstring(payload),
+                location: info_cstring(location),
+                recorded_at: info_cstring(format_utc_timestamp(SystemTime::now())),
+                backtrace: info_cstring(std::backtrace::Backtrace::force_capture().to_string()),
+            });
+        }
+
         // Invoke the previous panic hook, if any.
         previous_hook(panic_info);
     }));
 }
-/// Add the current backtrace as a new section to the report printed
-/// by RediSearch's INFO command.
+
+/// Formats `now` as `YYYY-MM-DD HH:MM:SS UTC`.
+fn format_utc_timestamp(now: SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(now)
+        .format("%Y-%m-%d %H:%M:%S UTC")
+        .to_string()
+}
+
+/// Converts `value` into the null-terminated C string expected by the
+/// `RedisModule_Info*` functions.
 ///
-/// # Safety
-///
-/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
-#[unsafe(no_mangle)]
-pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleInfoCtx>>) {
-    use std::ffi::CString;
-
-    let Some(ctx) = ctx else {
-        return;
-    };
-
-    let backtrace = std::backtrace::Backtrace::force_capture();
-    let backtrace_str = backtrace.to_string();
-
-    // The `RedisModule_Info*` functions we need to invoke expect a valid C string.
-    // We need to ensure that the backtrace we printed doesn't contain any null bytes and
-    // is properly null-terminated.
-    //
-    // For perf purposes, we strive to avoid allocating a new string if possible—i.e.
-    // if the formatted backtrace string doesn't contain any null bytes.
-    let backtrace_cstr = match CString::new(backtrace_str) {
+/// For perf purposes, we strive to avoid allocating a new buffer if possible,
+/// i.e. if `value` is already owned and doesn't contain any null bytes.
+/// Interior null bytes are replaced with `?`.
+fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
+    match CString::new(value) {
         Ok(cstr) => cstr,
         Err(err) => {
             let mut bytes = err.into_vec();
@@ -70,15 +170,70 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleIn
             // SAFETY: We just replaced all null bytes with '?'.
             unsafe { CString::from_vec_unchecked(bytes) }
         }
+    }
+}
+
+/// Add the stashed Rust panic backtrace to the crash report.
+///
+/// When no Rust panic was stashed, this is a no-op. In particular, a C crash
+/// does not attempt to initialize or capture a Rust backtrace from the fatal
+/// signal handler.
+///
+/// A null `ctx` is a no-op.
+///
+/// # Safety
+///
+/// `ctx` must either be null or point to a [valid] `RedisModuleInfoCtx`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AddToInfo_RustBacktrace(ctx: *mut redis_module::RedisModuleInfoCtx) {
+    if ctx.is_null() {
+        return;
+    }
+
+    let Some(stashed) = PANIC_STASH.get() else {
+        return;
     };
 
     // SAFETY: `RedisModule_InfoAddSection` has been initialized during module load.
-    let info_add_section = unsafe { ffi::RedisModule_InfoAddSection.unwrap() };
+    let info_add_section = unsafe { redis_module::RedisModule_InfoAddSection.unwrap() };
     // SAFETY: `RedisModule_InfoAddFieldCString` has been initialized during module load.
-    let info_add_field_cstring = unsafe { ffi::RedisModule_InfoAddFieldCString.unwrap() };
+    let info_add_field_cstring = unsafe { redis_module::RedisModule_InfoAddFieldCString.unwrap() };
 
     // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
-    unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };
-    // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
-    unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
+    unsafe { info_add_section(ctx, c"rust_backtrace".as_ptr()) };
+
+    let add_field = |name: &CStr, value: &CStr| {
+        // SAFETY: `ctx` is valid, while the references guarantee that both strings are
+        // null-terminated and remain alive for the duration of the call.
+        unsafe { info_add_field_cstring(ctx, name.as_ptr(), value.as_ptr()) };
+    };
+    add_field(c"panic_payload", &stashed.payload);
+    add_field(c"panic_location", &stashed.location);
+    add_field(c"panic_recorded_at", &stashed.recorded_at);
+    add_field(c"backtrace", &stashed.backtrace);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    // Pins the crash-report timestamp format; the conversion itself is
+    // chrono's.
+    #[test]
+    fn formats_timestamp_as_utc() {
+        assert_eq!(format_utc_timestamp(UNIX_EPOCH), "1970-01-01 00:00:00 UTC");
+        assert_eq!(
+            format_utc_timestamp(UNIX_EPOCH + Duration::from_secs(1_000_000_000)),
+            "2001-09-09 01:46:40 UTC"
+        );
+    }
+
+    #[test]
+    fn info_cstring_replaces_interior_null_bytes() {
+        assert_eq!(info_cstring("a\0b").to_bytes(), b"a?b");
+        assert_eq!(info_cstring("clean").to_bytes(), b"clean");
+    }
 }

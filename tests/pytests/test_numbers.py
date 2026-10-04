@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 from includes import *
 from common import *
@@ -135,6 +140,10 @@ def testRangeParentsConfig(env):
 @skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
+
+    # Make sure GC is not triggered sporadically (only manually)
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')

@@ -10,8 +10,11 @@
 #pragma once
 
 #include "query_ctx.h"
+#include "query_request.h"
 #include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include "ttl_table.h"
+#include "llapi_test_helpers.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -40,6 +43,7 @@ class MockQueryEvalCtx {
 public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
+  QueryRequestTimeout *timeout;
   IndexSpec spec;
   SchemaRule rule;
 
@@ -48,8 +52,9 @@ public:
     std::memset(&rule, 0, sizeof(rule));
     rule.index_all = false;
 
-    // Initialize IndexSpec
-    spec = {0};
+    // Initialize IndexSpec. memset instead of aggregate assignment: the
+    // atomic scan_failed_OOM member deletes IndexSpec's assignment operator.
+    std::memset(&spec, 0, sizeof(spec));
     spec.rule = &rule;
     spec.existingDocs = nullptr;
     spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
@@ -61,7 +66,10 @@ public:
     // Initialize RedisSearchCtx
     sctx = {0};
     sctx.spec = &spec;
-    sctx.time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true};
+    sctx.currentTime = {0, 0};
+    timeout = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(*timeout)));
+    QueryRequestTimeout_Init(timeout, TimeoutPolicy_Return, 0);
+    sctx.timeout = timeout;
 
     // Initialize QueryEvalCtx
     qctx = {0};
@@ -84,6 +92,7 @@ public:
   }
 
   ~MockQueryEvalCtx() noexcept {
+    rm_free(timeout);
     if (spec.existingDocs) {
       InvertedIndex_Free(spec.existingDocs);
     }
@@ -93,18 +102,18 @@ public:
 
   void TTL_Add(t_docId docId, t_fieldIndex field, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
-    arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+    FieldExpirations fe = FieldExpirations_WithCapacity(1);
     FieldExpiration fe_entry = {field, expiration};
-    array_append(fe, fe_entry);
+    FieldExpirations_Push(&fe, fe_entry);
     TimeToLiveTable_Add(spec.docs.ttl, docId, fe);
   }
   void TTL_Add(t_docId docId, t_fieldMask fieldMask, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
-    arrayof(FieldExpiration) fe = array_new(FieldExpiration, __builtin_popcountll(fieldMask));
+    FieldExpirations fe = FieldExpirations_WithCapacity(__builtin_popcountll(fieldMask));
     for (t_fieldIndex i = 0; i < sizeof(fieldMask) * 8; ++i) {
       if (fieldMask & (1ULL << i)) {
         FieldExpiration fe_entry = {i, expiration};
-        array_append(fe, fe_entry);
+        FieldExpirations_Push(&fe, fe_entry);
       }
     }
     TimeToLiveTable_Add(spec.docs.ttl, docId, fe);

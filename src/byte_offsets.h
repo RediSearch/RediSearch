@@ -10,7 +10,8 @@
 #define BYTE_OFFSETS_H
 
 #include "redisearch.h"
-#include "varint.h"
+#include "inverted_index.h"
+#include "varint_ffi.h"
 #include "rmalloc.h"
 
 typedef struct __attribute__((packed)) RSByteOffsetMap {
@@ -49,6 +50,7 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
                                           uint32_t startPos);
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
+// Returns NULL if `buf` is shorter than the serialized offsets it describes.
 RSByteOffsets *LoadByteOffsets(Buffer *buf);
 
 typedef struct {

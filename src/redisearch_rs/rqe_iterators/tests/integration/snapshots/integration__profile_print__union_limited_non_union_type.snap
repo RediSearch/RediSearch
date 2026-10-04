@@ -1,0 +1,10 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 271
+expression: reply
+---
+{
+  "Type": "UNION",
+  "Query type": "TAG",
+  "Child iterators": "The number of iterators in the union is 3"
+}

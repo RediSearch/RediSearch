@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from RLTest import Env
 from includes import *
 from common import *
@@ -72,7 +79,7 @@ def test_hybrid_linear_default_weights():
         'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
-        'COMBINE', 'LINEAR', '2',
+        'COMBINE', 'LINEAR', '0',
             'YIELD_SCORE_AS', 'fused_score',
         'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
@@ -115,7 +122,7 @@ def test_hybrid_linear_explicit_weights():
         'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
-        'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+        'COMBINE', 'LINEAR', '4', 'ALPHA', alpha, 'BETA', beta,
             'YIELD_SCORE_AS', 'fused_score',
         'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)

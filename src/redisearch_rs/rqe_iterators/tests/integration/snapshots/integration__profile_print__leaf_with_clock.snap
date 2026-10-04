@@ -1,0 +1,6 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 129
+expression: reply
+---
+{"Type": "EMPTY", "Time": 1.5, "Number of reading operations": 3}

@@ -1,4 +1,11 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
+import math
 import random
 import time
 
@@ -339,8 +346,8 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
-        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
-        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024, 'SHARED_MEMORY', dummy_val]
+        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'SHARED_MEMORY', dummy_val]
 
         # SVS-VAMANA only supports FLOAT32 and FLOAT16 data types
         if data_type in ('FLOAT32', 'FLOAT16'):
@@ -357,15 +364,18 @@ def test_create():
                                                       'BLOCK_SIZE', 1024, 'QUANT_BITS', 'NONE', 'ALPHA', 1.2, 'GRAPH_MAX_DEGREE', 32, 'CONSTRUCTION_WINDOW_SIZE', 200,
                                                       'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'LAST_RESERVED_NUM_THREADS', 1,
                                                       'NUMBER_OF_MARKED_DELETED', 0, 'SEARCH_WINDOW_SIZE', 10, 'SEARCH_BUFFER_CAPACITY', 10, 'LEANVEC_DIMENSION', 0, 'EPSILON', 0.01],
-                                                      'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000]
+                                                      'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000,
+                                                      'SHARED_MEMORY', dummy_val]
 
         for _ in env.reloadingIterator():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
             env.assertEqual(index_info(env, 'idx1')['attributes'][0][:len(info)], info)
+
             info_data_HNSW = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
             info_data_HNSW[info_data_HNSW.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
+            info_data_HNSW[info_data_HNSW.index('SHARED_MEMORY') + 1] = dummy_val
             front = info_data_HNSW[info_data_HNSW.index('FRONTEND_INDEX') + 1]
             front[front.index('MEMORY') + 1] = dummy_val
             back = info_data_HNSW[info_data_HNSW.index('BACKEND_INDEX') + 1]
@@ -376,6 +386,7 @@ def test_create():
             info_data_FLAT = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx2", "v_FLAT")
             # replace memory value with a dummy value - irrelevant for the test
             info_data_FLAT[info_data_FLAT.index('MEMORY') + 1] = dummy_val
+            info_data_FLAT[info_data_FLAT.index('SHARED_MEMORY') + 1] = dummy_val
 
             env.assertEqual(info_data_FLAT, expected_FLAT)
 
@@ -387,6 +398,7 @@ def test_create():
                 # replace memory values with a dummy value - irrelevant for the test
                 info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('MEMORY') + 1] = dummy_val
                 info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
+                info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('SHARED_MEMORY') + 1] = dummy_val
                 front_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('FRONTEND_INDEX') + 1]
                 front_svs[front_svs.index('MEMORY') + 1] = dummy_val
                 back_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('BACKEND_INDEX') + 1]
@@ -1335,6 +1347,89 @@ def test_hybrid_query_non_vector_score():
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop():
+    """A filtered KNN query scores its text prefilter exactly as the prefilter
+    scores on its own: the scorer receives the prefilter's own intersection of
+    term records, so the slop walk pairs the two terms and their real offset
+    distance reaches the divisor."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    # Each doc carries both terms once, so they share TF, IDF and max term
+    # frequency; the gap between the terms is the only input that differs.
+    conn.execute_command('HSET', 'adjacent', 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'separated', 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    def scores(query, scorer):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'SCORER', scorer, 'WITHSCORES',
+                      'NOCONTENT', 'PARAMS', 2, 'vec_param', query_vec)
+        return {res[i]: float(res[i + 1]) for i in range(1, len(res), 2)}
+
+    for scorer in ('TFIDF', 'BM25'):
+        text_only = scores('@t:(hello world)', scorer)
+        hybrid = scores('(@t:(hello world))=>[KNN 2 @v $vec_param]', scorer)
+
+        env.assertEqual(sorted(hybrid.keys()), ['adjacent', 'separated'],
+                        message=[scorer, hybrid])
+
+        # Adjacent terms are a distance of one apart, so `adjacent` is scored
+        # undivided and any score read against it recovers its own divisor.
+        undivided = text_only['adjacent']
+        env.assertAlmostEqual(undivided / text_only['separated'], 3.0, 0.01,
+                              message=[scorer, text_only])
+        env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
+                              message=[scorer, hybrid])
+        # The KNN does not hide the gap between the terms, so the divisor is the
+        # distance they are actually at — the same one the prefilter charges.
+        env.assertAlmostEqual(undivided / hybrid['separated'], 3.0, 0.01,
+                              message=[scorer, hybrid])
+
+
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop_ranking():
+    """The ranking a filtered KNN query replies with: a tighter, unboosted
+    document outranks a boosted one whose matched terms are far apart, because
+    the distance between the terms is charged against it under a KNN just as it
+    is without one. Both queries rank the two the same way."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'boost', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'tight', 'boost', 1, 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'boosted', 'boost', 2, 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    # No SORTBY, so both replies are ordered by relevance score. TFIDF is one of
+    # the scorers that divides by the slop; the default one does not.
+    env.expect('FT.SEARCH', 'idx', '@t:(hello world)', 'SCORER', 'TFIDF',
+               'NOCONTENT').equal([2, 'tight', 'boosted'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight', 'boosted'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight'])
+    # `k` selects candidates by vector distance before any scoring. The nearest
+    # vector is also the top-ranked document here, so this pins the narrowing to
+    # one candidate rather than telling the two orderings apart.
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
+
+
 @skip(cluster=False)
 def test_single_entry():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
@@ -1866,6 +1961,66 @@ class TestTimeoutReached(object):
 
         self.run_timeout_tests(n_vec, query_vec)
 
+@skip(cluster=True)
+def testKnnCursorDepletesWhenCollectionAlwaysTimesOut():
+    """
+    A KNN cursor whose collection can never complete must still deplete.
+
+    `VECSIM_MOCK_TIMEOUT` makes every VecSim timeout check report expired, so
+    top-k collection aborts before yielding anything while the request clock
+    stays healthy. Under `ON_TIMEOUT RETURN` the cursor is paused rather than
+    closed, and each `FT.CURSOR READ` is given a fresh deadline — so an
+    implementation that discards the aborted scan and re-collects from scratch
+    never reaches EOF, and the client keeps receiving empty chunks until the
+    cursor idles out.
+    """
+    # ON_TIMEOUT RETURN is what keeps the cursor alive across a timed-out read;
+    # under FAIL it is closed and the scenario cannot arise. Debug commands
+    # supply the deterministic VecSim timeout.
+    env = Env(moduleArgs='ON_TIMEOUT RETURN', enableDebugCommand=True)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+               't', 'TEXT').ok()
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'v', 'bababada', 't', 'hello')
+
+    k = 10
+    query = ('FT.AGGREGATE', 'idx', f'(@t:hello)=>[KNN {k} @v $vec]', 'LOAD', '1', '@t',
+             'PARAMS', '2', 'vec', 'aaaaaaaa', 'WITHCURSOR', 'COUNT', k, 'DIALECT', '2')
+
+    def drain(chunk, cursor, max_reads=10):
+        """Read until the cursor depletes, or `max_reads` reads have been made.
+
+        Each chunk is `[row_count, *rows]`, so its rows are all but the first
+        element.
+        """
+        rows, reads = len(chunk) - 1, 0
+        while cursor != 0 and reads < max_reads:
+            chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += len(chunk) - 1
+            reads += 1
+        return cursor, reads, rows
+
+    # Control: the same cursor depletes, and yields the whole top-k, when VecSim
+    # is not reporting timeouts. Without this a hung cursor below could just as
+    # well mean the query never terminates at all.
+    cursor, _, rows = drain(*env.cmd(*query))
+    env.assertEqual((cursor, rows), (0, k), message='baseline cursor did not deplete')
+
+    with vecsimMockTimeoutContext(env):
+        cursor, reads, rows = drain(*env.cmd(*query))
+        if cursor != 0:
+            env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+
+    # An aborted collection yields nothing, so a terminating implementation
+    # reports EOF and no rows.
+    env.assertEqual((cursor, rows), (0, 0),
+                    message=f'cursor still alive after {reads} reads, having yielded '
+                            f'{rows} rows: every read restarts collection instead of '
+                            'terminating')
+
 @skip(no_json=True)
 def test_create_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1892,32 +2047,35 @@ def test_create_multi_value_json():
                        '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
             env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
-@skip(no_json=True)
-def test_index_multi_value_json():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
-    conn = getConnectionByEnv(env)
-    dim = 4
-    per_doc = 5
+class TestIndexMultiValueJsonReload:
+    """Multi-value JSON vector indexing (HNSW / FLAT / SVS-VAMANA) across data types, with a reload.
 
-    for data_t in VECSIM_DATA_TYPES:
-        # Skipping on sanitizer due to MOD-12768
-        run_svs_test = data_t in ('FLOAT32', 'FLOAT16')
-        n = 100
+    Split per vector algorithm so the expensive SVS-VAMANA graph rebuild on DEBUG RELOAD gets its
+    own RLTest per-test timeout budget. Originally a single test ran every algorithm and data type
+    under one budget and timed out on the coverage Coordinator job (MOD-15571). All methods share a
+    single environment to avoid paying the (coverage-instrumented) cluster startup cost per algorithm.
+    """
+
+    def __init__(self):
+        skipTest(no_json=True)
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+        self.dim = 4
+        self.per_doc = 5
+        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within
+        # safe range. For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance ≈ 3906 (< 65504)
+        self.scale = 8.0
+
+    def _check_algo(self, field, algo, data_t, n, extra_params=None, is_svs=False):
+        env = self.env
+        conn = getConnectionByEnv(env)
+        dim, per_doc, scale = self.dim, self.per_doc, self.scale
         conn.flushall()
 
-        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within safe range
-        # For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance = 4 * 31.25^2 ≈ 3906 (< 65504)
-        scale = 8.0
-
-        args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
-        if run_svs_test:
-            # Add enough vectors to trigger svs backend index initialization
-            n = 250 * env.shardsCount
-            args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
-
-        env.expect(*args).ok()
+        attrs = ['TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+        if extra_params:
+            attrs += extra_params
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                   '$.vecs[*]', 'AS', field, 'VECTOR', algo, str(len(attrs)), *attrs).ok()
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
@@ -1955,39 +2113,49 @@ def test_index_multi_value_json():
         for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
-            env.assertEqual(info['num_docs'], n, message=f'data_t: {data_t}')
-            env.assertEqual(info['num_records'], n * per_doc * len(info['attributes']), message=f'data_t: {data_t}')
-            env.assertEqual(info['hash_indexing_failures'], 0, message=f'data_t: {data_t}')
+            env.assertEqual(info['num_docs'], n, message=f'{algo}, data_t: {data_t}')
+            env.assertEqual(info['num_records'], 0, message=f'{algo}, data_t: {data_t}')
+            env.assertEqual(info['hash_indexing_failures'], 0, message=f'{algo}, data_t: {data_t}')
 
-            cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
-            hnsw_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(hnsw_res, expected_res_knn, message=f'data_t: {data_t}')
+            if is_svs:
+                env.assertGreater(get_tiered_backend_debug_info(env, 'idx', field)['INDEX_SIZE'], 0,
+                                  message=f'data_t: {data_t}')
 
-            cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
-            flat_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(flat_res, expected_res_knn, message=f'data_t: {data_t}')
+            cmd_knn[2] = f'*=>[KNN {k} @{field} $b AS {score_field_name}]'
+            knn_res = conn.execute_command(*cmd_knn)[1:]
+            env.assertEqual(knn_res, expected_res_knn, message=f'{algo}, data_t: {data_t}')
 
-            cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            hnsw_res = conn.execute_command(*cmd_range)
+            cmd_range[2] = f'@{field}:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+            range_res = conn.execute_command(*cmd_range)
             try:
-                env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+                env.assertEqual(sortedResults(range_res), expected_res_range, message=f'{algo}, data_t: {data_t}')
             except Exception as e:
-                env.debugPrint(f"Failed comparing results: {e} for data_t: {data_t}", force=True)
+                env.debugPrint(f"Failed comparing range results: {e} for {algo}, data_t: {data_t}", force=True)
                 raise e
 
-            cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            flat_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
+    def test_hnsw(self):
+        for data_t in VECSIM_DATA_TYPES:
+            self._check_algo('hnsw', 'HNSW', data_t, n=100)
 
-            if run_svs_test:
-                env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
-                cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
-                svs_res = conn.execute_command(*cmd_knn)[1:]
-                env.assertEqual(svs_res, expected_res_knn, message=f'data_t: {data_t}')
+    def test_flat(self):
+        for data_t in VECSIM_DATA_TYPES:
+            self._check_algo('flat', 'FLAT', data_t, n=100)
 
-                cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-                svs_res = conn.execute_command(*cmd_range)
-                env.assertEqual(sortedResults(svs_res), expected_res_range, message=f'data_t: {data_t}')
+    def _check_svs(self, data_t):
+        # Use enough vectors to trigger the SVS backend (Vamana graph) build. SEARCH_WINDOW_SIZE = n
+        # keeps the search effectively exhaustive, so KNN/range results stay exact regardless of graph
+        # connectivity; CONSTRUCTION_WINDOW_SIZE keeps the index default. Under coverage with
+        # MIN_OPERATION_WORKERS 0 the graph is rebuilt synchronously during DEBUG RELOAD, so each data
+        # type runs as its own test to keep that rebuild within a single per-test timeout (MOD-15571).
+        n = 250 * self.env.shardsCount
+        self._check_algo('svs', 'SVS-VAMANA', data_t, n,
+                         extra_params=['SEARCH_WINDOW_SIZE', n], is_svs=True)
+
+    def test_svs_float32(self):
+        self._check_svs('FLOAT32')
+
+    def test_svs_float16(self):
+        self._check_svs('FLOAT16')
 
 @skip(no_json=True)
 def test_bad_index_multi_value_json():
@@ -2026,7 +2194,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
-    env.assertEqual(index_info(env, 'idx')['num_records'], 4)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 0)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
@@ -2488,6 +2656,30 @@ def test_score_name_case_sensitivity():
 
 
 @skip(cluster=True)
+def test_score_name_long_field_name():
+    """KNN derives the default `__<field>_score` name from the vector field name
+    when resolving the distance field. Cover that with a long name, including the
+    path that compares against the derived default."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 2
+    vec_fieldname = 'v' * (9 * 1024 * 1024)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    blob = create_np_array_typed([0] * dim).tobytes()
+
+    # Naming the distance field through both syntaxes at once is the only path that compares
+    # the given name against the default derived from the field name.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB AS score]=>{{$yield_distance_as: score2}}',
+               'PARAMS', 2, 'BLOB', blob).error().contains(
+                   'Distance field was specified twice for vector query: score and score2')
+
+    # Naming it through neither yields under the derived default, which the query must still
+    # be able to build from a name this long.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB]',
+               'PARAMS', 2, 'BLOB', blob).equal([0])
+
+
+@skip(cluster=True)
 def test_tiered_index_gc():
     N = 100
     env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
@@ -2530,12 +2722,93 @@ def test_tiered_index_gc():
 
     # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    forceInvokeGC(env, 'idx')
 
     debug_info = get_debug_info()
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+
+@skip(cluster=True)
+def test_vector_only_update_no_reindex():
+    """A HASH write changing only the vector must reindex that field and no others."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    conn = getConnectionByEnv(env)
+
+    num_docs = 200
+    update_rounds = 5
+    dim = 8
+    ef_runtime = 2 * num_docs
+    price = 100
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'vecupdonly:', 'SCHEMA',
+               'vector', 'VECTOR', 'HNSW', '12',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', ef_runtime,
+               'price', 'NUMERIC').ok()
+
+    vectors = []
+    for i in range(num_docs):
+        cosine_similarity = 1.0 - i / num_docs
+        vector = [cosine_similarity,
+                  math.sqrt(1.0 - cosine_similarity * cosine_similarity)] + [0.0] * (dim - 2)
+        vectors.append(create_np_array_typed(vector, 'FLOAT32').tobytes())
+
+    pipe = conn.pipeline(transaction=False)
+    for i, vector in enumerate(vectors):
+        pipe.execute_command('HSET', f'vecupdonly:{i}', 'vector', vector, 'price', price)
+    env.assertEqual(pipe.execute(), [2] * num_docs)
+
+    # Settle every vector in HNSW so the updates exercise the tiered backend, not its flat buffer.
+    # A drain only waits for work already queued, so retry until async ingest has queued and run.
+    def backend_settled():
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        frontend_size = get_tiered_frontend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        backend_size = get_tiered_backend_debug_info(env, 'idx', 'vector')['INDEX_SIZE']
+        state = {'frontend_size': frontend_size, 'backend_size': backend_size}
+        return frontend_size == 0 and backend_size == num_docs, state
+
+    wait_for_condition(backend_settled, 'all vectors must reach the HNSW backend', timeout=10)
+
+    def field_ops():
+        info = conn.execute_command('INFO', 'MODULES')
+        return {
+            'vector': int(info['search_total_indexing_ops_vector_fields']),
+            'numeric': int(info['search_total_indexing_ops_numeric_fields']),
+            'relabel': int(info['search_total_relabel_ops_vector_fields']),
+        }
+
+    for round_num in range(1, update_rounds + 1):
+        before = field_ops()
+        pipe = conn.pipeline(transaction=False)
+        for i in range(num_docs):
+            vector = vectors[(i + round_num) % num_docs]
+            pipe.execute_command('HSET', f'vecupdonly:{i}', 'vector', vector)
+        env.assertEqual(pipe.execute(), [0] * num_docs,
+                        message=f'vector-only update round {round_num}')
+
+        env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+        after = field_ops()
+        env.assertEqual(after['vector'] - before['vector'], num_docs,
+                        message=f'vector indexing operations in round {round_num}')
+        env.assertEqual(after['numeric'] - before['numeric'], 0,
+                        message=f'numeric indexing operations in round {round_num}')
+        env.assertEqual(after['relabel'] - before['relabel'], 0,
+                        message=f'vector relabel operations in round {round_num}')
+
+    expected_nearest = f'vecupdonly:{num_docs - update_rounds}'
+    res = env.cmd(
+        'FT.SEARCH', 'idx',
+        f'*=>[KNN 1 @vector $blob EF_RUNTIME {ef_runtime} AS distance]',
+        'PARAMS', '2', 'blob', vectors[0],
+        'SORTBY', 'distance', 'ASC', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(res, [1, expected_nearest])
+
+    res = env.cmd('FT.SEARCH', 'idx', f'@price:[{price} {price}]',
+                  'LIMIT', '0', '0', 'NOCONTENT')
+    env.assertEqual(res, [num_docs])
+
 
 @skip(cluster=True)
 def test_switch_write_mode_multiple_indexes(env):
@@ -2626,3 +2899,45 @@ def test_vector_index_ptr_valid(env):
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()
+
+
+def test_hybrid_adhoc_int8_uint8_cosine():
+    """
+    Test hybrid ad-hoc brute force search with INT8/UINT8 vectors and Cosine metric.
+    This covers query-vector normalization in computeDistances_RAM.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    qty = 10
+    k = 3
+
+    for data_type in ('INT8', 'UINT8'):
+        index_args = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'COSINE']
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT',
+                             len(index_args), *index_args, 't', 'TEXT')
+
+        query_vec = None
+        for i in range(1, qty + 1):
+            type_limit = 127 if data_type == 'INT8' else 255
+            vector_values = [min(type_limit, i + j) for j in range(dim)]
+            query_vec = create_np_array_typed(vector_values, data_type)
+            conn.execute_command('HSET', i, 'v', query_vec.tobytes(), 't', 'text')
+
+        res = env.cmd('FT.SEARCH', 'idx', f'(text)=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
+                      'SORTBY', '__v_score',
+                      'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+                      'RETURN', 2, 't', '__v_score')
+
+        env.assertEqual(res[0], k, message=f'{data_type}: expected {k} results')
+        debug_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))
+        env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF', message=data_type)
+
+        env.assertEqual(res[1], str(qty),
+                        message=f'{data_type}: expected doc {qty} to be the closest result. res = {res}')
+        first_res_values = res[2]
+        first_res_dist = first_res_values[first_res_values.index('__v_score') + 1]
+        env.assertEqual(float(first_res_dist), 0,
+                        message=f'{data_type}: expected exact self-match distance to be 0. res = {res}')
+
+        conn.execute_command('FLUSHALL')

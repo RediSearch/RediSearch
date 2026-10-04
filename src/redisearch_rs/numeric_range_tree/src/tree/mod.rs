@@ -20,7 +20,7 @@
 mod find;
 mod gc;
 mod insert;
-#[cfg(all(feature = "unittest", not(miri)))]
+#[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
 mod invariants;
 mod util;
 
@@ -28,7 +28,7 @@ pub(crate) use util::CheckedCount;
 
 pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
@@ -61,6 +61,11 @@ pub struct AddResult {
     /// The net change in the number of leaf nodes.
     /// Splitting a leaf adds one new leaf. Trimming decreases this.
     pub num_leaves_delta: i32,
+    /// The net change in the number of inverted-index blocks across all leaves touched by
+    /// this add. Block growth (writes spilling into a new block, new leaves created by a
+    /// split) contributes positively; range removals during rebalancing (`remove_range`,
+    /// rotations dropping an internal node's retained range) contribute negatively.
+    pub block_count_delta: i32,
 }
 
 /// Result of trimming empty leaves from the tree.
@@ -82,6 +87,9 @@ pub struct TrimEmptyLeavesResult {
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
     pub num_leaves_delta: i32,
+    /// Net change in inverted-index block count across all dropped leaves. Always non-positive
+    /// (trimming only removes blocks).
+    pub block_count_delta: i32,
 }
 
 /// Aggregate statistics for a [`NumericRangeTree`].
@@ -143,7 +151,10 @@ pub struct NumericRangeTree {
     /// Aggregate statistics for the tree.
     stats: TreeStats,
     /// The last document ID added to the tree.
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
+    /// Whether any document has been indexed under more than one value, as a
+    /// multivalue field does. See [`has_multivalued_docs`](Self::has_multivalued_docs).
+    has_multivalued_docs: bool,
     /// Revision ID, incremented when the tree structure changes (splits/rotations).
     ///
     /// When `revision_id != 0`, it indicates the tree nodes have changed and
@@ -211,6 +222,7 @@ impl NumericRangeTree {
                 empty_leaves: CheckedCount::new(1),
             },
             last_doc_id: 0,
+            has_multivalued_docs: false,
             revision_id: 0,
             unique_id: TreeUniqueId::next(),
             compress_floats,
@@ -237,6 +249,19 @@ impl NumericRangeTree {
         self.root
     }
 
+    /// Whether any document has been indexed under more than one value.
+    ///
+    /// Ranges are value-disjoint, so a document with a single value occurs in
+    /// exactly one range. Only when this is `true` can a document be reached
+    /// twice by a value-ordered scan and need de-duplicating.
+    ///
+    /// The flag is never cleared, even once the documents that set it are
+    /// removed, so `true` may over-report: de-duplication can be redundant,
+    /// but is never skipped when needed.
+    pub const fn has_multivalued_docs(&self) -> bool {
+        self.has_multivalued_docs
+    }
+
     /// Get the total number of ranges in the tree.
     pub const fn num_ranges(&self) -> usize {
         self.stats.num_ranges.get()
@@ -258,7 +283,7 @@ impl NumericRangeTree {
     }
 
     /// Get the last document ID added to the tree.
-    pub const fn last_doc_id(&self) -> t_docId {
+    pub const fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 

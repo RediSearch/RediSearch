@@ -4,6 +4,7 @@ description: |
   TTL table benchmark for document expiration with long TTL values.
   This keeps keys in the dataset and stresses lookup behavior while expiration
   metadata is updated continuously.
+timeout_seconds: 3000
 
 metadata:
   component: "search"

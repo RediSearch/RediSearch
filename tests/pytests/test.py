@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import redis
 import random
@@ -444,6 +449,24 @@ def testStopwords(env):
     env.assertEqual(0, r1[0])
     env.assertEqual(1, r2[0])
 
+def testStopwordParserCaseFold(env):
+    # Stopword detection in the query lexer/parser is case-insensitive: a
+    # mixed-case stopword adjacent to a real term must still collapse out
+    # of the query rather than leak through as a literal TERM (which would
+    # then miss the lowercased term trie and yield 0 docs).
+    env.cmd('FT.CREATE', 'idx', 'STOPWORDS', 1, 'the',
+            'SCHEMA', 't', 'TEXT')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'The quick brown fox')
+
+    for dialect in (1, 2):
+        for stop in ('the', 'THE', 'The', 'tHe'):
+            env.assertEqual(
+                [1, 'doc:1'],
+                env.cmd('FT.SEARCH', 'idx', f'{stop} quick',
+                        'NOCONTENT', 'DIALECT', dialect),
+                message=f'dialect={dialect} stop={stop!r}')
+
 def testNoStopwords(env):
     # This test taken from Java's test suite
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text')
@@ -861,14 +884,14 @@ def testPartial(env):
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent')
     env.assertEqual([1, 'doc1'], res)
 
-    # Test updating of score and no fields
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    env.assertLess(float(res[2]), 1)
-    # env.assertEqual([1, 'doc1'], res)
+    # A partial write with no fields updates the document score independently of reindexing.
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertAlmostEqual(float(res[2]), 0.1, delta=1e-6, message=res)
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields'))
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    # We reindex though no new fields, just score is updated. this effects score
-    env.assertEqual(float(res[2]), 1)
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertEqual(float(res[2]), 1, message=res)
 
     # Test updating payloads
     res = env.cmd(
@@ -1948,7 +1971,9 @@ def testInfoCommand(env):
             env.assertEqual(int(d['num_records']), N * 2)
 
             env.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            env.assertGreater(float(d['key_table_size_mb']), 0)
+            # The key->docId mapping now lives in Redis key-metadata (not
+            # module-tracked memory), so key_table_size_mb is always 0.
+            env.assertEqual(float(d['key_table_size_mb']), 0)
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
@@ -2260,6 +2285,84 @@ def testDuplicateSpec(env):
     with env.assertResponseError():
         env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
                 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
+
+def testEmptyFieldNameRejected(env):
+    # An empty field name is unsupported.
+    for field_type in ('TAG', 'TEXT', 'NUMERIC'):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', '', field_type) \
+            .error().contains('Field name cannot be empty')
+    # empty name supplied via an explicit AS alias
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'myfield', 'AS', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+    # empty name added via FT.ALTER
+    env.cmd('FT.CREATE', 'idx_alter', 'SCHEMA', 't', 'TAG')
+    env.expect('FT.ALTER', 'idx_alter', 'SCHEMA', 'ADD', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+
+def testFieldNameWithNullByteRejected(env):
+    # Without AS, the schema token is both the document path and the field name.
+    # With AS, the alias is the field name.
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_prefix', 'SCHEMA', b'\x00tag', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_embedded', 'SCHEMA', b'tag\x00name', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_alias', 'SCHEMA', 'tag', 'AS', b'\x00alias', 'TAG')
+
+def testHashFieldPathWithNullByteRejected(env):
+    # With AS, the original schema token is stored as a field path separate from
+    # the alias field name.
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_path_nul_prefix', 'SCHEMA', b'\x00real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_path_nul_embedded', 'SCHEMA', b'real\x00tail', 'AS', 'tag', 'TAG')
+
+@skip(no_json=True)
+def testJsonFieldPathWithNullByteRejected(env):
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_prefix', 'ON', 'JSON',
+                             'SCHEMA', b'\x00$.real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_embedded', 'ON', 'JSON',
+                             'SCHEMA', b'$.real\x00tail', 'AS', 'tag', 'TAG')
+
+def testAlterFailureDoesNotLeaveSuffixTrie(env):
+    env.cmd('FT.CREATE', 'idx_suffix_rollback', 'SCHEMA', 't', 'TEXT')
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    waitForIndex(env, 'idx_suffix_rollback')
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+    env.expect('FT.ALTER', 'idx_suffix_rollback', 'SCHEMA', 'ADD',
+               'suffix', 'TEXT', 'WITHSUFFIXTRIE',
+               '', 'TEXT') \
+        .error().contains('Field name cannot be empty')
+
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+def testAlterFailureDoesNotConsumeTextFieldIds(env):
+    env.cmd('FT.CREATE', 'idx_text_id_rollback', 'MAXTEXTFIELDS', 'SCHEMA', 'base', 'TEXT')
+    max_text_fields = arch_int_bits()
+
+    # Exercise the whole TEXT field-id space, not just one failed ALTER. If rollback
+    # leaks fieldIdToIndex entries, the failure only becomes visible once later valid
+    # additions reach the architecture-specific field-mask limit.
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'tmp{i}', 'TEXT',
+                   '', 'TAG') \
+            .error().contains('Field name cannot be empty')
+
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'valid_text_{i}', 'TEXT').ok()
+
+    env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+               'overflow_text', 'TEXT') \
+        .error().contains(f'Schema is limited to {max_text_fields} TEXT fields')
 
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
@@ -3095,8 +3198,12 @@ def testGroupbyWithSort(env):
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1'))
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1'))
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2'))
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC',
-               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC',
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count')
+    expected = [['test', '1', 'count', '2'], ['test', '2', 'count', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
 
 def testApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3227,6 +3334,19 @@ def testMatchedTerms(env):
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
+
+def testMatchedTermsAfterSort(env):
+    # matched_terms() reads the index result. When it runs after a buffering step
+    # (SORTBY/GROUPBY) the buffering RP must keep the index result alive, even
+    # without scores or highlighting. Regression guard for the deep-copy gating.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'n', 'NUMERIC').equal('OK')
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'd1', '1.0', 'FIELDS', 'test', 'foo', 'n', '1'))
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'd2', '1.0', 'FIELDS', 'test', 'foo', 'n', '2'))
+    # matched_terms() AFTER SORTBY
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '2', '@test', '@n', 'SORTBY', '2', '@n', 'ASC',
+                  'APPLY', 'matched_terms()', 'as', 'a')
+    for row in res[1:]:
+        env.assertEqual(row[-1], ['foo'])
 
 def testStrFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3637,7 +3757,11 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    res = env.cmd('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count')
+    expected = [['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
@@ -3710,7 +3834,11 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    res = env.cmd('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count')
+    expected = [['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
@@ -3756,6 +3884,37 @@ def testAliasAddIfNX(env):
 
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
+
+def test_alias_list(env):
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
+
+    # No aliases initially
+    env.expect('ft.aliaslist', 'idx').equal([])
+
+    # Add some aliases
+    env.cmd('ft.aliasAdd', 'alias1', 'idx')
+    env.cmd('ft.aliasAdd', 'alias2', 'idx')
+
+    # List should contain both aliases
+    res = env.cmd('ft.aliaslist', 'idx')
+    env.assertEqual(sorted(res), sorted(['alias1', 'alias2']))
+
+    # Delete one alias
+    env.cmd('ft.aliasDel', 'alias1')
+    env.expect('ft.aliaslist', 'idx').equal(['alias2'])
+
+    # Error on non-existent index
+    env.expect('ft.aliaslist', 'nonexistent').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent')
+
+    # Error on alias name (not index name) - aliases cannot be used
+    # The INDEXSPEC_LOAD_NOALIAS flag ensures we only accept actual index names
+    env.expect('ft.aliaslist', 'alias2').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: alias2')
+
+    # Wrong arity - no arguments
+    env.expect('ft.aliaslist').error().contains('wrong number of arguments')
+
+    # Wrong arity - too many arguments
+    env.expect('ft.aliaslist', 'idx', 'extra').error().contains('wrong number of arguments')
 
 def testEmptyDoc(env):
     conn = getConnectionByEnv(env)
@@ -3920,7 +4079,12 @@ def testMod1407(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', 'LLimitationTypeID', 'LLimitationTypeDesc', 'REDUCE', 'COUNT', '0')
 
     # make sure correct query not crashing and return the right results
-    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0')
+    expected = [['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1'],
+                 ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
 
 def testMod1452(env):
     if not env.isCluster():
@@ -3963,13 +4127,6 @@ def test_mod1548(env):
     # Supported jsonpath (actual path contains a colon using the dot notation)
     res = env.cmd('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_dotnotation')
     env.assertEqual(res,  [2, 'prod:1', ['prod:id_dotnotation', '35114964'], 'prod:2', ['prod:id_dotnotation', '35114965']])
-
-def test_empty_field_name(env):
-    conn = getConnectionByEnv(env)
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
-    conn.execute_command('hset', 'doc1', '', 'foo')
-    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
 @skip(cluster=True)
 def test_free_resources_on_thread(env):
@@ -4027,7 +4184,9 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    info = to_dict(env.cmd('ft.info', 'idx'))
+    env.assertEqual(info['number_of_uses'], 1, message=info)
+    env.assertEqual(info['number_of_admin_ops'], 2, message=info)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -4366,7 +4525,7 @@ def test_cluster_set_myself_excluded(env: Env):
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
-@skip(cluster=False) # this test is only relevant on cluster
+@skip(cluster=True) # only parsing errors are tested, no need for an actual cluster
 def test_cluster_set_errors(env: Env):
 
     # Check general values parsing
@@ -4378,12 +4537,23 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
     env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
 
-    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
+    # These 3-arg forms dispatch to the short form (`SEARCH.CLUSTERSET AUTH <pass>`) only
+    # when the `RedisModule_GetClusterNodeSlotRanges` module API is present — added by
+    # Redis #14953 (OSS 8.10; RE 8.4+ via a later patch). Our pinned enterprise Redis
+    # predates that patch, so the API is absent and these fall through to the long-form
+    # keyword parser ("Bad value for ...") rather than the short-form "Expected `AUTH`"
+    # error. TODO(MOD-17151): un-gate once the RoR pin advances past the patch.
+    if not RS_TEST_ENTERPRISE:
+        env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
+        env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
+        env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
+
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
 
     # Check shard values parsing
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
@@ -4573,7 +4743,6 @@ def test_with_tls():
     common_with_auth(env)
 
 # TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
-@skip_until("2026-07-29", reason="Flaky test, see RED-176581")
 @skip(cluster=False, macos=True, asan=True)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
@@ -4589,7 +4758,7 @@ def test_with_tls_and_non_tls_ports():
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     common_with_auth(env)
@@ -4606,7 +4775,7 @@ def test_dual_tls():
               dualTLS=True)         # Sets the ports to be both TLS and regular ports.
 
     # Turn off tls-cluster, which means it's not the preferred port type anymore (but still available)
-    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     # Verify all nodes has both `port` (tcp) and `tls-port`
@@ -4621,14 +4790,14 @@ def test_dual_tls():
             env.assertContains('tls-port', node)
             env.assertNotEqual(node['port'], node['tls-port'], message=node)
 
-    # Verify we choose the tls-port when we have both
+    # Verify we choose the regular port when tls-cluster is disabled, even when tls-port exists.
     our_info = [to_dict(node) for node in to_dict(env.cmd('SEARCH.CLUSTERINFO'))['shards']]
     for node in our_info:
         env.assertContains(node['id'], node_to_info)
         redis_node = node_to_info[node['id']]
-        env.assertEqual(node['port'], redis_node['tls-port'])
+        env.assertEqual(node['port'], redis_node['port'])
 
-    # Verify we manage to create an index (connecting to all other nodes with tls)
+    # Verify we manage to create an index (connecting to all other nodes without TLS)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     for conn in env.getOSSMasterNodesConnectionList():
         env.assertEqual(conn.execute_command('FT._LIST'), ['idx'])

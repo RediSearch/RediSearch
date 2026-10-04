@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
-use inverted_index::{
-    IndexBlock, IndexReader, InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly,
-};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::RSIndexResult;
+use inverted_index::{IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
+use rqe_core::DocId;
 
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
@@ -61,7 +61,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id >= 2_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .unwrap()
         .unwrap();
@@ -88,7 +88,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id < 3_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .unwrap()
         .unwrap();
@@ -102,7 +102,10 @@ fn test_inverted_index_usage() {
 
     // Remove all the records and check that the index can still be used
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(
+            |_| false,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+        )
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);
@@ -126,7 +129,7 @@ fn test_inverted_index_usage() {
     for i in 0..1_002 {
         ii.add_record(
             &RSIndexResult::build_virt()
-                .doc_id(i * (u32::MAX as t_docId))
+                .doc_id(i * (u32::MAX as DocId))
                 .build(),
         )
         .unwrap();
@@ -137,8 +140,8 @@ fn test_inverted_index_usage() {
 
     let delta = ii
         .scan_gc(
-            |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            |doc_id| doc_id % (u32::MAX as DocId * 2) == 0,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .unwrap()
         .unwrap();
@@ -160,7 +163,7 @@ fn test_inverted_index_usage() {
             let found = reader.next_record(&mut result).unwrap();
 
             assert!(found);
-            assert_eq!(result.doc_id, i * (u32::MAX as t_docId * 2));
+            assert_eq!(result.doc_id, i * (u32::MAX as DocId * 2));
         }
 
         assert!(!reader.next_record(&mut result).unwrap(), "no more records");

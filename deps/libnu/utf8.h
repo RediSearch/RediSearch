@@ -17,7 +17,7 @@
  * @example revread.c
  */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -40,21 +40,18 @@ const char* nu_utf8_read(const char *utf8, uint32_t *unicode) {
 				utf8_2b(utf8, unicode);
 			}
 			return utf8 + 2;
-		}
-		else if (c < 0xF0) {
+		} else if (c < 0xF0) {
 			if (unicode != 0) {
 				utf8_3b(utf8, unicode);
 			}
 			return utf8 + 3;
-		}
-		else {
+		} else {
 			if (unicode != 0) {
 				utf8_4b(utf8, unicode);
 			}
 			return utf8 + 4;
 		}
-	}
-	else if (unicode != 0) {
+	} else if (unicode != 0) {
 		*unicode = c;
 	}
 
@@ -123,7 +120,7 @@ char* nu_utf8_write(uint32_t unicode, char *utf8);
 
 #endif /* NU_WITH_UTF8_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

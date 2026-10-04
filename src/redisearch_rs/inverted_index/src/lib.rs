@@ -12,7 +12,6 @@ pub mod controlled_cursor;
 pub mod debug;
 pub(crate) mod gc;
 mod index;
-mod index_result;
 pub mod reader;
 #[doc(hidden)]
 pub mod test_utils;
@@ -24,23 +23,19 @@ pub use codec::*;
 pub use index::*;
 
 // Re-export GC types.
-pub use gc::{GcApplyInfo, GcScanDelta};
-
-// Re-export result types.
-pub use index_result::{
-    MetricEntry, MetricsSlice, MetricsVec, RSAggregateResult, RSAggregateResultIter, RSIndexResult,
-    RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask,
-    RSTermRecord,
-};
+pub use gc::{GcApplyInfo, GcScanDelta, RepairContext};
 
 // Re-export reader types.
-pub use reader::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, TermReader};
+pub use reader::{
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, PointsToOpaqueIndex,
+    RawIndexReaderCore, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+};
 
 // Re-export filter types.
 pub use reader::{FilterGeoReader, FilterMaskReader, FilterNumericReader, ReadFilter};
 
-// Re-export FFI types.
-pub use ffi::{t_docId, t_fieldMask};
+// Re-export core types.
+pub use rqe_core::{DocId, FieldMask};
 
 #[cfg(test)]
 mod tests;
