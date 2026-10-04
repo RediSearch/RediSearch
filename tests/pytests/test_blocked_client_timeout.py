@@ -4412,17 +4412,11 @@ class TestCoordinatorTimeout:
 
             assert_reply(result)
 
-            # Both subqueries (SEARCH and VSIM) were woken by WakeAbortChannel
-            # broadcast, each returning RS_RESULT_TIMEDOUT, so the reply
-            # carries one timeout warning per subquery (suffixed (SEARCH) /
-            # (VSIM)).
+            # The callback times out both unfinished inputs even when the
+            # merger folds before observing the second input's status.
             warnings = result.get('warnings', [])
-            env.assertEqual(len(warnings), 2,
-                            message=f"Expected one TIMEOUT warning per subquery, got: {warnings}")
-            env.assertContains('Timeout', warnings[0],
-                               message=f"Expected SEARCH TIMEOUT warning, got: {warnings}")
-            env.assertContains('Timeout', warnings[1],
-                               message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
+            env.assertEqual(warnings, ['Timeout limit was reached (SEARCH)',
+                                       'Timeout limit was reached (VSIM)'], message=result)
 
             # Both warning strings belong to one top-level FT.HYBRID query, so
             # the coordinator timeout-warning metric increases only once.
