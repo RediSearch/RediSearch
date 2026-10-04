@@ -98,8 +98,8 @@ typedef struct {
     uint64_t fields;
   } breakdown;
   // Decoder for a compact row block (the `row_block` Rust crate), when the shard sent one
-  // instead of per-row RESP maps. Created on the first block this RP receives; its block is
-  // active only while `current.rows` holds one.
+  // instead of per-row RESP maps. Created on the first block this RP receives; its block,
+  // whose buffer it took from `current.rows`, is active only while that reply is current.
   RowBlockDecoder *blockDecoder;
 
   // Whether to maintain `breakdown`. Timing costs two clock reads per row, so it is

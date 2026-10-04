@@ -117,7 +117,7 @@ fn a_typed_column_spends_no_byte_on_tags() {
     assert_eq!(kind, ColumnKind::Tagged);
     assert_eq!(
         tagged.len(),
-        schema + (rows - 1) * (1 + 1 + size_of::<f64>()) + (1 + 1 + size_of::<u32>()),
+        schema + (rows - 1) * (1 + 1 + size_of::<f64>()) + (1 + 1 + size_of::<u32>() + 1),
         "a tagged column pays one byte per value on top of the typed layout"
     );
 }

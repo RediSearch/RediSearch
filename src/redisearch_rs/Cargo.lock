@@ -2427,6 +2427,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "query_flags",
+ "redis-module",
  "rlookup",
  "row_block",
  "tracing",

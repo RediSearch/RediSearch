@@ -502,6 +502,9 @@ impl RowBlockWriter {
     fn append_string(&mut self, bytes: &[u8]) -> Result<(), RefusedRow> {
         self.append_count(bytes.len())?;
         self.buf.extend_from_slice(bytes);
+        // The terminator lets a decoder hand out the string in place: a string value must be
+        // NUL-terminated, and the block is the only memory the bytes are in.
+        self.buf.push(0);
         Ok(())
     }
 

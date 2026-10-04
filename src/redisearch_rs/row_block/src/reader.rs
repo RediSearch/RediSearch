@@ -16,7 +16,7 @@
 
 use crate::{ColumnKind, MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get};
 use std::ffi::CStr;
-use value::SharedValue;
+use value::{SharedBuffer, SharedValue, Value};
 
 /// Why a block could not be decoded.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -51,6 +51,10 @@ pub enum DecodeError {
         /// The unrecognised tag byte.
         tag: u8,
     },
+
+    /// A string payload not followed by the NUL the layout puts after every string.
+    #[error("string is not terminated at its declared length")]
+    UnterminatedString,
 
     /// A schema kind byte no [`ColumnKind`] uses. Every value of the column would have an
     /// unknown layout, so no row can be read.
@@ -208,7 +212,18 @@ impl std::iter::FusedIterator for Rows<'_, '_> {}
 pub struct RowReader<'a, 'k> {
     cursor: Cursor<'a>,
     kinds: &'k [ColumnKind],
+    strings: Strings<'k>,
     failed: bool,
+}
+
+/// Where a decoded string's bytes come from.
+#[derive(Debug, Clone, Copy)]
+enum Strings<'b> {
+    /// Copied out of the block.
+    Copied,
+    /// Borrowed from the block, which this buffer holds — falling back to a copy for a string
+    /// [`SharedBuffer::share`] cannot borrow.
+    Shared(&'b SharedBuffer),
 }
 
 impl<'a, 'k> RowReader<'a, 'k> {
@@ -226,7 +241,28 @@ impl<'a, 'k> RowReader<'a, 'k> {
         Self {
             cursor: Cursor { bytes: rows },
             kinds,
+            strings: Strings::Copied,
             failed: false,
+        }
+    }
+
+    /// Like [`RowReader::new`], but decoding strings as borrows of `buffer` instead of copies,
+    /// so that the values keep the block alive rather than duplicating its bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rows` is not part of `buffer`'s bytes, or for the reason
+    /// [`RowReader::new`] does.
+    pub fn sharing(rows: &'a [u8], kinds: &'k [ColumnKind], buffer: &'k SharedBuffer) -> Self {
+        let whole = buffer.as_bytes().as_ptr_range();
+        let part = rows.as_ptr_range();
+        assert!(
+            whole.start <= part.start && part.end <= whole.end,
+            "the rows are not part of the shared buffer"
+        );
+        Self {
+            strings: Strings::Shared(buffer),
+            ..Self::new(rows, kinds)
         }
     }
 
@@ -268,8 +304,10 @@ impl<'a, 'k> RowReader<'a, 'k> {
         for (col, kind) in (0..ncols).zip(self.kinds) {
             if bitmap_get(bitmap, col) {
                 let value = match kind {
-                    ColumnKind::Tagged => decode_value(&mut self.cursor, 0)?,
-                    ColumnKind::Typed(tag) => decode_payload(&mut self.cursor, *tag, 0)?,
+                    ColumnKind::Tagged => decode_value(&mut self.cursor, self.strings, 0)?,
+                    ColumnKind::Typed(tag) => {
+                        decode_payload(&mut self.cursor, self.strings, *tag, 0)?
+                    }
                 };
                 sink(col, value);
             }
@@ -279,15 +317,20 @@ impl<'a, 'k> RowReader<'a, 'k> {
 }
 
 /// Decodes one tagged value nested `depth` levels below a row field.
-fn decode_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<SharedValue, DecodeError> {
+fn decode_value(
+    cursor: &mut Cursor<'_>,
+    strings: Strings<'_>,
+    depth: u32,
+) -> Result<SharedValue, DecodeError> {
     let tag = cursor.take_tag()?;
-    decode_payload(cursor, tag, depth)
+    decode_payload(cursor, strings, tag, depth)
 }
 
 /// Decodes the payload of a value whose `tag` is already known, nested `depth` levels below
 /// a row field.
 fn decode_payload(
     cursor: &mut Cursor<'_>,
+    strings: Strings<'_>,
     tag: Tag,
     depth: u32,
 ) -> Result<SharedValue, DecodeError> {
@@ -298,15 +341,26 @@ fn decode_payload(
     Ok(match tag {
         Tag::Number => SharedValue::new_num(cursor.take_f64()?),
         Tag::String => {
-            let len = cursor.take_count(1)?;
-            SharedValue::new_string(cursor.take(len)?.to_vec())
+            let bytes = cursor.take_string()?;
+            let shared = match strings {
+                Strings::Copied => None,
+                Strings::Shared(buffer) => {
+                    let offset = bytes.as_ptr() as usize - buffer.as_bytes().as_ptr() as usize;
+                    let len = u32::try_from(bytes.len()).expect("a string length is a u32");
+                    buffer.share(offset, len)
+                }
+            };
+            match shared {
+                Some(string) => SharedValue::new(Value::String(string)),
+                None => SharedValue::new_string(bytes.to_vec()),
+            }
         }
         Tag::Null => SharedValue::null_static(),
         Tag::Array => {
             let count = cursor.take_count(MIN_BYTES_PER_VALUE)?;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(decode_value(cursor, depth + 1)?);
+                items.push(decode_value(cursor, strings, depth + 1)?);
             }
             SharedValue::new_array(items)
         }
@@ -314,8 +368,8 @@ fn decode_payload(
             let count = cursor.take_count(2 * MIN_BYTES_PER_VALUE)?;
             let mut entries = Vec::with_capacity(count);
             for _ in 0..count {
-                let key = decode_value(cursor, depth + 1)?;
-                let value = decode_value(cursor, depth + 1)?;
+                let key = decode_value(cursor, strings, depth + 1)?;
+                let value = decode_value(cursor, strings, depth + 1)?;
                 entries.push((key, value));
             }
             SharedValue::new_map(entries)
@@ -351,8 +405,7 @@ fn skip_payload(cursor: &mut Cursor<'_>, tag: Tag, depth: u32) -> Result<(), Dec
             cursor.take_f64()?;
         }
         Tag::String => {
-            let len = cursor.take_count(1)?;
-            cursor.take(len)?;
+            cursor.take_string()?;
         }
         Tag::Null => {}
         Tag::Array => {
@@ -410,6 +463,16 @@ impl<'a> Cursor<'a> {
 
     fn take_f64(&mut self) -> Result<f64, DecodeError> {
         Ok(f64::from_le_bytes(self.take_array()?))
+    }
+
+    /// Consumes a [`Tag::String`] payload, returning the string without its NUL.
+    fn take_string(&mut self) -> Result<&'a [u8], DecodeError> {
+        let len = self.take_count(1)?;
+        let stored = self.take(len + 1)?;
+        match stored.split_last() {
+            Some((0, string)) => Ok(string),
+            _ => Err(DecodeError::UnterminatedString),
+        }
     }
 
     /// Consumes a value's tag byte.

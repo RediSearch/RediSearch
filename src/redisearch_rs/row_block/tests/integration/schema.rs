@@ -34,7 +34,7 @@ fn header_and_schema_bytes_are_exactly_the_documented_layout() {
     .concat();
 
     assert_eq!(block, want);
-    assert_eq!(VERSION, 3, "a layout change must bump the version");
+    assert_eq!(VERSION, 4, "a layout change must bump the version");
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn a_mixed_column_carries_a_tag_per_value() {
         &1u16.to_le_bytes()[..],
         &1u16.to_le_bytes()[..], b"v", &[0], &[0], // kind: tagged
         &[0b1], &[Tag::Number as u8], &1.0f64.to_le_bytes()[..],
-        &[0b1], &[Tag::String as u8], &1u32.to_le_bytes()[..], b"x",
+        &[0b1], &[Tag::String as u8], &1u32.to_le_bytes()[..], b"x", &[0],
     ]
     .concat();
 

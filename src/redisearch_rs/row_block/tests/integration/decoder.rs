@@ -11,7 +11,7 @@
 //! result processor drives it.
 
 use crate::harness::{
-    Decoded, bytes, decode, decode_into, encode, lookup, malformed_blocks, row, try_decode,
+    Decoded, begin, bytes, decode, decode_into, encode, lookup, malformed_blocks, row, try_decode,
     valid_block,
 };
 use pretty_assertions::assert_eq;
@@ -49,20 +49,28 @@ fn columns_the_coordinator_already_knows_reuse_its_keys() {
 
 #[test]
 fn a_created_key_outlives_the_block_it_was_named_in() {
-    // The decoder hands the lookup names that point into the block, which the coordinator
-    // frees with the shard reply while the key lives on.
+    // The lookup is handed names that point into the block, which is freed once its rows are
+    // read while the key lives on. Under Miri a key still borrowing its name is a
+    // use-after-free here.
     let shard = lookup(&["dynamic"]);
-    let mut block = encode(
+    let block = encode(
         &shard,
         &[row(&shard, &[("dynamic", SharedValue::new_num(1.0))])],
     );
     let mut coordinator = RLookup::new();
-    decode_into(&block, &mut coordinator).expect("the block decodes");
+    let mut decoder = RowBlockDecoder::new();
+    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
+    decoder.end();
+    assert_eq!(decoder.live_bytes(), 0, "the block is freed");
 
-    block.fill(0xa5);
-    drop(block);
     let name = CString::new("dynamic").unwrap();
-    assert!(coordinator.find_key_by_name(&name).is_some());
+    let key = coordinator
+        .find_key_by_name(&name)
+        .expect("the key was created");
+    assert_eq!(
+        key.current().expect("found").name().as_ref(),
+        name.as_c_str()
+    );
 }
 
 #[test]
@@ -72,8 +80,7 @@ fn an_empty_block_is_active_but_holds_no_rows() {
     let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
 
-    // SAFETY: `block` and `coordinator` outlive every use of the decoder below.
-    unsafe { decoder.begin(&mut coordinator, &block) }.expect("the block parses");
+    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
     assert!(decoder.is_active());
     assert!(!decoder.has_rows());
     assert_eq!(decoder.ncols(), 1);
@@ -86,10 +93,9 @@ fn every_column_counts_whether_or_not_the_row_holds_it() {
     let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
 
-    // SAFETY: `block` and `coordinator` outlive every use of the decoder below.
-    unsafe { decoder.begin(&mut coordinator, &block) }.expect("the block parses");
+    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
     let mut target = RLookupRow::new();
-    // SAFETY: as above.
+    // SAFETY: `coordinator` outlives the decoder.
     unsafe { decoder.next_row(&mut target) }.expect("the row decodes");
     assert_eq!(decoder.ncols(), 3);
     assert_eq!(target.num_dyn_values(), 1);
@@ -116,8 +122,7 @@ fn every_malformed_block_fails_with_the_error_the_reader_reports() {
 fn begin_fails(block: &[u8]) -> bool {
     let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
-    // SAFETY: `block` and `coordinator` outlive `decoder`.
-    unsafe { decoder.begin(&mut coordinator, block) }.is_err()
+    begin(&mut decoder, &mut coordinator, block).is_err()
 }
 
 #[test]
@@ -127,10 +132,8 @@ fn a_malformed_header_or_schema_leaves_no_block_active() {
     let good = valid_block();
     for (what, block) in malformed_blocks() {
         // Start from an active block, so the failure has to tear it down.
-        // SAFETY: `good`, `block` and `coordinator` outlive every use of the decoder below.
-        unsafe { decoder.begin(&mut coordinator, &good) }.expect("the valid block parses");
-        // SAFETY: as above.
-        let outcome = unsafe { decoder.begin(&mut coordinator, &block) };
+        begin(&mut decoder, &mut coordinator, &good).expect("the valid block parses");
+        let outcome = begin(&mut decoder, &mut coordinator, &block);
         if outcome.is_ok() {
             // Some corruptions only surface in the rows.
             continue;
@@ -147,12 +150,11 @@ fn a_truncated_row_ends_the_block() {
     let mut decoder = RowBlockDecoder::new();
     let truncated = &block[..block.len() - 1];
 
-    // SAFETY: `block` and `coordinator` outlive every use of the decoder below.
-    unsafe { decoder.begin(&mut coordinator, truncated) }.expect("the schema is intact");
+    begin(&mut decoder, &mut coordinator, truncated).expect("the schema is intact");
     let mut outcome = Ok(());
     while decoder.has_rows() {
         let mut target = RLookupRow::new();
-        // SAFETY: as above.
+        // SAFETY: `coordinator` outlives the decoder.
         outcome = unsafe { decoder.next_row(&mut target) };
     }
     assert!(outcome.is_err(), "the cut-off row decoded");
@@ -174,18 +176,16 @@ fn beginning_a_block_ends_the_one_before() {
 
     let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
-    // SAFETY: both blocks and `coordinator` outlive every use of the decoder below.
-    unsafe { decoder.begin(&mut coordinator, &first) }.expect("the block parses");
+    begin(&mut decoder, &mut coordinator, &first).expect("the block parses");
     let mut target = RLookupRow::new();
-    // SAFETY: as above.
+    // SAFETY: `coordinator` outlives the decoder.
     unsafe { decoder.next_row(&mut target) }.expect("the row decodes");
 
-    // SAFETY: as above.
-    unsafe { decoder.begin(&mut coordinator, &second) }.expect("the block parses");
+    begin(&mut decoder, &mut coordinator, &second).expect("the block parses");
     let mut rows = 0;
     while decoder.has_rows() {
         let mut target = RLookupRow::new();
-        // SAFETY: as above.
+        // SAFETY: `coordinator` outlives the decoder.
         unsafe { decoder.next_row(&mut target) }.expect("the row decodes");
         rows += 1;
     }
@@ -197,8 +197,7 @@ fn ending_a_block_drops_its_remaining_rows() {
     let block = valid_block();
     let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
-    // SAFETY: `block` and `coordinator` outlive every use of the decoder below.
-    unsafe { decoder.begin(&mut coordinator, &block) }.expect("the block parses");
+    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
     decoder.end();
     assert!(!decoder.is_active());
     assert!(!decoder.has_rows());
@@ -211,9 +210,8 @@ fn reading_past_the_last_row_panics() {
     let block = encode(&shard, &[]);
     let mut coordinator = RLookup::new();
     let mut decoder = RowBlockDecoder::new();
-    // SAFETY: `block` and `coordinator` outlive every use of the decoder below.
-    unsafe { decoder.begin(&mut coordinator, &block) }.expect("the block parses");
+    begin(&mut decoder, &mut coordinator, &block).expect("the block parses");
     let mut target = RLookupRow::new();
-    // SAFETY: as above.
+    // SAFETY: `coordinator` outlives the decoder.
     let _ = unsafe { decoder.next_row(&mut target) };
 }

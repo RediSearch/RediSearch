@@ -15,7 +15,10 @@ use row_block::{
     Block, ColumnKind, DecodeError, MAGIC, RefusedRow, RowBlockDecoder, RowBlockWriter, Tag,
     TrioMember, VERSION,
 };
-use std::ffi::{CStr, CString};
+use std::{
+    ffi::{CStr, CString},
+    ptr::NonNull,
+};
 use value::{SharedValue, Value};
 
 /// A lookup whose keys are all plain output columns.
@@ -232,13 +235,12 @@ pub fn decode_into(
     lookup: &mut RLookup<'_>,
 ) -> Result<Vec<Vec<(String, Decoded)>>, DecodeError> {
     let mut decoder = RowBlockDecoder::new();
-    // SAFETY: `block` and `lookup` outlive `decoder`.
-    unsafe { decoder.begin(lookup, block) }?;
+    begin(&mut decoder, lookup, block)?;
 
     let mut rows = Vec::new();
     while decoder.has_rows() {
         let mut row = RLookupRow::new();
-        // SAFETY: as above.
+        // SAFETY: `lookup` outlives `decoder`.
         unsafe { decoder.next_row(&mut row) }?;
         rows.push(
             lookup
@@ -254,6 +256,41 @@ pub fn decode_into(
         );
     }
     Ok(rows)
+}
+
+/// Hands `decoder` a copy of `block` in a buffer of its own, the way the coordinator hands it
+/// a shard reply's.
+///
+/// The lookup half of [`RowBlockDecoder::begin`]'s contract is left to the caller, whose
+/// [`RowBlockDecoder::next_row`] calls have to uphold it anyway.
+pub fn begin(
+    decoder: &mut RowBlockDecoder,
+    lookup: &mut RLookup<'_>,
+    block: &[u8],
+) -> Result<(), DecodeError> {
+    let (buffer, len) = allocate(block);
+    // SAFETY: `buffer` is a fresh allocation of `len` bytes that nothing else refers to, and
+    // `release` frees it the way it was allocated.
+    unsafe { decoder.begin(lookup, buffer, len, release) }
+}
+
+/// Copies `bytes` into a buffer from the allocator the Redis module allocator is mocked by.
+pub fn allocate(bytes: &[u8]) -> (NonNull<u8>, usize) {
+    let buffer = redis_mock::allocator::alloc_shim(bytes.len().max(1)).cast::<u8>();
+    let buffer = NonNull::new(buffer).expect("the allocation succeeded");
+    // SAFETY: the allocation is at least `bytes.len()` long and fresh.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer.as_ptr(), bytes.len()) };
+    (buffer, bytes.len())
+}
+
+/// Frees a buffer from [`allocate`]; the [`Dealloc`](value::shared_buffer::Dealloc) the
+/// decoder is handed.
+///
+/// # Safety
+///
+/// 1. `buffer` must come from [`allocate`] and not be freed since.
+pub unsafe fn release(buffer: NonNull<u8>, _len: usize) {
+    redis_mock::allocator::free_shim(buffer.as_ptr().cast());
 }
 
 /// Builds a header for `ncols` columns, then whatever `rest` adds.
@@ -401,5 +438,17 @@ pub fn malformed_blocks() -> Vec<(&'static str, Vec<u8>)> {
             ),
         ),
         ("nesting too deep", block(1, &[&column(b'a'), &nested])),
+        (
+            "unterminated string",
+            block(
+                1,
+                &[
+                    &typed_column(b'a', ColumnKind::Typed(Tag::String)),
+                    &[0b1],
+                    &1u32.to_le_bytes()[..],
+                    b"xy",
+                ],
+            ),
+        ),
     ]
 }

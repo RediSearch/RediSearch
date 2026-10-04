@@ -19,4 +19,5 @@ mod dereference;
 mod hash;
 mod num_to_str;
 mod shared;
+mod shared_buffer;
 mod string;

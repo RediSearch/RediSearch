@@ -19,9 +19,13 @@ use ffi::{
     SendReplyFlags_SENDREPLY_FLAG_TYPED,
 };
 use query_flags::{QEFlag, QEFlags};
+use redis_module::raw::RedisModule_Free;
 use rlookup::{OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKeyFlags, RLookupRow};
 use row_block::{Block, ColumnFilter, RowBlockDecoder, RowBlockWriter, TrioMember};
-use std::ffi::{c_char, c_uint};
+use std::{
+    ffi::{c_char, c_uint},
+    ptr::NonNull,
+};
 
 /// Allocates a writer with no header written yet. Free it with [`RowBlockWriter_Free`].
 ///
@@ -309,43 +313,57 @@ pub unsafe extern "C" fn RowBlockDecoder_Free(d: *mut RowBlockDecoder) {
     drop(unsafe { Box::from_raw(d) });
 }
 
-/// Makes the `len` bytes at `buf` the active block, resolving its columns in `lk`; see
-/// [`RowBlockDecoder::begin`].
+/// Takes over the `len` bytes at `buf` and makes them the active block, resolving its columns
+/// in `lk`; see [`RowBlockDecoder::begin`].
 ///
-/// Returns false, leaving no block active, if the header or schema is malformed.
+/// Returns false, leaving no block active, if the header or schema is malformed. Either way
+/// the buffer now belongs to the decoder, and to the string values it decodes: it is freed
+/// with `RedisModule_Free` when the last of them is gone.
 ///
 /// # Safety
 ///
 /// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
 /// 2. `lk` must be a non-null pointer to a [valid] `RLookup`, and the rest of
 ///    [`RowBlockDecoder::begin`]'s contract on its `lookup` must hold.
-/// 3. `buf` must be [valid] for reads of `len` bytes, and the rest of
-///    [`RowBlockDecoder::begin`]'s contract on its `block` must hold.
+/// 3. `buf` must be a non-null pointer to `len` bytes allocated with `RedisModule_Alloc`,
+///    which the caller gives up: it must not access or free them afterwards.
+/// 4. The Redis allocator must be initialized, and stay so until the buffer is freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RowBlockDecoder_Begin(
     d: *mut RowBlockDecoder,
     lk: *mut OpaqueRLookup,
-    buf: *const c_char,
+    buf: *mut c_char,
     len: usize,
 ) -> bool {
     // SAFETY: ensured by caller (1.)
     let decoder = unsafe { decoder_mut(d) };
     // SAFETY: ensured by caller (2.)
     let lookup = unsafe { RLookup::from_opaque_mut_ptr(lk) }.expect("a non-null RLookup");
-    debug_assert!(!buf.is_null(), "RowBlockDecoder_Begin got a NULL buffer");
-    // SAFETY: ensured by caller (3.)
-    let block = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
+    let block = NonNull::new(buf.cast::<u8>()).expect("a non-null block buffer");
 
-    // SAFETY: ensured by caller (2., 3.)
-    match unsafe { decoder.begin(lookup, block) } {
+    // SAFETY: ensured by caller (2., 3.), and (4.) for `rm_free`.
+    match unsafe { decoder.begin(lookup, block, len, rm_free) } {
         Ok(()) => true,
         Err(error) => {
             tracing::warn!(%error, "malformed row block in shard reply");
             false
         }
     }
+}
+
+/// Releases a block buffer [`RowBlockDecoder_Begin`] was given.
+///
+/// # Safety
+///
+/// 1. `block` must have been allocated with `RedisModule_Alloc`, and not be freed since.
+/// 2. The Redis allocator must be initialized.
+unsafe fn rm_free(block: NonNull<u8>, _len: usize) {
+    // SAFETY: ensured by caller (2.)
+    let free = unsafe { RedisModule_Free }.expect("the Redis allocator is initialized");
+    // SAFETY: ensured by caller (1.)
+    unsafe { free(block.as_ptr().cast()) };
 }
 
 /// Whether a block is active; see [`RowBlockDecoder::is_active`].
@@ -389,8 +407,8 @@ pub unsafe extern "C" fn RowBlockDecoder_ColumnCount(d: *const RowBlockDecoder) 
 ///
 /// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable;
 ///    and [`RowBlockDecoder_HasRows`] must be true for it.
-/// 2. The contract of the [`RowBlockDecoder_Begin`] call that started the active block must
-///    still hold.
+/// 2. The lookup passed to the [`RowBlockDecoder_Begin`] call that started the active block
+///    must still satisfy that call's contract.
 /// 3. `row` must be a non-null pointer to a [valid] `RLookupRow`, not aliased for the
 ///    duration of the call.
 ///

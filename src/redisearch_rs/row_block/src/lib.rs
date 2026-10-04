@@ -36,6 +36,9 @@
 //! hand a pointer straight into the block to the `RLookup` key lookups, whose FFI contract
 //! requires NUL-terminated names.
 //!
+//! A string payload ends in a NUL too, so the coordinator can hand a string value out in
+//! place, borrowing the block instead of copying out of it — see [`RowBlockDecoder`].
+//!
 //! A value is a [`Tag`] byte followed by that tag's payload. The kind byte, a [`ColumnKind`],
 //! lets a column drop the tag: a [`ColumnKind::Typed`] column holds bare payloads of its one
 //! tag, and only a [`ColumnKind::Tagged`] column — one whose values differ in type from row
@@ -81,7 +84,7 @@ pub use writer::{ColumnFilter, RefusedRow, RowBlockWriter, SchemaError, TrioMemb
 pub const MAGIC: u32 = 0x5253_4252;
 
 /// Follows [`MAGIC`]. See the crate-level *Compatibility* notes for when it changes.
-pub const VERSION: u8 = 3;
+pub const VERSION: u8 = 4;
 
 /// The deepest [`Tag::Array`] / [`Tag::Map`] nesting a block may carry.
 ///
@@ -102,8 +105,8 @@ pub const MAX_NESTING_DEPTH: u32 = 128;
 pub enum Tag {
     /// Payload: an [`f64`].
     Number = 1,
-    /// Payload: a [`u32`] byte length, then that many bytes. Not required to be UTF-8, and
-    /// may contain NUL bytes.
+    /// Payload: a [`u32`] byte length, then that many bytes, then a NUL. The bytes are not
+    /// required to be UTF-8, and may contain NUL bytes of their own.
     String = 2,
     /// No payload.
     Null = 3,

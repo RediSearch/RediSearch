@@ -31,10 +31,14 @@ typedef struct RLookupRow RLookupRow;
  *
  * Built for a caller that cannot hold a borrow across calls — the coordinator's network
  * result processor, which yields one row per call back into C. [`RowBlockDecoder::begin`]
- * parses the header and schema and resolves every column to a lookup key once, so that
- * [`RowBlockDecoder::next_row`] writes each value by key instead of by name.
+ * takes over the block's buffer, parses the header and schema and resolves every column to
+ * a lookup key once, so that [`RowBlockDecoder::next_row`] writes each value by key instead
+ * of by name.
  *
- * One decoder serves every block a result processor receives: the key table keeps its
+ * Decoded strings borrow from the block rather than copying out of it, within the limit set
+ * by [`MAX_PINNED_BYTES`].
+ *
+ * One decoder serves every block a result processor receives: its tables keep their
  * capacity from block to block.
  *
  * Opaque to C, which may only hold a pointer to one and pass it back to the `row_block_ffi`
@@ -62,22 +66,25 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Makes the `len` bytes at `buf` the active block, resolving its columns in `lk`; see
- * [`RowBlockDecoder::begin`].
+ * Takes over the `len` bytes at `buf` and makes them the active block, resolving its columns
+ * in `lk`; see [`RowBlockDecoder::begin`].
  *
- * Returns false, leaving no block active, if the header or schema is malformed.
+ * Returns false, leaving no block active, if the header or schema is malformed. Either way
+ * the buffer now belongs to the decoder, and to the string values it decodes: it is freed
+ * with `RedisModule_Free` when the last of them is gone.
  *
  * # Safety
  *
  * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
  * 2. `lk` must be a non-null pointer to a [valid] `RLookup`, and the rest of
  *    [`RowBlockDecoder::begin`]'s contract on its `lookup` must hold.
- * 3. `buf` must be [valid] for reads of `len` bytes, and the rest of
- *    [`RowBlockDecoder::begin`]'s contract on its `block` must hold.
+ * 3. `buf` must be a non-null pointer to `len` bytes allocated with `RedisModule_Alloc`,
+ *    which the caller gives up: it must not access or free them afterwards.
+ * 4. The Redis allocator must be initialized, and stay so until the buffer is freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool RowBlockDecoder_Begin(struct RowBlockDecoder *d, struct RLookup *lk, const char *buf, size_t len);
+bool RowBlockDecoder_Begin(struct RowBlockDecoder *d, struct RLookup *lk, char *buf, size_t len);
 
 /**
  * The active block's column count; see [`RowBlockDecoder::ncols`].
@@ -138,8 +145,8 @@ struct RowBlockDecoder *RowBlockDecoder_New(void);
  *
  * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable;
  *    and [`RowBlockDecoder_HasRows`] must be true for it.
- * 2. The contract of the [`RowBlockDecoder_Begin`] call that started the active block must
- *    still hold.
+ * 2. The lookup passed to the [`RowBlockDecoder_Begin`] call that started the active block
+ *    must still satisfy that call's contract.
  * 3. `row` must be a non-null pointer to a [valid] `RLookupRow`, not aliased for the
  *    duration of the call.
  *

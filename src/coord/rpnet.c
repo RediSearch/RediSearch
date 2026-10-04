@@ -44,7 +44,8 @@ static inline void accumulateSince(rs_wall_clock_ns_t *acc, rs_wall_clock *start
 }
 
 // Converts an MRReply to an RSValue, consuming the reply. String buffers can be
-// transferred directly because hiredis uses the Redis module allocator.
+// transferred directly because hiredis uses the Redis module allocator (as can row blocks;
+// see blockBegin).
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
@@ -114,13 +115,16 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 // Detection is by reply type, not by negotiation: the rows element is a string for a block
 // and an array for the legacy per-row encoding, so a coordinator decodes whatever it is sent.
 
-// Make the block in `rows` the decoder's active block, resolving its columns to RLookupKeys
-// once for the whole block. Returns false on a malformed block, which the caller reports as a
-// shard error.
+// Hand the block in `rows` to the decoder as its active block, resolving its columns to
+// RLookupKeys once for the whole block. Returns false on a malformed block, which the caller
+// reports as a shard error.
+//
+// The decoder takes the reply's string buffer rather than borrowing it: decoded string values
+// point into the block instead of copying out of it, and outlive the reply.
 static bool blockBegin(RPNet *nc, MRReply *rows) {
   if (!nc->blockDecoder) nc->blockDecoder = RowBlockDecoder_New();
   size_t len;
-  const char *buf = MRReply_String(rows, &len);
+  char *buf = MRReply_TakeString(rows, &len);
   return RowBlockDecoder_Begin(nc->blockDecoder, nc->lookup, buf, len);
 }
 
@@ -449,7 +453,7 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
-    // The active block, if any, lived in the reply just dropped.
+    // The active block, if any, came from the reply just dropped.
     if (nc->blockDecoder) RowBlockDecoder_End(nc->blockDecoder);
 }
 
