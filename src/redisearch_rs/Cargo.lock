@@ -2409,7 +2409,6 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cheadergen",
- "criterion",
  "pretty_assertions",
  "proptest",
  "redis_mock",
