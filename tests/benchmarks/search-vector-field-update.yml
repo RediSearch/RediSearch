@@ -8,9 +8,6 @@ description: "
              place under the document's existing doc-id and skips the rest of the
              indexing: the text and numeric fields, which are unchanged, are not
              re-indexed. That saved work is the gain this benchmark is meant to show.
-             The comparison that shows it is this benchmark against
-             search-vector-field-update-unoptimized, which is identical but runs with
-             OPTIMIZE_PARTIAL_UPDATE off, so each update re-indexes the whole document.
 
              Companion to search-vector-numeric-partial-update, which leaves the vector
              unchanged and rewrites the numeric field instead. Shares the corpus with the
