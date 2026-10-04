@@ -1583,16 +1583,23 @@ fn eval_tag_case_insensitive_field_matches_a_binary_value() {
     assert_eq!(drain_doc_ids(&mut it), vec![17]);
 }
 
-// No test here for lowering a case-insensitive token ending in an invalid
-// UTF-8 lead byte (e.g. `CAF\xff`): `unicode_tolower`'s slow (non-ASCII) path
-// unconditionally reads three bytes past such a byte (`utf8_4b` in
-// `deps/libnu/utf8_internal.h`) with no bounds check. A real query token is
-// allocated with exactly its length plus a NUL terminator, so this is a
-// genuine heap-buffer-overflow read reachable from `@tag:{CAF\xff}` today --
-// padding this test's allocation to observe a result would characterise the
-// overread's accidental output as sanctioned behaviour instead of pinning
-// the bug. Tracked in https://github.com/RediSearch/RediSearch/issues/11135;
-// fix `tag_strtolower`/`unicode_tolower` before adding this case back.
+#[test]
+fn eval_tag_case_insensitive_field_keeps_a_dangling_utf8_lead_byte() {
+    // 0xff declares a 4-byte sequence the token ends before completing, so
+    // lowering cannot decode it without reading past the allocation. It is
+    // copied through verbatim instead, while the bytes before it are still
+    // lowered.
+    let values = values(&[(TAG_BINARY, &[6])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::Token(b"CAF\xff")],
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the lowered prefix plus the untouched 0xff is the indexed value");
+    assert_eq!(drain_doc_ids(&mut it), vec![6]);
+}
 
 #[test]
 fn eval_tag_lookup_stops_at_a_nul_on_a_case_insensitive_field() {
