@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "op_block_client.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -1331,8 +1332,7 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, GCForceInvokeReply);
   GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
 }
