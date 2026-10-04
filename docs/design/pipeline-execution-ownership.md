@@ -76,10 +76,12 @@ main-thread access or replace the mutex.
 | RETURN timeout | Unwind Next completely and Drain on the same thread. No STRICT gate operations. |
 | FAIL timeout | Return the existing timeout error and never invoke Drain, including during cleanup. |
 
-STRICT timeout terminates the cursor. RETURN timeout preserves a resumable cursor:
-Drain ends recovery for the current reply, not the remaining query. Subsequent
-cursor reads resume Next without replaying rows already returned by Drain.
-Normal exhaustion still closes the cursor; timeout alone must not do so in RETURN.
+STRICT timeout terminates the cursor. RETURN timeout preserves the cursor using
+the existing processor continuation semantics. A timed-out sorter or maximum-score
+normalizer remains in yield: later reads consume its remaining committed output,
+then reach EOF, without accumulating more input or replaying drained rows. Other
+processors retain their ordinary continuation. Normal exhaustion closes the cursor;
+timeout alone does not unconditionally close a RETURN cursor.
 
 Mutex release/acquire publishes state. The post-acquisition timeout check rejects
 a worker that acquires after main has drained and unlocked, even when timeout
@@ -181,7 +183,7 @@ pipeline-wide stopping point.
 | --- | --- |
 | Index source | EOF; never advance or revalidate an iterator. |
 | Network source | Consume a finite set of already-available replies; never request or wait for another batch. |
-| Sorter | In accum, drain the existing heap; only an initially empty heap consumes upstream Drain before yielding. In yield, emit only the existing heap. Empty yield returns EOF, not a third phase. RETURN cursor Next can resume accumulation in the next cycle. |
+| Sorter | In accum, drain the existing heap; only an initially empty heap consumes upstream Drain before yielding. Recovery commits the yield phase for both APIs. Later RETURN cursor reads yield only the remaining heap; empty yield returns EOF, never a refill or a third phase. |
 | Safe loader | Yield remaining rows of a fully loaded batch; an unfinished batch yields EOF. No loading or upstream calls. |
 | Grouper | EOF; never finalize partial groups. Completed groups already buffered downstream remain eligible. |
 | Transparent transform/filter/pager | Drain upstream and apply ordinary row semantics using exclusively owned state. |
