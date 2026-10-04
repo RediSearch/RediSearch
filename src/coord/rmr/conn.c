@@ -612,12 +612,34 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   return ret;
 }
 
+/* Serves MREndpointTLS_LegacyFromLocalConfig only. The `tls-port` fallback is legacy Enterprise
+ * logic: `tls-cluster` should always be `yes` when `tls-port` is set, but dual port is not expected
+ * there, so `tls-port` alone also means the cluster ports are TLS. Elsewhere, `tls-port` says
+ * nothing about the cluster ports; a new path that must read the config live should check only
+ * `tls-cluster`, and preferably take the port type from the topology instead. */
+static bool legacyEnterpriseConfigUsesTLS(void) {
+  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModule_ThreadSafeContextLock(ctx);
+  bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return tls;
+}
+
+static bool MRConn_UsesTLS(const MRConn *conn) {
+  switch (conn->ep.tls) {
+    case MREndpointTLS_Off: return false;
+    case MREndpointTLS_On: return true;
+    case MREndpointTLS_LegacyFromLocalConfig: return legacyEnterpriseConfigUsesTLS();
+  }
+  RS_ABORT("Unknown MREndpointTLS");
+}
+
 /* If TLS is configured for the cluster, build an SSL context and bind it to
  * the given hiredis async context. Returns REDIS_OK on success (including
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  if (conn->ep.isTls == false) {
+  if (!MRConn_UsesTLS(conn)) {
     return REDIS_OK;
   }
 

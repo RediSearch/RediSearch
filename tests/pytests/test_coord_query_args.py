@@ -104,3 +104,85 @@ def test_coord_query_args_missing_query(env):
         env.assertTrue(env.cmd('PING'))
     finally:
         env.expect('CONFIG', 'SET', 'search-on-timeout', policy).ok()
+
+
+def _check_queued_dispatch_args(env):
+    """Keep binary PARAMS and large query strings alive after the command handler returns."""
+    import threading
+    from common import getCoordThpoolStats, wait_for_condition
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+               'DISTANCE_METRIC', 'L2').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'n', 1,
+                                            'v', struct.pack('ff', 1, 0))
+    vector = struct.pack('ff', 0, 0)
+    query = ' ' * 65536 + '*' + ' ' * 65536
+    commands = (
+        ['FT.AGGREGATE', 'idx', query + '=>[KNN 1 @v $vec]',
+         'PARAMS', 2, 'vec', vector, 'LOAD', 1, '@n', 'TIMEOUT', 0, 'DIALECT', 2],
+        ['FT.HYBRID', 'idx', 'SEARCH', query, 'VSIM', '@v', '$vec',
+         'PARAMS', 2, 'vec', vector, 'LOAD', 1, '@n', 'TIMEOUT', 0],
+    )
+    config = env.cmd('CONFIG', 'GET', 'search-on-timeout')
+    policy = config['search-on-timeout'] if isinstance(config, dict) else config[1]
+    try:
+        env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
+        for command in commands:
+            for debug in (False, True):
+                args = command
+                if debug:
+                    hook = 'TIMEOUT_AFTER_N' if command[0] == 'FT.AGGREGATE' else 'TIMEOUT_AFTER_N_SEARCH'
+                    args = [debug_cmd(), *command, hook, 1000, 'DEBUG_PARAMS_COUNT', 2]
+                expected = env.cmd(*args)
+                results, errors = [], []
+
+                def run_query():
+                    try:
+                        pipe = env.getConnection().pipeline(transaction=False)
+                        pipe.execute_command(*args)
+                        pipe.ping()
+                        results.extend(pipe.execute())
+                    except Exception as error:
+                        errors.append(error)
+
+                env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+                thread = threading.Thread(target=run_query, daemon=True)
+                try:
+                    wait_for_condition(
+                        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+                        'Coordinator did not pause', timeout=5)
+                    thread.start()
+                    wait_for_condition(
+                        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == 1,
+                                 {'errors': errors}),
+                        'Query did not enter the coordinator queue', timeout=5)
+                finally:
+                    env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+                    if thread.ident is not None:
+                        thread.join(timeout=10)
+                env.assertFalse(thread.is_alive())
+                env.assertEqual(errors, [])
+                if command[0] == 'FT.HYBRID':
+                    # Queueing changes elapsed time; compare every deterministic reply field.
+                    for response in (expected, results[0]):
+                        if isinstance(response, dict):
+                            response.pop('execution_time')
+                        else:
+                            offset = response.index('execution_time')
+                            del response[offset:offset + 2]
+                env.assertEqual(results, [expected, True])
+    finally:
+        env.expect('CONFIG', 'SET', 'search-on-timeout', policy).ok()
+
+
+@skip(cluster=False, min_shards=2)
+@env_spec(protocol=2)
+def test_queued_aggregate_hybrid_args_resp2(env):
+    _check_queued_dispatch_args(env)
+
+
+@skip(cluster=False, min_shards=2)
+@env_spec(protocol=3)
+def test_queued_aggregate_hybrid_args_resp3(env):
+    _check_queued_dispatch_args(env)
