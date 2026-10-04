@@ -212,6 +212,9 @@ typedef struct {
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // Coordinator side: ask shards for row blocks (the `row_block` Rust crate). Shards that do not
+  // know the argument reject it, so keep this off until every node is upgraded.
+  bool internalRowBlockFormat;
   // When enabled (default), using new relabel API instead of deleting and
   // re-adding to index.
   bool optimizePartialUpdate;
