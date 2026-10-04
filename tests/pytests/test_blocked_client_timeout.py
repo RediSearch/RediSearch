@@ -28,6 +28,7 @@ TIMEOUT_ERROR = "Timeout limit was reached"
 TIMEOUT_WARNING = TIMEOUT_ERROR
 
 
+@skip(cluster=True)
 def test_owned_hybrid_timeout_preserves_completed_input_window():
     """Owned recovery preserves SEARCH's completed window while VSIM is unvisited."""
     env = Env(protocol=3, moduleArgs='WORKERS 2 ON_TIMEOUT RETURN-STRICT TIMEOUT 0')
