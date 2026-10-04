@@ -69,6 +69,13 @@ def testRDBCompatibility(env):
         env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload', 'indexes_all', 'false'])
         env.assertEqual(res['num_docs'], 1000)
         env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
+        # Replies leave out the fields the upgrade definition names as the rule's
+        # language, score and payload fields.
+        env.cmd('HSET', 'tt:special', 'MyLang', 'english', 'MyScore', '0.5',
+                'MyPayload', 'data', 'other', 'x')
+        env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', '1', 'tt:special').equal(
+            [1, 'tt:special', ['other', 'x']])
+        env.cmd('DEL', 'tt:special')
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
             res = env.cmd('FT.SYNDUMP idx')
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}

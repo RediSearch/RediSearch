@@ -140,3 +140,24 @@ def test_suffix_trie_survives_rdb_reload(env):
 
     env.expect('FT.SEARCH', 'idx', '@t_text:*a*',  'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@t_tag:{*a*}', 'NOCONTENT').equal([1, 'doc:1'])
+
+@skip(cluster=True)
+def test_rule_special_fields_stay_hidden_after_rdb_reload(env):
+    """
+    Document fields named by the schema rule's SCORE_FIELD, LANGUAGE_FIELD and
+    PAYLOAD_FIELD are control fields, which replies leave out. Queries learn the
+    names from the index's spec cache, which loading the index from RDB rebuilds,
+    so the fields stay hidden after a reload.
+    """
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE_FIELD', 'my_score',
+               'LANGUAGE_FIELD', 'my_lang', 'PAYLOAD_FIELD', 'my_payload',
+               'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'my_score', '0.5', 'my_lang', 'english',
+                         'my_payload', 'data', 'other', 'x')
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello', 'other', 'x']])
+        env.expect('FT.AGGREGATE', 'idx', 'hello', 'LOAD', '*').equal(
+            [1, ['t', 'hello', 'other', 'x']])

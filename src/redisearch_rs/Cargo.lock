@@ -655,6 +655,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "index_spec_cache",
  "query_term",
  "query_types",
  "redis-module",
@@ -1122,10 +1123,19 @@ dependencies = [
 name = "index_spec_cache"
 version = "0.0.1"
 dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_spec_cache_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
  "ffi",
- "field_spec",
- "redis-module",
- "rm_array",
+ "index_spec_cache",
+ "index_spec_cache_ffi",
+ "redis_mock",
+ "redisearch_rs",
  "workspace_hack",
 ]
 
@@ -2162,6 +2172,7 @@ dependencies = [
  "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "index_spec_cache_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "metrics_ffi",
@@ -2357,11 +2368,13 @@ dependencies = [
 name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "c_ffi_utils",
  "cheadergen",
  "document",
  "document_metadata",
  "ffi",
+ "index_spec_cache",
  "libc",
  "query_error",
  "redis-module",
@@ -2533,6 +2546,7 @@ dependencies = [
  "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "index_spec_cache_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "memchr",

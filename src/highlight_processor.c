@@ -69,8 +69,8 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
-  const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, fieldName);
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+  t_fieldId ftId;
+  if (!RLookup_FindTextFieldInSpecCache(lookup, fieldName, &ftId)) {
     return 0;
   }
 
@@ -78,7 +78,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter = {NULL};
   RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
+  if (RSByteOffset_Iterate(byteOffsets, ftId, &bytesIter) != REDISMODULE_OK) {
     goto done;
   }
 
