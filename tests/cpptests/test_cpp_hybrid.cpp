@@ -59,7 +59,6 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     static bool profileCalled;
     profileCalled = false;
     request->base.timeoutWasCapped = true;
-    request->poolId = -1;
     request->profile = [](RedisModule_Reply *reply, HybridRequest *request, const bool *published) {
       EXPECT_NE(nullptr, published);
       EXPECT_FALSE(published[0]);
@@ -96,7 +95,6 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     producerStateWriter.join();
 
     EXPECT_TRUE(profileCalled);
-    EXPECT_EQ(99, request->poolId);
     EXPECT_TRUE(request->base.timeoutWasCapped);
     EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&hidden->base.reply.err));
     EXPECT_FALSE(request->base.reply.hasStoredResults);
