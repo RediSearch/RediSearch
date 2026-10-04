@@ -57,8 +57,8 @@ typedef struct {
   bool withCount;
 
   // Drain-only mode: rpnetNext pops already-queued replies without blocking
-  // and maps timeouts to EOF. Set by the RETURN-STRICT timeout callback after
-  // BG has exited the pipeline, so no concurrent reader - plain bool is safe.
+  // and treats an empty channel as EOF. Set by RETURN-STRICT main-thread
+  // serialization after BG has exited the pipeline, so a plain bool is safe.
   bool drainOnly;
 
   // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.

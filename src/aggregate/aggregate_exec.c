@@ -950,6 +950,9 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
+  if (!QueryRequest_UsesReplyCallback(&req->base)) {
+    QueryRequest_RecordInlineReply(&req->base);
+  }
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (!(reqFlags & QEXEC_F_IS_CURSOR) && !(reqFlags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
@@ -1160,6 +1163,7 @@ void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
       AREQ_SignalAggregateResultsComplete(req);
     }
   } else {
+    QueryRequest_RecordInlineReply(&req->base);
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, err);
   }
@@ -1785,7 +1789,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       }
       replyCallback = QueryReplyCallback;
       timeoutMS = r->reqConfig.queryTimeoutMS;
-      QueryRequest_SetUseReplyCallback(&r->base, true);
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
@@ -2101,9 +2104,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     // ends.
     RS_ASSERT(AREQ_SearchCtx(req)->redisCtx == NULL); // parked with no loan
     AREQ_SearchCtx(req)->redisCtx = ctx;
-    // useReplyCallback is authoritative from the caller: blocking dispatches
-    // set it according to whether a reply callback will serialize stored
-    // results on main; inline paths clear it before invoking cursorRead.
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
@@ -2199,9 +2199,6 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   // If a timeout is armed, both callbacks must be provided (mirrors the shard
   // Block helpers). RETURN passes no callbacks and no timer.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
-  // Deferred (callback) reply iff a reply callback will serialize stored
-  // results on main; RETURN replies inline from the BG job.
-  QueryRequest_SetUseReplyCallback(&req->base, reply_cb != NULL);
   RedisModuleBlockedClient *bc =
       RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
   // Safe against the just-armed timer: the timeout callback runs on this same
@@ -2419,11 +2416,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
                                                            : CursorReadTimeoutReturnStrictCallback;
       timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
-      QueryRequest_SetUseReplyCallback(&req->base, true);
-    } else {
-      // RETURN: reply written inline; clear any stale useReplyCallback
-      // from a prior callback-based cursor read so runCursor doesn't park the cursor.
-      QueryRequest_SetUseReplyCallback(&req->base, false);
     }
     QueryRequestTimeout_BeginCycle(
         &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
@@ -2461,8 +2453,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       if (inline_req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
         fallbackCursorToReturn(cursor, inline_req);
       }
-      // Reply inline via ctx; clear stale useReplyCallback.
-      QueryRequest_SetUseReplyCallback(&inline_req->base, false);
       QueryRequestTimeout_BeginCycle(&inline_req->base.timeout,
                                      QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
