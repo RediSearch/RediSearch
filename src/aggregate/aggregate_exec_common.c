@@ -89,13 +89,19 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
-   SearchResult **results = array_new(SearchResult *, 8);
+   SearchResult **results = NULL;
+   AggregateResultsContinue(rp, areq, rc, &results);
+   return results;
+ }
+
+ void AggregateResultsContinue(ResultProcessor *rp, AREQ *areq, int *rc, SearchResult ***results) {
+   if (!*results) *results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
    while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
 
-     array_append(results, SearchResult_AllocateMove(&r));
+     array_append(*results, SearchResult_AllocateMove(&r));
 
      debugCheckAndPauseAfterAggregateResult(areq);
 
@@ -114,8 +120,6 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    if (*rc != RS_RESULT_OK) {
      SearchResult_Destroy(&r);
    }
-
-   return results;
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {

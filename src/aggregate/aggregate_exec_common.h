@@ -32,6 +32,13 @@ void destroyResults(SearchResult **results);
 // shortcut for the main-thread RETURN-STRICT abort signal.
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
+// Keep the output prefix published, including reallocations, before entering
+// Next again. `rc` and the in-flight row must be worker-private: a scoped wait
+// may hand off `results` to recovery before Next returns TIMEDOUT. On that return
+// this function touches only its private row and rc, not the published prefix.
+void AggregateResultsContinue(ResultProcessor *rp, struct AREQ *areq, int *rc,
+                              SearchResult ***results);
+
 typedef struct CommonPipelineCtx {
   const struct QueryRequestTimeout *timeout;
   RSOomPolicy oomPolicy;
