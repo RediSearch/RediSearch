@@ -27,6 +27,14 @@ typedef struct RLookup RLookup;
 typedef struct RLookupRow RLookupRow;
 
 /**
+ * Decodes one block at a time into lookup rows, for a caller that yields a row per call back into C.
+ *
+ * [`RowBlockDecoder::begin`] resolves each column to a lookup key once; [`RowBlockDecoder::next_row`] writes values
+ * by key. Decoded strings are copied out of the block, which the caller keeps until the block ends.
+ */
+typedef struct RowBlockDecoder RowBlockDecoder;
+
+/**
  * Builds one block per chunk: [`RowBlockWriter::write_schema`], then [`RowBlockWriter::write_row`] per row. Reused
  * across chunks via [`RowBlockWriter::reset`].
  */
@@ -35,6 +43,81 @@ typedef struct RowBlockWriter RowBlockWriter;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema.
+ *
+ * # Safety
+ *
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+ * 2. `lk` must be a non-null pointer to a [valid] `RLookup` meeting [`RowBlockDecoder::begin`]'s `lookup` contract.
+ * 3. `buf` must be [valid] for reads of `len` bytes, meeting [`RowBlockDecoder::begin`]'s `block` contract.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RowBlockDecoder_Begin(struct RowBlockDecoder *d, struct RLookup *lk, const char *buf, size_t len);
+
+/**
+ * See [`RowBlockDecoder::ncols`].
+ *
+ * # Safety
+ *
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+ */
+size_t RowBlockDecoder_ColumnCount(const struct RowBlockDecoder *d);
+
+/**
+ * See [`RowBlockDecoder::end`].
+ *
+ * # Safety
+ *
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+ */
+void RowBlockDecoder_End(struct RowBlockDecoder *d);
+
+/**
+ * # Safety
+ *
+ * 1. `d` must be a non-null pointer returned by [`RowBlockDecoder_New`] and not freed since.
+ */
+void RowBlockDecoder_Free(struct RowBlockDecoder *d);
+
+/**
+ * See [`RowBlockDecoder::has_rows`].
+ *
+ * # Safety
+ *
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+ */
+bool RowBlockDecoder_HasRows(const struct RowBlockDecoder *d);
+
+/**
+ * See [`RowBlockDecoder::is_active`].
+ *
+ * # Safety
+ *
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
+ */
+bool RowBlockDecoder_IsActive(const struct RowBlockDecoder *d);
+
+/**
+ * Free it with [`RowBlockDecoder_Free`].
+ */
+struct RowBlockDecoder *RowBlockDecoder_New(void);
+
+/**
+ * See [`RowBlockDecoder::next_row`]; returns false for a malformed row.
+ *
+ * # Safety
+ *
+ * 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable; and
+ *    [`RowBlockDecoder_HasRows`] must be true for it.
+ * 2. The lookup given to [`RowBlockDecoder_Begin`] for this block must still satisfy its contract.
+ * 3. `row` must be a non-null pointer to a [valid], unaliased `RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RowBlockDecoder_NextRow(struct RowBlockDecoder *d, struct RLookupRow *row);
 
 /**
  * The block built so far, valid until the next call that appends to or resets `w`.

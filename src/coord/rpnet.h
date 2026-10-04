@@ -15,6 +15,7 @@
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
 #include "rs_wall_clock.h"
+#include "row_block_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,6 +87,9 @@ typedef struct {
     uint64_t replies;
     uint64_t fields;
   } breakdown;
+  // Created on the first row block this RP receives; its block is active only while the reply
+  // it came from is current.
+  RowBlockDecoder *blockDecoder;
 
   // Whether to maintain `breakdown`. Timed per row, not per field: a clock pair per field
   // would distort the profiled run.

@@ -5,14 +5,64 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import os
+import tempfile
 from contextlib import contextmanager
 
 from common import *
 
+ROW_BLOCK_CONFIG = 'search-internal-row-block-format'
 
-def config_value(conn, config):
+
+def config_value(conn, config=ROW_BLOCK_CONFIG):
     result = conn.execute_command('CONFIG', 'GET', config)
     return result[config] if isinstance(result, dict) else result[1]
+
+
+def row_block_env(**kwargs):
+    """An Env whose servers start with row blocks on, set in the config file (the flag has no module argument)."""
+    path = os.path.join(tempfile.gettempdir(), f'rs_test_row_block_{os.getpid()}.conf')
+    with open(path, 'w') as f:
+        if Defaults.redis_config_file:
+            # An explicit config file replaces the suite-wide one rather than adding to it.
+            f.write(f'include {os.path.abspath(Defaults.redis_config_file)}\n')
+        f.write(f'{ROW_BLOCK_CONFIG} yes\n')
+    env = Env(redisConfigFile=path, **kwargs)
+    for conn in env.getOSSMasterNodesConnectionList():
+        env.assertEqual(config_value(conn), 'yes')
+    return env
+
+
+@contextmanager
+def row_block_format(env, enabled):
+    conn = env.getConnection()
+    previous = config_value(conn)
+    try:
+        env.assertEqual(conn.execute_command('CONFIG', 'SET', ROW_BLOCK_CONFIG, enabled), 'OK')
+        yield
+    finally:
+        conn.execute_command('CONFIG', 'SET', ROW_BLOCK_CONFIG, previous)
+
+
+def row_block_modes(env):
+    """Yields 'no' with the flag turned off, then 'yes' with it as a `row_block_env` started."""
+    with row_block_format(env, 'no'):
+        yield 'no'
+    env.assertEqual(config_value(env.getConnection()), 'yes')
+    yield 'yes'
+
+
+def row_block_rows(env, reply):
+    if env.protocol == 3:
+        env.assertEqual(set(reply), {'attributes', 'warning', 'total_results', 'format', 'results'})
+        env.assertEqual(reply['warning'], [])
+        env.assertEqual(reply['attributes'], [])
+        env.assertEqual(reply['format'], 'STRING')
+        for row in reply['results']:
+            env.assertEqual(set(row), {'extra_attributes', 'values'})
+            env.assertEqual(row['values'], [])
+        return [row['extra_attributes'] for row in reply['results']]
+    return [dict(zip(row[::2], row[1::2])) for row in reply[1:]]
 
 
 @contextmanager
@@ -103,6 +153,33 @@ def assert_keys_on_every_shard(env):
         env.assertGreater(conn.execute_command('DBSIZE'), 0)
 
 
+def coordinator_network_profile(env, profile):
+    if env.protocol == 3:
+        coordinator = profile['Profile']['Coordinator']
+        return coordinator['Result processors profile'][0]
+    coordinator = to_dict(to_dict(profile[1])['Coordinator'])
+    return to_dict(coordinator['Result processors profile'][0])
+
+
+def assert_same_as_legacy(env, *query, normalize=lambda reply: reply):
+    """Asserts the coordinator replies `query` identically with blocks off and on."""
+    replies = {}
+    for enabled in row_block_modes(env):
+        replies[enabled] = normalize(env.cmd(*query))
+    env.assertEqual(replies['yes'], replies['no'], message=query)
+    return replies['yes']
+
+
+def assert_blocks_used(env, missing, query, *args):
+    """Asserts the shards replied as blocks: a block row counts every column, a RESP row only the fields it has, so
+    `Fields converted` grows by exactly the `missing` absent fields."""
+    counts = {}
+    for enabled in row_block_modes(env):
+        profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', query, *args)
+        counts[enabled] = coordinator_network_profile(env, profile)['Fields converted']
+    env.assertEqual(counts['yes'] - counts['no'], missing, message=(query, args, counts))
+
+
 def add_docs(env, count, key=lambda i: f'doc:{i}', fields=lambda i: ['n', i]):
     """Hashes keyed without a hash tag by default, so they spread across every shard."""
     conn = getConnectionByEnv(env)
@@ -113,8 +190,79 @@ def add_docs(env, count, key=lambda i: f'doc:{i}', fields=lambda i: ['n', i]):
 
 
 def with_optional(i, *fields):
-    """`fields`, plus an `optional` field on odd rows only."""
+    """`fields`, plus an `optional` field on odd rows only (see `assert_blocks_used`)."""
     return [*fields, *(['optional', 'present'] if i % 2 else [])]
+
+
+def without_optional(count):
+    """How many of rows `0..count` `with_optional` leaves without the field."""
+    return (count + 1) // 2
+
+
+def row_block_cursor_values(env):
+    """Decode strings, numbers and missing fields across shard and client cursors."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE',
+               'text', 'TEXT', 'optional', 'TEXT').ok()
+    # Exceed the shard's default chunk size; client COUNT alone does not do so.
+    count = 1005
+    add_docs(env, count, fields=lambda i: with_optional(i, 'n', i, 'text', f'value\x00{i}'))
+    assert_keys_on_every_shard(env)
+
+    expected = [dict(n=str(i), text=f'value\x00{i}',
+                     **({'optional': 'present'} if i % 2 else {})) for i in range(count)]
+    for enabled in row_block_modes(env):
+        reply, cursor = env.cmd(
+            'FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '@n', '@text', '@optional',
+            'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, count, 'WITHCURSOR', 'COUNT', 127)
+        rows = row_block_rows(env, reply)
+        env.assertNotEqual(cursor, 0, message=reply)
+        while cursor:
+            reply, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 127)
+            rows.extend(row_block_rows(env, reply))
+        env.assertEqual(rows, expected, message=enabled)
+    assert_blocks_used(env, without_optional(count), '*', 'LOAD', 3, '@n', '@text', '@optional',
+                       'LIMIT', 0, count)
+
+
+def row_block_reducer_arrays(env):
+    """Shard TOLIST arrays and numeric partial sums survive binary transport."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'category', 'TAG', 'amount', 'NUMERIC').ok()
+    count = 30
+    add_docs(env, count, fields=lambda i: ['category', str(i % 3), 'amount', i,
+                                           'label', f'label{i}'])
+    assert_keys_on_every_shard(env)
+    expected = [dict(category=str(group), total=str(sum(range(group, count, 3))),
+                     labels=sorted(f'label{i}' for i in range(group, count, 3)))
+                for group in range(3)]
+    for enabled in row_block_modes(env):
+        reply = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@label',
+                        'GROUPBY', 1, '@category',
+                        'REDUCE', 'SUM', 1, '@amount', 'AS', 'total',
+                        'REDUCE', 'TOLIST', 1, '@label', 'AS', 'labels',
+                        'SORTBY', 2, '@category', 'ASC')
+        rows = row_block_rows(env, reply)
+        for row in rows:
+            row['labels'].sort()
+        env.assertEqual(rows, expected, message=enabled)
+
+
+def row_block_dynamic_schema_fallback(env):
+    """A changing LOAD * schema replays earlier encoded rows without data loss."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'common', 'TEXT').ok()
+    # A field per document: each shard's LOAD * schema differs from the others' and grows
+    # within its own chunk.
+    count = 30
+    add_docs(env, count, fields=lambda i: ['common', 'x', f'field{i}', i])
+    assert_keys_on_every_shard(env)
+    expected = sorted(sorted([('common', 'x'), (f'field{i}', str(i))]) for i in range(count))
+    # FAIL loads every row before encoding any, so its block carries the grown schema with
+    # null slots instead of falling back; both must yield the same rows.
+    for policy in ('return', 'fail'):
+        with all_shards_config(env, ON_TIMEOUT_CONFIG, policy):
+            for enabled in row_block_modes(env):
+                reply = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LIMIT', 0, count)
+                rows = sorted(sorted(row.items()) for row in row_block_rows(env, reply))
+                env.assertEqual(rows, expected, message=(policy, enabled))
 
 
 def row_block_buffered_reply(env):
@@ -127,6 +275,8 @@ def row_block_buffered_reply(env):
     assert_keys_on_every_shard(env)
 
     query = ['LOAD', 3, '@n', '@text', '@optional', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, count]
+    expected = [dict(n=str(i), text=f'value{i}',
+                     **({'optional': 'present'} if i % 2 else {})) for i in range(count)]
     shard_query = ['_FT.AGGREGATE', 'idx', '*', *query, row_block_token(env)]
     # Both policies make the shard aggregate all rows before replying (startPipelineCommon);
     # with workers that reply is also deferred to the main thread's reply callback.
@@ -135,6 +285,12 @@ def row_block_buffered_reply(env):
             context = dict(policy=policy, workers=workers)
             with all_shards_config(env, ON_TIMEOUT_CONFIG, policy), \
                  all_shards_config(env, 'search-workers', workers):
+                for enabled in row_block_modes(env):
+                    reply = env.cmd('FT.AGGREGATE', 'idx', '*', *query)
+                    env.assertEqual(row_block_rows(env, reply), expected,
+                                    message=(context, enabled))
+                assert_blocks_used(env, without_optional(count), '*', *query)
+
                 with internal_shard_connections(env) as shards:
                     for shard in shards:
                         reply = shard.execute_command(*shard_query)
@@ -263,12 +419,55 @@ def row_block_unsupported_extras(env):
                                 message=name)
 
 
+def row_block_counts(env):
+    """A block counts its rows, even when LIMIT consumes only part of it."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    count = 20
+    add_docs(env, count)
+    assert_keys_on_every_shard(env)
+
+    def rows_and_total(reply):
+        rows = row_block_rows(env, reply)
+        return rows, reply['total_results'] if env.protocol == 3 else reply[0]
+
+    sort = ['SORTBY', 2, '@n', 'ASC']
+    for head, tail in (([], ['LIMIT', 0, 1]), ([], ['LIMIT', 0, 0]), ([], ['LIMIT', 0, 3]),
+                       ([], [*sort, 'LIMIT', 0, 3]),
+                       ([], ['FILTER', '@n > 100', 'LIMIT', 0, 10]),
+                       (['WITHCOUNT'], [*sort, 'LIMIT', 0, 1]),
+                       (['WITHCOUNT'], ['LIMIT', 0, 3])):
+        query = ['FT.AGGREGATE', 'idx', '*', *head, 'LOAD', 1, '@n', *tail]
+        # Toggled at runtime: the coordinator reads the flag per query.
+        with row_block_format(env, 'no'):
+            expected, expected_total = rows_and_total(env.cmd(*query))
+        with row_block_format(env, 'yes'):
+            actual, total = rows_and_total(env.cmd(*query))
+        if head:
+            env.assertEqual(total, count, message=query)
+        if 'SORTBY' in tail:
+            env.assertEqual((actual, total), (expected, expected_total), message=query)
+        else:
+            # Unsorted rows arrive in shard-reply order, which varies between runs, and so
+            # do the shard replies a short LIMIT leaves unread, whose totals go unsummed.
+            env.assertEqual(len(actual), len(expected), message=query)
+            env.assertTrue(all(0 <= int(row['n']) < count for row in actual), message=actual)
+
+
 def row_block_no_columns(env):
-    """With no column to carry, shards reply RESP rows."""
+    """With no column to carry, shards reply RESP rows and the replies stay the same."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     count = 30
     add_docs(env, count)
     assert_keys_on_every_shard(env)
+    for query in (['*'], ['*', 'WITHCOUNT', 'LIMIT', 0, count]):
+        reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', *query)
+        rows = reply['results'] if env.protocol == 3 else reply[1:]
+        env.assertEqual(len(rows), query[-1] if 'LIMIT' in query else count, message=query)
+
+    # The shard part of GROUPBY 0 carries the partial count as its single column.
+    reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', '*',
+                                  'GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'count')
+    env.assertEqual(row_block_rows(env, reply), [{'count': str(count)}])
 
     with internal_shard_connections(env) as shards:
         for shard in shards:
@@ -281,12 +480,52 @@ def row_block_no_columns(env):
 
 @skip(cluster=False)
 def test_row_block_buffered_reply_resp3():
-    row_block_buffered_reply(Env(protocol=3))
+    row_block_buffered_reply(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_buffered_reply():
-    row_block_buffered_reply(Env())
+    row_block_buffered_reply(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_cursor_values_resp3():
+    row_block_cursor_values(row_block_env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_cursor_values():
+    row_block_cursor_values(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_reducer_arrays_resp3():
+    row_block_reducer_arrays(row_block_env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_reducer_arrays():
+    row_block_reducer_arrays(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_dynamic_schema_fallback_resp3():
+    row_block_dynamic_schema_fallback(row_block_env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_dynamic_schema_fallback():
+    row_block_dynamic_schema_fallback(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_resp3_counts():
+    row_block_counts(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_counts():
+    row_block_counts(row_block_env())
 
 
 @skip(cluster=False)
@@ -350,12 +589,12 @@ def test_row_block_token_is_internal_only():
 
 @skip(cluster=False)
 def test_row_block_no_columns_resp3():
-    row_block_no_columns(Env(protocol=3))
+    row_block_no_columns(row_block_env(protocol=3))
 
 
 @skip(cluster=False)
 def test_row_block_no_columns():
-    row_block_no_columns(Env())
+    row_block_no_columns(row_block_env())
 
 
 @skip(cluster=False)
