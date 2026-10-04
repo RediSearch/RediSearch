@@ -298,7 +298,7 @@ class testOomHybridStandaloneBehavior:
 
 @skip(cluster=False)
 @env_spec(shardsCount=3, protocol=3,
-          moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN-STRICT')
+          moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL')
 def test_deferred_hybrid_oom_warning(env):
     """Deferred HYBRID replies retain OOM warnings and count them once."""
     for shard_id in range(env.shardsCount):

@@ -1414,10 +1414,6 @@ class testWarningsAndErrorsCluster:
                       'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
                       'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2) \
               .error().contains(debug_policy_error)
-      allShards_change_timeout_policy(self.env, 'RETURN-STRICT')
-      self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                      'TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3) \
-              .error().contains(debug_policy_error)
     finally:
       self.env.expect('CONFIG', 'SET', 'search-timeout', prev_timeout).ok()
       allShards_change_timeout_policy(self.env, 'RETURN')
