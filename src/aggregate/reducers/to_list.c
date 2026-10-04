@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -62,17 +63,25 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+typedef struct {
+  RSValue **arr;
+  size_t capacity;
+  size_t index;
+} ToListArrayBuilder;
+
+static void tolistTakeKey(void *privdata, void *key) {
+  ToListArrayBuilder *builder = privdata;
+  assert(builder->index < builder->capacity);
+  builder->arr[builder->index++] = key;
+}
+
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   dict *values = ctx;
   size_t len = dictSize(values);
-  dictIterator it;
-  dictInitIterator(&it, values, 0);
   RSValue **arr = RSValue_NewArrayBuilder(len);
-  for (size_t i = 0; i < len; i++) {
-    dictEntry *de = dictNext(&it);
-    arr[i] = RSValue_IncrRef(dictGetKey(de));
-  }
-  dictDeinitIterator(&it);
+  ToListArrayBuilder builder = {.arr = arr, .capacity = len, .index = 0};
+  dictTakeKeys(values, tolistTakeKey, &builder);
+  assert(builder.index == len);
   RSValue *ret = RSValue_NewArrayFromBuilder(arr, len);
   return ret;
 }

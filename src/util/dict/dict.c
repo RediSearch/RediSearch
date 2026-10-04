@@ -686,24 +686,19 @@ dictIterator *RS_dictGetIterator(dict *d)
 {
     dictIterator *iter = rm_malloc(sizeof(*iter));
 
-    RS_dictInitIterator(iter, d, 0);
-    return iter;
-}
-
-void RS_dictInitIterator(dictIterator *iter, dict *d, int safe)
-{
     iter->d = d;
     iter->table = 0;
     iter->index = -1;
-    iter->safe = safe;
+    iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+    return iter;
 }
 
 dictIterator *RS_dictGetSafeIterator(dict *d) {
-    dictIterator *i = rm_malloc(sizeof(*i));
+    dictIterator *i = RS_dictGetIterator(d);
 
-    RS_dictInitIterator(i, d, 1);
+    i->safe = 1;
     return i;
 }
 
@@ -742,7 +737,7 @@ dictEntry *RS_dictNext(dictIterator *iter)
     return NULL;
 }
 
-void RS_dictDeinitIterator(dictIterator *iter)
+void RS_dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
@@ -750,12 +745,34 @@ void RS_dictDeinitIterator(dictIterator *iter)
         else
             assert(iter->fingerprint == dictFingerprint(iter->d));
     }
+    rm_free(iter);
 }
 
-void RS_dictReleaseIterator(dictIterator *iter)
+size_t RS_dictTakeKeys(dict *d, dictKeyTakeFunction *takeKey, void *privdata)
 {
-    RS_dictDeinitIterator(iter);
-    rm_free(iter);
+    size_t count = 0;
+    assert(__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) == 0);
+
+    for (int table = 0; table < 2; table++) {
+        dictht *ht = &d->ht[table];
+        for (unsigned long i = 0; i < ht->size; i++) {
+            dictEntry *entry = ht->table[i];
+            while (entry) {
+                dictEntry *next = entry->next;
+                takeKey(privdata, entry->key);
+                dictFreeVal(d, entry);
+                rm_free(entry);
+                ht->used--;
+                count++;
+                entry = next;
+            }
+        }
+        rm_free(ht->table);
+        _dictReset(ht);
+    }
+    d->rehashidx = -1;
+    d->pauserehash = 0;
+    return count;
 }
 
 /* Return a random entry from the hash table. Useful to
