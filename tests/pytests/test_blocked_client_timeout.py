@@ -2247,6 +2247,24 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
+    def test_return_cursor_warns_for_unloaded_shard_batch(self):
+        """A shard timeout before LOAD publishes no rows, but its warning survives."""
+        env = self.env
+        previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        cursor_id = 0
+        try:
+            result, cursor_id = runDebugQueryCommandTimeoutAfterN(
+                env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                      'WITHCURSOR', 'COUNT', '10'], timeout_res_count=15)
+            env.assertEqual(result['results'], [], message=result)
+            VerifyTimeoutWarningResp3(env, result, message=str(result))
+            env.assertNotEqual(cursor_id, 0, message=result)
+        finally:
+            if cursor_id:
+                env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id).ok()
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
     def test_sticky_policy_return_aggregate_config_fail_cursor_read(self):
         """Cursor created under RETURN keeps RETURN semantics after CONFIG SET to FAIL. """
         env = self.env
@@ -2259,8 +2277,10 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
+        # Isolate cursor policy from loader batching: the shard simulator is
+        # upstream of LOAD, whose incomplete unloaded batch cannot be drained.
         res, cursor_id = runDebugQueryCommandTimeoutAfterN(
-            env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+            env, ['FT.AGGREGATE', 'idx', '*',
                   'WITHCURSOR', 'COUNT', str(chunk_size)],
             timeout_res_count=timeout_after_n)
         env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
@@ -2354,8 +2374,9 @@ class TestCoordinatorTimeout:
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
+        # Keep this policy test independent of an interrupted loader batch.
         res, cursor_id = runDebugQueryCommandTimeoutAfterN(
-            env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+            env, ['FT.AGGREGATE', 'idx', '*',
                   'WITHCURSOR', 'COUNT', str(chunk_size)],
             timeout_res_count=timeout_after_n)
         env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
