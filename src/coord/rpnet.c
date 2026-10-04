@@ -105,14 +105,13 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 
 // A shard asked for row blocks (the `row_block` Rust crate) sends a chunk's rows as one bulk
 // string rather than an array of RESP rows; the reply type tells the two apart. The decoder
-// borrows the block's bytes, so its rows are read only while that reply is current; values
-// are copied out.
+// takes over the string's buffer, since decoded strings point into it and outlive the reply.
 static bool blockBegin(RPNet *nc, MRReply *rows) {
   // A block carries no per-row score, which hybrid subqueries need.
   if (nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
   if (!nc->blockDecoder) nc->blockDecoder = RowBlockDecoder_New();
   size_t len;
-  const char *buf = MRReply_String(rows, &len);
+  char *buf = MRReply_TakeString(rows, &len);
   return RowBlockDecoder_Begin(nc->blockDecoder, nc->lookup, buf, len);
 }
 

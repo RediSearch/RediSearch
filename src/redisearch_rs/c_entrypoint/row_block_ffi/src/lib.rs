@@ -14,9 +14,13 @@ use ffi::{
     SendReplyFlags_SENDREPLY_FLAG_TYPED,
 };
 use query_flags::{QEFlag, QEFlags};
+use redis_module::raw::RedisModule_Free;
 use rlookup::{OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKeyFlags, RLookupRow};
 use row_block::{Block, ColumnFilter, RowBlockDecoder, RowBlockWriter, TrioMember};
-use std::ffi::{c_char, c_uint};
+use std::{
+    ffi::{c_char, c_uint},
+    ptr::NonNull,
+};
 
 /// Free it with [`RowBlockWriter_Free`]; reuse it across chunks with [`RowBlockWriter_Reset`].
 #[unsafe(no_mangle)]
@@ -258,41 +262,52 @@ pub unsafe extern "C" fn RowBlockDecoder_Free(d: *mut RowBlockDecoder) {
     drop(unsafe { Box::from_raw(d) });
 }
 
-/// See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema.
+/// See [`RowBlockDecoder::begin`]; returns false for a malformed header or schema. Either way the buffer now belongs to
+/// the decoder and its strings, and is freed with `RedisModule_Free`.
 ///
 /// # Safety
 ///
 /// 1. Same contract as [`RowBlockDecoder_Free`]'s `d`, except that the decoder stays usable.
 /// 2. `lk` must be a non-null pointer to a [valid] `RLookup` meeting [`RowBlockDecoder::begin`]'s `lookup` contract.
-/// 3. `buf` must be [valid] for reads of `len` bytes, meeting [`RowBlockDecoder::begin`]'s `block` contract.
+/// 3. `buf` must point to `len` bytes from `RedisModule_Alloc`, which the caller gives up.
+/// 4. The Redis allocator must stay initialized until the buffer is freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RowBlockDecoder_Begin(
     d: *mut RowBlockDecoder,
     lk: *mut OpaqueRLookup,
-    buf: *const c_char,
+    buf: *mut c_char,
     len: usize,
 ) -> bool {
     // SAFETY: ensured by caller (1.)
     let decoder = unsafe { decoder_mut(d) };
     // SAFETY: ensured by caller (2.)
     let lookup = unsafe { RLookup::from_opaque_mut_ptr(lk) }.expect("a non-null RLookup");
-    // A reply without a string payload gives no pointer to slice, whatever `len` says.
-    if buf.is_null() {
+    // A reply without a string payload gives no buffer to take over.
+    let Some(block) = NonNull::new(buf.cast::<u8>()) else {
         return false;
-    }
-    // SAFETY: ensured by caller (3.)
-    let block = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
+    };
 
-    // SAFETY: ensured by caller (2., 3.)
-    match unsafe { decoder.begin(lookup, block) } {
+    // SAFETY: ensured by caller (2., 3.), and (4.) for `rm_free`.
+    match unsafe { decoder.begin(lookup, block, len, rm_free) } {
         Ok(()) => true,
         Err(error) => {
             tracing::warn!(%error, "malformed row block in shard reply");
             false
         }
     }
+}
+
+/// # Safety
+///
+/// 1. `block` must have been allocated with `RedisModule_Alloc`, and not be freed since.
+/// 2. The Redis allocator must be initialized.
+unsafe fn rm_free(block: NonNull<u8>, _len: usize) {
+    // SAFETY: ensured by caller (2.)
+    let free = unsafe { RedisModule_Free }.expect("the Redis allocator is initialized");
+    // SAFETY: ensured by caller (1.)
+    unsafe { free(block.as_ptr().cast()) };
 }
 
 /// See [`RowBlockDecoder::is_active`].

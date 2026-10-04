@@ -24,5 +24,6 @@ mod kinds;
 mod properties;
 mod refusal;
 mod schema;
+mod sharing;
 mod trio;
 mod values;
