@@ -612,9 +612,12 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   return ret;
 }
 
-/* Legacy Enterprise logic: `tls-cluster` should always be `yes` when `tls-port` is set, but dual
- * port is not expected there, so `tls-port` alone also means the cluster ports are TLS. */
-static bool localConfigUsesTLS(void) {
+/* Serves MREndpointTLS_LegacyFromLocalConfig only. The `tls-port` fallback is legacy Enterprise
+ * logic: `tls-cluster` should always be `yes` when `tls-port` is set, but dual port is not expected
+ * there, so `tls-port` alone also means the cluster ports are TLS. Elsewhere, `tls-port` says
+ * nothing about the cluster ports; a new path that must read the config live should check only
+ * `tls-cluster`, and preferably take the port type from the topology instead. */
+static bool legacyEnterpriseConfigUsesTLS(void) {
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
   bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
@@ -626,7 +629,7 @@ static bool MRConn_UsesTLS(const MRConn *conn) {
   switch (conn->ep.tls) {
     case MREndpointTLS_Off: return false;
     case MREndpointTLS_On: return true;
-    case MREndpointTLS_FromLocalConfig: return localConfigUsesTLS();
+    case MREndpointTLS_LegacyFromLocalConfig: return legacyEnterpriseConfigUsesTLS();
   }
   RS_ABORT("Unknown MREndpointTLS");
 }

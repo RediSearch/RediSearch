@@ -237,7 +237,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
           ERROR_BADVAL("ADDR", addr);
           goto error;
         }
-        sh->node.endpoint.tls = MREndpointTLS_FromLocalConfig;
+        sh->node.endpoint.tls = MREndpointTLS_LegacyFromLocalConfig;
 
       } else if (AC_AdvanceIfMatch(&ac, "UNIXADDR")) {
         /* Optional UNIXADDR <unix_addr> */

@@ -18,10 +18,10 @@ extern "C" {
 typedef enum {
   MREndpointTLS_Off = 0,
   MREndpointTLS_On,
-  /* The topology source doesn't report the port type, and the shard may switch it live,
-     so it is resolved from the local TLS config on every connect.
-     Used only by the legacy long-form Enterprise topology. */
-  MREndpointTLS_FromLocalConfig,
+  /* Legacy: for long-form Enterprise `SEARCH.CLUSTERSET` only, which doesn't report the port
+     type while the shard may switch it live. Resolved from the local config on every connect.
+     Do not use for new topology sources; take the port type from the topology instead. */
+  MREndpointTLS_LegacyFromLocalConfig,
 } MREndpointTLS;
 
 /* A single endpoint in the cluster */
