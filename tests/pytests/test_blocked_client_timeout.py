@@ -129,6 +129,50 @@ def test_owned_strict_loader_resumes_cursor_without_timeout():
     env.assertEqual(cursor, 0)
 
 
+@skip(cluster=False)
+def test_owned_strict_coordinator_drains_without_waking_worker():
+    """Recover queued shard replies while the coordinator's Next frame stays parked."""
+    # Explicit timeout and a coordinator-only hook make the handoff deterministic.
+    env = Env(protocol=3, moduleArgs='WORKERS 1 ON_TIMEOUT RETURN-STRICT TIMEOUT 0')
+    skipIfNoEnableAssert(env)
+    for shard in range(1, env.shardsCount + 1):
+        verify_shard_init(env.getConnection(shard))
+    env.expect('FT.CREATE', 'owned_idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{owned}:1', 'n', 7)
+    query = ['FT.AGGREGATE', 'owned_idx', '*', 'LOAD', 1, '@n', 'LIMIT', 0, 10]
+    result = []
+    point = 'RpnetWaitingForReply'
+    worker = threading.Thread(target=call_and_store, args=(env.cmd, query, result), daemon=True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+    try:
+        worker.start()
+        client = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+            'coordinator did not release ownership before its reply pop')
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'BG_PENDING_REPLIES') == 0, {}),
+            'shard replies were not queued')
+        env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+        worker.join(timeout=5)
+        env.assertFalse(worker.is_alive(), message='timeout waited for the parked coordinator')
+        env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point).equal(1)
+        env.assertEqual(result, [{
+            'attributes': [], 'format': 'STRING', 'total_results': 1,
+            'results': [{'extra_attributes': {'n': '7'}, 'values': []}],
+            'warning': [TIMEOUT_WARNING],
+        }])
+    finally:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        worker.join(timeout=5)
+    complete = env.cmd(*query)
+    env.assertEqual(complete, {
+        'attributes': [], 'format': 'STRING', 'total_results': 1,
+        'results': [{'extra_attributes': {'n': '7'}, 'values': []}], 'warning': [],
+    })
+
+
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
@@ -3569,26 +3613,12 @@ class TestCoordinatorTimeout:
         self._drive_one_shard_paused_aggregate_return_strict(agg_steps, assert_reply)
 
     def test_return_strict_timeout_sortby_then_filter_one_shard_paused_aggregate(self):
-        """RETURN_STRICT timeout on FT.AGGREGATE SORTBY ... FILTER with one shard's reply gated off.
-
-        Negative counterpart to test_return_strict_timeout_apply_sortby_*:
-        the coordinator pipeline here is RPNet -> RPSorter -> RPPager ->
-        RPFilter, i.e. RPSorter sits in the middle and an RPFilter is the
-        end RP. (FILTER is the only step that AGGPLN_Distribute leaves
-        local once a SORTBY has set hadArrange=true; APPLY/LOAD are
-        always pushed onto the shards.)
-
-        pipelineCanYieldPartialResults sees RPFilter as the end (not
-        RPPager_Limiter, so the pager-peeling branch is not taken) and
-        falls through to the final RPSorter check, which fails. The
-        coordinator must therefore take the discard path: no rows and a
-        TIMEOUT warning, even though the sorter's heap was populated
-        from the responsive shards.
-        """
-        self._run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
+        """The downstream filter drains sorted rows from responsive shards."""
+        self._run_return_strict_timeout_sortby_one_shard_paused_aggregate(
             agg_steps=['SORTBY', '1', '@name',
                        'FILTER', '1==1',
-                       'LIMIT', '0', str(self.n_docs)])
+                       'LIMIT', '0', str(self.n_docs)],
+            sort_field='name')
 
     def test_return_strict_timeout_groupby_sortby_one_shard_paused_aggregate(self):
         """RETURN_STRICT timeout on FT.AGGREGATE GROUPBY ... SORTBY with one shard's reply gated off.
