@@ -675,18 +675,17 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         while (!AC_IsAtEnd(&ac)) {
           const char *name = AC_GetStringNC(&ac, NULL);
 
-          // Check for AS alias
-          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
-            if (AC_IsAtEnd(&ac)) {
-              break;
-            }
+          // `AS` introduces an alias only when the alias itself follows it.
+          // Client LOAD clauses that end on `AS` are rejected while parsing
+          // (`PLNLoadStep_ValidateArgs`), but the steps this planner generates
+          // itself (the `PLN_T_FILTER` case in `AGGPLN_Distribute`) are plain
+          // field lists with no alias syntax at all, so their last token may
+          // be a field named `AS` and must not be consumed as the keyword.
+          // Such a field earlier in a generated list is still misread as the
+          // keyword — a wrong-result bug, not an over-read, left as is here.
+          if (AC_NumRemaining(&ac) >= 2 && AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
             name = AC_GetStringNC(&ac, NULL);
           }
-
-          if (!name) {
-            break;
-          }
-
           name = stripAtPrefix(name);
           RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
         }

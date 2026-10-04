@@ -12,9 +12,11 @@
 #include <string.h>
 
 #include "obfuscation/hidden.h"
+#include "query_error.h"
 #include "rlookup_ffi.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "spec.h"
 #include "util/dllist.h"
 
 static const char *steptypeToString(PLN_StepType type) {
@@ -233,6 +235,24 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
 
 
   return cloned;
+}
+
+int PLNLoadStep_ValidateArgs(const ArgsCursor *args, QueryError *status) {
+  // Walks the slice the way the pipeline's LOAD step does, and reuses its
+  // message, so the client sees the same rejection it always did, only earlier.
+  ArgsCursor ac = *args;
+  while (!AC_IsAtEnd(&ac)) {
+    AC_Advance(&ac);  // the field path
+    if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+      if (AC_IsAtEnd(&ac)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "LOAD path AS name - must be accompanied with NAME");
+        return REDISMODULE_ERR;
+      }
+      AC_Advance(&ac);  // the alias
+    }
+  }
+  return REDISMODULE_OK;
 }
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
