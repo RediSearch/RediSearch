@@ -54,12 +54,13 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     QITR_PushRP(&hidden->pipeline.qctx, producer);
     request->reqflags |= QEXEC_F_PROFILE;
     request->reqConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
-    request->poolId = -1;
+    static bool profileCalled;
+    profileCalled = false;
     request->profile = [](RedisModule_Reply *reply, HybridRequest *request, const bool *published) {
       EXPECT_NE(nullptr, published);
       EXPECT_FALSE(published[0]);
       EXPECT_TRUE(published[1]);
-      request->poolId = 99;
+      profileCalled = true;
       RedisModule_Reply_EmptyMap(reply);
     };
     QueryError_SetError(&hidden->base.reply.err, QUERY_ERROR_CODE_GENERIC, "unpublished failure");
@@ -76,7 +77,7 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     }
     RedisModule_EndReply(&reply);
 
-    EXPECT_EQ(99, request->poolId);
+    EXPECT_TRUE(profileCalled);
     EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&hidden->base.reply.err));
     EXPECT_FALSE(request->base.reply.hasStoredResults);
     EXPECT_EQ(nullptr, request->base.reply.results);
