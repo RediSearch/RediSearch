@@ -4033,6 +4033,53 @@ class TestCoordinatorTimeout:
 
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def _owned_hybrid_recovers_parked_network_producer(self, profile=False):
+        env = self.env
+        skipIfNoEnableAssert(env)
+        previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        points = ('AfterHybridPipelinePublished', 'RpnetWaitingForReply')
+        query = ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                 'VSIM', '@embedding', '$BLOB',
+                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec]
+        if profile:
+            query = ['FT.PROFILE', query[1], 'HYBRID', 'QUERY'] + query[2:]
+        replies = []
+        worker = threading.Thread(target=call_and_store, args=(env.cmd, query, replies), daemon=True)
+        try:
+            for point in points:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+            worker.start()
+            for point in points:
+                wait_for_condition(
+                    lambda point=point: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                    f'coordinator did not reach {point}')
+            client = wait_for_blocked_query_client(env, query[0])
+            env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+            worker.join(timeout=5)
+            env.assertFalse(worker.is_alive(), message='timeout waited for a parked coordinator job')
+            env.assertEqual(len(replies), 1, message=replies)
+            env.assertEqual(replies[0]['results'], [], message=replies)
+            assert_timeout_warning(env, replies[0], message=str(replies))
+            if profile:
+                env.assertContains('Profile', replies[0], message=replies)
+            for point in points:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point).equal(1)
+        finally:
+            for point in points:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            worker.join(timeout=5)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()
+
+    def test_owned_hybrid_recovers_parked_network_producer(self):
+        """Reply without waking a published tail or its network producer jobs."""
+        self._owned_hybrid_recovers_parked_network_producer()
+
+    def test_owned_hybrid_profiles_parked_network_producer(self):
+        """Profile serialization must not wait for parked network producers."""
+        self._owned_hybrid_recovers_parked_network_producer(profile=True)
+
     def test_return_strict_timeout_at_claim_sync_point_hybrid(self):
         """RETURN_STRICT timeout while BG is parked before HybridRequest_TryClaimAggregateResults.
 
@@ -4386,19 +4433,12 @@ class TestCoordinatorTimeout:
         ``_FT.HYBRID`` job runs to completion (cursors stored, ids sent back
         to the coord) but every shard's cursor-read worker then parks at the
         sync point before sending its first chunk. Once every shard is
-        parked, the coord BG is guaranteed to be sleeping in
-        ``MRChannel_PopWithTimeout`` waiting for cursor-read replies that
-        never arrive.
+        parked, no cursor-read reply can arrive to complete a network producer.
 
-        Fires ``CLIENT UNBLOCK ... TIMEOUT`` to flip ``syncCtx.timedOut`` on
-        every subquery AREQ and broadcast on each registered abort channel;
-        BG observes the abort, returns ``RS_RESULT_TIMEDOUT`` from each
-        depleter, the merger switches to Yield with an empty dict, the tail
-        pipeline returns ``TIMEDOUT``, and the main-thread callback replies
-        with whatever the tail already placed in ``storedReplyState.results``
-        via ``serializeStoredResults_hybrid``. The coordinator hybrid
-        pipeline is not drainable, so no partial rows are harvested from the
-        tail processors after the deadline.
+        Fires ``CLIENT UNBLOCK ... TIMEOUT`` and checks both the reply and
+        coordinator job completion before releasing any shard. Owned recovery
+        must not wait for producers, and subsequent producer cleanup must not
+        depend on a shard response.
 
         ``agg_steps_suffix`` is appended after the standard
         ``SEARCH * VSIM @embedding $BLOB PARAMS 2 BLOB <vec>`` prefix so
@@ -4453,9 +4493,15 @@ class TestCoordinatorTimeout:
             )
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+        completed_jobs = getCoordThpoolStats(env)['totalJobsDone']
         try:
             env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
             wait_for_client_unblocked(env, blocked_client_id)
+            # Both producers and the tail must finish without requiring a shard reply.
+            wait_for_condition(
+                lambda: (getCoordThpoolStats(env)['totalJobsDone'] >= completed_jobs + 3,
+                         getCoordThpoolStats(env)),
+                'coordinator cleanup waited for paused shards', timeout=5)
 
             # Release the parked workers so they complete sendChunk and clean
             # up their cursors. The coord cursors were freed by the timeout
