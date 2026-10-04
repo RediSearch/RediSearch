@@ -35,6 +35,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "pipeline/pipeline.h"
+#include "pipeline_execution.h"
 #include "result_processor.h"
 #include "value_ffi.h"
 #include "module.h"
@@ -113,8 +114,10 @@ static inline HybridWarningMask handleAndReplyWarning(RedisModule_Reply *reply, 
   return HYBRID_WARNING_NONE;
 }
 
-static bool HybridRequest_HasShardTimedOutWarning(const HybridRequest *hreq) {
+static bool HybridRequest_HasShardTimedOutWarning(const HybridRequest *hreq,
+                                                  const bool *published) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (published && !published[i]) continue;
     if (hreq->requests[i]->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING) {
       return true;
     }
@@ -149,14 +152,22 @@ static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, bool internal,
 // Reply with warnings, adding suffixes to indicate the originating context
 // (search/vsim/post-processing)
 static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
-                                                   QueryProcessingCtx *qctx, int postProcessingRC) {
+                                                   QueryProcessingCtx *qctx, int postProcessingRC,
+                                                   const bool *published) {
   HybridWarningMask warnings = HYBRID_WARNING_NONE;
 
   // Handle warnings from each subquery, adding appropriate suffix
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    QueryError* err = &hreq->requests[i]->base.reply.err;
     const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+    if (published && !published[i]) {
+      if (subQueryReturnCode == RS_RESULT_TIMEDOUT) {
+        ReplyWarning(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), suffix);
+        warnings |= HYBRID_WARNING_TIMEOUT;
+      }
+      continue;
+    }
+    QueryError* err = &hreq->requests[i]->base.reply.err;
     warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
   }
 
@@ -360,7 +371,7 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
  * Closes results array, adds warnings, execution_time, profile, and closes the map.
  */
 static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
-  QueryProcessingCtx *qctx, int rc) {
+                                        QueryProcessingCtx *qctx, int rc, const bool *published) {
   RedisModule_Reply_ArrayEnd(reply); // >results
 
   // warnings
@@ -376,6 +387,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   // query-scoped, not per-subquery, so it is emitted once here.
   bool oomWarning = QueryError_HasQueryOOMWarning(qctx->err);
   for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (published && !published[i]) continue;
     oomWarning = oomWarning || QueryError_HasQueryOOMWarning(&hreq->requests[i]->base.reply.err);
   }
   if (oomWarning) {
@@ -389,7 +401,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     warnings |= HYBRID_WARNING_TIMEOUT;
   }
-  if (!timeoutWarningReplied && HybridRequest_HasShardTimedOutWarning(hreq) &&
+  if (!timeoutWarningReplied && HybridRequest_HasShardTimedOutWarning(hreq, published) &&
       !HybridRequest_HasTimedOutSubquery(hreq)) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     warnings |= HYBRID_WARNING_TIMEOUT;
@@ -398,7 +410,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
 
-  warnings |= replyWarningsWithSuffixes(reply, hreq, qctx, rc);
+  warnings |= replyWarningsWithSuffixes(reply, hreq, qctx, rc, published);
   updateHybridWarningMetrics(warnings);
 
   RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -409,7 +421,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
 
   if (IsProfile(hreq)) {
-    hreq->profile(reply, hreq);
+    hreq->profile(reply, hreq, published);
   }
 
   RedisModule_Reply_MapOrArrayEnd(reply);
@@ -423,7 +435,8 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
                                             ResultProcessor *rp, QueryProcessingCtx *qctx, int rc,
                                             cachedVars *cv, SearchResult *r,
-                                            SearchResult ***results, const QueryError *err) {
+                                            SearchResult ***results, const QueryError *err,
+                                            const bool *published) {
 
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
@@ -454,7 +467,7 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
     }
   }
 
-  finishSendChunkReply_hybrid(hreq, reply, qctx, rc);
+  finishSendChunkReply_hybrid(hreq, reply, qctx, rc, published);
   return true;
 }
 
@@ -531,6 +544,56 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 
 }
 
+typedef struct {
+  HybridRequest *request;
+  cachedVars cv;
+  size_t limit;
+} OwnedHybridChunk;
+
+static bool *snapshotHybridInputPublication(const HybridRequest *hreq) {
+  bool *published = NULL;
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    ResultProcessor *input = hreq->requests[i]->pipeline.qctx.endProc;
+    if (input && input->type == RP_PROFILE) input = input->upstream;
+    bool ready =
+        !input || input->type != RP_SAFE_DEPLETER || RPSafeDepleter_HasPublishedOutput(input);
+    // The normal completed-input path needs no allocation, and cached yield
+    // callbacks avoid taking the publication mutex again.
+    if (!ready && !published) {
+      published = rm_calloc(hreq->nrequests, sizeof(*published));
+      for (size_t j = 0; j < i; ++j) published[j] = true;
+    }
+    if (published) published[i] = ready;
+  }
+  return published;
+}
+
+static void executeOwnedHybridChunk(PipelineAccess *access, void *data) {
+  OwnedHybridChunk *work = data;
+  HybridRequest *hreq = work->request;
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  qctx->resultLimit = work->limit;
+  HREQ_StoreResults(hreq, NULL, RS_RESULT_OK, work->cv);
+  hreq->base.reply.limit = work->limit;
+#ifdef ENABLE_ASSERT
+  if (PipelineAccess_DebugPause(access, SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM)) return;
+#endif
+  PipelineAccess_Publish(access, qctx);
+#ifdef ENABLE_ASSERT
+  if (PipelineAccess_DebugPause(access, SYNC_POINT_AFTER_HYBRID_PIPELINE_PUBLISHED)) return;
+#endif
+  int rc = RS_RESULT_EOF;
+  AggregateResultsContinue(qctx->endProc, hreq->requests[SEARCH_INDEX], &rc,
+                           &hreq->base.reply.results);
+  if (!PipelineAccess_IsOwned(access)) return;
+  hreq->base.reply.rc = rc;
+  if (rc != RS_RESULT_TIMEDOUT) HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
+  RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+  if (sctx && sctx->spec) qctx->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
+  debugPauseStoreResultsHybrid(hreq, true);
+  debugPauseStoreResultsHybrid(hreq, false);
+}
+
 // Helper for error handling in coordinator HREQ execution.
 // FAIL / RETURN_STRICT (deferred reply): store the error for the
 //   reply_callback to handle.
@@ -576,12 +639,18 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  * @param cv Cached variables for result processing
  */
 void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
+    if (hreq->base.execution) {
+      OwnedHybridChunk work = {.request = hreq, .cv = cv, .limit = limit};
+      PipelineExecution_RunNext(hreq->base.execution, executeOwnedHybridChunk, &work);
+      return;
+    }
     SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
     const QueryError *fatalError = NULL;
+    bool *published = NULL;
     bool countQuery = true;
 
     // Set the chunk size limit for the query
@@ -622,9 +691,11 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     QueryRequest_RecordInlineReply(&hreq->base);
 
-    fatalError = HybridRequest_GetFatalError(hreq);
+    published = snapshotHybridInputPublication(hreq);
+    fatalError = HybridRequest_GetPublishedFatalError(hreq, published);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError, published);
+    rm_free(published);
 
 done_err:
   finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
@@ -636,28 +707,120 @@ done_err:
  * Called by DistHybridReplyCallback on the main thread after background thread stored results.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
-    QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-    ResultProcessor *rp = qctx->endProc;
-    ChunkReplyState *stored = &hreq->base.reply;
+  bool *published = snapshotHybridInputPublication(hreq);
+  if (published && !hreq->base.reply.results) {
+    hreq->base.reply.results = array_new(SearchResult *, 0);
+  }
+  serializePublishedResults_hybrid(hreq, reply, published);
+  rm_free(published);
+}
 
-    // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
-    SearchResult r = SearchResult_New();
+void serializePublishedResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
+                                     const bool *published) {
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  ResultProcessor *rp = qctx->endProc;
+  ChunkReplyState *stored = &hreq->base.reply;
+  RS_ASSERT(!published || stored->results != NULL);
 
-    // Get stored results and rc
-    SearchResult **results = stored->results;
-    int rc = stored->rc;
-    const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
-    bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
+  // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
+  SearchResult r = SearchResult_New();
 
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
-                                    fatalError);
+  // Get stored results and rc
+  SearchResult **results = stored->results;
+  int rc = stored->rc;
+  const QueryError *fatalError = HybridRequest_GetPublishedFatalError(hreq, published);
+  bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
-    // Clear stored results pointer since ownership was transferred
-    stored->results = NULL;
-    stored->hasStoredResults = false;
+  serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, fatalError,
+                                  published);
 
-    finishSendChunk_HREQ(hreq, results, &r,
-                         rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), countQuery);
+  // Clear stored results pointer since ownership was transferred
+  stored->results = NULL;
+  stored->hasStoredResults = false;
+
+  finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
+                       countQuery);
+}
+
+typedef struct {
+  RedisModuleCtx *ctx;
+  HybridRequest *request;
+  bool recoverInputs;
+} OwnedHybridTimeoutReply;
+
+static void excludeHybridTail(PipelineAccess *access, void *data) {
+  OwnedHybridTimeoutReply *work = data;
+  QueryProcessingCtx *qctx = PipelineAccess_Context(access);
+  if (!qctx) return;
+  HybridRequest *hreq = work->request;
+  work->recoverInputs =
+      hreq->base.reply.rc != RS_RESULT_EOF && hreq->base.reply.rc != RS_RESULT_ERROR;
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    ResultProcessor *input = hreq->requests[i]->pipeline.qctx.endProc;
+    if (input->type == RP_PROFILE && input->parent == qctx) RPProfile_Resume(input);
+  }
+}
+
+static void drainAndReplyOwnedHybrid(PipelineAccess *access, void *data) {
+  OwnedHybridTimeoutReply *work = data;
+  HybridRequest *hreq = work->request;
+  QueryProcessingCtx *qctx = PipelineAccess_Context(access);
+  if (!qctx) {
+    common_hybrid_query_reply_empty(work->ctx, QUERY_ERROR_CODE_TIMED_OUT, false, IsProfile(hreq));
+    TotalGlobalStats_CountQuery(HREQ_RequestFlags(hreq),
+                                rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock));
+    return;
+  }
+  ChunkReplyState *stored = &hreq->base.reply;
+  if (stored->rc != RS_RESULT_EOF && stored->rc != RS_RESULT_ERROR) {
+    stored->rc = RS_RESULT_TIMEDOUT;
+    if (!stored->results) stored->results = array_new(SearchResult *, 8);
+    RS_ASSERT(array_len(stored->results) <= stored->limit);
+    qctx->resultLimit = stored->limit - array_len(stored->results);
+    for (size_t i = 0; i < hreq->nrequests; ++i) {
+      if (hreq->subqueriesReturnCodes[i] == RS_RESULT_OK ||
+          hreq->subqueriesReturnCodes[i] == RS_RESULT_DEPLETING) {
+        hreq->subqueriesReturnCodes[i] = RS_RESULT_TIMEDOUT;
+      }
+    }
+    Pipeline_CollectDrainResults(qctx->endProc, &stored->rc, &stored->results);
+  }
+  // Publication is one-way. Snapshot after Drain so every input it consumed is
+  // included, without waiting for inputs that are still running or parked.
+  bool *published = snapshotHybridInputPublication(hreq);
+  RedisModule_Reply reply = RedisModule_NewReply(work->ctx);
+  serializePublishedResults_hybrid(hreq, &reply, published);
+  RedisModule_EndReply(&reply);
+  rm_free(published);
+}
+
+void HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq) {
+  OwnedHybridTimeoutReply work = {.ctx = ctx, .request = hreq};
+  // Timeout denies every future tail admission. Once its current segment ends,
+  // producer recovery cannot race the consumer even between these gate scopes.
+  PipelineExecution_RunDrain(hreq->base.execution, excludeHybridTail, &work);
+  if (work.recoverInputs) {
+    for (size_t i = 0; i < hreq->nrequests; ++i) {
+      AREQ *input = hreq->requests[i];
+      if (!input->base.execution) continue;
+      ResultProcessor *depleter = input->pipeline.qctx.endProc;
+      if (depleter->type == RP_PROFILE) depleter = depleter->upstream;
+      RPSafeDepleter_Recover(depleter);
+    }
+  }
+  PipelineExecution_RunDrain(hreq->base.execution, drainAndReplyOwnedHybrid, &work);
+}
+
+void HREQ_EnableProducerOwnership(HybridRequest *hreq) {
+  RS_ASSERT(hreq->base.execution);
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    AREQ *input = hreq->requests[i];
+    RS_ASSERT(!input->base.execution);
+    ResultProcessor *depleter = input->pipeline.qctx.endProc;
+    if (depleter->type == RP_PROFILE) depleter = depleter->upstream;
+    input->base.execution = PipelineExecution_New(&input->base.timeout);
+    RPSafeDepleter_SetExecution(depleter, input->base.execution);
+  }
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -979,6 +1142,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
       if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
         HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
+      if (hreq->base.execution) HREQ_EnableProducerOwnership(hreq);
 #ifdef ENABLE_ASSERT
       // Sync point (debug): pause while still holding the read lock, before
       // the depleters race a queued writer for their own locks.
@@ -1053,10 +1217,8 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
 }
 
 // Timeout callback for standalone FT.HYBRID execution in Run in Threads mode.
-// Called on the main thread when the blocking client times out (RETURN-STRICT
-// policy only). Hybrid's merger/depleter pipeline is not safely drainable from
-// the timeout callback; reply only with either an empty timeout warning or the
-// results already stored by the worker.
+// Owned tails recover without joining producers. Disk compatibility keeps the
+// legacy stored-results handoff until its dedicated loader implementation.
 static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                   int argc) {
   UNUSED(argv);
@@ -1073,6 +1235,11 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
+
+  if (hreq->base.execution) {
+    HREQ_ReplyOwnedTimeout(ctx, hreq);
+    return REDISMODULE_OK;
+  }
 
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
     // The worker has not reached the tail aggregation phase yet.
@@ -1237,6 +1404,10 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
             ? HybridQueryCursorTimeoutReturnStrictCallback
             : HybridQueryTimeoutReturnStrictCallback;
         hreq->base.async.requiresAggregateResultsSync = true;
+        if (!internal && !sctx->spec->diskSpec) {
+          hreq->base.execution = PipelineExecution_New(&hreq->base.timeout);
+          hreq->base.async.requiresAggregateResultsSync = false;
+        }
       }
     }
 
@@ -1299,7 +1470,8 @@ void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
 // output "SEARCH" and "VSIM" profiles grouped together for standalone mode
 // Format: {SEARCH: profile, VSIM: profile} - single shard with both profiles
 void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
-  HybridRequest *hreq = ctx;
+  const HybridProfileView *view = ctx;
+  HybridRequest *hreq = view->request;
   // For standalone mode, output as a single shard map containing both SEARCH
   // and VSIM
   RedisModule_Reply_Map(reply);  // Start shard map
@@ -1312,13 +1484,19 @@ void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
       subqueryType = "VSIM";
     }
     RedisModule_Reply_SimpleString(reply, subqueryType);
-    Profile_Print(reply, areq);
+    if (view->published && !view->published[i]) {
+      RedisModule_Reply_EmptyMap(reply);
+    } else {
+      Profile_Print(reply, areq);
+    }
   }
   RedisModule_Reply_MapEnd(reply);  // End shard map
 }
 
-void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
+void printHybridProfile(RedisModule_Reply *reply, HybridRequest *hreq, const bool *published) {
+  HybridProfileView view = {.request = hreq, .published = published};
+  Profile_PrintInFormat(reply, printHybridProfileShards, &view, printHybridProfileCoordinator,
+                        hreq);
 }
 
 static void fallbackToReturnForInlineExecution(HybridRequest *hreq) {

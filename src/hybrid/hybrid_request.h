@@ -30,6 +30,17 @@ struct Cursor;
 // Field name for implicit key loading in hybrid requests
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
+struct HybridRequest;
+// NULL visibility means ordinary, quiescent reply handling. A recovery caller
+// supplies one entry per subquery, held fixed for the entire synchronous reply.
+typedef void (*HybridProfiler)(RedisModule_Reply *, struct HybridRequest *, const bool *);
+
+// Borrowed only by synchronous profile callbacks; never retained in the request.
+typedef struct {
+  struct HybridRequest *request;
+  const bool *published;
+} HybridProfileView;
+
 typedef struct HybridRequest {
     QueryRequest base;
 
@@ -41,7 +52,7 @@ typedef struct HybridRequest {
     QEFlags reqflags;
     QueryReplyFlags replyflags;
     ProfileClocks profileClocks;
-    profiler_func profile;
+    HybridProfiler profile;
     ProfilePrinterCtx profileCtx;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
@@ -229,6 +240,10 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
 void HybridRequest_Free(HybridRequest *req);
 
 QueryError *HybridRequest_GetFatalError(HybridRequest *req);
+
+// Tail state is exclusively owned; only inputs selected by published may be read.
+// NULL retains the ordinary caller's guarantee that all input metadata is safe.
+QueryError *HybridRequest_GetPublishedFatalError(HybridRequest *req, const bool *published);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

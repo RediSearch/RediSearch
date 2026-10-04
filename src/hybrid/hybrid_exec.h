@@ -73,6 +73,15 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
 
+// Recovery supplies a stable completion-publication snapshot for input metadata.
+void serializePublishedResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
+                                      const bool *published);
+
+// Caller marks the request and every producer timeout before acquiring the tail.
+void HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq);
+// Pipelines are complete, but no producer job has been dispatched yet.
+void HREQ_EnableProducerOwnership(HybridRequest *hreq);
+
 /**
  * Link RETURN_STRICT safe-loader synchronization contexts into the HYBRID tail
  * and subquery pipelines. Must run before any linked safe loader can execute.

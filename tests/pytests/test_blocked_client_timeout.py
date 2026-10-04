@@ -7229,10 +7229,11 @@ class TestShardTimeout:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_return_strict_timeout_at_claim_sync_point_hybrid_standalone(self):
-        """Standalone RETURN_STRICT FT.HYBRID timeout before the tail claims results."""
+        """An unpublished owned tail replies before its parked worker is released."""
         env = self.env
         skipIfNoEnableAssert(env)
         sync_point = 'BeforeHybridResultsClaim'
+        commands_before = env.cmd('INFO', 'MODULES')['search_total_query_commands']
 
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
@@ -7259,11 +7260,13 @@ class TestShardTimeout:
             blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
-            signaled = True
-
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
+            env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(1)
+            env.assertEqual(env.cmd('INFO', 'MODULES')['search_total_query_commands'],
+                            commands_before + 1)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+            signaled = True
             env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
             result = query_result[0]
             env.assertEqual(result['total_results'], 0, message=f"Expected empty reply, got: {result}")
@@ -7398,8 +7401,72 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
-    def test_return_strict_hybrid_stored_rows_are_not_drained_standalone(self):
-        """Standalone RETURN_STRICT FT.HYBRID replies only with rows BG stored."""
+    def _owned_hybrid_profile_recovery(self, loader_point, loaded=False):
+        env = self.env
+        skipIfNoEnableAssert(env)
+        tail_point = 'AfterHybridPipelinePublished'
+        previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        query = self._standalone_hybrid_full_result_query(['LOAD', '1', '@name'])
+        query = ['FT.PROFILE', query[1], 'HYBRID', 'QUERY'] + query[2:]
+        replies = []
+        worker = threading.Thread(target=call_and_store, args=(env.cmd, query, replies), daemon=True)
+        freed_before = _get_blocked_request_onfree_count(env)
+        try:
+            for point in (tail_point, loader_point):
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+            worker.start()
+            for point in (tail_point, loader_point):
+                wait_for_condition(
+                    lambda point=point: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                    f'worker did not reach {point}')
+            client = wait_for_blocked_query_client(env, 'FT.PROFILE')
+            env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+            worker.join(timeout=5)
+            env.assertFalse(worker.is_alive(), message='profile recovery waited for the parked tail')
+            env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', tail_point).equal(1)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', loader_point).equal(1)
+            env.assertEqual(_get_blocked_request_onfree_count(env), freed_before)
+            env.assertEqual(len(replies), 1, message=replies)
+            result = replies[0]
+            # The tail sorter has never executed: source recovery must not bypass
+            # its empty committed heap, even if producer mailboxes now hold rows.
+            env.assertEqual(result['results'], [], message=result)
+            assert_timeout_warning(env, result, message=str(result))
+            profiles = result['Profile']['Shards']
+            env.assertEqual(len(profiles), 1, message=result)
+            for source in ('SEARCH', 'VSIM'):
+                env.assertContains('Result processors profile', profiles[0][source], message=result)
+                processors = profiles[0][source]['Result processors profile']
+                for processor in processors:
+                    env.assertGreaterEqual(processor['Time'], 0, message=result)
+                    env.assertGreaterEqual(processor['Results processed'], 0, message=result)
+                if loaded:
+                    loader = next(p for p in processors if p['Type'] == 'Threadsafe-Loader')
+                    env.assertEqual(loader['Results processed'], self.n_docs, message=result)
+            for processor in result['Profile']['Coordinator']['Result processors profile']:
+                env.assertEqual(processor['Results processed'], 0, message=result)
+                env.assertGreaterEqual(processor['Time'], 0, message=result)
+        finally:
+            for point in (tail_point, loader_point):
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            worker.join(timeout=5)
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()
+        wait_for_condition(
+            lambda: (_get_blocked_request_onfree_count(env) == freed_before + 1, {}),
+            'hybrid request was not freed exactly once after its late worker finished')
+
+    def test_owned_hybrid_profile_recovers_parked_producers(self):
+        """Reclaimed producer profiles are safe even while their jobs stay parked."""
+        self._owned_hybrid_profile_recovery('AfterSafeLoaderGILHandshake')
+
+    def test_owned_hybrid_recovers_loaded_producer_before_job_completion(self):
+        """Recover loaded producers without waking jobs or bypassing the tail sorter."""
+        self._owned_hybrid_profile_recovery('BeforeSafeLoaderExitGIL', loaded=True)
+
+    def test_return_strict_hybrid_recovers_committed_rows_standalone(self):
+        """Owned recovery retains the reply prefix and drains the committed merger."""
         env = self.env
         skipIfNoEnableAssert(env)
 
@@ -7428,10 +7495,10 @@ class TestShardTimeout:
             env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
             env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
             result = query_result[0]
-            env.assertEqual(len(result.get('results', [])), 1,
-                            message=f"Expected exactly the one stored row, got: {result}")
+            env.assertEqual(len(result.get('results', [])), self.n_docs,
+                            message=f"Expected stored prefix plus all committed rows, got: {result}")
             assert_timeout_warning(env, result,
-                                   message=f"standalone FT.HYBRID no-drain timeout, got: {result}")
+                                   message=f"standalone FT.HYBRID recovery timeout, got: {result}")
 
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],

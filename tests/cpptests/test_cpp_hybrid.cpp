@@ -8,12 +8,82 @@
 */
 
 #include "gtest/gtest.h"
+extern "C" {
+#include "reply.h"
+}
 #include "aggregate/aggregate.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
+#include "module.h"
 #include "redismock/util.h"
 
 class HybridRequestBasicTest : public ::testing::Test {};
+
+TEST_F(HybridRequestBasicTest, RecoveryReadsOnlyPublishedInputErrors) {
+  HybridRequest request = {};
+  request.base.reply.err = QueryError_Default();
+  AREQ *visible = AREQ_New(nullptr, 0);
+  // An inaccessible input makes any accidental metadata read fail immediately.
+  AREQ *inputs[] = {nullptr, visible};
+  request.requests = inputs;
+  request.nrequests = 2;
+  bool published[] = {false, true};
+  QueryError_SetError(&visible->base.reply.err, QUERY_ERROR_CODE_GENERIC, "published failure");
+  EXPECT_EQ(&visible->base.reply.err, HybridRequest_GetPublishedFatalError(&request, published));
+  published[1] = false;
+  EXPECT_EQ(nullptr, HybridRequest_GetPublishedFatalError(&request, published));
+  QueryError_SetError(&request.base.reply.err, QUERY_ERROR_CODE_GENERIC, "tail failure");
+  EXPECT_EQ(&request.base.reply.err, HybridRequest_GetPublishedFatalError(&request, published));
+  QueryError_ClearError(&request.base.reply.err);
+  AREQ_Free(visible);
+}
+
+TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsUntouched) {
+  for (bool automatic : {false, true}) {
+    SCOPED_TRACE(automatic);
+    AREQ **requests = array_new(AREQ *, 2);
+    auto *hidden = AREQ_New(nullptr, 0);
+    auto *visible = AREQ_New(nullptr, 0);
+    array_append(requests, hidden);
+    array_append(requests, visible);
+    RMCK::ArgvList args(nullptr, "FT.HYBRID", "idx");
+    auto *sctx = static_cast<RedisSearchCtx *>(rm_new(RedisSearchCtx));
+    *sctx = SEARCH_CTX_STATIC(nullptr, nullptr);
+    auto *request = HybridRequest_New(sctx, requests, 2, args, args.size());
+    auto *producer = RPSafeDepleter_New(DepleterSync_New(1, false), sctx, depleterPool);
+    QITR_PushRP(&hidden->pipeline.qctx, producer);
+    request->reqflags |= QEXEC_F_PROFILE;
+    request->reqConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    request->poolId = -1;
+    request->profile = [](RedisModule_Reply *reply, HybridRequest *request, const bool *published) {
+      EXPECT_NE(nullptr, published);
+      EXPECT_FALSE(published[0]);
+      EXPECT_TRUE(published[1]);
+      request->poolId = 99;
+      RedisModule_Reply_EmptyMap(reply);
+    };
+    QueryError_SetError(&hidden->base.reply.err, QUERY_ERROR_CODE_GENERIC, "unpublished failure");
+    request->subqueriesReturnCodes[0] = RS_RESULT_ERROR;
+    HREQ_StoreResults(request, array_new(SearchResult *, 1), RS_RESULT_TIMEDOUT, cachedVars{});
+    bool published[] = {false, true};
+    auto *ctx = RedisModule_GetThreadSafeContext(nullptr);
+    auto reply = RedisModule_NewReply(ctx);
+
+    if (automatic) {
+      serializeStoredResults_hybrid(request, &reply);
+    } else {
+      serializePublishedResults_hybrid(request, &reply, published);
+    }
+    RedisModule_EndReply(&reply);
+
+    EXPECT_EQ(99, request->poolId);
+    EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&hidden->base.reply.err));
+    EXPECT_FALSE(request->base.reply.hasStoredResults);
+    EXPECT_EQ(nullptr, request->base.reply.results);
+    HybridRequest_Free(request);
+    RedisModule_FreeThreadSafeContext(ctx);
+  }
+}
 
 // Tests that don't require full Redis Module integration
 
