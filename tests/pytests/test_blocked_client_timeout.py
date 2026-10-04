@@ -4039,7 +4039,7 @@ class TestCoordinatorTimeout:
         previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
         points = ('AfterHybridPipelinePublished', 'RpnetWaitingForReply')
-        query = ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+        query = ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '@name:hello0',
                  'VSIM', '@embedding', '$BLOB',
                  'PARAMS', '2', 'BLOB', self.hybrid_query_vec]
         if profile:
@@ -4054,12 +4054,21 @@ class TestCoordinatorTimeout:
                 wait_for_condition(
                     lambda point=point: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
                     f'coordinator did not reach {point}')
+            # Both producer channels must contain their final replies before recovery.
+            # A single matching SEARCH row avoids equal-score ties at the output limit.
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS') == 0, {}),
+                'shard replies did not finish arriving while producers were parked')
             client = wait_for_blocked_query_client(env, query[0])
             env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
             worker.join(timeout=5)
             env.assertFalse(worker.is_alive(), message='timeout waited for a parked coordinator job')
             env.assertEqual(len(replies), 1, message=replies)
-            env.assertEqual(replies[0]['results'], [], message=replies)
+            rows = replies[0]['results']
+            env.assertEqual([row['__key'] for row in rows],
+                            [f'hybrid_doc{i}' for i in range(10)], message=replies)
+            scores = [float(row['__score']) for row in rows]
+            env.assertEqual(scores, sorted(scores, reverse=True), message=replies)
             assert_timeout_warning(env, replies[0], message=str(replies))
             if profile:
                 env.assertContains('Profile', replies[0], message=replies)
