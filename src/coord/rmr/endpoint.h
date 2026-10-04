@@ -15,17 +15,26 @@
 extern "C" {
 #endif
 
+typedef enum {
+  MREndpointTLS_Off = 0,
+  MREndpointTLS_On,
+  /* The topology source doesn't report the port type, and the shard may switch it live,
+     so it is resolved from the local TLS config on every connect.
+     Used only by the legacy long-form Enterprise topology. */
+  MREndpointTLS_FromLocalConfig,
+} MREndpointTLS;
+
 /* A single endpoint in the cluster */
 typedef struct MREndpoint {
   char *host;
   int port;
-  bool isTls;
+  MREndpointTLS tls;
   char *unixSock;
   char *password;
 } MREndpoint;
 
 /* Parse a TCP address into an endpoint, in the format of host:port.
-   The port is assumed to be a TCP port (isTls is always false) */
+   The port is assumed to be a TCP port (`tls` is always MREndpointTLS_Off) */
 int MREndpoint_Parse(const char *addr, MREndpoint *ep);
 
 /* Copy the endpoint's internal strings so freeing it will not hurt another copy of it */
