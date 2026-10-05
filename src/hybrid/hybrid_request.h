@@ -39,6 +39,7 @@ typedef struct HybridRequest {
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
+    QueryReplyFlags replyflags;
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;

@@ -1345,7 +1345,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
   // are disabled; retain the decision for the RESP3 MaxTimeoutCapped warning.
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->base.timeout.config.queryTimeoutMS)) {
-    req->base.timeoutWasCapped = true;
+    req->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
   }
 
   if (IsInternal(req) &&

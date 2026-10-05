@@ -394,7 +394,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     warnings |= HYBRID_WARNING_TIMEOUT;
   }
-  if (hreq->base.timeoutWasCapped) {
+  if (hreq->replyflags & QUERY_REPLY_F_TIMEOUT_CAPPED) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
 
@@ -783,7 +783,7 @@ int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       // Cursor-owned subrequests outlive the parent that resolved the cap.
-      areq->base.timeoutWasCapped |= req->base.timeoutWasCapped;
+      areq->replyflags |= req->replyflags & QUERY_REPLY_F_TIMEOUT_CAPPED;
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->base.cursorConfig.maxIdle, status);
       if (!cursor) {
         RS_ASSERT(QueryError_HasError(status));
@@ -1403,7 +1403,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybridRequest, cmd.hybridParams, &status, internal);
   }
   hybridRequest->reqflags = cmd.hybridParams->aggregationParams.common.reqflags;
-  hybridRequest->base.timeoutWasCapped |= cmd.timeoutWasCapped;
+  if (cmd.timeoutWasCapped) {
+    hybridRequest->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
+  }
 
   if (internal) {
     if (TimeoutConfig_ApplyCoordinatorElapsedTime(

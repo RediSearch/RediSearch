@@ -170,6 +170,7 @@ typedef struct AREQ {
 
   /** Flags controlling query output */
   QEFlags reqflags;
+  QueryReplyFlags replyflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;

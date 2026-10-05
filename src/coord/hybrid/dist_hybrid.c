@@ -732,7 +732,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Set request flags from hybridParams
     hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
-    hreq->base.timeoutWasCapped |= cmd.timeoutWasCapped;
+    if (cmd.timeoutWasCapped) {
+      hreq->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
+    }
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
