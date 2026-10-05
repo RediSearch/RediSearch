@@ -20,6 +20,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <stdexcept>
 #include <cstdint>
 #include <vector>
 
@@ -120,6 +121,53 @@ static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
   ASSERT_NE(0u, trieNodeChildKeyAddress(prefixNode) % alignof(rune));
   ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(TrieNode_Children(prefixNode)) % alignof(TrieNode *));
   *prefixNodeOut = prefixNode;
+}
+
+// A node already holding UINT16_MAX children, one per rune from 1 up, built directly: growing it
+// one insert at a time scans every child per insert, which is far too slow for a unit test.
+static TrieNode *newFullTrieNode(TrieSortMode mode) {
+  const rune noStr = 0;
+  TrieNode *n = __newTrieNode(&noStr, 0, 0, nullptr, 0, UINT16_MAX, 0, 0, mode, 0);
+  for (uint32_t i = 0; i < UINT16_MAX; ++i) {
+    rune key = static_cast<rune>(i + 1);
+    // The child-key cache is packed and may be unaligned.
+    memcpy(reinterpret_cast<void *>(trieNodeChildKeyAddress(n) + i * sizeof(rune)), &key,
+           sizeof(rune));
+    TrieNode_Children(n)[i] = __newTrieNode(&key, 0, 1, nullptr, 0, 0, 1, 1, mode, 0);
+  }
+  n->subtreeMaxScore = 1;
+  return n;
+}
+
+// A node holds at most UINT16_MAX children, one fewer than there are rune values, so a node
+// branching on every rune but one cannot take the last. Adding it must fail and leave the node
+// as it was.
+TEST_F(TrieTest, testAddChildToFullNodeFails) {
+  for (TrieSortMode mode : {Trie_Sort_Lex, Trie_Sort_Score}) {
+    TrieNode *root = newFullTrieNode(mode);
+    TrieNode *const before = root;
+
+    rune extra = 0;
+    int rc = TRIE_OK_NEW;
+    try {
+      rc = TrieNode_Add(&root, &extra, 1, nullptr, 1, ADD_REPLACE, nullptr, 0);
+    } catch (const std::runtime_error &e) {
+      // Debug builds catch the overflow in an assertion, which redismock throws.
+      FAIL() << "a full trie node accepted another child (mode " << mode << "): " << e.what();
+    }
+    // Any error code: the test must also build on code that predates the dedicated one.
+    EXPECT_LT(rc, 0) << "a full trie node accepted another child (mode " << mode << ")";
+    EXPECT_EQ(before, root);
+    EXPECT_EQ(UINT16_MAX, TrieNode_NumChildren(root));
+    EXPECT_EQ(nullptr, TrieNode_Get(root, &extra, 1, true, nullptr));
+    for (rune r : {rune(1), rune(0x8000), rune(UINT16_MAX)}) {
+      EXPECT_NE(nullptr, TrieNode_Get(root, &r, 1, true, nullptr)) << "rune " << r;
+    }
+    // A full node only refuses new children: existing entries still update.
+    rune existing = 0x8000;
+    EXPECT_EQ(TRIE_OK_UPDATED, TrieNode_Add(&root, &existing, 1, nullptr, 2, ADD_REPLACE, nullptr, 0));
+    TrieNode_Free(root, nullptr);
+  }
 }
 
 TEST_F(TrieTest, testGetScansPackedChildKeys) {
