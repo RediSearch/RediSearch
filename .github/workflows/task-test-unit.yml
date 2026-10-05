@@ -334,6 +334,8 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload unit coverage
         if: inputs.coverage
+        # An unreachable Codecov must not block PRs or the merge queue.
+        continue-on-error: true
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
