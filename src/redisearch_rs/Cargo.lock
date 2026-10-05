@@ -3448,7 +3448,6 @@ dependencies = [
  "libc",
  "redis-module",
  "redis_mock",
- "rqe_wildcard",
  "thin_vec",
  "trie_rs",
  "workspace_hack",
