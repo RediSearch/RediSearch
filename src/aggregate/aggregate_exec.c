@@ -728,7 +728,27 @@ static void rowEmitter_Finish(RowEmitter *e, RedisModule_Reply *reply, ChunkSeri
   state->rowBlockRows = RowBlockWriter_RowCount(e->w);
 }
 
-// Consumes and frees `results` from the buffered reply path.
+// Both protocols use the same row payload; their wrappers retain counts, warnings and profile.
+static int serializeChunkRows(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
+                              QueryProcessingCtx *qctx, int rc, cachedVars *cv,
+                              ChunkSerializeState *state) {
+  RowEmitter e;
+  rowEmitter_Init(&e, req, reply, cv);
+
+  if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
+    do {
+      if (!rowEmitter_Emit(&e, req, reply, state->r, cv)) {
+        return rowBlockReplayFailed(req, qctx, state);
+      }
+      SearchResult_Clear(state->r);
+    } while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK);
+  }
+
+  rowEmitter_Finish(&e, reply, state);
+  return rc;
+}
+
+// The buffered counterpart of serializeChunkRows. Consumes and frees `results`.
 static int populateReplyWithResults(AREQ *req, RedisModule_Reply *reply, SearchResult **results,
                                     QueryProcessingCtx *qctx, int rc, cachedVars *cv,
                                     ChunkSerializeState *state) {
@@ -781,18 +801,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     goto done_2;
   }
 
-  RowEmitter e;
-  rowEmitter_Init(&e, req, reply, cv);
-  if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-    do {
-      if (!rowEmitter_Emit(&e, req, reply, state->r, cv)) {
-        rc = rowBlockReplayFailed(req, qctx, state);
-        goto done_2;
-      }
-      SearchResult_Clear(state->r);
-    } while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK);
-  }
-  rowEmitter_Finish(&e, reply, state);
+  rc = serializeChunkRows(req, reply, rp, qctx, rc, cv, state);
 
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
@@ -1012,18 +1021,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
       rc = populateReplyWithResults(req, reply, state->results, qctx, rc, cv, state);
       state->results = NULL;
     } else {
-      RowEmitter e;
-      rowEmitter_Init(&e, req, reply, cv);
-      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-        do {
-          if (!rowEmitter_Emit(&e, req, reply, state->r, cv)) {
-            rc = rowBlockReplayFailed(req, qctx, state);
-            goto done_3;
-          }
-          SearchResult_Clear(state->r);
-        } while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK);
-      }
-      rowEmitter_Finish(&e, reply, state);
+      rc = serializeChunkRows(req, reply, rp, qctx, rc, cv, state);
     }
 
 done_3:
