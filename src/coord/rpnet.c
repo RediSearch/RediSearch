@@ -151,7 +151,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, bool draining) {
   // before it revisits this batch for cleanup. Other policies still decide
   // whether to terminate only after yielding the batch.
   bool shard_timed_out = is_resp3 &&
-                         nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict &&
+                         nc->areq->base.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict &&
                          recordReplyWarnings(nc);
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
@@ -351,7 +351,7 @@ static int getNextReplyMode(RPNet *nc, bool draining) {
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
-  if (meta && nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (meta && nc->areq->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     recordReplyWarnings(nc);
   }
 
