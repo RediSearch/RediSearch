@@ -442,7 +442,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "array_len_func",
             "array_new_sz",
         ],
-        types: &[],
+        types: &["array_hdr_t"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -471,7 +471,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/strconv.h",
-        fns: &["unicode_tolower_fn"],
+        fns: &["nu_utf8_read_fn", "nu_utf8_write_fn", "unicode_tolower_fn"],
         types: &[],
         vars: &[],
     },

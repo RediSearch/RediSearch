@@ -20,12 +20,23 @@ struct tm;
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
+_Static_assert(sizeof(time_t) == sizeof(int64_t), "timestampToTm assumes a 64-bit time_t");
+
+/* Converts a timestamp to UTC. Fails for NaN, values outside the range of time_t (converting those
+ * is undefined behavior) and timestamps whose year doesn't fit in struct tm. */
+static bool timestampToTm(double d, struct tm *tm) {
+  if (!(d >= -0x1p63 && d < 0x1p63)) {
+    return false;
+  }
+  time_t ts = (time_t)d;
+  return gmtime_r(&ts, tm) != NULL;
+}
+
 // TIME(property, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
   char timebuf[1024];  // Should be enough for any human time string
   double n = 0.0;
-  time_t tt = 0;
   struct tm tm = {0};
   size_t rv = 0;
   char *buf = NULL;
@@ -39,8 +50,7 @@ static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
   if (!RSValue_ToNumber(argv[0], &n)) {
     goto err;
   }
-  tt = (time_t)n;
-  if (!gmtime_r(&tt, &tm)) {
+  if (!timestampToTm(n, &tm)) {
     // could not convert value to timestamp
     goto err;
   }
@@ -92,9 +102,10 @@ static int func_hour(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
 
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
   tmm.tm_sec = 0;
   tmm.tm_min = 0;
   ts = fast_timegm(&tmm);
@@ -131,9 +142,10 @@ static int func_day(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result)
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
 
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
   tmm.tm_sec = 0;
   tmm.tm_hour = 0;
   tmm.tm_min = 0;
@@ -149,14 +161,14 @@ err:
 
 static int func_dayofmonth(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   double d = 0.0;
-  time_t ts = 0;
   struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
 
   RSValue_SetNumber(result, (double)tmm.tm_mday);
   return EXPR_EVAL_OK;
@@ -169,14 +181,14 @@ err:
 
 static int func_dayofweek(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   double d = 0.0;
-  time_t ts = 0;
   struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
 
   RSValue_SetNumber(result, (double)tmm.tm_wday);
   return EXPR_EVAL_OK;
@@ -189,14 +201,14 @@ err:
 
 static int func_dayofyear(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   double d = 0.0;
-  time_t ts = 0;
   struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
 
   RSValue_SetNumber(result, (double)tmm.tm_yday);
   return EXPR_EVAL_OK;
@@ -209,14 +221,14 @@ err:
 
 static int func_year(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   double d = 0.0;
-  time_t ts = 0;
   struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
 
   RSValue_SetNumber(result, (double)tmm.tm_year + 1900);
   return EXPR_EVAL_OK;
@@ -235,8 +247,9 @@ static int func_month(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
   tmm.tm_sec = 0;
   tmm.tm_hour = 0;
   tmm.tm_min = 0;
@@ -253,14 +266,14 @@ err:
 
 static int func_monthofyear(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   double d = 0.0;
-  time_t ts = 0;
   struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  ts = (time_t)d;
-  gmtime_r(&ts, &tmm);
+  if (!timestampToTm(d, &tmm)) {
+    goto err;
+  }
   RSValue_SetNumber(result, (double)tmm.tm_mon);
   return EXPR_EVAL_OK;
 err:
