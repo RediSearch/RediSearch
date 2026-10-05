@@ -59,7 +59,8 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
         let mut child_map = map.kv_map(c"Child iterator");
         let mut child_ctx = ctx.child_ctx();
         // SAFETY: child is valid (checked non-null) and its PrintProfile
-        // vtable entry is set (it was profile-wrapped by Profile_AddIters).
+        // vtable entry is set (the whole tree was profile-wrapped by
+        // `CRQEIterator::into_profiled`).
         unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
     }
 }
@@ -86,7 +87,8 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
 ///
 /// 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
 /// 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
-///    that has been profile-wrapped via `Profile_AddIters`.
+///    that has been profile-wrapped via
+///    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Profile_PrintIterators(
     ctx: *mut RedisModuleCtx,
