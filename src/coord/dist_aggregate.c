@@ -712,7 +712,8 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
-  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+  // A FAIL timeout can reach PROFILE encoding before rpnetNext_Start creates the iterator.
+  if (rpnet->it && (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it))) {
     // A cancelled FAIL reply is discarded, including any remaining shard profiles.
     while (!(req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
              QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout))) {
@@ -723,7 +724,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     }
   }
 
-  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
+  size_t num_shards = rpnet->it ? MRIterator_GetNumShards(rpnet->it) : 0;
   size_t profile_count = array_len(rpnet->shardsProfile);
 
   PrintShardProfile_ctx sCtx = {
