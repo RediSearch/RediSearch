@@ -139,17 +139,10 @@ class InfoSectionsTest : public ::testing::Test {
       ++collections;
       return 1234;
     };
-    api.metrics.collectCachedIndexMetrics = [](RedisSearchDisk *,
-                                               RedisSearchDiskIndexSpec *) -> uint64_t {
+    api.metrics.readCachedIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
       ++cachedCollections;
-      return 4321;
+      return CachedIndexMetrics{4321, 55, 9};
     };
-    api.metrics.getCachedDiskUsage = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) -> uint64_t {
-      ++indexUsageReads;
-      return 55;
-    };
-    api.metrics.getCachedBlockCount = [](RedisSearchDisk *,
-                                         RedisSearchDiskIndexSpec *) -> uint64_t { return 9; };
     api.metrics.getCollector = [](RedisSearchDisk *context) -> void * { return context; };
     api.metrics.collect = [](void *) -> bool {
       ++backgroundCollections;
@@ -160,9 +153,6 @@ class InfoSectionsTest : public ::testing::Test {
     api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
       ++totalReads;
       return 55;
-    };
-    api.metrics.retireTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
-      ++targetRegistrations;
     };
     api.metrics.getInvertedIndexTotalBlocks = [](RedisSearchDiskIndexSpec *) -> uint64_t {
       return 7;
@@ -329,6 +319,7 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
   bool releaseTicket = true;
   bool closed = false;
   bool requestFails = false;
+  bool pauseOnRequest = false;
   int result = 0;
   unsigned requests = 0;
   unsigned releases = 0;
@@ -355,43 +346,44 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
       active->available = value;
       active->changed.notify_all();
     };
-    api.metrics.requestFreshUsage = [](void *, RedisSearchDiskIndexSpec *, uint64_t) -> void * {
-      ++active->requests;
-      return active->requestFails ? nullptr : active;
-    };
-    api.metrics.waitFreshUsage = [](void *ticket, uint64_t timeout, uint64_t *usage) {
-      auto &self = *static_cast<CachedDiskLifecycleTest *>(ticket);
-      std::unique_lock<std::mutex> lock(self.mutex);
-      self.waiting = true;
-      self.changed.notify_all();
-      if (self.result == 3) {
-        if (!self.changed.wait_for(lock, std::chrono::milliseconds(timeout),
-                                   [&] { return !self.available; }))
-          return 1;
-        return 3;
+    api.metrics.waitFreshUsage = [](void *collector, RedisSearchDiskIndexSpec *, uint64_t,
+                                    uint64_t timeout, bool (*wake)(void), uint64_t *usage) {
+      auto &self = *static_cast<CachedDiskLifecycleTest *>(active);
+      ++self.requests;
+      if (self.requestFails) return 3;
+      int status = 3;
+      if (self.pauseOnRequest) DiskMetrics_Pause();
+      if (wake()) {
+        std::unique_lock<std::mutex> lock(self.mutex);
+        self.waiting = true;
+        self.changed.notify_all();
+        status = self.result;
+        if (status == 3 && !self.changed.wait_for(lock, std::chrono::milliseconds(timeout),
+                                                  [&self] { return !self.available; }))
+          status = 1;
+        if (!status) *usage = 55;
       }
-      if (!self.result) *usage = 55;
-      return self.result;
-    };
-    api.metrics.freeFreshUsage = [](void *ticket) {
-      auto &self = *static_cast<CachedDiskLifecycleTest *>(ticket);
       std::unique_lock<std::mutex> lock(self.mutex);
       ++self.releases;
       self.freed = true;
       self.changed.notify_all();
-      self.changed.wait(lock, [&] { return self.releaseTicket; });
+      self.changed.wait(lock, [&self] { return self.releaseTicket; });
+      return status;
     };
     api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) {
       std::lock_guard<std::mutex> lock(active->mutex);
       active->closed = true;
       active->changed.notify_all();
     };
-    api.metrics.newUsageGroup = [](void *) { return active->nextGroup++; };
-    api.metrics.selectUsageGroup = [](void *, uint64_t group) { active->selectedGroup = group; };
+    api.metrics.switchUsageGroup = [](void *, uint64_t group) {
+      active->selectedGroup = group ? group : active->nextGroup++;
+      return active->selectedGroup;
+    };
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *index, uint64_t group) {
       active->entries[index] = group;
     };
-    api.metrics.retireTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *index) {
+    api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
+                                          RedisSearchDiskIndexSpec *index) {
       active->entries.erase(index);
     };
     api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
@@ -401,7 +393,6 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
       }
       return total;
     };
-    api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {};
     api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
     api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
     pins.push_back(StrongRef_Clone(ref));
@@ -420,12 +411,6 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
       SchemaPrefixes_g = nullptr;
     }
     active = nullptr;
-  }
-
-  static void *requestWhilePausing(void *, RedisSearchDiskIndexSpec *, uint64_t) {
-    ++active->requests;
-    DiskMetrics_Pause();
-    return active;
   }
 
   void activate(IndexSpec *index) {
@@ -450,7 +435,7 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
   }
 };
 
-TEST_F(CachedDiskLifecycleTest, FreshnessWrapperPreservesOutputAndReleasesEveryTicket) {
+TEST_F(CachedDiskLifecycleTest, FreshnessWrapperPreservesOutputAndHoldsLeaseThroughCallback) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   ASSERT_TRUE(DiskMetrics_Start(nullptr, api.metrics.collect, disk_db));
   uint64_t usage = 999;
@@ -467,7 +452,7 @@ TEST_F(CachedDiskLifecycleTest, FreshnessWrapperPreservesOutputAndReleasesEveryT
   EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 3);
   EXPECT_EQ(releases, 3);
   requestFails = false;
-  api.metrics.requestFreshUsage = requestWhilePausing;
+  pauseOnRequest = true;
   EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 3);
   EXPECT_EQ(releases, 4);
   const auto previousRequests = requests;

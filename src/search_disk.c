@@ -270,15 +270,14 @@ void SearchDisk_ActivateUsage(IndexSpec *spec) {
 void SearchDisk_BackupUsage(void) {
   if (!metricsCollector) return;
   backupUsageGroup = usageGroup;
-  usageGroup = disk->metrics.newUsageGroup(metricsCollector);
-  disk->metrics.selectUsageGroup(metricsCollector, usageGroup);
+  usageGroup = disk->metrics.switchUsageGroup(metricsCollector, 0);
 }
 
 void SearchDisk_RestoreUsage(void) {
   if (!metricsCollector || !backupUsageGroup) return;
   usageGroup = backupUsageGroup;
   backupUsageGroup = 0;
-  disk->metrics.selectUsageGroup(metricsCollector, usageGroup);
+  disk->metrics.switchUsageGroup(metricsCollector, usageGroup);
 }
 
 void SearchDisk_DiscardUsageBackup(void) {
@@ -301,13 +300,8 @@ void SearchDisk_ResumeMetrics(void) {
 int SearchDisk_WaitFreshUsage(RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
                               uint64_t timeout_ms, uint64_t *usage) {
   if (!usage || !DiskMetrics_BeginWait()) return 3;
-  void *ticket = disk->metrics.requestFreshUsage(metricsCollector, index, max_age_ms);
-  if (!ticket) {
-    DiskMetrics_EndWait();
-    return 3;
-  }
-  int status = DiskMetrics_Wake() ? disk->metrics.waitFreshUsage(ticket, timeout_ms, usage) : 3;
-  disk->metrics.freeFreshUsage(ticket);
+  int status = disk->metrics.waitFreshUsage(metricsCollector, index, max_age_ms, timeout_ms,
+                                            DiskMetrics_Wake, usage);
   DiskMetrics_EndWait();
   return status;
 }
@@ -421,8 +415,7 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
   if (!spec->diskRegistered) {
     return;
   }
-  disk->metrics.retireTarget(disk_db, spec->diskSpec);
-  disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
+  disk->basic.closeIndexOnMainThread(ctx, disk_db, spec->diskSpec);
   spec->diskRegistered = false;
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
     RedisModule_Log(RSDummyContext, "warning",
@@ -752,19 +745,9 @@ bool SearchDisk_InfoCacheEnabled(void) {
   return infoCacheEnabled;
 }
 
-uint64_t SearchDisk_CollectCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.collectCachedIndexMetrics(disk_db, index);
-}
-
-uint64_t SearchDisk_GetCachedDiskUsage(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getCachedDiskUsage(disk_db, index);
-}
-
-uint64_t SearchDisk_GetCachedBlockCount(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getCachedBlockCount(disk_db, index);
+  return disk->metrics.readCachedIndexMetrics(disk_db, index);
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index) {

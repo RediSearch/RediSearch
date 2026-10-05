@@ -212,7 +212,8 @@ typedef struct BasicDiskAPI {
    *       a background thread (the StrongRef destructor) and cannot make Redis module
    *       API calls from there.
    */
-  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
+                                 RedisSearchDiskIndexSpec *index);
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
@@ -1021,6 +1022,13 @@ typedef struct PerFieldCfDiskMetrics {
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
+/* Numeric cached values; reading these never collects native properties. */
+typedef struct CachedIndexMetrics {
+  uint64_t memory;
+  uint64_t disk_usage;
+  uint64_t blocks;
+} CachedIndexMetrics;
+
 typedef struct MetricsDiskAPI {
   /* Borrowed collector context remains valid until basic.close, which requires
    * background collection to be drained. It is separate from mutable disk state. */
@@ -1028,16 +1036,17 @@ typedef struct MetricsDiskAPI {
   bool (*collect)(void *collector);
   void (*setAvailable)(void *collector, bool available);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index, uint64_t group);
-  uint64_t (*newUsageGroup)(void *collector);
-  void (*selectUsageGroup)(void *collector, uint64_t group);
-  void *(*requestFreshUsage)(void *collector, RedisSearchDiskIndexSpec *index, uint64_t max_age_ms);
-  int (*waitFreshUsage)(void *ticket, uint64_t timeout_ms, uint64_t *usage);
-  void (*freeFreshUsage)(void *ticket);
+  /* group == 0 allocates and selects a new load group; otherwise selects an existing group.
+   * Returns the selected group. Initial visible group is 1. */
+  uint64_t (*switchUsageGroup)(void *collector, uint64_t group);
+  /* Records the freshness requirement, wakes collection, waits, and releases internal state.
+   * The caller leases collector lifetime and supplies a thread-safe wake callback. */
+  int (*waitFreshUsage)(void *collector, RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
+                        uint64_t timeout_ms, bool (*wake)(void), uint64_t *usage);
   uint64_t (*getCachedTotalDiskUsage)(void *collector);
-  void (*retireTarget)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
-  uint64_t (*collectCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
-  uint64_t (*getCachedDiskUsage)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
-  uint64_t (*getCachedBlockCount)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
+  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk,
+                                               RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *

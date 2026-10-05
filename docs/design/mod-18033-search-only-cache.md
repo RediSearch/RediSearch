@@ -20,6 +20,19 @@ current RSE branch stores the document table in `default`; use its configured
 constant rather than an old literal name. This is live SST size, not physical
 filesystem usage, retained obsolete files, or memtable bytes.
 
+## Private interface
+
+Eight added callbacks connect the repositories: `getCollector`, `collect`,
+`setAvailable`, `activateTarget`, `switchUsageGroup`, `waitFreshUsage`,
+`getCachedTotalDiskUsage` and `readCachedIndexMetrics`. The last returns one
+numeric record containing memory, operational disk usage and block estimates,
+and stages the component snapshot for the existing INFO output callback.
+
+`switchUsageGroup(0)` allocates and selects a staging group; a nonzero argument
+selects a previous group for rollback. Index retirement and INFO-map cleanup run
+through the existing main-thread close callback, which receives the owning disk
+context. No separate retirement API or freshness-ticket ownership crosses FFI.
+
 ## Executor and scheduling
 
 RediSearch owns one dedicated single-worker pool using its existing `deps/thpool`
@@ -80,9 +93,11 @@ worker and reads atomic scalar mirrors rather than inherited Rust locks.
 ## Internal freshness API
 
 No new client command or blocked-client behavior is introduced. The private
-Search disk API captures a ticket for one index incarnation or the visible total,
-then waits with a deadline. The C convenience wrapper submits directly, waits,
-and releases the ticket. It does not perform a native collection itself.
+Search disk API offers one blocking call for one index incarnation or the visible
+total. Rust captures and owns the ticket, invokes the supplied worker-wake
+callback after capture, waits with a deadline and drops the ticket on every
+return path. C leases collector lifetime across that call. Neither side performs
+a native collection on the waiting thread.
 
 `max_age=0` requires a sample whose native read started after the request. An
 already-fresh request may return immediately. Every captured CF must have a
