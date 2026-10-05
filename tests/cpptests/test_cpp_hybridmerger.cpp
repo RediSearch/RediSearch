@@ -256,7 +256,8 @@ class HybridMergerTest : public ::testing::Test {};
 TEST_F(HybridMergerTest, DrainReturnsBeforeParkedNextResumes) {
   QueryProcessingCtx qctx = {};
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   RedisSearchCtx sctx = *GetDummySearchCtx();
   sctx.timeout = &timeout;
@@ -374,7 +375,8 @@ TEST_F(HybridMergerTest, DrainUsesOnlyUpstreamDrainAndRespectsRrfWindow) {
 TEST_F(HybridMergerTest, DrainPreservesEntrySelectedWhenNextTimesOut) {
   QueryProcessingCtx qctx = {};
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   RedisSearchCtx sctx = *GetDummySearchCtx();
   sctx.timeout = &timeout;

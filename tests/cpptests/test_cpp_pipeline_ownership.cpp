@@ -113,7 +113,8 @@ TEST(DrainCollectorTest, BufferedExecutionRecoversInlineOnlyForReturn) {
        {TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict, TimeoutPolicy_Fail}) {
     SCOPED_TRACE(policy);
     QueryRequestTimeout timeout = {};
-    QueryRequestTimeout_Init(&timeout, policy, 0);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = policy};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, policy == TimeoutPolicy_ReturnStrict
                                                 ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                                 : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
@@ -142,7 +143,8 @@ TEST(DrainCollectorTest, StreamingReturnBuffersOnlyAfterTimeout) {
   for (int upstreamStatus : {RS_RESULT_OK, RS_RESULT_EOF, RS_RESULT_TIMEDOUT, RS_RESULT_ERROR}) {
     SCOPED_TRACE(upstreamStatus);
     QueryRequestTimeout timeout = {};
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Return};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     CommonPipelineCtx pipeline = {};
     pipeline.timeout = &timeout;

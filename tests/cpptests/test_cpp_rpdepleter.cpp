@@ -470,7 +470,8 @@ TEST_P(RPSafeDepleterTest, OwnedRecoveryPublishesRowsWithoutCompletingParkedJob)
     }
   } upstream;
   auto *timeout = searchContexts[0].timeout;
-  QueryRequestTimeout_Init(timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   auto *execution = PipelineExecution_New(timeout);
   QueryProcessingCtx producer = {}, consumer = {};
@@ -521,7 +522,8 @@ TEST_P(RPSafeDepleterTest, OwnedRecoveryBeforeProducerStartsRejectsLateExecution
   MockUpstream upstream;
   upstream.Drain = RPDrain_EOF;
   auto *timeout = searchContexts[0].timeout;
-  QueryRequestTimeout_Init(timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   auto *execution = PipelineExecution_New(timeout);
   auto *depleter = RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
@@ -586,7 +588,8 @@ TEST_P(RPSafeDepleterTest, ConsumerOwnershipWaitResumesLocallyOrFoldsAfterDrain)
     RPSafeDepleter_StartDepletion(depleter);
     upstream.entered.get_future().wait();
     QueryRequestTimeout timeout = {};
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     auto *execution = PipelineExecution_New(&timeout);
     struct Work {
