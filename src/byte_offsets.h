@@ -21,7 +21,9 @@ typedef struct __attribute__((packed)) RSByteOffsetMap {
   // The position of the first token for this field.
   uint32_t firstTokPos;
 
-  // Position of last token for this field
+  // Position of last token for this field. The field owns the offsets of the tokens at
+  // firstTokPos..lastTokPos, which are stored after those of the previous fields; it owns none
+  // if lastTokPos is firstTokPos - 1.
   uint32_t lastTokPos;
 } RSByteOffsetField;
 

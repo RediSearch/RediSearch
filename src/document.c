@@ -467,7 +467,11 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
-      curOffsetWriter = &aCtx->offsetsWriter;
+      // The positions of a multi-value field are not contiguous (see multiTextOffsetDelta below),
+      // which the offsets of RSByteOffsets cannot express, so such a field is left without offsets.
+      if (valueCount == 1) {
+        curOffsetWriter = &aCtx->offsetsWriter;
+      }
     }
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
@@ -513,7 +517,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
-      if (curOffsetField) {
+      if (curOffsetWriter) {
         curOffsetField->lastTokPos = lastTokPos;
       }
       aCtx->totalTokens = lastTokPos;
