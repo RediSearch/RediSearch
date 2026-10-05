@@ -454,6 +454,11 @@ static void executeAggregateDeferred(void *arg) {
   }
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(weak_ref);
+#ifdef ENABLE_ASSERT
+  if (r->base.timeout.policy == TimeoutPolicy_Fail && !QueryRequest_UsesReplyCallback(&r->base)) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_UNBLOCK);
+  }
+#endif
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(bc);
   RedisModule_UnblockClient(bc, privdata);
@@ -708,9 +713,14 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    do {
+    // A cancelled FAIL reply is discarded, including any remaining shard profiles.
+    while (!(req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+             QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout))) {
       MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+      if (getNextReply(rpnet) == RS_RESULT_EOF) {
+        break;
+      }
+    }
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
@@ -1009,6 +1019,11 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
+#ifdef ENABLE_ASSERT
+  if (r->base.timeout.policy == TimeoutPolicy_Fail && !QueryRequest_UsesReplyCallback(&r->base)) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_UNBLOCK);
+  }
+#endif
   return;
 
 // See if we can distribute the plan...
@@ -1038,6 +1053,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Signal timeout to the background thread
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);
@@ -1114,7 +1130,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// Main-thread reply callback for coord AREQ (RETURN_STRICT). Reads results
 // stored by the BG thread in req->base.reply. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1142,9 +1158,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // QEXEC_S_SHARD_TIMED_OUT_WARNING flag. The only RETURN-STRICT path that
   // still produces rc=TIMEDOUT is the coord's own deadline firing, which
   // routes through DistAggregateTimeoutReturnStrictCallback -- not this
-  // callback. Under FAIL, a shard timeout still bails the coord pipeline
-  // early; the BG thread stores the resulting error in base.reply.err
-  // and the early-error branch above replies with it.
+  // callback.
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
@@ -1290,6 +1304,11 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
+#ifdef ENABLE_ASSERT
+  if (r->base.timeout.policy == TimeoutPolicy_Fail && !QueryRequest_UsesReplyCallback(&r->base)) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_UNBLOCK);
+  }
+#endif
   return;
 
 // See if we can distribute the plan...
