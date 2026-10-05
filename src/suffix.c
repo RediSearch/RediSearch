@@ -224,57 +224,18 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
 /***********************************************************************************
 *                                    Wildcard                                      *
 ************************************************************************************/
-int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+// Shared by the char and rune scorers; elemSize is a constant at each call
+// site, so the element read below is resolved at compile time once inlined.
+static inline int chooseToken(const void *str, size_t elemSize, size_t len,
+                              bool ordinalBonus, size_t *tokenIdx, size_t *tokenLen) {
+#define ELEM(j) (elemSize == 1 ? ((const char *)str)[j] : ((const rune *)str)[j])
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
   int ordinal = 0;
   size_t i = 0;
   while (i < len) {
     // skip `*` characters
-    while (i < len && str[i] == '*') {
-      ++i;
-    }
-    if (i == len) {
-      break;
-    }
-    size_t start = i;
-    // 1. long string are likely to have less results
-    // 2. tokens at end of pattern are likely to be more relevant
-    int curScore = ordinal;
-    while (i < len && str[i] != '*') {
-      // this branching is heavy
-      if (str[i] == '?') {
-        --curScore;
-      }
-      ++i;
-    }
-    curScore += i - start;
-
-    // iterating all children is demanding
-    if (i < len) {
-      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
-    }
-
-    if (curScore >= score) {
-      score = curScore;
-      retidx = ordinal;
-      *tokenIdx = start;
-      *tokenLen = i - start;
-    }
-    ++ordinal;
-  }
-
-  return retidx;
-}
-
-int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
-  int score = INT32_MIN;
-  int retidx = REDISEARCH_UNINITIALIZED;
-  int ordinal = 0;
-  size_t i = 0;
-  while (i < len) {
-    // skip `*` characters
-    while (i < len && str[i] == (rune)'*') {
+    while (i < len && ELEM(i) == '*') {
       ++i;
     }
     if (i == len) {
@@ -283,10 +244,10 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     size_t start = i;
     // 1. long string are likely to have less results
     // 2. score ties are broken in favor of the later token (`>=` below)
-    int curScore = 1;
-    while (i < len && str[i] != (rune)'*') {
+    int curScore = ordinalBonus ? ordinal : 1;
+    while (i < len && ELEM(i) != '*') {
       // this branching is heavy
-      if (str[i] == (rune)'?') {
+      if (ELEM(i) == '?') {
         --curScore;
       }
       ++i;
@@ -306,8 +267,18 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
     }
     ++ordinal;
   }
+#undef ELEM
 
   return retidx;
+}
+
+int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  // tokens at end of pattern are likely to be more relevant
+  return chooseToken(str, sizeof(char), len, true, tokenIdx, tokenLen);
+}
+
+int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  return chooseToken(str, sizeof(rune), len, false, tokenIdx, tokenLen);
 }
 
 // True if the UTF-8 string contains a supplementary-plane codepoint
