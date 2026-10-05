@@ -109,6 +109,11 @@ def _stats(env):
     return getWorkersThpoolStats(env)
 
 
+def _pending(stats):
+    # totalPendingJobs also counts the admin jobs that add or remove threads.
+    return stats['lowPriorityPendingJobs'] + stats['highPriorityPendingJobs']
+
+
 def _log_path(env):
     return os.path.join(env.cmd('CONFIG', 'GET', 'dir')[1], env.cmd('CONFIG', 'GET', 'logfile')[1])
 
@@ -137,7 +142,7 @@ def _queue_repairs(env, rng, docs, removed_vectors, n):
     removed_vectors.update({key: docs[key] for key in deleted + overwritten})
     _mutate_in_transaction(env, rng, docs, deleted, overwritten)
     stats = _stats(env)
-    env.assertGreater(stats['totalPendingJobs'], 0, message=stats, depth=1)
+    env.assertGreater(_pending(stats), 0, message=stats, depth=1)
     return stats
 
 
@@ -145,8 +150,8 @@ def _assert_ran_exactly_once(env, queued):
     """Every job queued at `queued` ran exactly once, and nothing else was submitted since."""
     drain_workers(env)
     stats = _stats(env)
-    env.assertEqual(stats['totalPendingJobs'], 0, message=stats, depth=1)
-    env.assertEqual(stats['totalJobsDone'], queued['totalJobsDone'] + queued['totalPendingJobs'],
+    env.assertEqual(_pending(stats), 0, message=stats, depth=1)
+    env.assertEqual(stats['totalJobsDone'], queued['totalJobsDone'] + _pending(queued),
                     message=(queued, stats), depth=1)
 
 
@@ -208,7 +213,7 @@ def test_workers_transitions_with_pending_repairs():
     for workers in [2, 4, 1, 0, 3, 0]:
         queued = _queue_repairs(env, rng, docs, removed_vectors, 20)
         at_resize = _resize_paused_pool(env, [config_cmd(), 'SET', 'WORKERS', workers])
-        env.assertEqual(at_resize['totalPendingJobs'], queued['totalPendingJobs'], message=workers)
+        env.assertEqual(_pending(at_resize), _pending(queued), message=workers)
         _assert_ran_exactly_once(env, queued)
         _wait_for_pool_size(env, max(workers, 1))
 
@@ -332,7 +337,7 @@ def test_disable_maintenance_workers_with_pending_repairs():
     queued = _queue_repairs(env, rng, docs, removed_vectors, 40)
 
     at_resize = _resize_paused_pool(env, [config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', 0])
-    env.assertEqual(at_resize['totalPendingJobs'], queued['totalPendingJobs'])
+    env.assertEqual(_pending(at_resize), _pending(queued))
     marked = [_marked_deleted(env, i) for i in range(N_INDEXES)]
     keys = list(docs)
     removed_vectors.update({key: docs[key] for key in keys[:40]})
@@ -341,8 +346,8 @@ def test_disable_maintenance_workers_with_pending_repairs():
 
     _wait_for_pool_size(env, 0)
     stats = _stats(env)
-    env.assertEqual(stats['totalPendingJobs'], 0, message=stats)
-    env.assertEqual(stats['totalJobsDone'], queued['totalJobsDone'] + queued['totalPendingJobs'],
+    env.assertEqual(_pending(stats), 0, message=stats)
+    env.assertEqual(stats['totalJobsDone'], queued['totalJobsDone'] + _pending(queued),
                     message=(queued, stats))
     _converge(env, len(docs))
     _assert_query_results(env, docs, removed_vectors)
@@ -364,7 +369,7 @@ def test_drop_index_with_pending_repairs():
             env.expect('FT.DROPINDEX', f'idx{i}').ok()
 
     drain_workers(env)
-    env.assertEqual(_stats(env)['totalPendingJobs'], 0)
+    env.assertEqual(_pending(_stats(env)), 0)
     env.expect('FT._LIST').equal([])
 
 
@@ -490,14 +495,14 @@ def test_shrink_while_paused_is_deferred():
     env.assertEqual(getWorkersThpoolNumThreads(env), 1)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
     _wait_for_pool_size(env, 0)
-    env.assertEqual(_stats(env)['totalJobsDone'], queued['totalJobsDone'] + queued['totalPendingJobs'])
+    env.assertEqual(_stats(env)['totalJobsDone'], queued['totalJobsDone'] + _pending(queued))
     env.expect(config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', 1).ok()
 
     # The load grows the paused pool to MIN_OPERATION_WORKERS and queues the rebuild, and its end
     # must neither wait on the paused pool nor shrink it.
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     env.expect('DEBUG', 'RELOAD').ok()
-    env.assertGreater(_stats(env)['totalPendingJobs'], 0)
+    env.assertGreater(_pending(_stats(env)), 0)
     env.assertEqual(getWorkersThpoolNumThreads(env), 4)
     # On resume, all of the load's workers drain the rebuild before the pool shrinks to the floor.
     pipe = getConnectionByEnv(env).pipeline(transaction=True)

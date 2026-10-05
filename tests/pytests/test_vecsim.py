@@ -1051,7 +1051,9 @@ def test_hybrid_query_batches_mode_with_text():
 
 def test_hybrid_query_batches_mode_with_tags():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    # The expected results rely on overwritten vectors leaving the graph at once, which only in-place
+    # writes do while the GC is held off.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
