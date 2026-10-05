@@ -88,7 +88,8 @@ class OwnedBufferDrainTest : public ::testing::Test {
   // Exercise wait/readmission inside an accumulator's single Next invocation.
   int nextOwned() {
     QueryRequestTimeout timeout = {};
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     auto *execution = PipelineExecution_New(&timeout);
     struct Work {

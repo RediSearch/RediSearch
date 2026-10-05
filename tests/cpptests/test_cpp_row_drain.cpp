@@ -166,7 +166,8 @@ TEST_F(OwnedRowDrainTest, ProfileCountsScopedWaitAsOneNextCall) {
   };
   auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   auto *execution = PipelineExecution_New(&timeout);
   EXPECT_TRUE(PipelineExecution_RunNext(
@@ -424,7 +425,8 @@ class OwnedSafeLoaderDrainTest : public OwnedLoaderDrainTest {
 
   void SetUp() override {
     OwnedLoaderDrainTest::SetUp();
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     sctx.timeout = &timeout;
     qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
