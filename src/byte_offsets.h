@@ -21,10 +21,11 @@ typedef struct __attribute__((packed)) RSByteOffsetMap {
   // The position of the first token for this field.
   uint32_t firstTokPos;
 
-  // Position of last token for this field. The field owns the offsets of the tokens at
-  // firstTokPos..lastTokPos, which are stored after those of the previous fields; it owns none
-  // if lastTokPos is firstTokPos - 1.
+  // Position of last token for this field
   uint32_t lastTokPos;
+
+  // Index in `offsets` of the byte offset of the token at firstTokPos
+  uint32_t offsetsStart;
 } RSByteOffsetField;
 
 typedef struct RSByteOffsets {
@@ -49,7 +50,7 @@ void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields);
 // The field info is returned, and the last position should be written to it
 // when done.
 RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
-                                          uint32_t startPos);
+                                          uint32_t startPos, uint32_t offsetsStart);
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
 // Returns NULL if `buf` is shorter than the serialized offsets it describes.
@@ -74,6 +75,10 @@ static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) {
 
 static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) {
   VVW_Write(w->vw, offset);
+}
+
+static inline uint32_t ByteOffsetWriter_Count(const ByteOffsetWriter *w) {
+  return VVW_GetCount(w->vw);
 }
 
 /**

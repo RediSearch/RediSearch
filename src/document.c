@@ -466,9 +466,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
-      // The positions of a multi-value field are not contiguous (see multiTextOffsetDelta below),
-      // which the offsets of RSByteOffsets cannot express, so such a field is left without offsets.
+      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1,
+                                              ByteOffsetWriter_Count(&aCtx->offsetsWriter));
+      // A multi-value field's positions have gaps (see multiTextOffsetDelta below), which
+      // RSByteOffsetIterator cannot step over, so such a field stores no offsets.
       if (valueCount == 1) {
         curOffsetWriter = &aCtx->offsetsWriter;
       }

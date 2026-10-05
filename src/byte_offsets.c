@@ -28,12 +28,12 @@ void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields) {
 }
 
 RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
-                                          uint32_t startPos) {
+                                          uint32_t startPos, uint32_t offsetsStart) {
   RSByteOffsetField *field = &(offsets->fields[offsets->numFields++]);
   field->fieldId = fieldId;
   field->firstTokPos = startPos;
-  // No tokens until the caller says otherwise
   field->lastTokPos = startPos - 1;
+  field->offsetsStart = offsetsStart;
   return field;
 }
 
@@ -79,12 +79,15 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   RSByteOffsets *offsets = NewByteOffsets();
   RSByteOffsets_ReserveFields(offsets, numFields);
 
+  // Serialized fields have one offset per token position
+  uint32_t offsetsStart = 0;
   for (size_t ii = 0; ii < numFields; ++ii) {
     uint8_t fieldId = Buffer_ReadU8(&r);
     uint32_t firstTok = Buffer_ReadU32(&r);
     uint32_t lastTok = Buffer_ReadU32(&r);
-    RSByteOffsetField *fieldInfo = RSByteOffsets_AddField(offsets, fieldId, firstTok);
+    RSByteOffsetField *fieldInfo = RSByteOffsets_AddField(offsets, fieldId, firstTok, offsetsStart);
     fieldInfo->lastTokPos = lastTok;
+    offsetsStart += lastTok - firstTok + 1;
   }
 
   uint32_t offsetsLen = Buffer_ReadU32(&r);
@@ -106,15 +109,11 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
 int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
                          RSByteOffsetIterator *iter) {
   const RSByteOffsetField *offField = NULL;
-  // How many offsets the fields before the requested one own. Token positions cannot be used
-  // for this: a multi-value field consumes more positions than it owns offsets.
-  uint32_t skip = 0;
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
     if (offsets->fields[ii].fieldId == fieldId) {
       offField = offsets->fields + ii;
       break;
     }
-    skip += offsets->fields[ii].lastTokPos - offsets->fields[ii].firstTokPos + 1;
   }
   if (!offField) {
     return REDISMODULE_ERR;
@@ -131,13 +130,11 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
 
   iter->lastValue = 0;
 
-  for (; skip > 0 && !BufferReader_AtEnd(&iter->rdr); skip--) {
+  for (uint32_t ii = 0; ii < offField->offsetsStart && !BufferReader_AtEnd(&iter->rdr); ++ii) {
     iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
   }
 
-  // curPos is a token position, i.e. it counts the tokens of the preceding fields whether or not
-  // they have an offset.
-  iter->curPos = offField->firstTokPos > 0 ? offField->firstTokPos - 1 : 0;
+  iter->curPos = offField->firstTokPos - 1;
   return REDISMODULE_OK;
 }
 
