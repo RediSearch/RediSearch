@@ -88,6 +88,12 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   // Snapshot the disposition before clearing the per-cycle fields it lives in.
   struct Cursor *cursor = request->cursorInfo.cursor;
   CursorDisposition disposition = request->cursorInfo.disposition;
+  // Timeout can discard a buffered reply after BG recorded PAUSE.
+  if (request->kind == QUERY_REQUEST_KIND_AREQ && request->timeout.policy == TimeoutPolicy_Fail &&
+      !QueryRequest_UsesReplyCallback(request) &&
+      QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+    disposition = CURSOR_DISPOSITION_FREE;
+  }
   request->blockedClientCycleActive = false;
   request->cursorInfo.cursor = NULL;
   request->cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
@@ -157,7 +163,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
                                                        RedisModuleCmdFunc timeout_cb,
                                                        rs_wall_clock_ms_t timeout_ms) {
   RS_ASSERT(cursor->query == request);
-  RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
+  RS_ASSERT(timeout_ms == 0 || timeout_cb != NULL);
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
