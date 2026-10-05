@@ -1,0 +1,39 @@
+name: "search-groupby-heavy-dist-1M-enwiki_abstract-hashes-countdistinct-k400"
+description: >-
+  This filtered 1M-document enwiki workload measures COUNT_DISTINCT raw-row fan-in:
+  shards send loaded values and the coordinator groups and deduplicates them into counts.
+  TOLIST uses a different plan with partial-group fan-in, so compare each workload
+  against its own baseline. The default query timeout requires completion validation
+  for each run. An empty row-block configuration probe means unsupported, not disabled.
+
+metadata:
+  component: "search"
+  query_type: "groupby-heavy-distributed-countdistinct"
+  backend: "hash"
+  window: "0-400"
+
+timeout_seconds: 1800
+
+setups:
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - dataset_load_timeout_secs: 1800
+  - init_commands:
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+    - '"CONFIG" "GET" "search-internal-row-block-format"'
+    - '"CONFIG" "GET" "search-timeout"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract @abstract:american|county|university|book|district LOAD 2 @title @url GROUPBY 1 @title REDUCE COUNT 0 AS n REDUCE COUNT_DISTINCT 1 @url AS d SORTBY 2 @d DESC LIMIT 0 400'"
