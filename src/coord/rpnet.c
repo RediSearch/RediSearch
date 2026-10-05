@@ -36,6 +36,11 @@
 
 #define CURSOR_EOF 0
 
+// Callers guard on RPNet::profileBreakdown so unprofiled requests read no clocks.
+static inline void accumulateSince(rs_wall_clock_ns_t *acc, rs_wall_clock *start) {
+  *acc += rs_wall_clock_elapsed_ns(start);
+}
+
 // Converts an MRReply to an RSValue, consuming the reply. String buffers can be
 // transferred directly because hiredis uses the Redis module allocator.
 static RSValue *MRReply_ToValue(MRReply *r) {
@@ -156,7 +161,10 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
     }
   }
 
+  rs_wall_clock freeStart;
+  if (nc->profileBreakdown) rs_wall_clock_init(&freeStart);
   MRReply_Free(nc->current.root);
+  if (nc->profileBreakdown) accumulateSince(&nc->breakdown.freeTime, &freeStart);
   RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
@@ -247,10 +255,16 @@ int getNextReply(RPNet *nc) {
           ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
           : NULL;
   bool popTimedOut = false;
+  rs_wall_clock waitStart;
+  if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
   MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
                   : deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
                       : MRIterator_Next(nc->it);
+  if (nc->profileBreakdown) {
+    accumulateSince(&nc->breakdown.waitTime, &waitStart);
+    if (root) nc->breakdown.replies++;
+  }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
@@ -345,6 +359,19 @@ int getNextReply(RPNet *nc) {
   }
 
   return RS_RESULT_OK;
+}
+
+void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor *rp) {
+  const RPNet *nc = (const RPNet *)rp;
+  if (!nc->profileBreakdown) return;
+  RedisModule_ReplyKV_Double(reply, "Shard-Wait-Time",
+                             rs_wall_clock_convert_ns_to_ms_d(nc->breakdown.waitTime));
+  RedisModule_ReplyKV_Double(reply, "Row-Convert-Time",
+                             rs_wall_clock_convert_ns_to_ms_d(nc->breakdown.convertTime));
+  RedisModule_ReplyKV_Double(reply, "Reply-Free-Time",
+                             rs_wall_clock_convert_ns_to_ms_d(nc->breakdown.freeTime));
+  RedisModule_ReplyKV_LongLong(reply, "Shard replies", nc->breakdown.replies);
+  RedisModule_ReplyKV_LongLong(reply, "Fields converted", nc->breakdown.fields);
 }
 
 void rpnetFree(ResultProcessor *rp) {
@@ -598,12 +625,18 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
+  rs_wall_clock convertStart;
+  if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
   for (size_t i = 0; i < fields_length; i += 2) {
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
     RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
+  }
+  if (nc->profileBreakdown) {
+    accumulateSince(&nc->breakdown.convertTime, &convertStart);
+    nc->breakdown.fields += fields_length / 2;
   }
 
   return RS_RESULT_OK;

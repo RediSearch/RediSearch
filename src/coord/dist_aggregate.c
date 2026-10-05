@@ -650,6 +650,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   // lookup at execution time; changing an existing key panics in the Rust core.
   RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
+  // Only profiled requests pay for the wait/convert/free breakdown (see RPNet::breakdown).
+  rpRoot->profileBreakdown = (r->reqflags & QEXEC_F_PROFILE) != 0;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
   // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
