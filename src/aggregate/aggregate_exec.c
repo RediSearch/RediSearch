@@ -685,7 +685,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       serializeResult(req, reply, state->r, cv);
       SearchResult_Clear(state->r);
     }
-    if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+    if (rc == RS_RESULT_TIMEDOUT && req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
       Pipeline_CollectDrainResults(rp, &rc, &state->results);
       populateReplyWithResults(reply, state->results, req, cv);
       state->results = NULL;
@@ -914,7 +914,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
         serializeResult(req, reply, state->r, cv);
         SearchResult_Clear(state->r);
       }
-      if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+      if (rc == RS_RESULT_TIMEDOUT && req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
         Pipeline_CollectDrainResults(rp, &rc, &state->results);
         populateReplyWithResults(reply, state->results, req, cv);
         state->results = NULL;
