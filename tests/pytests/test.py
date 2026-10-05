@@ -4689,6 +4689,10 @@ def test_timeout_strict_policy():
     `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
     partial results.
     """
+    if CLUSTER:
+        # Leaks the abandoned request's fanout state, as in
+        # test_async.py:test_eval_node_errors_async.
+        skipTest(asan=True)
 
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
 
