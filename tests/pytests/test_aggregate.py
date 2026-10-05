@@ -1686,23 +1686,32 @@ def testSortByNumericField(env):
 
 @skip(cluster=False)
 def testErrorStatsResp2():
-    '''Test that using RESP2 double results are affecting errorstats,
-    because double are returned as ERRORS. See MOD-8058'''
-
+    """Binary numeric transport avoids RESP2's legacy double-as-error accounting."""
     env = Env(protocol=2)
     conn = getConnectionByEnv(env)
-    res = conn.execute_command('info', 'errorstats')
-    env.assertEqual(res, {})
+    env.assertEqual(conn.execute_command('INFO', 'errorstats'), {})
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn.execute_command('HSET', 'key1', 'n', 1.23)
     conn.execute_command('HSET', 'key2', 'n', 4.56)
-
-    for i in range(1, 5):
-        conn.execute_command(
-            'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
-            'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
-        res = conn.execute_command('info', 'errorstats')
-        env.assertEqual(res, {'errorstat_ERR': {'count': (i * 2)}})
+    config = 'search-internal-row-block-format'
+    shards = list(shardsConnections(env))
+    previous = [to_dict(shard.execute_command('CONFIG', 'GET', config))[config]
+                for shard in shards]
+    expected = [2, ['n', '4.56', 'count', '1'], ['n', '1.23', 'count', '1']]
+    try:
+        for enabled in ('yes', 'no'):
+            for shard in shards:
+                env.assertEqual(shard.execute_command('CONFIG', 'SET', config, enabled), 'OK')
+            for i in range(1, 5):
+                result = conn.execute_command(
+                    'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
+                    'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
+                env.assertEqual(result, expected)
+                errorstats = {} if enabled == 'yes' else {'errorstat_ERR': {'count': i * 2}}
+                env.assertEqual(conn.execute_command('INFO', 'errorstats'), errorstats)
+    finally:
+        for shard, value in zip(shards, previous):
+            shard.execute_command('CONFIG', 'SET', config, value)
 
 @skip(cluster=False)
 def testErrorStatsResp3():

@@ -15,6 +15,7 @@
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
 #include "rs_wall_clock.h"
+#include "row_block_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,6 +87,9 @@ typedef struct {
     uint64_t replies;
     uint64_t fields;
   } breakdown;
+  // Created on the first row block this RP receives; its block is active only while the reply
+  // it came from is current.
+  RowBlockDecoder *blockDecoder;
 
   // Whether to maintain `breakdown`. Timed per row, not per field: a clock pair per field
   // would distort the profiled run.
@@ -98,6 +102,7 @@ void rpnetFree(ResultProcessor *rp);
 // Appends the time breakdown to the RP's open profile map; a no-op when not profiled.
 void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
+void RPNet_freeCurrent(RPNet *nc);
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);

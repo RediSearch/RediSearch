@@ -17,6 +17,7 @@
 #include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
+#include "row_block_ffi.h"
 #include "rmr/rmr.h"
 #include "coord/dist_utils.h"
 #include "score_explain_mr.h"
@@ -101,6 +102,24 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
+
+// A shard asked for row blocks (the `row_block` Rust crate) sends a chunk's rows as one bulk
+// string rather than an array of RESP rows; the reply type tells the two apart. The decoder
+// borrows the block's bytes, so its rows are read only while that reply is current; values
+// are copied out.
+static bool blockBegin(RPNet *nc, MRReply *rows) {
+  // A block carries no per-row score, which hybrid subqueries need.
+  if (nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
+  if (!nc->blockDecoder) nc->blockDecoder = RowBlockDecoder_New();
+  size_t len;
+  const char *buf = MRReply_String(rows, &len);
+  return RowBlockDecoder_Begin(nc->blockDecoder, nc->lookup, buf, len);
+}
+
+static inline bool blockActive(const RPNet *nc) {
+  return nc->blockDecoder && RowBlockDecoder_IsActive(nc->blockDecoder);
+}
+
 // Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL unless the
 // hybrid stream is running a clock-based timeout cycle.
 //
@@ -163,9 +182,8 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
 
   rs_wall_clock freeStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&freeStart);
-  MRReply_Free(nc->current.root);
+  RPNet_freeCurrent(nc);
   if (nc->profileBreakdown) accumulateSince(&nc->breakdown.freeTime, &freeStart);
-  RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
@@ -376,6 +394,7 @@ void RPNet_ReplyProfileBreakdown(RedisModule_Reply *reply, const ResultProcessor
 
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
+  if (nc->blockDecoder) RowBlockDecoder_Free(nc->blockDecoder);
 
   if (nc->it) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
@@ -421,10 +440,18 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   return nc;
 }
 
+// The decoder borrows the block's bytes from the reply, so it ends before the reply is freed.
+void RPNet_freeCurrent(RPNet *nc) {
+  if (nc->blockDecoder) RowBlockDecoder_End(nc->blockDecoder);
+  MRReply_Free(nc->current.root);
+  RPNet_resetCurrent(nc);
+}
+
 void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
+    if (nc->blockDecoder) RowBlockDecoder_End(nc->blockDecoder);
 }
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
@@ -462,10 +489,11 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP2: [] or [ 0 ]
   // RESP3: {}
 
+take_reply:
   if (rows) {
-    size_t len = MRReply_Length(rows);
-
-    if (nc->curIdx == len) {
+    const bool exhausted = blockActive(nc) ? !RowBlockDecoder_HasRows(nc->blockDecoder)
+                                           : (nc->curIdx == MRReply_Length(rows));
+    if (exhausted) {
       if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
@@ -569,10 +597,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred from the shard-summed total accumulated on the
       // IO thread; it is preserved across cursor reads by finishSendChunk.
-      if (!nc->withCount) {
-        // Without WITHCOUNT, count rows in batch for backward compatibility
-        nc->base.parent->totalResults += MRReply_Length(rows);
-      }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       nc->curIdx = 1;
@@ -583,6 +607,53 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }
     }
+    // RESP2 prefixes the rows with a count; RESP3 keeps metadata outside this array.
+    if (MRReply_Length(rows) == nc->curIdx + 1 &&
+        MRReply_Type(MRReply_ArrayElement(rows, nc->curIdx)) == MR_REPLY_STRING) {
+      if (!blockBegin(nc, MRReply_ArrayElement(rows, nc->curIdx))) {
+        QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC);
+        QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
+                             "Malformed row block in shard reply");
+        return RS_RESULT_ERROR;
+      }
+    }
+    if (resp3) {
+      size_t rowCount = MRReply_Length(rows);
+      if (blockActive(nc)) {
+        MRReply *count = MRReply_MapElement(nc->current.meta, "row_block_rows");
+        if (!count || MRReply_Type(count) != MR_REPLY_INTEGER || MRReply_Integer(count) < 0) {
+          QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC,
+                              "Invalid row count in shard row block reply");
+          return RS_RESULT_ERROR;
+        }
+        rowCount = MRReply_Integer(count);
+      }
+      if (!nc->withCount) {
+        nc->base.parent->totalResults += rowCount;
+      }
+    }
+  }
+
+  // An empty chunk's block still has a schema, so getNextReply's empty-reply check misses it.
+  if (blockActive(nc) && !RowBlockDecoder_HasRows(nc->blockDecoder)) {
+    goto take_reply;
+  }
+
+  if (blockActive(nc)) {
+    rs_wall_clock convertStart;
+    if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
+    if (!RowBlockDecoder_NextRow(nc->blockDecoder, SearchResult_GetRowDataMut(r))) {
+      QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC);
+      QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
+                           "Truncated row block in shard reply");
+      return RS_RESULT_ERROR;
+    }
+    if (nc->profileBreakdown) {
+      accumulateSince(&nc->breakdown.convertTime, &convertStart);
+      // A block row counts every column, present or not.
+      nc->breakdown.fields += RowBlockDecoder_ColumnCount(nc->blockDecoder);
+    }
+    return RS_RESULT_OK;
   }
 
   MRReply *score = NULL;

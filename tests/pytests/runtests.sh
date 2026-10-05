@@ -57,6 +57,7 @@ help() {
 		CONFIG_FILE=file      Path to config file
 		REDIS_TEST_CONFIG=f   redis-server config for every server started, empty for Redis
 		                      defaults (default: redis-test.conf)
+		ROW_BLOCK_FORMAT=1    Start every server with search-internal-row-block-format on
 
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
 		EXT_HOST=addr         Address of existing env (default: 127.0.0.1)
@@ -423,6 +424,18 @@ EXT_PORT=${EXT_PORT:-6379}
 REDIS_TEST_CONFIG=${REDIS_TEST_CONFIG-$HERE/redis-test.conf}
 if [[ -n $REDIS_TEST_CONFIG ]] && ! is_abspath "$REDIS_TEST_CONFIG"; then
 	REDIS_TEST_CONFIG="$ROOT/$REDIS_TEST_CONFIG"
+fi
+
+# The flag has no module-argument form, so it rides on the config file every server starts with.
+# Tests passing their own redisConfigFile replace that file, and so run without it.
+if [[ $ROW_BLOCK_FORMAT == 1 ]]; then
+	row_block_config=$(mktemp "${TMPDIR:-/tmp}/row_block_conf.XXXXXXX")
+	trap 'rm -f "$row_block_config"' EXIT
+	{
+		[[ -n $REDIS_TEST_CONFIG ]] && echo "include $REDIS_TEST_CONFIG"
+		echo "search-internal-row-block-format yes"
+	} > "$row_block_config"
+	REDIS_TEST_CONFIG=$row_block_config
 fi
 
 PID=$$
