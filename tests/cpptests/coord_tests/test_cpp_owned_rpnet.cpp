@@ -60,8 +60,9 @@ class OwnedRPNetTest : public ::testing::Test {
     queue.pending = 1;
     runtime.queue = &queue;
     request = AREQ_New(nullptr, 0);
-    request->reqConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
-    QueryRequestTimeout_Init(&request->base.timeout, TimeoutPolicy_ReturnStrict, 1000);
+    request->base.timeout.config.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&request->base.timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&request->base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     const char *args[] = {"_FT.AGGREGATE", "idx", "*"};
     const size_t lengths[] = {13, 3, 1};
@@ -270,7 +271,7 @@ TEST_F(OwnedRPNetTest, FinalReplyPublishedAfterEmptyPopIsNotMistakenForEof) {
 TEST_F(OwnedRPNetTest, Resp3DrainRecordsTimeoutWarningWithoutRestartingNext) {
   attachIterator();
   net->cmd.protocol = 3;
-  request->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+  request->base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   const std::string warning = QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
   const std::string wire =
       "*2\r\n%3\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n"

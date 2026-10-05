@@ -33,7 +33,8 @@ class PipelineOwnershipTest : public ::testing::Test {
   QueryProcessingCtx context = {};
 
   void SetUp() override {
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     execution = PipelineExecution_New(&timeout);
   }
