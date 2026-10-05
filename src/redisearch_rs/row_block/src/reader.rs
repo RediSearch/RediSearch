@@ -12,7 +12,7 @@
 
 use crate::{ColumnKind, MAGIC, MAX_NESTING_DEPTH, Tag, VERSION, bitmap_bytes, bitmap_get};
 use std::ffi::CStr;
-use value::SharedValue;
+use value::{SharedBuffer, SharedValue, Value};
 
 /// Why a block could not be decoded.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -166,7 +166,15 @@ impl std::iter::FusedIterator for Rows<'_, '_> {}
 pub struct RowReader<'a, 'k> {
     cursor: Cursor<'a>,
     kinds: &'k [ColumnKind],
+    strings: Strings<'k>,
     failed: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Strings<'b> {
+    Copied,
+    /// Borrowed from this buffer where [`SharedBuffer::share`] can, copied otherwise.
+    Shared(&'b SharedBuffer),
 }
 
 impl<'a, 'k> RowReader<'a, 'k> {
@@ -183,7 +191,26 @@ impl<'a, 'k> RowReader<'a, 'k> {
         Self {
             cursor: Cursor { bytes: rows },
             kinds,
+            strings: Strings::Copied,
             failed: false,
+        }
+    }
+
+    /// Like [`RowReader::new`], but decoded strings borrow from `buffer` instead of copying.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rows` is not part of `buffer`'s bytes, or as [`RowReader::new`] does.
+    pub fn sharing(rows: &'a [u8], kinds: &'k [ColumnKind], buffer: &'k SharedBuffer) -> Self {
+        let whole = buffer.as_bytes().as_ptr_range();
+        let part = rows.as_ptr_range();
+        assert!(
+            whole.start <= part.start && part.end <= whole.end,
+            "the rows are not part of the shared buffer"
+        );
+        Self {
+            strings: Strings::Shared(buffer),
+            ..Self::new(rows, kinds)
         }
     }
 
@@ -224,8 +251,10 @@ impl<'a, 'k> RowReader<'a, 'k> {
         for (col, kind) in (0..ncols).zip(self.kinds) {
             if bitmap_get(bitmap, col) {
                 let value = match kind {
-                    ColumnKind::Tagged => decode_value(&mut self.cursor, 0)?,
-                    ColumnKind::Typed(tag) => decode_payload(&mut self.cursor, *tag, 0)?,
+                    ColumnKind::Tagged => decode_value(&mut self.cursor, self.strings, 0)?,
+                    ColumnKind::Typed(tag) => {
+                        decode_payload(&mut self.cursor, self.strings, *tag, 0)?
+                    }
                 };
                 sink(col, value);
             }
@@ -234,9 +263,13 @@ impl<'a, 'k> RowReader<'a, 'k> {
     }
 }
 
-fn decode_value(cursor: &mut Cursor<'_>, depth: u32) -> Result<SharedValue, DecodeError> {
+fn decode_value(
+    cursor: &mut Cursor<'_>,
+    strings: Strings<'_>,
+    depth: u32,
+) -> Result<SharedValue, DecodeError> {
     let tag = cursor.take_tag()?;
-    decode_payload(cursor, tag, depth)
+    decode_payload(cursor, strings, tag, depth)
 }
 
 /// Copies `bytes` into a string value with a single allocation.
@@ -249,6 +282,7 @@ fn copy_string(bytes: &[u8]) -> SharedValue {
 
 fn decode_payload(
     cursor: &mut Cursor<'_>,
+    strings: Strings<'_>,
     tag: Tag,
     depth: u32,
 ) -> Result<SharedValue, DecodeError> {
@@ -258,13 +292,27 @@ fn decode_payload(
 
     Ok(match tag {
         Tag::Number => SharedValue::new_num(cursor.take_f64()?),
-        Tag::String => copy_string(cursor.take_string()?),
+        Tag::String => {
+            let bytes = cursor.take_string()?;
+            let shared = match strings {
+                Strings::Copied => None,
+                Strings::Shared(buffer) => {
+                    let offset = bytes.as_ptr() as usize - buffer.as_bytes().as_ptr() as usize;
+                    let len = u32::try_from(bytes.len()).expect("a string length is a u32");
+                    buffer.share(offset, len)
+                }
+            };
+            match shared {
+                Some(string) => SharedValue::new(Value::String(string)),
+                None => copy_string(bytes),
+            }
+        }
         Tag::Null => SharedValue::null_static(),
         Tag::Array => {
             let count = cursor.take_count(MIN_BYTES_PER_VALUE)?;
             let mut items = Vec::with_capacity(count.min(MAX_PREALLOCATED));
             for _ in 0..count {
-                items.push(decode_value(cursor, depth + 1)?);
+                items.push(decode_value(cursor, strings, depth + 1)?);
             }
             SharedValue::new_array(items)
         }
@@ -272,8 +320,8 @@ fn decode_payload(
             let count = cursor.take_count(2 * MIN_BYTES_PER_VALUE)?;
             let mut entries = Vec::with_capacity(count.min(MAX_PREALLOCATED));
             for _ in 0..count {
-                let key = decode_value(cursor, depth + 1)?;
-                let value = decode_value(cursor, depth + 1)?;
+                let key = decode_value(cursor, strings, depth + 1)?;
+                let value = decode_value(cursor, strings, depth + 1)?;
                 entries.push((key, value));
             }
             SharedValue::new_map(entries)

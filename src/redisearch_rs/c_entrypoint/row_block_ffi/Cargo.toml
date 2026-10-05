@@ -15,6 +15,7 @@ bench = false
 cheadergen.workspace = true
 ffi.workspace = true
 query_flags.workspace = true
+redis-module.workspace = true
 rlookup.workspace = true
 row_block.workspace = true
 tracing.workspace = true
