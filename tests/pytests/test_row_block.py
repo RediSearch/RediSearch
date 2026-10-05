@@ -5,6 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import json
 import os
 import tempfile
 from contextlib import contextmanager
@@ -482,6 +483,146 @@ def row_block_no_columns(env):
             env.assertFalse(any(isinstance(row, bytes) for row in rows), message=rows)
 
 
+def row_block_partial_matches(env):
+    """Shards without matching rows, or no matches at all, reply as before."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'n', 'NUMERIC', 'SORTABLE',
+               'optional', 'TEXT').ok()
+    count = 30
+    add_docs(env, count, fields=lambda i: with_optional(i, 't', 'spread', 'n', i))
+    # One hash tag puts these on a single shard, so only that one matches @t:{one}.
+    add_docs(env, count, key=lambda i: f'{{one}}:{i}',
+             fields=lambda i: with_optional(i, 't', 'one', 'n', 100 + i))
+    load = ['LOAD', 2, '@n', '@optional', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 2 * count]
+
+    for query in ('@t:{none}', '@n:[1000 2000]'):
+        reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', query, *load)
+        env.assertEqual(row_block_rows(env, reply), [], message=query)
+
+    reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', '@t:{one}', *load)
+    env.assertEqual([row['n'] for row in row_block_rows(env, reply)],
+                    [str(100 + i) for i in range(count)])
+    assert_blocks_used(env, without_optional(count), '@t:{one}', *load)
+
+
+def row_block_scores(env):
+    """ADDSCORES sends each row's score as a field, whichever scorer computed it."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT', 'n', 'NUMERIC', 'SORTABLE',
+               'optional', 'TEXT').ok()
+    count = max(30, 10 * env.shardsCount)
+    add_docs(env, count, fields=lambda i: with_optional(
+        i, 'body', ' '.join(['hello'] * (i % 4 + 1) + ['filler'] * (i % 7)), 'n', i))
+    assert_keys_on_every_shard(env)
+    for scorer in ([], ['SCORER', 'TFIDF.DOCNORM'], ['SCORER', 'BM25STD.NORM']):
+        args = ['ADDSCORES', *scorer, 'LOAD', 2, '@n', '@optional',
+                'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, count]
+        reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', 'hello', *args)
+        rows = row_block_rows(env, reply)
+        env.assertEqual(len(rows), count, message=scorer)
+        env.assertGreater(len({row['__score'] for row in rows}), 1, message=rows)
+        assert_blocks_used(env, without_optional(count), 'hello', *args)
+
+
+def row_block_timeout_return(env):
+    """A shard timing out mid-chunk under ON_TIMEOUT RETURN sends a short block."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'optional', 'TEXT').ok()
+    timeout_after = 5
+    # Every shard must hold more than `timeout_after` rows to time out mid-chunk.
+    count = 20 * env.shardsCount
+    add_docs(env, count, fields=lambda i: with_optional(i, 'n', i))
+    for conn in env.getOSSMasterNodesConnectionList():
+        env.assertGreater(conn.execute_command('DBSIZE'), timeout_after)
+    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@n', '@optional', 'LIMIT', 0, count]
+
+    def run():
+        reply = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after, internal_only=True)
+        if env.protocol == 3:
+            VerifyTimeoutWarningResp3(env, reply)
+            rows = [row['extra_attributes'] for row in reply['results']]
+            total, warning = reply['total_results'], reply['warning']
+        else:
+            rows = [dict(zip(row[::2], row[1::2])) for row in reply[1:]]
+            total, warning = reply[0], None
+        # The coordinator stops at the first shard reply carrying the timeout warning, so which
+        # shard's rows make it in varies between runs: compare row values to the documents they
+        # came from, and only the shape to the legacy reply.
+        for row in rows:
+            n = int(row['n'])
+            env.assertEqual(row, dict(n=str(n), **({'optional': 'present'} if n % 2 else {})))
+        if env.protocol == 3:
+            env.assertEqual((total, len(rows)), (timeout_after, timeout_after))
+        else:
+            # RESP2 shards carry no warning, so the coordinator reads on past the short block.
+            env.assertEqual(len(rows), count)
+        return total, len(rows), warning
+
+    with all_shards_config(env, ON_TIMEOUT_CONFIG, 'return'):
+        shapes = {}
+        for enabled in row_block_modes(env):
+            shapes[enabled] = run()
+        env.assertEqual(shapes['yes'], shapes['no'])
+
+        # The coordinator's debug fan-out above cannot be profiled; this is what each shard
+        # sends it.
+        debug_query = ['_FT.AGGREGATE', *query[1:], 'WITHCURSOR', '_NUM_SSTRING',
+                       row_block_token(env)]
+        with internal_shard_connections(env) as shards:
+            for shard in shards:
+                reply = shard.execute_command(*parseDebugQueryCommandArgs(
+                    ['_FT.DEBUG', *debug_query], ['TIMEOUT_AFTER_N', timeout_after]))
+                reply, cursor = reply
+                env.assertNotEqual(cursor, 0)
+                shard.execute_command('_FT.CURSOR', 'DEL', 'idx', cursor)
+                rows = shard_rows(env, reply)
+                env.assertEqual(len(rows), 1)
+                env.assertTrue(isinstance(rows[0], bytes), message=rows)
+                if env.protocol == 3:
+                    env.assertEqual(reply[b'row_block_rows'], timeout_after)
+                    env.assertEqual(len(reply[b'warning']), 1, message=reply)
+
+
+def row_block_json(env):
+    """JSON multi-value fields, nested values and number/string distinctions survive blocks."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.n', 'AS', 'n', 'NUMERIC', 'SORTABLE',
+               '$.tags[*]', 'AS', 'tags', 'TAG',
+               '$.nums[*]', 'AS', 'nums', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    count = max(20, 10 * env.shardsCount)
+    for i in range(count):
+        doc = {'n': i + 0.25, 'tags': [f't{i}', f'u{i}'], 'nums': [i, -i * 1e20, 0.1],
+               'obj': {'s': str(i), 'k': i, 'nested': [[i, str(i)], {'deep': None}]},
+               'mixed': [i, str(i), True, None, 1.5]}
+        if i % 2:
+            doc['opt'] = 'present'
+        conn.execute_command('JSON.SET', f'doc:{i}', '$', json.dumps(doc))
+    assert_keys_on_every_shard(env)
+
+    load = ['LOAD', 12, '@n', '@tags', '@nums', '$.obj', 'AS', 'obj',
+            '$.mixed', 'AS', 'mixed', '$.opt', 'AS', 'opt']
+    tail = ['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, count]
+    # Each variant picks a different member of the shard's multi-value trio for @tags.
+    nested = '{"s":"1","k":1,"nested":[[1,"1"],{"deep":null}]}'
+    mixed = '[1,"1",true,null,1.5]'
+    variants = [(['DIALECT', 2], 't1', {'obj': nested, 'mixed': mixed, 'nums': '1'}),
+                (['DIALECT', 3], '["t1","u1"]',
+                 {'obj': f'[{nested}]', 'mixed': f'[{mixed}]', 'nums': '[1,-1e20,0.1]'})]
+    if env.protocol == 3:
+        variants += [(['FORMAT', 'EXPAND', 'DIALECT', 3], ['t1', 'u1'], {}),
+                     (['FORMAT', 'STRING', 'DIALECT', 3], '["t1","u1"]', {})]
+    for variant, tags, expected in variants:
+        args = [*load, *tail, *variant]
+        reply = assert_same_as_legacy(env, 'FT.AGGREGATE', 'idx', '*', *args)
+        if env.protocol == 3:
+            rows = [row['extra_attributes'] for row in reply['results']]
+        else:
+            rows = [dict(zip(row[::2], row[1::2])) for row in reply[1:]]
+        env.assertEqual(len(rows), count, message=variant)
+        env.assertEqual(rows[1]['tags'], tags, message=variant)
+        for name, value in expected.items():
+            env.assertEqual(rows[1][name], value, message=(variant, name))
+        assert_blocks_used(env, without_optional(count), '*', *args)
+
+
 @skip(cluster=False)
 def test_row_block_buffered_reply_resp3():
     row_block_buffered_reply(row_block_env(protocol=3))
@@ -599,6 +740,46 @@ def test_row_block_no_columns_resp3():
 @skip(cluster=False)
 def test_row_block_no_columns():
     row_block_no_columns(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_partial_matches_resp3():
+    row_block_partial_matches(row_block_env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_partial_matches():
+    row_block_partial_matches(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_scores_resp3():
+    row_block_scores(row_block_env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_scores():
+    row_block_scores(row_block_env())
+
+
+@skip(cluster=False)
+def test_row_block_timeout_return_resp3():
+    row_block_timeout_return(row_block_env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_timeout_return():
+    row_block_timeout_return(row_block_env())
+
+
+@skip(cluster=False, no_json=True)
+def test_row_block_json_resp3():
+    row_block_json(row_block_env(protocol=3))
+
+
+@skip(cluster=False, no_json=True)
+def test_row_block_json():
+    row_block_json(row_block_env())
 
 
 @skip(cluster=False)
