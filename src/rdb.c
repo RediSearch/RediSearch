@@ -30,6 +30,7 @@ void Backup_Globals() {
   specIdDict_g = dictCreate(&dictTypeUint64, NULL);
 
   ScemaPrefixes_g_bkup = SchemaPrefixes_g;
+  SchemaPrefixes_g = NULL;
   SchemaPrefixes_Create();
 
   AliasTable_g_bkup = AliasTable_g;

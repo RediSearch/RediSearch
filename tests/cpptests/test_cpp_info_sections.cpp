@@ -14,10 +14,18 @@
 extern "C" {
 #include "info/info_redis/info_redis.h"
 #include "search_disk.h"
+#include "rdb.h"
+#include "rules.h"
+#include "util/disk_metrics.h"
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <map>
 #include <set>
 #include <string>
@@ -306,6 +314,238 @@ TEST_F(InfoSectionsTest, RegistrationFailureDoesNotEnableCache) {
   EXPECT_FALSE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_FALSE(SearchDisk_InfoCacheEnabled());
   EXPECT_EQ(backgroundCollections, 0);
+}
+
+class CachedDiskLifecycleTest : public InfoSectionsTest {
+ protected:
+  Restore<decltype(RedisModule_CreateTimer)> createTimer{RedisModule_CreateTimer};
+  Restore<decltype(RedisModule_StopTimer)> stopTimer{RedisModule_StopTimer};
+  static inline CachedDiskLifecycleTest *active;
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool available = true;
+  bool waiting = false;
+  bool freed = false;
+  bool releaseTicket = true;
+  bool closed = false;
+  bool requestFails = false;
+  int result = 0;
+  unsigned requests = 0;
+  unsigned releases = 0;
+  uint64_t selectedGroup = 1;
+  uint64_t nextGroup = 2;
+  std::map<RedisSearchDiskIndexSpec *, uint64_t> entries;
+  std::vector<StrongRef> pins;
+  bool createdPrefixes = false;
+
+  void SetUp() override {
+    InfoSectionsTest::SetUp();
+    active = this;
+    createdPrefixes = SchemaPrefixes_g == nullptr;
+    SchemaPrefixes_Create();
+    RedisModule_CreateTimer = [](RedisModuleCtx *, mstime_t, RedisModuleTimerProc, void *) {
+      return RedisModuleTimerID{1};
+    };
+    RedisModule_StopTimer = [](RedisModuleCtx *, RedisModuleTimerID, void **) {
+      return REDISMODULE_OK;
+    };
+    api.metrics.collect = [](void *) { return false; };
+    api.metrics.setAvailable = [](void *, bool value) {
+      std::lock_guard<std::mutex> lock(active->mutex);
+      active->available = value;
+      active->changed.notify_all();
+    };
+    api.metrics.requestFreshUsage = [](void *, RedisSearchDiskIndexSpec *, uint64_t) -> void * {
+      ++active->requests;
+      return active->requestFails ? nullptr : active;
+    };
+    api.metrics.waitFreshUsage = [](void *ticket, uint64_t timeout, uint64_t *usage) {
+      auto &self = *static_cast<CachedDiskLifecycleTest *>(ticket);
+      std::unique_lock<std::mutex> lock(self.mutex);
+      self.waiting = true;
+      self.changed.notify_all();
+      if (self.result == 3) {
+        if (!self.changed.wait_for(lock, std::chrono::milliseconds(timeout),
+                                   [&] { return !self.available; }))
+          return 1;
+        return 3;
+      }
+      if (!self.result) *usage = 55;
+      return self.result;
+    };
+    api.metrics.freeFreshUsage = [](void *ticket) {
+      auto &self = *static_cast<CachedDiskLifecycleTest *>(ticket);
+      std::unique_lock<std::mutex> lock(self.mutex);
+      ++self.releases;
+      self.freed = true;
+      self.changed.notify_all();
+      self.changed.wait(lock, [&] { return self.releaseTicket; });
+    };
+    api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) {
+      std::lock_guard<std::mutex> lock(active->mutex);
+      active->closed = true;
+      active->changed.notify_all();
+    };
+    api.metrics.newUsageGroup = [](void *) { return active->nextGroup++; };
+    api.metrics.selectUsageGroup = [](void *, uint64_t group) { active->selectedGroup = group; };
+    api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *index, uint64_t group) {
+      active->entries[index] = group;
+    };
+    api.metrics.retireTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *index) {
+      active->entries.erase(index);
+    };
+    api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
+      uint64_t total = 0;
+      for (auto [index, group] : active->entries) {
+        if (group == active->selectedGroup) total += 55;
+      }
+      return total;
+    };
+    api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {};
+    api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
+    api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
+    pins.push_back(StrongRef_Clone(ref));
+  }
+
+  void TearDown() override {
+    for (auto pin : pins) {
+      auto *index = static_cast<IndexSpec *>(StrongRef_Get(pin));
+      index->diskSpec = nullptr;
+      index->diskRegistered = false;
+    }
+    InfoSectionsTest::TearDown();
+    for (auto pin : pins) StrongRef_Release(pin);
+    if (createdPrefixes) {
+      SchemaPrefixes_Free(SchemaPrefixes_g);
+      SchemaPrefixes_g = nullptr;
+    }
+    active = nullptr;
+  }
+
+  static void *requestWhilePausing(void *, RedisSearchDiskIndexSpec *, uint64_t) {
+    ++active->requests;
+    DiskMetrics_Pause();
+    return active;
+  }
+
+  void activate(IndexSpec *index) {
+    index->diskRegistered = true;
+    SearchDisk_ActivateUsage(index);
+  }
+
+  StrongRef stagedIndex() {
+    Restore<decltype(isFlex)> mode{isFlex};
+    isFlex = false;
+    const char *args[] = {"SCHEMA", "title", "TEXT"};
+    QueryError error = QueryError_Default();
+    auto staged = IndexSpec_ParseC(nullptr, "staged_usage", args, 3, &error);
+    auto *index = static_cast<IndexSpec *>(StrongRef_Get(staged));
+    if (index) {
+      Spec_AddToDict(staged.rm);
+      index->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(index);
+      pins.push_back(StrongRef_Clone(staged));
+      activate(index);
+    }
+    return staged;
+  }
+};
+
+TEST_F(CachedDiskLifecycleTest, FreshnessWrapperPreservesOutputAndReleasesEveryTicket) {
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, api.metrics.collect, disk_db));
+  uint64_t usage = 999;
+  EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 0);
+  EXPECT_EQ(usage, 55);
+  for (int status : {1, 2}) {
+    result = status;
+    usage = 999;
+    EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), status);
+    EXPECT_EQ(usage, 999);
+  }
+  EXPECT_EQ(releases, 3);
+  requestFails = true;
+  EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 3);
+  EXPECT_EQ(releases, 3);
+  requestFails = false;
+  api.metrics.requestFreshUsage = requestWhilePausing;
+  EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 3);
+  EXPECT_EQ(releases, 4);
+  const auto previousRequests = requests;
+  EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 3);
+  EXPECT_EQ(requests, previousRequests);
+  EXPECT_TRUE(DiskMetrics_Resume());
+}
+
+TEST_F(CachedDiskLifecycleTest, ShutdownWakesWaiterAndWaitsForTicketCleanup) {
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, api.metrics.collect, disk_db));
+  result = 3;
+  releaseTicket = false;
+  uint64_t usage = 999;
+  int status = -1;
+  std::thread waiter([&] { status = SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 5000, &usage); });
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(changed.wait_for(lock, std::chrono::seconds(5), [&] { return waiting; }));
+  }
+  std::thread shutdown([] { SearchDisk_Close(nullptr); });
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_TRUE(changed.wait_for(lock, std::chrono::seconds(5), [&] { return freed; }));
+    EXPECT_FALSE(available);
+    EXPECT_FALSE(changed.wait_for(lock, std::chrono::milliseconds(100), [&] { return closed; }));
+    releaseTicket = true;
+    changed.notify_all();
+  }
+  waiter.join();
+  shutdown.join();
+  EXPECT_EQ(status, 3);
+  EXPECT_EQ(usage, 999);
+  EXPECT_EQ(releases, 1);
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(DiskMetrics_BeginWait());
+}
+
+TEST_F(CachedDiskLifecycleTest, RdbRollbackRestoresOldTotalAndDropSubtractsImmediately) {
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  activate(spec);
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  auto *oldPrefixes = SchemaPrefixes_g;
+  Backup_Globals();
+  EXPECT_NE(SchemaPrefixes_g, oldPrefixes);
+  EXPECT_EQ(callbacks.getDiskUsage(), 0);
+  auto staged = stagedIndex();
+  EXPECT_NE(StrongRef_Get(staged), nullptr);
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  Restore_Globals(RSDummyContext);
+  EXPECT_EQ(SchemaPrefixes_g, oldPrefixes);
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  EXPECT_EQ(entries.size(), 1);
+  EXPECT_EQ(Indexes_LoadIndexSpecUnsafe("info_sections").rm, ref.rm);
+  EXPECT_EQ(Indexes_LoadIndexSpecUnsafe("staged_usage").rm, nullptr);
+  Indexes_RemoveSpecFromGlobals(ref, false);
+  spec = nullptr;
+  EXPECT_EQ(callbacks.getDiskUsage(), 0);
+}
+
+TEST_F(CachedDiskLifecycleTest, DiscardingBackupKeepsLoadedTotalAndClearsRollback) {
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  activate(spec);
+  Backup_Globals();
+  auto staged = stagedIndex();
+  EXPECT_NE(StrongRef_Get(staged), nullptr);
+  EXPECT_EQ(entries.size(), 2);
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  Discard_Globals_Backup(RSDummyContext);
+  ref = staged;
+  spec = static_cast<IndexSpec *>(StrongRef_Get(staged));
+  EXPECT_EQ(entries.size(), 1);
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  SearchDisk_RestoreUsage();
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  Indexes_RemoveSpecFromGlobals(ref, false);
+  spec = nullptr;
+  EXPECT_EQ(callbacks.getDiskUsage(), 0);
 }
 
 }  // namespace
