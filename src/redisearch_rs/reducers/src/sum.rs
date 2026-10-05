@@ -14,17 +14,23 @@ use value::SharedValue;
 
 use crate::accumulator::Accumulator;
 
+/// Whether a [`Sum`] reducer returns the total or the average.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SumMode {
+    Sum,
+    Average,
+}
+
 /// `SUM` or `AVG` of a property, over the rows where it converts to a number (see
 /// [`value::Value::to_number`]). A group with no such row reduces to NaN.
 pub struct Sum<'a> {
     key: &'a RLookupKey<'a>,
-    average: bool,
+    mode: SumMode,
 }
 
 impl<'a> Sum<'a> {
-    /// Sums `key`, or averages it if `average`.
-    pub const fn new(key: &'a RLookupKey<'a>, average: bool) -> Self {
-        Self { key, average }
+    pub const fn new(key: &'a RLookupKey<'a>, mode: SumMode) -> Self {
+        Self { key, mode }
     }
 }
 
@@ -50,10 +56,10 @@ impl Accumulator for Sum<'_> {
     }
 
     fn finalize(&self, state: &SumState) -> SharedValue {
-        let result = match state.count {
-            0 => f64::NAN,
-            count if self.average => state.total / count as f64,
-            _ => state.total,
+        let result = match (state.count, self.mode) {
+            (0, _) => f64::NAN,
+            (count, SumMode::Average) => state.total / count as f64,
+            (_, SumMode::Sum) => state.total,
         };
         SharedValue::new_num(result)
     }

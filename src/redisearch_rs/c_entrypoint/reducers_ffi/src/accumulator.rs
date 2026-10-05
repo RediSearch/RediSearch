@@ -19,7 +19,7 @@ use std::ptr;
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
 use reducers::min_max::{Extreme, MinMax};
-use reducers::sum::Sum;
+use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupRow};
 
 /// Creates a `COUNT` reducer and returns its base [`ffi::Reducer`], which the
@@ -45,7 +45,12 @@ pub unsafe extern "C" fn SumReducer_Create(
 ) -> *mut ffi::Reducer {
     // SAFETY: ensured by caller (1.)
     let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
-    into_c_reducer(Sum::new(key, average))
+    let mode = if average {
+        SumMode::Average
+    } else {
+        SumMode::Sum
+    };
+    into_c_reducer(Sum::new(key, mode))
 }
 
 /// Creates a `MIN` reducer of `srckey`, or a `MAX` one if `max`, and returns its

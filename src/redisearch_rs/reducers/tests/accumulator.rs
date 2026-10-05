@@ -17,7 +17,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
 use reducers::min_max::{Extreme, MinMax};
-use reducers::sum::Sum;
+use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::{SharedValue, Value};
 
@@ -64,16 +64,16 @@ fn sum_and_avg_skip_non_numeric_rows() {
     let key = key();
     let rows = [num(1.5), None, string("2.5"), string("abc"), num(-1.0)];
 
-    assert_eq!(reduce(Sum::new(&key, false), &key, &rows), 3.0);
-    assert_eq!(reduce(Sum::new(&key, true), &key, &rows), 1.0);
+    assert_eq!(reduce(Sum::new(&key, SumMode::Sum), &key, &rows), 3.0);
+    assert_eq!(reduce(Sum::new(&key, SumMode::Average), &key, &rows), 1.0);
 }
 
 #[test]
 fn sum_and_avg_of_no_numbers_are_nan() {
     let key = key();
-    for average in [false, true] {
-        assert!(reduce(Sum::new(&key, average), &key, &[]).is_nan());
-        assert!(reduce(Sum::new(&key, average), &key, &[None, string("abc")]).is_nan());
+    for mode in [SumMode::Sum, SumMode::Average] {
+        assert!(reduce(Sum::new(&key, mode), &key, &[]).is_nan());
+        assert!(reduce(Sum::new(&key, mode), &key, &[None, string("abc")]).is_nan());
     }
 }
 
