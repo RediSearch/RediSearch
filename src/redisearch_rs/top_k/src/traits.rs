@@ -36,6 +36,32 @@ pub trait ScoreBatch {
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
 }
 
+/// The doc ids a batch will be intersected with, for sources that can skip
+/// records the filter child cannot match.
+///
+/// Handed to [`ScoreSource::next_batch_with_child`] as the source's view of the
+/// [`TopKIterator`]'s child. It exposes only forward stepping, seeking and
+/// rewinding, the operations a source needs to leapfrog its own reader against
+/// the child; the records themselves stay with the iterator, which does the
+/// authoritative intersection afterwards.
+///
+/// [`TopKIterator`]: crate::TopKIterator
+pub trait ChildCursor {
+    /// Step the cursor to the child's next doc id, and return it. `None` means
+    /// the child has no more.
+    ///
+    /// Cheaper than [`advance_to`](Self::advance_to) for a target just past
+    /// the current doc id, since the child need not search for it.
+    fn next(&mut self) -> Result<Option<DocId>, RQEIteratorError>;
+
+    /// Position the cursor at the smallest doc id `>= target` the child can
+    /// produce, and return it. `None` means the child has none.
+    fn advance_to(&mut self, target: DocId) -> Result<Option<DocId>, RQEIteratorError>;
+
+    /// Restart the cursor from the child's first doc id.
+    fn rewind(&mut self);
+}
+
 /// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
 /// telling [`TopKIterator`] how to proceed in Batches mode.
 ///
@@ -102,6 +128,26 @@ pub trait ScoreSource {
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
+
+    /// Fetch the next score-ordered batch, given the child the batch will be
+    /// intersected with.
+    ///
+    /// Called instead of [`next_batch`](Self::next_batch) whenever the
+    /// [`TopKIterator`] has a filter child. A source that can seek its own
+    /// reader may use `child` to skip records the intersection would discard;
+    /// the default ignores it, so the returned batch is the same either way and
+    /// the iterator still performs the intersection.
+    ///
+    /// `child`'s position on return is unspecified — the iterator rewinds it
+    /// before intersecting.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn next_batch_with_child(
+        &mut self,
+        _child: &mut dyn ChildCursor,
+    ) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        self.next_batch()
+    }
 
     /// Single-shot query returning all results directly, without a heap.
     ///
