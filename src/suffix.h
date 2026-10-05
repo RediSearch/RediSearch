@@ -84,9 +84,11 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
  * by this many characters to be chosen. */
 #define SUFFIX_STARRED_ANCHOR_PENALTY 5
 
-/* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
- * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.
- * The function does not assume str is NULL terminated. */
+/* Breaks wildcard at '*'s and finds the best token to iterate the suffix trie.
+ * Returns the chosen token's 0-based ordinal among the '*'-separated tokens and
+ * writes its offset and length to *tokenIdx and *tokenLen, or returns
+ * REDISEARCH_UNINITIALIZED (leaving both untouched) if there is no token.
+ * Uses O(1) memory regardless of len. str need not be NUL terminated. */
 int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
 int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
 

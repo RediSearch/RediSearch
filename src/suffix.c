@@ -225,108 +225,86 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
 *                                    Wildcard                                      *
 ************************************************************************************/
 int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
-  int runner = 0;
-  int i = 0;
-  int init = 0;
-  while (i < len) {
-    // save location of token
-    if (str[i] != '*') {
-      tokenIdx[runner] = i;
-      init = 1;
-    }
-    // skip all characters other than `*`
-    while (i < len && str[i] != '*') {
-      ++i;
-    }
-    // save length of token
-    if (init) {
-      tokenLen[runner] = i - tokenIdx[runner];
-      ++runner;
-    }
-    // skip `*` characters
-    while (str[i] == '*') {
-      ++i;
-    }
-  }
-
-  // choose best option
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
-  for (int i = 0; i < runner; ++i) {
+  int ordinal = 0;
+  size_t i = 0;
+  while (i < len) {
+    // skip `*` characters
+    while (i < len && str[i] == '*') {
+      ++i;
+    }
+    if (i == len) {
+      break;
+    }
+    size_t start = i;
     // 1. long string are likely to have less results
     // 2. tokens at end of pattern are likely to be more relevant
-    int curScore = tokenLen[i] + i;
-
-    // iterating all children is demanding
-    if (str[tokenIdx[i] + tokenLen[i]] == '*') {
-      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
-    }
-
-    // this branching is heavy
-    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
-      if (str[j] == '?') {
+    int curScore = ordinal;
+    while (i < len && str[i] != '*') {
+      // this branching is heavy
+      if (str[i] == '?') {
         --curScore;
       }
+      ++i;
+    }
+    curScore += i - start;
+
+    // iterating all children is demanding
+    if (i < len) {
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     if (curScore >= score) {
       score = curScore;
-      retidx = i;
+      retidx = ordinal;
+      *tokenIdx = start;
+      *tokenLen = i - start;
     }
+    ++ordinal;
   }
 
   return retidx;
 }
 
 int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
-  int runner = 0;
-  int i = 0;
-  int init = 0;
-  while (i < len) {
-    // save location of token
-    if (str[i] != (rune)'*') {
-      tokenIdx[runner] = i;
-      init = 1;
-    }
-    // skip all characters other than `*`
-    while (i < len && str[i] != (rune)'*') {
-      ++i;
-    }
-    // save length of token
-    if (init) {
-      tokenLen[runner] = i - tokenIdx[runner];
-      ++runner;
-    }
-    // skip `*` characters
-    while (str[i] == (rune)'*') {
-      ++i;
-    }
-  }
-
-  // choose best option
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
-  for (int i = 0; i < runner; ++i) {
+  int ordinal = 0;
+  size_t i = 0;
+  while (i < len) {
+    // skip `*` characters
+    while (i < len && str[i] == (rune)'*') {
+      ++i;
+    }
+    if (i == len) {
+      break;
+    }
+    size_t start = i;
     // 1. long string are likely to have less results
     // 2. score ties are broken in favor of the later token (`>=` below)
-    int curScore = tokenLen[i] + 1;
-
-    // iterating all children is demanding
-    if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
-      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
-    }
-
-    // this branching is heavy
-    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
-      if (str[j] == (rune)'?') {
+    int curScore = 1;
+    while (i < len && str[i] != (rune)'*') {
+      // this branching is heavy
+      if (str[i] == (rune)'?') {
         --curScore;
       }
+      ++i;
+    }
+    curScore += i - start;
+
+    // iterating all children is demanding
+    if (i < len) {
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     if (curScore >= score) {
       score = curScore;
-      retidx = i;
+      retidx = ordinal;
+      *tokenIdx = start;
+      *tokenLen = i - start;
     }
+    ++ordinal;
   }
 
   return retidx;
@@ -379,30 +357,25 @@ int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *paylo
 }
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
-  // An empty pattern has no token to anchor on, and the arrays below require a positive length
-  if (sufCtx->runelen == 0) {
-    return 0;
-  }
-  size_t idx[sufCtx->runelen];
-  size_t lens[sufCtx->runelen];
-  int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
-
-  if (useIdx == REDISEARCH_UNINITIALIZED) {
+  size_t tokidx, toklen;
+  if (Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, &tokidx, &toklen) ==
+      REDISEARCH_UNINITIALIZED) {
     return 0;
   }
 
-  size_t toklen = lens[useIdx];
-  if (sufCtx->rune[idx[useIdx] + toklen] == (rune)'*') {
+  if (tokidx + toklen < sufCtx->runelen && sufCtx->rune[tokidx + toklen] == (rune)'*') {
     toklen++;
   }
   // The trie walk wants a NUL-terminated token, but the pattern buffer must
   // stay intact: Suffix_CB_Wildcard re-filters every candidate against
   // sufCtx->rune while the iteration is running. Terminate a copy instead.
-  rune token[toklen + 1];
-  memcpy(token, sufCtx->rune + idx[useIdx], toklen * sizeof(rune));
+  // The copy is heap-allocated because its length is client-controlled.
+  rune *token = rm_malloc((toklen + 1) * sizeof(rune));
+  memcpy(token, sufCtx->rune + tokidx, toklen * sizeof(rune));
   token[toklen] = (rune)'\0';
 
   Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
+  rm_free(token);
   return 1;
 }
 
@@ -544,22 +517,14 @@ end:
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
-  // An empty pattern has no token to anchor on, and the arrays below require a positive length
-  if (len == 0) {
-    return BAD_POINTER;
-  }
-  size_t idx[len];
-  size_t lens[len];
+  size_t tokenidx, tokenlen;
   // find best token
-  int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
-  if (useIdx == REDISEARCH_UNINITIALIZED) {
+  if (Suffix_ChooseToken(pattern, len, &tokenidx, &tokenlen) == REDISEARCH_UNINITIALIZED) {
     return BAD_POINTER;
   }
 
-  size_t tokenidx = idx[useIdx];
-  size_t tokenlen = lens[useIdx];
   // if token end with '*', we iterate all its children
-  int prefix = pattern[tokenidx + tokenlen] == '*';
+  int prefix = tokenidx + tokenlen < len && pattern[tokenidx + tokenlen] == '*';
 
   TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
   if (!it) return NULL;

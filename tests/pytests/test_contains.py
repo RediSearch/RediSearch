@@ -756,3 +756,17 @@ def testSuffixTrieWildcardCaseSensitiveTag():
     conn.execute_command('HSET', 'doc:1', 't', 'Apple')
     env.expect('FT.SEARCH', 'idx', "@t:{w'A*'}", 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', "@t:{w'a*'}", 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
+def testSuffixTrieWildcardLongTagPattern():
+    """A TAG wildcard pattern has no length cap, so its length must not drive
+    per-character stack scratch on the suffix-trie path: 16 bytes per character
+    used to overflow the thread stack and crash the server."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+
+    # Anchors on "ell"; the run of '*' only makes the pattern long.
+    pattern = '*ell' + '*' * (1 << 20)
+    env.expect('FT.SEARCH', 'idx', "@t:{w'%s'}" % pattern, 'NOCONTENT').equal([1, 'doc:1'])
