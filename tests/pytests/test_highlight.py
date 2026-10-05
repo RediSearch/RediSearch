@@ -377,6 +377,8 @@ def test_highlight_fields_indexed_after_multi_value_json_field(env):
     expected_hl, expected_sm = hl['hash:1'], sm['hash:1']
     env.assertEqual(expected_hl, {'title': '<b>hello</b> big world',
                                   'body': BODY.replace('word150', '<b>word150</b>')})
+    # A summary that starts at word150 rather than at word1 is built from the byte offsets
+    env.assertEqual(expected_sm, {'title': 'hello big... ', 'body': 'word150 ... '})
 
     _load_multi_value_docs(conn)
     for name, order in (('first', ('arr', 'title', 'body')),
@@ -399,7 +401,7 @@ def test_highlight_fields_indexed_after_multi_value_json_field(env):
 @skip(no_json=True, cluster=True)
 def test_highlight_fields_indexed_after_two_multi_value_json_fields(env):
     """Same as above with a multi-value field before each of the highlighted fields, and a
-    value count that makes the positions run well past the length of the highlighted text."""
+    value count large enough to shift the positions by more than the highlighted text has tokens."""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                '$.arr', 'AS', 'arr', 'TEXT',

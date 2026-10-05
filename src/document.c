@@ -465,9 +465,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ForwardIndexTokenizerCtx tokCtx;
     ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
+    uint32_t offsetsBefore = 0;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1,
-                                              ByteOffsetWriter_Count(&aCtx->offsetsWriter));
+      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
+      offsetsBefore = ByteOffsetWriter_Count(&aCtx->offsetsWriter);
       // A multi-value field's positions have gaps (see multiTextOffsetDelta below), which
       // RSByteOffsetIterator cannot step over, so such a field stores no offsets.
       if (valueCount == 1) {
@@ -528,6 +529,8 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
+    RS_ASSERT(!curOffsetField || ByteOffsetWriter_Count(&aCtx->offsetsWriter) - offsetsBefore ==
+                                     curOffsetField->lastTokPos - curOffsetField->firstTokPos + 1);
   }
 
   return 0;

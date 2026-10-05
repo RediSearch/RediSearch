@@ -28,12 +28,11 @@ void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields) {
 }
 
 RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
-                                          uint32_t startPos, uint32_t offsetsStart) {
+                                          uint32_t startPos) {
   RSByteOffsetField *field = &(offsets->fields[offsets->numFields++]);
   field->fieldId = fieldId;
   field->firstTokPos = startPos;
   field->lastTokPos = startPos - 1;
-  field->offsetsStart = offsetsStart;
   return field;
 }
 
@@ -79,15 +78,12 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   RSByteOffsets *offsets = NewByteOffsets();
   RSByteOffsets_ReserveFields(offsets, numFields);
 
-  // Serialized fields have one offset per token position
-  uint32_t offsetsStart = 0;
   for (size_t ii = 0; ii < numFields; ++ii) {
     uint8_t fieldId = Buffer_ReadU8(&r);
     uint32_t firstTok = Buffer_ReadU32(&r);
     uint32_t lastTok = Buffer_ReadU32(&r);
-    RSByteOffsetField *fieldInfo = RSByteOffsets_AddField(offsets, fieldId, firstTok, offsetsStart);
+    RSByteOffsetField *fieldInfo = RSByteOffsets_AddField(offsets, fieldId, firstTok);
     fieldInfo->lastTokPos = lastTok;
-    offsetsStart += lastTok - firstTok + 1;
   }
 
   uint32_t offsetsLen = Buffer_ReadU32(&r);
@@ -109,11 +105,14 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
 int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
                          RSByteOffsetIterator *iter) {
   const RSByteOffsetField *offField = NULL;
+  // Each field owns one offset per position in its range (asserted when the document is indexed)
+  uint32_t offsetsStart = 0;
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
     if (offsets->fields[ii].fieldId == fieldId) {
       offField = offsets->fields + ii;
       break;
     }
+    offsetsStart += offsets->fields[ii].lastTokPos - offsets->fields[ii].firstTokPos + 1;
   }
   if (!offField) {
     return REDISMODULE_ERR;
@@ -130,7 +129,7 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
 
   iter->lastValue = 0;
 
-  for (uint32_t ii = 0; ii < offField->offsetsStart && !BufferReader_AtEnd(&iter->rdr); ++ii) {
+  for (uint32_t ii = 0; ii < offsetsStart && !BufferReader_AtEnd(&iter->rdr); ++ii) {
     iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
   }
 

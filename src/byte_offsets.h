@@ -23,9 +23,6 @@ typedef struct __attribute__((packed)) RSByteOffsetMap {
 
   // Position of last token for this field
   uint32_t lastTokPos;
-
-  // Index in `offsets` of the byte offset of the token at firstTokPos
-  uint32_t offsetsStart;
 } RSByteOffsetField;
 
 typedef struct RSByteOffsets {
@@ -50,7 +47,7 @@ void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields);
 // The field info is returned, and the last position should be written to it
 // when done.
 RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
-                                          uint32_t startPos, uint32_t offsetsStart);
+                                          uint32_t startPos);
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
 // Returns NULL if `buf` is shorter than the serialized offsets it describes.
