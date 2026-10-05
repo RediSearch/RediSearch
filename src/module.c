@@ -3969,7 +3969,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // initQueryTimeout already resolved the command override and foreground cap.
   r->base.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
-    r->base.timeoutWasCapped = true;
+    r->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
   }
   if (r->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
     QueryRequestTimeout_BeginCycle(&r->base.timeout,
@@ -4083,7 +4083,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // initQueryTimeout already resolved the command override and foreground cap.
   hreq->base.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
-    hreq->base.timeoutWasCapped = true;
+    hreq->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
   }
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];

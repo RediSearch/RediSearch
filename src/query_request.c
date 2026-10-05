@@ -240,7 +240,6 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const Reque
     .queryOffset = QUERY_OFFSET_NONE,
   };
   request->blockedClientCycleActive = false;
-  request->timeoutWasCapped = false;
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);

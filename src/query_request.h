@@ -35,6 +35,13 @@ struct MRChannel;
 
 #define QUERY_OFFSET_NONE UINT32_MAX
 
+// Sticky reply metadata, finalized before execution or between quiescent cursor
+// cycles. Keep separate from mutable execution state; concurrent readers need no atomics.
+typedef uint8_t QueryReplyFlags;
+enum {
+  QUERY_REPLY_F_TIMEOUT_CAPPED = 1u << 0,
+};
+
 /** Cached variables used while serializing stored results. */
 typedef struct {
   RLookup *lastLookup;
@@ -342,9 +349,6 @@ typedef struct QueryRequest {
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
   QueryRequestTimeout timeout;
-  // Finalized with timeout configuration before execution; retained across cursor reads.
-  // Reply code must not derive this warning from a producer's mutable execution flags.
-  bool timeoutWasCapped;
   QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
