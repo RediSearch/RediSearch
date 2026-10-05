@@ -279,6 +279,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisModule_Reply_Map",
             "RedisModule_Reply_MapEnd",
             "RedisModule_Reply_RSValue",
+            "RedisModule_Reply_SimpleString_FFI",
             "RedisModule_Reply_StringBuffer_FFI",
         ],
         types: &["RedisModule_Reply", "SendReplyFlags"],

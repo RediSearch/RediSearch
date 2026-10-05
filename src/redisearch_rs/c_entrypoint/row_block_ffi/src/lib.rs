@@ -195,13 +195,7 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
             // SAFETY: ensured by caller (2.)
             unsafe { ffi::RedisModule_Reply_Map(reply) };
             // SAFETY: ensured by caller (2.); the key is a static C string.
-            unsafe {
-                ffi::RedisModule_Reply_StringBuffer_FFI(
-                    reply,
-                    c"extra_attributes".as_ptr(),
-                    c"extra_attributes".count_bytes(),
-                )
-            };
+            unsafe { ffi::RedisModule_Reply_SimpleString_FFI(reply, c"extra_attributes".as_ptr()) };
         }
         // SAFETY: ensured by caller (2.)
         unsafe { ffi::RedisModule_Reply_Map(reply) };
@@ -217,13 +211,7 @@ pub unsafe extern "C" fn RowBlockWriter_ReplayAsResp(
         unsafe { ffi::RedisModule_Reply_MapEnd(reply) };
         if resp3 {
             // SAFETY: ensured by caller (2.); the key is a static C string.
-            unsafe {
-                ffi::RedisModule_Reply_StringBuffer_FFI(
-                    reply,
-                    c"values".as_ptr(),
-                    c"values".count_bytes(),
-                )
-            };
+            unsafe { ffi::RedisModule_Reply_SimpleString_FFI(reply, c"values".as_ptr()) };
             // SAFETY: ensured by caller (2.)
             unsafe { ffi::RedisModule_Reply_Array(reply) };
             // SAFETY: ensured by caller (2.)

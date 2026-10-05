@@ -704,6 +704,7 @@ static void rowEmitter_Init(RowEmitter *e, AREQ *req, const RedisModule_Reply *r
 static bool rowEmitter_Emit(RowEmitter *e, AREQ *req, RedisModule_Reply *reply, SearchResult *r,
                             cachedVars *cv) {
   if (e->w) {
+    RS_ASSERT(!(SearchResult_GetFlags(r) & Result_ExpiredDoc));
     if (RowBlockWriter_WriteRow(e->w, cv->lastLookup, SearchResult_GetRowData(r),
                                 AREQ_RequestFlags(req), AREQ_SearchCtx(req)->apiVersion)) {
       return true;

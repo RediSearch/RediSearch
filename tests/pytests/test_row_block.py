@@ -36,6 +36,7 @@ def internal_shard_connections(env):
         for shard in range(1, env.shardsCount + 1):
             kwargs = dict(env.getConnection(shard).connection_pool.connection_kwargs)
             kwargs['decode_responses'] = False
+            kwargs['connection_class'] = env.getConnection(shard).connection_pool.connection_class
             pools.append(redis.ConnectionPool(**kwargs))
             conn = redis.Redis(connection_pool=pools[-1])
             conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
@@ -44,6 +45,47 @@ def internal_shard_connections(env):
     finally:
         for pool in pools:
             pool.disconnect()
+
+
+def read_wire_reply(stream):
+    """Keep RESP markers and framing that redis-py's decoded replies discard."""
+    line = stream.readline()
+    if not line.endswith(b'\r\n'):
+        raise AssertionError(f'Incomplete RESP header: {line!r}')
+    marker, value = line[:1], line[1:-2]
+    if marker in (b'*', b'%'):
+        count = int(value) * (2 if marker == b'%' else 1)
+        return line + b''.join(read_wire_reply(stream) for _ in range(max(count, 0)))
+    if marker == b'$':
+        length = int(value)
+        if length < 0:
+            return line
+        payload = stream.read(length + 2)
+        if len(payload) != length + 2 or not payload.endswith(b'\r\n'):
+            raise AssertionError('Incomplete RESP bulk string')
+        return line + payload
+    if marker not in (b'+', b':', b',', b'_', b'#'):
+        raise AssertionError(f'Unexpected RESP header: {line!r}')
+    return line
+
+
+@contextmanager
+def internal_shard_wire_connection(shard):
+    """Use the shard's transport/authentication settings on a dedicated internal socket."""
+    kwargs = dict(shard.connection_pool.connection_kwargs)
+    kwargs['connection_class'] = shard.connection_pool.connection_class
+    pool = redis.ConnectionPool(**kwargs)
+    connection = pool.get_connection('_FT.AGGREGATE')
+    try:
+        connection.send_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        connection.read_response()
+        with connection._sock.makefile('rb') as stream:
+            def execute(*args):
+                connection.send_command(*args)
+                return read_wire_reply(stream)
+            yield execute
+    finally:
+        pool.disconnect()
 
 
 def shard_rows(env, reply):
@@ -129,13 +171,24 @@ def row_block_mid_chunk_fallback(env):
     add_docs(env, count, fields=lambda i: ['common', 'x', f'field{i}', i])
     assert_keys_on_every_shard(env)
 
-    query = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LIMIT', 0, count]
-    with internal_shard_connections(env) as shards:
+    query = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LIMIT', 0, count, 'TIMEOUT', 0]
+    with all_shards_config(env, ON_TIMEOUT_CONFIG, 'return'), \
+         all_shards_config(env, 'search-workers', 0), internal_shard_connections(env) as shards:
         for shard in shards:
             legacy = shard.execute_command(*query)
             reply = shard.execute_command(*query, row_block_token(env))
             env.assertEqual(reply, legacy)
             env.assertFalse(any(isinstance(row, bytes) for row in shard_rows(env, reply)))
+            # The first row fixes the schema; the next document introduces a column and
+            # forces replay of the first row. Decoded equality alone misses RESP key types.
+            with internal_shard_wire_connection(shard) as execute:
+                legacy_wire = execute(*query)
+                reply_wire = execute(*query, row_block_token(env))
+                if env.protocol == 3:
+                    env.assertTrue(b'+extra_attributes\r\n' in legacy_wire)
+                    env.assertTrue(b'+values\r\n' in legacy_wire)
+                env.assertTrue(reply_wire == legacy_wire,
+                               message=f'mid-chunk fallback wire mismatch, RESP{env.protocol}')
         # FAIL loads every row before encoding any, so the block carries the grown schema
         # instead of falling back.
         with all_shards_config(env, ON_TIMEOUT_CONFIG, 'fail'):
@@ -143,6 +196,37 @@ def row_block_mid_chunk_fallback(env):
                 results = shard_rows(env, shard.execute_command(*query, row_block_token(env)))
                 env.assertEqual(len(results), 1)
                 env.assertTrue(isinstance(results[0], bytes))
+
+
+def row_block_first_row_fallback(env):
+    """A row larger than the writer's byte bound must fall back before any row is encoded."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    # Only one shard needs the oversized value; sorting puts it before a normal row.
+    payload = b'x\x00\r\n' * (8 * 1024 * 1024) + b'x'
+    add_docs(env, 2, key=lambda i: f'{{rowblock-first}}:{i}',
+             fields=lambda i: ['n', i, 'payload', payload if i == 0 else 'small'])
+    query = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@n', '@payload',
+             'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 2, 'TIMEOUT', 0]
+    nonempty = 0
+    with internal_shard_connections(env) as shards:
+        for shard in shards:
+            legacy = shard.execute_command(*query)
+            if not shard_rows(env, legacy):
+                continue
+            nonempty += 1
+            reply = shard.execute_command(*query, row_block_token(env))
+            env.assertEqual(len(shard_rows(env, reply)), 2, message=env.protocol)
+            env.assertTrue(reply == legacy, message=f'first-row fallback, RESP{env.protocol}')
+            with internal_shard_wire_connection(shard) as execute:
+                legacy_wire = execute(*query)
+                reply_wire = execute(*query, row_block_token(env))
+                env.assertTrue(reply_wire == legacy_wire,
+                               message=f'first-row fallback wire mismatch, RESP{env.protocol}')
+            # The same columns with an encodable row still use the block path.
+            small = shard.execute_command('_FT.AGGREGATE', 'idx', '@n:[1 1]',
+                                          'LOAD', 2, '@n', '@payload', row_block_token(env))
+            env.assertTrue(isinstance(shard_rows(env, small)[0], bytes), message=small)
+    env.assertEqual(nonempty, 1)
 
 
 def row_block_empty_chunk(env):
@@ -223,6 +307,16 @@ def test_row_block_mid_chunk_fallback_resp3():
 @skip(cluster=False)
 def test_row_block_mid_chunk_fallback():
     row_block_mid_chunk_fallback(Env())
+
+
+@skip(cluster=False)
+def test_row_block_first_row_fallback_resp3():
+    row_block_first_row_fallback(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_row_block_first_row_fallback():
+    row_block_first_row_fallback(Env())
 
 
 @skip(cluster=False)
