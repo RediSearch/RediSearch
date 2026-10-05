@@ -12,7 +12,9 @@
 use crate::harness::{Decoded, decode, lookup, row};
 use pretty_assertions::assert_eq;
 use rlookup::{RLookup, RLookupKeyFlags};
-use row_block::{ColumnFilter, RefusedRow, RowBlockWriter, SchemaError, TrioMember};
+use row_block::{
+    Block, ColumnFilter, ColumnKind, RefusedRow, RowBlockWriter, SchemaError, TrioMember,
+};
 use std::ffi::CString;
 use value::SharedValue;
 
@@ -174,5 +176,45 @@ fn giant_schema_refuses_then_accepts_a_small_schema() {
     assert_eq!(
         decode(writer.as_bytes()),
         vec![vec![("a".to_owned(), Decoded::Number(2.0))]]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn sparse_retagging_accepts_the_limit_when_its_reservation_estimate_exceeds_it() {
+    let lookup = lookup(&["a"]);
+    let mut writer = RowBlockWriter::new();
+    writer
+        .write_schema(&lookup, ColumnFilter::default())
+        .unwrap();
+    let string_len = BUFFER_LIMIT - writer.as_bytes().len() - 18;
+    let large = row(
+        &lookup,
+        &[("a", SharedValue::new_string(vec![b'x'; string_len]))],
+    );
+    writer
+        .write_row(&lookup, &large, TrioMember::Middle)
+        .unwrap();
+    writer
+        .write_row(&lookup, &row(&lookup, &[]), TrioMember::Middle)
+        .unwrap();
+    // The estimate includes a tag for the absent field; only the present string needs one.
+    let number = row(&lookup, &[("a", SharedValue::new_num(1.0))]);
+    writer
+        .write_row(&lookup, &number, TrioMember::Middle)
+        .unwrap();
+    assert_eq!(writer.as_bytes().len(), BUFFER_LIMIT);
+    assert_eq!(writer.nrows(), 3);
+    assert_eq!(
+        Block::parse(writer.as_bytes()).unwrap().kinds(),
+        &[ColumnKind::Tagged]
+    );
+    assert_eq!(
+        decode(writer.as_bytes()),
+        vec![
+            vec![("a".to_owned(), Decoded::Bytes(vec![b'x'; string_len]))],
+            vec![],
+            vec![("a".to_owned(), Decoded::Number(1.0))],
+        ]
     );
 }
