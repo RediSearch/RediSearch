@@ -19,6 +19,7 @@
 #include <sys/param.h>
 
 #include "aggregate.h"
+#include "row_block_ffi.h"
 #include "aggregate_debug.h"
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
@@ -402,6 +403,13 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, "_ROW_BLOCK")) {
+    // Not a QEFlag: that u32 bitfield has no free bit.
+    papCtx->reqConfig->internalRowBlock = true;
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) &&
+             AC_AdvanceIfMatch(ac, "_ROW_BLOCK_RESP3")) {
+    papCtx->reqConfig->internalRowBlock = true;
+    papCtx->reqConfig->internalRowBlockResp3 = true;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
@@ -1815,6 +1823,9 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 void AREQ_Free(AREQ *req) {
+  if (req->rowBlockWriter) {
+    RowBlockWriter_Free(req->rowBlockWriter);
+  }
   if (IsDebug(req)) {
     // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
     AREQ_Debug_FreeParams((AREQ_Debug *)req);

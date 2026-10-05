@@ -21,6 +21,7 @@ mod decode;
 mod decoder;
 mod harness;
 mod kinds;
+mod limits;
 mod properties;
 mod refusal;
 mod schema;

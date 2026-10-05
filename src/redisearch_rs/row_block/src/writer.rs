@@ -18,6 +18,29 @@ use value::Value;
 /// Sizes only a writer's first chunk; [`RowBlockWriter::reset`] keeps the capacity later chunks grew.
 const INITIAL_CAPACITY: usize = 8192;
 
+/// Maximum capacity of each byte buffer retained by a [`RowBlockWriter`].
+const MAX_BUFFER_CAPACITY: usize = 32 * 1024 * 1024;
+
+/// Reserves before writing so both payload length and speculative growth stay bounded.
+fn reserve_bytes(buf: &mut Vec<u8>, additional: usize) -> Result<(), BufferFull> {
+    let required = buf.len().checked_add(additional).ok_or(BufferFull)?;
+    if required > MAX_BUFFER_CAPACITY {
+        return Err(BufferFull);
+    }
+    if required > buf.capacity() {
+        if buf.capacity() > MAX_BUFFER_CAPACITY / 2 {
+            // Pay the final growth once rather than reallocating for each later field.
+            buf.reserve_exact(MAX_BUFFER_CAPACITY - buf.len());
+        } else {
+            buf.reserve(additional);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct BufferFull;
+
 /// Which of a lookup's keys become columns: the same predicate `RedisModule_Reply_RLookupRow` applies, so a chunk
 /// carries the same fields in either encoding.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -48,6 +71,10 @@ pub enum TrioMember {
 /// Why a schema could not be encoded; the caller replies in RESP instead.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SchemaError {
+    /// The schema would exceed the writer's byte-buffer bound.
+    #[error("schema exceeds the row block byte-buffer bound")]
+    BufferFull,
+
     /// A column name longer than its `u16` length field can hold.
     #[error("column name of {len} bytes exceeds the encodable maximum")]
     NameTooLong { len: usize },
@@ -59,6 +86,10 @@ pub enum SchemaError {
 /// Why a row could not be encoded. Nothing is appended for a refused row, which is never written lossily instead.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RefusedRow {
+    /// The row or its retagging would exceed the writer's byte-buffer bound.
+    #[error("row exceeds the row block byte-buffer bound")]
+    BufferFull,
+
     /// Only reachable if [`Value`] grows an indirecting variant `resolve_nested` does not follow.
     #[error("value still holds an unresolved indirection")]
     UnresolvedIndirection,
@@ -186,6 +217,8 @@ impl RowBlockWriter {
         lookup: &RLookup<'_>,
         filter: ColumnFilter,
     ) -> Result<u16, SchemaError> {
+        reserve_bytes(&mut self.buf, size_of::<u32>() + 1 + size_of::<u16>())
+            .map_err(|_| SchemaError::BufferFull)?;
         self.buf.extend_from_slice(&MAGIC.to_le_bytes());
         self.buf.push(VERSION);
 
@@ -200,6 +233,8 @@ impl RowBlockWriter {
                 .map_err(|_| SchemaError::NameTooLong { len: name.len() })?;
             ncols = ncols.checked_add(1).ok_or(SchemaError::TooManyColumns)?;
 
+            reserve_bytes(&mut self.buf, size_of::<u16>() + name.len() + 2)
+                .map_err(|_| SchemaError::BufferFull)?;
             self.buf.extend_from_slice(&name_len.to_le_bytes());
             self.buf.extend_from_slice(name);
             self.buf.push(0);
@@ -236,14 +271,19 @@ impl RowBlockWriter {
         );
 
         let row_at = self.buf.len();
+        reserve_bytes(&mut self.buf, bitmap_bytes(self.ncols))
+            .map_err(|_| RefusedRow::BufferFull)?;
         self.buf.resize(row_at + bitmap_bytes(self.ncols), 0);
         self.undo.clear();
 
-        match self.append_row(lookup, row, trio, row_at) {
+        let result = self.append_row(lookup, row, trio, row_at).and_then(|()| {
+            if self.undo.iter().any(|entry| self.retags(entry)) {
+                self.retag_rows_before(row_at)?;
+            }
+            Ok(())
+        });
+        match result {
             Ok(()) => {
-                if self.undo.iter().any(|entry| self.retags(entry)) {
-                    self.retag_rows_before(row_at);
-                }
                 self.nrows += 1;
                 Ok(())
             }
@@ -323,6 +363,7 @@ impl RowBlockWriter {
         }
 
         if kind == ColumnKind::Tagged {
+            reserve_bytes(&mut self.buf, 1).map_err(|_| RefusedRow::BufferFull)?;
             self.buf.push(tag as u8);
         }
         self.append_payload(value, 0)
@@ -337,7 +378,7 @@ impl RowBlockWriter {
 
     /// Re-encodes the rows before `row_at` for the columns the row at `row_at` retagged. A typed value is its tagged
     /// encoding minus the tag, so this splices the old tag in front of each such value and copies the rest.
-    fn retag_rows_before(&mut self, row_at: usize) {
+    fn retag_rows_before(&mut self, row_at: usize) -> Result<(), RefusedRow> {
         // The kinds the earlier rows were written under.
         let mut before: Vec<ColumnKind> = self.columns.iter().map(|column| column.kind).collect();
         for (col, column) in &self.undo {
@@ -352,33 +393,56 @@ impl RowBlockWriter {
 
         let mut out = std::mem::take(&mut self.spare);
         out.clear();
-        out.reserve(self.buf.len() + self.nrows * splice.iter().flatten().count());
-        out.extend_from_slice(&self.buf[..self.rows_at]);
+        let result = (|| {
+            // Missing fields need no tag. This upper bound is only a reservation hint;
+            // the writes below decide whether the actual encoding fits.
+            let estimate = self
+                .buf
+                .len()
+                .saturating_add(self.nrows.saturating_mul(splice.iter().flatten().count()));
+            reserve_bytes(&mut out, estimate.min(MAX_BUFFER_CAPACITY))?;
+            out.extend_from_slice(&self.buf[..self.rows_at]);
 
-        let bitmap_len = bitmap_bytes(self.ncols);
-        let mut at = self.rows_at;
-        while at < row_at {
-            let bitmap = &self.buf[at..at + bitmap_len];
-            out.extend_from_slice(bitmap);
-            at += bitmap_len;
-            for col in (0..self.ncols).filter(|col| bitmap_get(bitmap, *col)) {
-                let len = value_len(&self.buf[at..row_at], before[usize::from(col)])
-                    .expect("the writer only appends rows it can read back");
-                if let Some(tag) = splice[usize::from(col)] {
-                    out.push(tag as u8);
+            let bitmap_len = bitmap_bytes(self.ncols);
+            let mut at = self.rows_at;
+            while at < row_at {
+                let bitmap = &self.buf[at..at + bitmap_len];
+                reserve_bytes(&mut out, bitmap_len)?;
+                out.extend_from_slice(bitmap);
+                at += bitmap_len;
+                for col in (0..self.ncols).filter(|col| bitmap_get(bitmap, *col)) {
+                    let len = value_len(&self.buf[at..row_at], before[usize::from(col)])
+                        .expect("the writer only appends rows it can read back");
+                    let tag = splice[usize::from(col)];
+                    reserve_bytes(&mut out, len + usize::from(tag.is_some()))?;
+                    if let Some(tag) = tag {
+                        out.push(tag as u8);
+                    }
+                    out.extend_from_slice(&self.buf[at..at + len]);
+                    at += len;
                 }
-                out.extend_from_slice(&self.buf[at..at + len]);
-                at += len;
+            }
+
+            reserve_bytes(&mut out, self.buf.len() - row_at)?;
+            out.extend_from_slice(&self.buf[row_at..]);
+            Ok::<_, BufferFull>(())
+        })();
+        match result {
+            Ok(()) => self.spare = std::mem::replace(&mut self.buf, out),
+            Err(_) => {
+                out.clear();
+                self.spare = out;
+                return Err(RefusedRow::BufferFull);
             }
         }
-
-        out.extend_from_slice(&self.buf[row_at..]);
-        self.spare = std::mem::replace(&mut self.buf, out);
+        Ok(())
     }
 
     fn append_value(&mut self, value: &Value, depth: u32) -> Result<(), RefusedRow> {
         let value = resolve_nested(value);
-        self.buf.push(tag_of(value)? as u8);
+        let tag = tag_of(value)?;
+        reserve_bytes(&mut self.buf, 1).map_err(|_| RefusedRow::BufferFull)?;
+        self.buf.push(tag as u8);
         self.append_payload(value, depth)
     }
 
@@ -388,7 +452,11 @@ impl RowBlockWriter {
         }
 
         match value {
-            Value::Number(number) => self.buf.extend_from_slice(&number.to_le_bytes()),
+            Value::Number(number) => {
+                reserve_bytes(&mut self.buf, size_of::<f64>())
+                    .map_err(|_| RefusedRow::BufferFull)?;
+                self.buf.extend_from_slice(&number.to_le_bytes());
+            }
             Value::String(string) => self.append_string(string.as_bytes())?,
             Value::RedisString(string) => self.append_string(string.as_bytes())?,
             Value::Array(array) => {
@@ -412,6 +480,8 @@ impl RowBlockWriter {
 
     fn append_string(&mut self, bytes: &[u8]) -> Result<(), RefusedRow> {
         self.append_count(bytes.len())?;
+        let additional = bytes.len().checked_add(1).ok_or(RefusedRow::BufferFull)?;
+        reserve_bytes(&mut self.buf, additional).map_err(|_| RefusedRow::BufferFull)?;
         self.buf.extend_from_slice(bytes);
         self.buf.push(0);
         Ok(())
@@ -419,6 +489,7 @@ impl RowBlockWriter {
 
     fn append_count(&mut self, count: usize) -> Result<(), RefusedRow> {
         let count = u32::try_from(count).map_err(|_| RefusedRow::ValueTooLong { len: count })?;
+        reserve_bytes(&mut self.buf, size_of::<u32>()).map_err(|_| RefusedRow::BufferFull)?;
         self.buf.extend_from_slice(&count.to_le_bytes());
         Ok(())
     }
@@ -446,5 +517,25 @@ fn resolve_nested(mut value: &Value) -> &Value {
             Value::Trio(members) => value = members.middle(),
             _ => return value,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_BUFFER_CAPACITY, reserve_bytes};
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn reserve_caps_capacity_even_when_geometric_growth_would_cross_the_limit() {
+        let mut buf = Vec::with_capacity(MAX_BUFFER_CAPACITY / 2 + 1);
+        buf.resize(buf.capacity(), 0);
+        reserve_bytes(&mut buf, 1).unwrap();
+        assert!(buf.capacity() <= MAX_BUFFER_CAPACITY);
+        let remaining = MAX_BUFFER_CAPACITY - buf.len();
+        reserve_bytes(&mut buf, remaining).unwrap();
+        assert_eq!(buf.capacity(), MAX_BUFFER_CAPACITY);
+        let capacity = buf.capacity();
+        assert!(reserve_bytes(&mut buf, usize::MAX).is_err());
+        assert_eq!(buf.capacity(), capacity);
     }
 }

@@ -268,6 +268,23 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &["RSToken"],
         vars: &["BAD_POINTER_ADDR"],
     },
+    // `row_block_ffi`'s replay path emits decoded rows through the same reply
+    // helpers the RESP row serializer uses, so a chunk that falls back is
+    // indistinguishable on the wire from one a shard never blocked at all.
+    HeaderAllowlist {
+        path: "src/reply.h",
+        fns: &[
+            "RedisModule_Reply_Array",
+            "RedisModule_Reply_ArrayEnd",
+            "RedisModule_Reply_Map",
+            "RedisModule_Reply_MapEnd",
+            "RedisModule_Reply_RSValue",
+            "RedisModule_Reply_SimpleString_FFI",
+            "RedisModule_Reply_StringBuffer_FFI",
+        ],
+        types: &["RedisModule_Reply", "SendReplyFlags"],
+        vars: &[],
+    },
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
         fns: &["DocIdMeta_Get"],

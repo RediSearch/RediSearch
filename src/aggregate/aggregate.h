@@ -157,6 +157,9 @@ typedef struct AREQ {
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 
+  // Reply cycles exclusively own this writer, including worker/main-thread handoffs.
+  struct RowBlockWriter *rowBlockWriter;
+
   /** Options controlling search behavior */
   RSSearchOptions searchopts;
 
