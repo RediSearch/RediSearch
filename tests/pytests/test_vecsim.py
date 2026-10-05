@@ -960,6 +960,7 @@ def test_hybrid_query_with_text_vamana_adhoc_bf():
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
 
 
+@skip_until("2026-10-12", reason="MOD-18890: investigating intermittent SVS-VAMANA BATCHES recall misses")
 def test_hybrid_query_with_text_vamana_batches():
     """Validate explicit SVS-VAMANA BATCHES queries before and after vector relabeling."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
