@@ -245,14 +245,66 @@ Published ownership moves synchronization to admission and wait boundaries and
 preserves exclusive mutation. Its principal audit burden is wait publication and
 denied-resume cleanup.
 
-Local comparison supports this architecture choice: across the measured workload
-medians, ownership added about 0.1–1.3% CPU/query versus about 4.9–5.9% for the
-concurrent candidate. Individual sorter workloads regressed materially. Profiling
-identified a numeric comparator hotspot; a diagnostic fast path removed the
-measured regression without changing ownership. The baseline did not receive
-that optimization, so optimized parity remains unproven. Loaded tests also
-differed in partial-result quality. These observations select a direction; final
-integration still requires equivalent performance and correctness validation.
+The October 4 comparison used equivalent release builds on master `6bc5765abf`,
+four rotating rounds, and an identical-baseline control. Across 480 normal-path
+samples, median per-shape CPU/query deltas were +0.32% FAIL, +0.81% RETURN,
+and +0.28% STRICT for ownership, versus +4.38%, +3.55%, and +3.97% for
+concurrent Next/Drain. The common contention filter retained 77/120 groups;
+standalone loader and no-worker coverage remained noisy. Several worker sorter
+shapes retained roughly 1.6–2.1% overhead. A 96-sample forced-inlining experiment
+did not reliably improve it and was not adopted. These are whole-pipeline
+observations, not attribution of sorter or synchronization costs.
+
+All 64 loaded STRICT samples passed generator-validity and correctness checks,
+with comparable full-result throughput and overlapping latency ranges. Different
+partial counts and row availability prevent treating timeout output as identical.
+Coverage was aggregation sorter/loader/grouper workloads on one host with one/two
+shards, not exhaustive SEARCH, vector, hybrid, or enterprise coverage. The evidence
+supports the architecture choice, not universal zero overhead or a hard latency
+bound; later integration changes still require appropriate validation.
+
+## Reply-buffer integration and merge order
+
+Execution ownership and reply storage are separate responsibilities. The request
+cycle owns both resources; the gate authorizes pipeline/reply mutation but neither
+extends request lifetime nor replaces reply arbitration. Allocate before dispatch,
+and release only at cycle teardown after all job borrowers have finished. A cursor
+must not retain an old cycle's gate, access token, or Redis reply-buffer context.
+Independent hybrid producers retain separate domains and lifetime completion.
+
+The ownership stack can land without Redis reply-buffer APIs. Prefer landing it
+first, then integrate MOD-18503's storage/serialization change against this protocol.
+The buffer change also requires upstream Redis API availability and a supported
+packaged core. If buffers land first, preserve their storage while replacing the
+legacy completion/wake-abort handoff; neither ordering permits silently restoring
+that handoff for migrated ownership domains.
+
+The combined implementation must preserve these boundaries:
+
+- Next and row serialization run within the same admitted segment. Complete a
+  RESP row and commit its count/budget before publishing a recoverable prefix.
+  Do not release ownership with an unfinished row or a conflicting serialization
+  borrow into pipeline state.
+- STRICT takes execution ownership and appends Drain output to that prefix;
+  it never waits for worker completion merely to access the buffer. RETURN folds
+  Next and then uses the same serialization logic for Drain on its own thread.
+  FAIL never drains and may discard without accessing a worker-mutated buffer.
+- Cache immutable serialization options from request-owned configuration. Capture
+  mutable totals, errors, and profile visibility only under the relevant domain's
+  ownership or producer publication, after the appropriate Next/Drain sequence.
+- Denied readmission cannot reset, replace, or free the published buffer. Final
+  reply transfer happens once, and buffer destruction remains cycle-owned.
+
+No per-row publication mutex is required when serialization stays inside the
+execution domain. Existing completion synchronization remains necessary for
+unmigrated coordinator SEARCH and disk-loader paths; output recovery must not
+be confused with job completion. Converting the SEARCH reducer into an RP is a
+separate follow-up, not implied by AGGREGATE/RPNet coverage.
+
+Combining the changes requires parked-worker timeout tests during Next and at
+serialization boundaries, RESP2/RESP3 prefix/count/error checks, cursor rearm and
+disconnect cleanup, hybrid producer visibility, and fresh whole-query performance
+measurements. The current ownership benchmarks do not measure reply-buffer costs.
 
 ## Implementation and acceptance
 
