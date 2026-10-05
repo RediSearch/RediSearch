@@ -418,8 +418,8 @@ def test_highlight_fields_indexed_after_two_multi_value_json_fields(env):
 
 @skip(no_json=True, cluster=True)
 def test_highlight_after_multi_value_json_field_small_slop():
-    """With a MULTI_TEXT_SLOP small enough for the positions to stay within the text, a field
-    indexed after a multi-value one used to be highlighted at the wrong word."""
+    """With a small MULTI_TEXT_SLOP, which needs its own server, a field indexed after a
+    multi-value one is still highlighted at its own words."""
     env = Env(moduleArgs='MULTI_TEXT_SLOP 3')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
