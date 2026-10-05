@@ -286,3 +286,55 @@ def test_row_block_resp3_requires_explicit_token():
             else:
                 env.assertEqual(legacy[b'results'], [])
     env.assertEqual(nonempty, 1)
+
+
+def row_block_capacity_fallback(env):
+    """A full block replays earlier rows and cursors retry encoding their next chunk."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    payload = 'x' * (8 * 1024 * 1024)
+    add_docs(env, 5, key=lambda i: f'{{rowblock-cap}}:{i}',
+             fields=lambda i: ['n', i, 'payload', payload if i < 4 else 'small'])
+    query = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@n', '@payload',
+             'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 5, 'TIMEOUT', 0]
+    for policy in ('return', 'fail', 'return-strict'):
+        for workers in (0, 2):
+            context = dict(policy=policy, workers=workers, protocol=env.protocol)
+            with all_shards_config(env, ON_TIMEOUT_CONFIG, policy), \
+                 all_shards_config(env, 'search-workers', workers), \
+                 internal_shard_connections(env) as shards:
+                for shard in shards:
+                    legacy = shard.execute_command(*query)
+                    if not shard_rows(env, legacy):
+                        continue
+                    reply = shard.execute_command(*query, row_block_token(env))
+                    env.assertEqual(reply, legacy, message=context)
+                    env.assertEqual(len(shard_rows(env, reply)), 5, message=context)
+
+                    first, cursor = shard.execute_command(*query, row_block_token(env),
+                                                          'WITHCURSOR', 'COUNT', 4)
+                    env.assertEqual(shard_rows(env, first), shard_rows(env, legacy)[:4],
+                                    message=context)
+                    env.assertGreater(cursor, 0, message=context)
+                    second, cursor = shard.execute_command('_FT.CURSOR', 'READ', 'idx', cursor)
+                    rows = shard_rows(env, second)
+                    env.assertEqual(len(rows), 1, message=context)
+                    env.assertTrue(isinstance(rows[0], bytes), message=context)
+                    if env.protocol == 3:
+                        env.assertEqual(second[b'row_block_rows'], 1, message=context)
+                    # Some pipelines discover EOF on the following read.
+                    if cursor:
+                        shard.execute_command('_FT.CURSOR', 'DEL', 'idx', cursor)
+                    # A separate request must also receive its own clean writer.
+                    small = shard.execute_command('_FT.AGGREGATE', 'idx', '@n:[4 4]',
+                                                  'LOAD', 2, '@n', '@payload', row_block_token(env))
+                    env.assertTrue(isinstance(shard_rows(env, small)[0], bytes), message=context)
+
+
+@skip(cluster=False)
+def test_row_block_capacity_fallback():
+    row_block_capacity_fallback(Env())
+
+
+@skip(cluster=False)
+def test_row_block_capacity_fallback_resp3():
+    row_block_capacity_fallback(Env(protocol=3))

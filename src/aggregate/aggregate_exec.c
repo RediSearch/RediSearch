@@ -651,34 +651,6 @@ static bool useRowBlock(const AREQ *req, const RedisModule_Reply *reply) {
   return true;
 }
 
-// Per thread, so buffer growth is paid once; freed when the thread exits, as workers come and go
-// with `search-workers`.
-static pthread_key_t rowBlockWriterKey;
-static pthread_once_t rowBlockWriterKeyOnce = PTHREAD_ONCE_INIT;
-
-static void rowBlockWriter_Destroy(void *w) {
-  RowBlockWriter_Free(w);
-}
-
-static void rowBlockWriterKey_Create(void) {
-  // An uninitialized key could alias another subsystem's TLS slot, so failing is fatal.
-  int rc = pthread_key_create(&rowBlockWriterKey, rowBlockWriter_Destroy);
-  RS_LOG_ASSERT_FMT_ALWAYS(rc == 0, "cannot create the row block writer key: %d", rc);
-}
-
-static RowBlockWriter *rowBlockWriter_Get(void) {
-  pthread_once(&rowBlockWriterKeyOnce, rowBlockWriterKey_Create);
-  RowBlockWriter *w = pthread_getspecific(rowBlockWriterKey);
-  if (!w) {
-    w = RowBlockWriter_New();
-    // Failing here would leak the writer and recreate it per chunk, so treat it as fatal.
-    int rc = pthread_setspecific(rowBlockWriterKey, w);
-    RS_LOG_ASSERT_FMT_ALWAYS(rc == 0, "cannot store the row block writer: %d", rc);
-  }
-  RowBlockWriter_Reset(w);
-  return w;
-}
-
 // The same key subset the RESP row serializer emits.
 static inline void rowBlockFlags(const AREQ *req, uint32_t *requiredFlags,
                                  uint32_t *excludeFlags) {
@@ -717,7 +689,11 @@ static void rowEmitter_Init(RowEmitter *e, AREQ *req, const RedisModule_Reply *r
   if (!useRowBlock(req, reply)) return;
   uint32_t required, exclude;
   rowBlockFlags(req, &required, &exclude);
-  RowBlockWriter *w = rowBlockWriter_Get();
+  if (!req->rowBlockWriter) {
+    req->rowBlockWriter = RowBlockWriter_New();
+  }
+  RowBlockWriter *w = req->rowBlockWriter;
+  RowBlockWriter_Reset(w);
   // Zero columns would make zero-byte rows, which a block cannot count.
   if (RowBlockWriter_WriteSchema(w, cv->lastLookup, required, exclude) > 0) {
     e->w = w;

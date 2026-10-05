@@ -19,6 +19,7 @@
 #include <sys/param.h>
 
 #include "aggregate.h"
+#include "row_block_ffi.h"
 #include "aggregate_debug.h"
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
@@ -1822,6 +1823,9 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 void AREQ_Free(AREQ *req) {
+  if (req->rowBlockWriter) {
+    RowBlockWriter_Free(req->rowBlockWriter);
+  }
   if (IsDebug(req)) {
     // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
     AREQ_Debug_FreeParams((AREQ_Debug *)req);
