@@ -70,10 +70,10 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     int rc = Trie_InsertRuneNoSize(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
     RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "Trie_InsertRuneNoSize failed due to payload overflow");
-    if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+    if (rc < 0) {
       RedisModule_Log(
           RSDummyContext, "warning",
-          "Suffix trie: Trie_InsertRuneNoSize() failed due to payload overflow, suffix trie entry was not added");
+          "Suffix trie: Trie_InsertRuneNoSize() failed (%d), suffix trie entry was not added", rc);
       array_free(newdata.array);
       rm_free(copyStr);
       runeBufFree(&buf);
@@ -104,10 +104,10 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
       int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
       RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "TrieNode_Add failed due to payload overflow");
-      if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+      if (rc < 0) {
         RedisModule_Log(
             RSDummyContext, "warning",
-            "Suffix trie: Trie_InsertRune() failed due to payload overflow, suffix trie entry was not added");
+            "Suffix trie: Trie_InsertRune() failed (%d), suffix trie entry was not added", rc);
         array_free(newdata.array);
         runeBufFree(&buf);
         return;
