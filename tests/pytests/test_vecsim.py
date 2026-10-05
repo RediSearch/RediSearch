@@ -968,6 +968,7 @@ def test_hybrid_query_with_text_vamana_batches():
     index_size = 1500 * 2 * env.shardsCount  # enough docs to initialize SVS on all shards
     data_type = 'FLOAT32'
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA',
+                        additional_vec_params=['SEARCH_WINDOW_SIZE', 100],
                         additional_schema_args=['t', 'TEXT'])
     relabel_supported = all(run_command_on_all_shards(
         env, debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME))
