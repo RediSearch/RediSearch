@@ -2406,6 +2406,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "row_block"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "pretty_assertions",
+ "proptest",
+ "redis_mock",
+ "redisearch_rs",
+ "rlookup",
+ "row_block",
+ "thiserror",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rqe_core"
 version = "0.0.1"
 dependencies = [
