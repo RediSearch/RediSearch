@@ -63,12 +63,10 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
   rune *runes = runeBufFill(prefix, len, &buf, &len);
 
   std::vector<std::string> terms;
-  QueryRequestTimeout timeout = {
-      .timeoutMS = 0,
-      .policy = TimeoutPolicy_Return,
-      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
-      .source = {},
-  };
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, &timeout);
   runeBufFree(&buf);
   return terms;

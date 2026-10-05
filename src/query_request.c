@@ -23,18 +23,11 @@
 #include "util/misc.h"
 #include "util/timeout.h"
 
-void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                              long long timeoutMS) {
-  // Capture the request defaults before parsing can apply command-specific overrides.
-  QueryRequestTimeout_UpdateConfig(timeout, policy, timeoutMS);
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config) {
+  RS_ASSERT(config);
+  RS_ASSERT(config->queryTimeoutMS >= 0);
+  timeout->config = *config;
   QueryRequestTimeout_Reset(timeout);
-}
-
-void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                                      long long timeoutMS) {
-  RS_ASSERT(timeoutMS >= 0);
-  timeout->policy = policy;
-  timeout->timeoutMS = timeoutMS;
 }
 
 void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout) {
@@ -50,15 +43,15 @@ void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTi
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE: {
       // RETURN_STRICT depends on the blocked-client timeout callback. Clock-based
       // consumers must downgrade it to RETURN before starting their cycle.
-      RS_ASSERT(timeout->policy != TimeoutPolicy_ReturnStrict);
-      if (timeout->timeoutMS == 0) {
+      RS_ASSERT(timeout->config.timeoutPolicy != TimeoutPolicy_ReturnStrict);
+      if (timeout->config.queryTimeoutMS == 0) {
         timeout->kind = QUERY_REQUEST_TIMEOUT_UNARMED;
         return;
       }
 
       struct timespec duration = {
-          .tv_sec = timeout->timeoutMS / 1000,
-          .tv_nsec = (timeout->timeoutMS % 1000) * 1000000,
+          .tv_sec = timeout->config.queryTimeoutMS / 1000,
+          .tv_nsec = (timeout->config.queryTimeoutMS % 1000) * 1000000,
       };
       struct timespec now;
       clock_gettime(CLOCK_MONOTONIC_RAW, &now);
@@ -237,11 +230,12 @@ static void QueryRequest_HoldArgs(QueryRequestArgs *args, RedisModuleString **ar
   }
 }
 
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
-                       const RequestConfig *requestConfig, RedisModuleString **argv,
-                       uint32_t argc) {
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const RequestConfig *requestConfig,
+                       const TimeoutConfig *timeoutConfig, RedisModuleString **argv, uint32_t argc) {
   RS_ASSERT(requestConfig);
   request->kind = kind;
+  request->reqConfig = *requestConfig;
+  request->cursorConfig = (CursorConfig){0};
   request->args = (QueryRequestArgs) {
     .queryOffset = QUERY_OFFSET_NONE,
   };
@@ -253,8 +247,8 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
 #ifdef ENABLE_ASSERT
   request->inlineReplyCount = 0;
 #endif
-  QueryRequestTimeout_Init(&request->timeout, requestConfig->timeoutPolicy,
-                           requestConfig->queryTimeoutMS);
+  RS_ASSERT(timeoutConfig);
+  QueryRequestTimeout_Init(&request->timeout, timeoutConfig);
   QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);

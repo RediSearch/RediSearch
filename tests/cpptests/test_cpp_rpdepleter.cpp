@@ -62,7 +62,11 @@ protected:
     }
   };
 
+  TimeoutConfig timeoutConfig = {};
+
   void SetUp() override {
+    timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+    timeoutConfig.queryTimeoutMS = 10000;
     // Initialize Redis contexts for all test variants (WithoutIndexLock and WithIndexLock)
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       redisContexts[i] = RedisModule_GetThreadSafeContext(NULL);
@@ -90,7 +94,7 @@ protected:
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
       timeouts[i] = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(QueryRequestTimeout)));
-      QueryRequestTimeout_Init(timeouts[i], TimeoutPolicy_Return, 10000);
+      QueryRequestTimeout_Init(timeouts[i], &timeoutConfig);
       QueryRequestTimeout_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
       searchContexts[i].timeout = timeouts[i];
     }

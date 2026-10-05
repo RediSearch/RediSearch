@@ -188,8 +188,8 @@ static int parseCursorSettings(uint32_t *reqflags, CursorConfig *cursorConfig, A
     return REDISMODULE_ERR;
   }
 
-  if (cursorConfig->maxIdle == 0 || cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
-    cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
+  if (cursorConfig->maxIdle == 0 || cursorConfig->maxIdle > RSGlobalConfig.cursorConfigParams.maxIdle) {
+    cursorConfig->maxIdle = RSGlobalConfig.cursorConfigParams.maxIdle;
   }
   REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_CURSOR);
   return REDISMODULE_OK;
@@ -294,9 +294,9 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
-    sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
+    sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->base.reqConfig.dialectVersion);
   } else {
-    sctx->apiVersion = req->reqConfig.dialectVersion;
+    sctx->apiVersion = req->base.reqConfig.dialectVersion;
   }
 }
 
@@ -392,7 +392,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
-    if (AC_GetLongLong(ac, &papCtx->reqConfig->queryTimeoutMS, AC_F_GE0) != AC_OK) {
+    if (AC_GetLongLong(ac, &papCtx->timeoutConfig->queryTimeoutMS, AC_F_GE0) != AC_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
@@ -617,6 +617,24 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
   return ARG_HANDLED;
 }
 
+static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
+  return (ParseAggPlanContext){
+    .plan = AREQ_AGGPlan(req),
+    .reqflags = &req->reqflags,
+    .reqConfig = &req->base.reqConfig,
+    .timeoutConfig = &req->base.timeout.config,
+    .searchopts = &req->searchopts,
+    .prefixesOffset = &req->prefixesOffset,
+    .cursorConfig = &req->base.cursorConfig,
+    .requiredFields = &req->requiredFields,
+    .maxSearchResults = &req->maxSearchResults,
+    .maxAggregateResults = &req->maxAggregateResults,
+    .querySlots = &req->querySlots,
+    .keySpaceVersion = &req->keySpaceVersion,
+    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
+  };
+}
+
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           QueryAST *ast, AggregatePlan *plan, bool isDiskIndex, QueryError *status) {
   // Parse query-specific arguments..
@@ -719,20 +737,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       optimization_specified = true;
     } else {
-      ParseAggPlanContext papCtx = {
-        .plan = AREQ_AGGPlan(req),
-        .reqflags = &req->reqflags,
-        .reqConfig = &req->reqConfig,
-        .searchopts = &req->searchopts,
-        .prefixesOffset = &req->prefixesOffset,
-        .cursorConfig = &req->cursorConfig,
-        .requiredFields = &req->requiredFields,
-        .maxSearchResults = &req->maxSearchResults,
-        .maxAggregateResults = &req->maxAggregateResults,
-        .querySlots = &req->querySlots,
-        .keySpaceVersion = &req->keySpaceVersion,
-        .coordDispatchTime = &req->profileClocks.coordDispatchTime,
-      };
+      ParseAggPlanContext papCtx = makeParseAggPlanContext(req);
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
         // nothing
@@ -758,12 +763,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   // In dialect 2, we require a non empty numeric filter
-  if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
+  if (req->base.reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Numeric/Geo filter value/s cannot be empty");
       return REDISMODULE_ERR;
   }
 
-  if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
+  if (!optimization_specified && req->base.reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4.
     // Disk specs reject dialect 4 after parseAggPlan (once the dialect is final), so the optimizer
     // is never actually run for them.
@@ -1122,8 +1127,8 @@ bool RunInThread(RedisModuleCtx *ctx) {
 }
 
 static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
-  req->reqConfig = RSGlobalConfig.requestConfigParams;
-  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &req->reqConfig, argv, argc);
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &RSGlobalConfig.requestConfigParams,
+                    &RSGlobalConfig.timeoutConfigParams, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   // The request's single error slot, valid before any pipeline is built (transient AREQs that
   // only ever produce an empty reply never build one).
@@ -1324,27 +1329,14 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  papCtx = (ParseAggPlanContext){
-    .plan = AREQ_AGGPlan(req),
-    .reqflags = &req->reqflags,
-    .reqConfig = &req->reqConfig,
-    .searchopts = &req->searchopts,
-    .prefixesOffset = &req->prefixesOffset,
-    .cursorConfig = &req->cursorConfig,
-    .requiredFields = &req->requiredFields,
-    .maxSearchResults = &req->maxSearchResults,
-    .maxAggregateResults = &req->maxAggregateResults,
-    .querySlots = &req->querySlots,
-    .keySpaceVersion = &req->keySpaceVersion,
-    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
-  };
+  papCtx = makeParseAggPlanContext(req);
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
   // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
   // on disk.
-  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+  if (isDiskIndex && req->base.reqConfig.dialectVersion >= 4) {
     if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
       goto error;
     }
@@ -1352,21 +1344,20 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
 
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
   // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->base.timeout.config.queryTimeoutMS)) {
     req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
   if (IsInternal(req) &&
-      RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
+      TimeoutConfig_ApplyCoordinatorElapsedTime(&req->base.timeout.config, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     goto error;
   }
 
   // Shard/standalone inline execution has no blocked-client timeout callback,
   // which RETURN_STRICT requires. Quietly fall back to RETURN for this request.
-  if (!IsCoordinator(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
-      !RunInThread(ctx)) {
-    req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+  if (!IsCoordinator(req) && req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict && !RunInThread(ctx)) {
+    req->base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   }
 
   // Verify we got slots requested if needed
@@ -1385,11 +1376,6 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
-
-  // TIMEOUT parsing and request-specific adjustments are complete. Keep this final configuration
-  // unchanged across cursor reads; only the timeout's per-cycle state is reset or rearmed.
-  QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
-                                   req->reqConfig.queryTimeoutMS);
 
   return REDISMODULE_OK;
 
@@ -1740,7 +1726,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
-  unsigned long dialectVersion = req->reqConfig.dialectVersion;
+  unsigned long dialectVersion = req->base.reqConfig.dialectVersion;
 
   // For RANGE queries without explicit FILTER (skipFilterIntegration=true), we
   // can skip parsing the wildcard query "*" since we'll immediately replace
@@ -1910,7 +1896,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             QueryError *status) {
   // Build errors go to the caller's `status`; the running pipeline reports into the request's own
   // error slot, which the reply phase reads whenever (and on whichever thread) it runs.
-  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, &req->base.reply.err);
+  Pipeline_Initialize(&req->pipeline, req->base.timeout.config.timeoutPolicy, &req->base.reply.err);
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
@@ -1923,7 +1909,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
       .rootiter = req->rootiter,
       .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
-      .reqConfig = &req->reqConfig,
+      .reqConfig = &req->base.reqConfig,
       .keySpaceVersion = req->keySpaceVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
