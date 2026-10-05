@@ -27,6 +27,9 @@ extern "C" {
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
+#include "sortable.h"
+#include "sorting_vector_ffi.h"
+#include "value_ffi.h"
 
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
@@ -1507,5 +1510,40 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
     DMD_Return(dmd);
   }
   DocTable_Free(&table);
+  RMCK_FreeRdbIO(io);
+}
+
+TEST_F(RdbMockTest, testSortingVectorRdbLoadRejectsEmptyString) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  RMCK_SaveUnsigned(io, 2);
+  RMCK_SaveUnsigned(io, RSValueType_String);
+  RMCK_SaveStringBuffer(io, "", 0);
+  RMCK_SaveUnsigned(io, RSValueType_String);
+  RMCK_SaveStringBuffer(io, "abc", 4);
+  io->read_pos = 0;
+
+  RSSortingVector vec = SortingVector_RdbLoad(io);
+  ASSERT_EQ(RSSortingVector_Length(&vec), 2);
+  EXPECT_TRUE(RSValue_IsNull(RSSortingVector_Get(&vec, 0)));
+  // The empty element must not desynchronize the elements that follow it.
+  EXPECT_STREQ(RSValue_StringPtrLen(RSSortingVector_Get(&vec, 1), nullptr), "abc");
+  EXPECT_EQ(io->read_pos, io->buffer.size());
+  RSSortingVector_ClearAndDeAlloc(&vec);
+  RMCK_FreeRdbIO(io);
+}
+
+TEST_F(RdbMockTest, testSortingVectorRdbLoadTruncatedString) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, RSValueType_String);
+  io->read_pos = 0;
+
+  RSSortingVector vec = SortingVector_RdbLoad(io);
+  ASSERT_EQ(RSSortingVector_Length(&vec), 1);
+  EXPECT_TRUE(RSValue_IsNull(RSSortingVector_Get(&vec, 0)));
+  EXPECT_EQ(RMCK_IsIOError(io), 1);
+  RSSortingVector_ClearAndDeAlloc(&vec);
   RMCK_FreeRdbIO(io);
 }
