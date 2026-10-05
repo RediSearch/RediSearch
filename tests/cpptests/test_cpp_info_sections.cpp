@@ -10,10 +10,10 @@
 #include "gtest/gtest.h"
 #include "common.h"
 #include "concurrent_ctx.h"
-#include "search_disk.h"
 
 extern "C" {
 #include "info/info_redis/info_redis.h"
+#include "search_disk.h"
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
@@ -77,6 +77,9 @@ class InfoSectionsTest : public ::testing::Test {
   Restore<decltype(RedisModule_InfoAddFieldDouble)> realNumber{RedisModule_InfoAddFieldDouble};
   Restore<decltype(RedisModule_InfoBeginDictField)> beginDict{RedisModule_InfoBeginDictField};
   Restore<decltype(RedisModule_InfoEndDictField)> endDict{RedisModule_InfoEndDictField};
+  Restore<decltype(RedisModule_BigModuleRegister)> bigModuleRegister{RedisModule_BigModuleRegister};
+  using LogCallback = void (*)(RedisModuleCtx *, const char *, const char *, ...);
+  LogCallback savedLog = RedisModule_Log;
   Restore<decltype(disk)> diskApi{disk};
   Restore<decltype(disk_db)> diskDb{disk_db};
   Restore<decltype(isFlex)> flex{isFlex};
@@ -86,7 +89,23 @@ class InfoSectionsTest : public ::testing::Test {
   StrongRef ref{};
   IndexSpec *spec = nullptr;
   static inline int collections = 0;
+  static inline int cachedCollections = 0;
   static inline int diskOutputs = 0;
+  static inline std::vector<uint64_t> registeredVersions;
+  static inline unsigned backgroundCollections = 0;
+  static inline unsigned totalReads = 0;
+  static inline unsigned indexUsageReads = 0;
+  static inline int targetRegistrations = 0;
+  static inline RedisModuleBigCallbacksV1 callbacks{};
+
+  static int registerBigModule(RedisModuleCtx *, RedisModuleBigCallbacks *candidate) {
+    registeredVersions.push_back(candidate->version);
+    callbacks = *candidate;
+    return candidate->version == 1 ? REDISMODULE_OK : REDISMODULE_ERR;
+  }
+
+  static void discardLog(RedisModuleCtx *, const char *, const char *, ...) {
+  }
 
   void SetUp() override {
     ConcurrentSearch_CreatePool(1);
@@ -97,6 +116,8 @@ class InfoSectionsTest : public ::testing::Test {
     RedisModule_InfoAddFieldDouble = InfoCapture::number<double>;
     RedisModule_InfoBeginDictField = InfoCapture::beginDict;
     RedisModule_InfoEndDictField = InfoCapture::endDict;
+    RedisModule_BigModuleRegister = registerBigModule;
+    RedisModule_Log = discardLog;
     const char *args[] = {"SCHEMA", "title", "TEXT"};
     QueryError err = QueryError_Default();
     ref = IndexSpec_ParseC(nullptr, "info_sections", args, 3, &err);
@@ -110,23 +131,55 @@ class InfoSectionsTest : public ::testing::Test {
       ++collections;
       return 1234;
     };
+    api.metrics.collectCachedIndexMetrics = [](RedisSearchDisk *,
+                                               RedisSearchDiskIndexSpec *) -> uint64_t {
+      ++cachedCollections;
+      return 4321;
+    };
+    api.metrics.getCachedDiskUsage = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) -> uint64_t {
+      ++indexUsageReads;
+      return 55;
+    };
+    api.metrics.getCachedBlockCount = [](RedisSearchDisk *,
+                                         RedisSearchDiskIndexSpec *) -> uint64_t { return 9; };
+    api.metrics.getCollector = [](RedisSearchDisk *context) -> void * { return context; };
+    api.metrics.collect = [](void *) -> bool {
+      ++backgroundCollections;
+      return false;
+    };
+    api.metrics.setAvailable = [](void *, bool) {};
+    api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *, uint64_t) {};
+    api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
+      ++totalReads;
+      return 55;
+    };
+    api.metrics.retireTarget = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
+      ++targetRegistrations;
+    };
     api.metrics.getInvertedIndexTotalBlocks = [](RedisSearchDiskIndexSpec *) -> uint64_t {
       return 7;
     };
     api.metrics.outputInfoMetrics = [](RedisSearchDisk *, RedisModuleInfoCtx *ctx) {
       ++diskOutputs;
-      EXPECT_EQ(collections, 1);
+      EXPECT_EQ(collections + cachedCollections, 1);
       EXPECT_EQ(InfoCapture::get(ctx).sections.back(), "disk");
       RedisModule_InfoAddFieldULongLong(ctx, "disk_usage", 1234);
     };
+    api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) {};
     disk = &api;
     disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
     isFlex = true;
     RSGlobalConfig.infoEmitOnZeroIndexes = true;
-    collections = diskOutputs = 0;
+    collections = cachedCollections = diskOutputs = 0;
+    registeredVersions.clear();
+    backgroundCollections = totalReads = indexUsageReads = 0;
+    targetRegistrations = 0;
+    callbacks = {};
   }
 
   void TearDown() override {
+    if (disk_db) SearchDisk_Close(nullptr);
+    RedisModule_Log = savedLog;
     ConcurrentSearch_ThreadPoolDestroy();
     if (spec) {
       spec->diskSpec = nullptr;
@@ -198,4 +251,61 @@ TEST_F(InfoSectionsTest, ZeroIndexSuppressionPreservesConfigAndSelection) {
   EXPECT_EQ(collections, 0);
   EXPECT_EQ(diskOutputs, 0);
 }
+
+TEST_F(InfoSectionsTest, V1CallbackAndModuleCacheUsePublishedMetrics) {
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  EXPECT_EQ(registeredVersions, std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION});
+  ASSERT_NE(callbacks.getDiskUsage, nullptr);
+  EXPECT_TRUE(SearchDisk_InfoCacheEnabled());
+  EXPECT_EQ(backgroundCollections, 0);
+  EXPECT_EQ(targetRegistrations, 0);
+
+  auto info = run({"indexes", "memory", "disk"});
+  EXPECT_EQ(info.fields.at("total_inverted_index_blocks"), "9");
+  EXPECT_EQ(collections, 0);
+  EXPECT_EQ(cachedCollections, 1);
+  EXPECT_EQ(diskOutputs, 1);
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+
+  EXPECT_EQ(totalReads, 1);
+  EXPECT_EQ(indexUsageReads, 0);
+}
+
+TEST_F(InfoSectionsTest, CachedTotalDoesNotReadIndexes) {
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  std::vector<StrongRef> indexes;
+  Restore<decltype(isFlex)> flexMode{isFlex};
+  isFlex = false;
+  for (unsigned i = 0; i < 1000; ++i) {
+    const char *args[] = {"SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+    auto name = std::string("cached_total_") + std::to_string(i);
+    auto index = IndexSpec_ParseC(nullptr, name.c_str(), args, 3, &err);
+    auto *sp = static_cast<IndexSpec *>(StrongRef_Get(index));
+    ASSERT_NE(sp, nullptr);
+    Spec_AddToDict(index.rm);
+    sp->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(sp);
+    indexes.push_back(index);
+  }
+  isFlex = true;
+  EXPECT_EQ(callbacks.getDiskUsage(), 55);
+  EXPECT_EQ(totalReads, 1);
+  EXPECT_EQ(indexUsageReads, 0);
+  EXPECT_EQ(collections, 0);
+  EXPECT_EQ(backgroundCollections, 0);
+  for (auto index : indexes) {
+    static_cast<IndexSpec *>(StrongRef_Get(index))->diskSpec = nullptr;
+    Indexes_RemoveSpecFromGlobals(index, false);
+  }
+}
+
+TEST_F(InfoSectionsTest, RegistrationFailureDoesNotEnableCache) {
+  RedisModule_BigModuleRegister = [](RedisModuleCtx *, RedisModuleBigCallbacks *) {
+    return REDISMODULE_ERR;
+  };
+  EXPECT_FALSE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
+  EXPECT_FALSE(SearchDisk_InfoCacheEnabled());
+  EXPECT_EQ(backgroundCollections, 0);
+}
+
 }  // namespace

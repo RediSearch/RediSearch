@@ -24,11 +24,17 @@
 #include "rmutil/rm_assert.h"
 #include "util/dict/dict.h"
 #include "util/references.h"
+#include "util/disk_metrics.h"
 
 struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
+
+static bool infoCacheEnabled;
+static void *metricsCollector;
+static uint64_t usageGroup = 1;
+static uint64_t backupUsageGroup;
 
 static size_t diskMemoryLimitBytes = 0;
 
@@ -207,9 +213,16 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
+  metricsCollector = disk->metrics.getCollector(disk_db);
+  if (!DiskMetrics_Start(ctx, disk->metrics.collect, metricsCollector)) {
+    SearchDisk_Close(ctx);
+    return false;
+  }
   // Register BigModule callbacks for disk usage reporting
   if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
-    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
+    RedisModule_Log(ctx, "warning",
+                    "Failed to register BigModule callbacks for disk usage reporting");
+    SearchDisk_Close(ctx);
     return false;
   }
   return true;
@@ -219,64 +232,94 @@ bool SearchDisk_IsInitialized() {
   return disk_db != NULL;
 }
 
-// Callback for BigModuleRegister - returns total disk usage across all indexes
 static size_t getDiskUsageCallback(void) {
-  size_t total = 0;
-  if (!specDict_g) {
-    return total;
-  }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      total += SearchDisk_GetDiskUsage(sp->diskSpec);
-    }
-  }
-  dictReleaseIterator(iter);
-  return total;
+  return metricsCollector ? disk->metrics.getCachedTotalDiskUsage(metricsCollector) : 0;
 }
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
-  if (!RedisModule_BigModuleRegister) {
-    RedisModule_Log(ctx, "notice", "BigModuleRegister not available");
-    return false;
-  }
-
-  RedisModuleBigCallbacksV1 callbacks = {
-    .version = REDISMODULE_BIG_CALLBACKS_VERSION,
-    .getDiskUsage = getDiskUsageCallback,
-  };
-
-  if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
-    return false;
-  }
-
-  RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
+  if (!RedisModule_BigModuleRegister) return false;
+  if (!metricsCollector) metricsCollector = disk->metrics.getCollector(disk_db);
+  RedisModuleBigCallbacksV1 callbacks = {.version = 1, .getDiskUsage = getDiskUsageCallback};
+  if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) return false;
+  infoCacheEnabled = true;
   return true;
 }
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
+  if (DiskMetrics_InForkChild()) return;
   if (disk && disk_db) {
+    SearchDisk_PauseMetrics();
+    DiskMetrics_Stop(ctx);
+    if (metricsCollector) disk->metrics.setAvailable(metricsCollector, false);
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
     diskMemoryLimitBytes = 0;
+    infoCacheEnabled = false;
+    metricsCollector = NULL;
+    usageGroup = 1;
+    backupUsageGroup = 0;
   }
 }
 
-static void* Compaction_BeginUpdate(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_AcquireWriteLock(sp);
-    return sp;
+void SearchDisk_ActivateUsage(IndexSpec *spec) {
+  if (metricsCollector && spec && spec->diskSpec) {
+    disk->metrics.activateTarget(spec->diskSpec, usageGroup);
+  }
 }
 
-static bool Compaction_DecrementTrieTermCount(void *update_ctx,
-                                              const char *term,
-                                              size_t term_len,
+void SearchDisk_BackupUsage(void) {
+  if (!metricsCollector) return;
+  backupUsageGroup = usageGroup;
+  usageGroup = disk->metrics.newUsageGroup(metricsCollector);
+  disk->metrics.selectUsageGroup(metricsCollector, usageGroup);
+}
+
+void SearchDisk_RestoreUsage(void) {
+  if (!metricsCollector || !backupUsageGroup) return;
+  usageGroup = backupUsageGroup;
+  backupUsageGroup = 0;
+  disk->metrics.selectUsageGroup(metricsCollector, usageGroup);
+}
+
+void SearchDisk_DiscardUsageBackup(void) {
+  backupUsageGroup = 0;
+}
+
+void SearchDisk_PauseMetrics(void) {
+  if (!metricsCollector || DiskMetrics_InForkChild()) return;
+  DiskMetrics_Pause();
+  disk->metrics.setAvailable(metricsCollector, false);
+}
+
+void SearchDisk_ResumeMetrics(void) {
+  if (!metricsCollector || DiskMetrics_InForkChild()) return;
+  bool available = DiskMetrics_Resume();
+  disk->metrics.setAvailable(metricsCollector, available);
+  if (available) DiskMetrics_Wake();
+}
+
+int SearchDisk_WaitFreshUsage(RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
+                              uint64_t timeout_ms, uint64_t *usage) {
+  if (!usage || !DiskMetrics_BeginWait()) return 3;
+  void *ticket = disk->metrics.requestFreshUsage(metricsCollector, index, max_age_ms);
+  if (!ticket) {
+    DiskMetrics_EndWait();
+    return 3;
+  }
+  int status = DiskMetrics_Wake() ? disk->metrics.waitFreshUsage(ticket, timeout_ms, usage) : 3;
+  disk->metrics.freeFreshUsage(ticket);
+  DiskMetrics_EndWait();
+  return status;
+}
+
+static void *Compaction_BeginUpdate(void *private_data) {
+  IndexSpec *sp = private_data;
+  RS_ASSERT(sp);
+  IndexSpec_AcquireWriteLock(sp);
+  return sp;
+}
+
+static bool Compaction_DecrementTrieTermCount(void *update_ctx, const char *term, size_t term_len,
                                               size_t doc_count_decrement) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
@@ -324,6 +367,10 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     spec->diskRegistered = true;
+    dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
+    if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
+      disk->metrics.activateTarget(result, usageGroup);
+    }
     return;
   }
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
@@ -374,6 +421,7 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
   if (!spec->diskRegistered) {
     return;
   }
+  disk->metrics.retireTarget(disk_db, spec->diskSpec);
   disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
   spec->diskRegistered = false;
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
@@ -700,7 +748,26 @@ bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
-uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
+bool SearchDisk_InfoCacheEnabled(void) {
+  return infoCacheEnabled;
+}
+
+uint64_t SearchDisk_CollectCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.collectCachedIndexMetrics(disk_db, index);
+}
+
+uint64_t SearchDisk_GetCachedDiskUsage(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getCachedDiskUsage(disk_db, index);
+}
+
+uint64_t SearchDisk_GetCachedBlockCount(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getCachedBlockCount(disk_db, index);
+}
+
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.collectIndexMetrics(disk_db, index);
 }

@@ -747,6 +747,22 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * 2) Read the per-component getters below
  */
 
+void SearchDisk_ActivateUsage(IndexSpec *spec);
+void SearchDisk_BackupUsage(void);
+void SearchDisk_RestoreUsage(void);
+void SearchDisk_DiscardUsageBackup(void);
+void SearchDisk_PauseMetrics(void);
+void SearchDisk_ResumeMetrics(void);
+/* Internal only. Never use in INFO/admission, on the collector, or holding its locks.
+ * index == NULL selects the visible total. Returns 0 success, 1 timeout,
+ * 2 scope changed, 3 unavailable. usage is written only on success. */
+int SearchDisk_WaitFreshUsage(RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
+                              uint64_t timeout_ms, uint64_t *usage);
+bool SearchDisk_InfoCacheEnabled(void);
+uint64_t SearchDisk_CollectCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
+uint64_t SearchDisk_GetCachedDiskUsage(RedisSearchDiskIndexSpec *index);
+uint64_t SearchDisk_GetCachedBlockCount(RedisSearchDiskIndexSpec *index);
+
 /**
  * @brief Collect metrics for an index and store them in the disk context
  *
@@ -756,7 +772,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * @param index Pointer to the index spec
  * @return The total memory used by this index's disk components
  */
-uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get doc table memory for a disk index

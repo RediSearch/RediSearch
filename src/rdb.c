@@ -13,6 +13,7 @@
 #include "alias.h"
 #include "rdb.h"
 #include "rules.h"
+#include "search_disk.h"
 #include "util/dict/dict.h"
 
 dict *specDict_g_bkup;
@@ -23,6 +24,7 @@ AliasTable *AliasTable_g_bkup;
 void Backup_Globals() {
   specDict_g_bkup = specDict_g;
   specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  SearchDisk_BackupUsage();
 
   specIdDict_g_bkup = specIdDict_g;
   specIdDict_g = dictCreate(&dictTypeUint64, NULL);
@@ -39,7 +41,7 @@ void Restore_Globals(RedisModuleCtx *ctx) {
   dictRelease(specDict_g);
   specDict_g = specDict_g_bkup;
   specDict_g_bkup = NULL;
-
+  SearchDisk_RestoreUsage();
   dictRelease(specIdDict_g);
   specIdDict_g = specIdDict_g_bkup;
   specIdDict_g_bkup = NULL;
@@ -78,6 +80,7 @@ void Discard_Globals_Backup(RedisModuleCtx *ctx) {
   AliasTable_g = AliasTable_g_temp;
   // nullify backup
   specDict_g_bkup = NULL;
+  SearchDisk_DiscardUsageBackup();
   specIdDict_g_bkup = NULL;
   ScemaPrefixes_g_bkup = NULL;
   AliasTable_g_bkup = NULL;
