@@ -125,7 +125,7 @@ where
 ///
 /// Concretely:
 ///
-/// 1. C calls `Profile_AddIters` → [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
+/// 1. The tree's root is profiled with [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
 /// 2. `into_profiled` calls [`CRQEIterator::profile_children`](crate::c2rust::CRQEIterator::profile_children),
 ///    which invokes the C vtable `ProfileChildren` callback
 /// 3. For Rust compound iterators, that callback is [`rust_profile_children`],
