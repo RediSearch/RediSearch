@@ -88,14 +88,14 @@ extern RedisModuleCtx *RSDummyContext;
   X(json_del,       "json.del")               \
   X(json_numincrby, "json.numincrby")         \
   X(json_nummultby, "json.nummultby")         \
-  X(json_numpowby,  "json.numpowby")          \
   X(json_strappend, "json.strappend")         \
   X(json_arrappend, "json.arrappend")         \
   X(json_arrinsert, "json.arrinsert")         \
   X(json_arrpop,    "json.arrpop")            \
   X(json_arrtrim,   "json.arrtrim")           \
   X(json_toggle,    "json.toggle")            \
-  X(json_clear,     "json.clear")
+  X(json_clear,     "json.clear")             \
+  X(json_numpowby,  "json.numpowby")
 
 // Define an enum value for each event.
 #define DECLARE_EVENT_ENUM(E) E##_cmd,
