@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `COUNT`, `SUM`, `AVG`, `MIN` and `MAX`, driven through
+//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` and `STDDEV`, driven through
 //! [`AccumulatorReducer`] the way the grouper drives them.
 
 extern crate redisearch_rs;
@@ -17,6 +17,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
 use reducers::min_max::{Extreme, MinMax};
+use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::{SharedValue, Value};
@@ -113,6 +114,47 @@ fn min_and_max_let_nan_through() {
     }
 }
 
+#[test]
+fn std_dev_is_the_sample_standard_deviation() {
+    let key = key();
+    let rows = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0].map(num);
+    let expected = (32.0_f64 / 7.0).sqrt();
+    assert!((reduce(StdDev::new(&key), &key, &rows) - expected).abs() < 1e-12);
+}
+
+/// An array contributes each of its numeric elements; other values are skipped.
+#[test]
+fn std_dev_flattens_arrays_and_skips_non_numeric_values() {
+    let key = key();
+    let array = SharedValue::new_array([
+        SharedValue::new_num(2.0),
+        SharedValue::new_string(b"abc".to_vec()),
+        SharedValue::new_string(b"4".to_vec()),
+    ]);
+    let rows = [Some(array), None, string("abc"), num(6.0)];
+    assert_eq!(reduce(StdDev::new(&key), &key, &rows), 2.0);
+}
+
+/// Only a direct array is flattened: one behind a reference has no number.
+#[test]
+fn std_dev_does_not_flatten_an_array_behind_a_reference() {
+    let key = key();
+    let array = SharedValue::new_array([SharedValue::new_num(100.0)]);
+    let rows = [
+        Some(SharedValue::new(Value::Ref(array))),
+        num(1.0),
+        num(3.0),
+    ];
+    assert_eq!(reduce(StdDev::new(&key), &key, &rows), 2.0_f64.sqrt());
+}
+
+#[test]
+fn std_dev_of_fewer_than_two_numbers_is_zero() {
+    let key = key();
+    assert_eq!(reduce(StdDev::new(&key), &key, &[]), 0.0);
+    assert_eq!(reduce(StdDev::new(&key), &key, &[num(5.0), None]), 0.0);
+}
+
 /// Runs `reducer` over two groups the way the grouper drives the C vtable: a
 /// state per group, rows interleaved between them, then finalize and free.
 /// Returns each group's result.
@@ -160,7 +202,7 @@ unsafe fn reduce_interleaved(
 #[test]
 fn vtable_keeps_interleaved_groups_apart() {
     use redisearch_rs::reducers::accumulator::{
-        CountReducer_Create, MinMaxReducer_Create, SumReducer_Create,
+        CountReducer_Create, MinMaxReducer_Create, StdDevReducer_Create, SumReducer_Create,
     };
 
     let key = key();
@@ -188,5 +230,10 @@ fn vtable_keeps_interleaved_groups_apart() {
     unsafe {
         let maxima = reduce_interleaved(MinMaxReducer_Create(key_ptr, true), &key, rows);
         assert_eq!(maxima, [3.0, 20.0]);
+    }
+    // SAFETY: as above.
+    unsafe {
+        let deviations = reduce_interleaved(StdDevReducer_Create(key_ptr), &key, rows);
+        assert_eq!(deviations, [2.0_f64.sqrt(), 50.0_f64.sqrt()]);
     }
 }

@@ -13,6 +13,7 @@ pub mod count;
 pub mod min_max;
 mod reducer;
 mod reducer_options;
+pub mod std_dev;
 pub mod sum;
 
 pub use reducer::Reducer;
