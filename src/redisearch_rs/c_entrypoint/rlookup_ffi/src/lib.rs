@@ -8,6 +8,7 @@
 */
 
 mod lookup;
+mod metric_request;
 pub mod row;
 
 pub use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};

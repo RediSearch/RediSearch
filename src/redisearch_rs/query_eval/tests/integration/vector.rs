@@ -309,12 +309,13 @@ struct VectorFixture {
     /// The evaluation context under test. Also carries the query status and the
     /// metric requests, which is where the assertions read the node's effects.
     ///
-    /// Declared before the [`TestContext`] it borrows from, so that it is the
-    /// first of the two to drop.
+    /// It wraps the [`ffi::QueryEvalCtx`] that [`context`](Self::context) owns,
+    /// so it is not used once [`Drop`] has released the context.
     ctx: QueryEvalContext,
     /// Owns the numeric index backing the child node, and the
-    /// [`ffi::QueryEvalCtx`] that [`ctx`](Self::ctx) wraps.
-    _context: TestContext,
+    /// [`ffi::QueryEvalCtx`] that [`ctx`](Self::ctx) wraps. Always [`Some`]
+    /// until [`Drop`] takes it.
+    context: Option<TestContext>,
     /// The `QN_VECTOR` node being evaluated.
     node: MockQueryNode,
     /// The node's child, when it has one. Kept alive because the node holds a
@@ -492,7 +493,7 @@ impl VectorFixture {
         Self {
             _guard,
             ctx,
-            _context: context,
+            context: Some(context),
             node,
             _child: child,
             _filter: filter,
@@ -567,6 +568,11 @@ impl VectorFixture {
 
 impl Drop for VectorFixture {
     fn drop(&mut self) {
+        // The context owns the metric-request list, which borrows the score
+        // fields freed below, so it goes first: the order the AST's teardown
+        // keeps in production.
+        drop(self.context.take());
+
         // SAFETY: each pointer below is either null or the fixture's own live
         // allocation, freed exactly once here. The score field is whichever
         // string the evaluation left on the vector query — the one built here or
@@ -578,10 +584,10 @@ impl Drop for VectorFixture {
             if let Some(child_vq) = &self.child_vq {
                 free_module_string(child_vq.scoreField);
             }
-            // `self.index` is not freed here: it now hangs off the vector field this
-            // fixture added to `_context`'s spec (see `TestContext::add_field`), so
-            // `_context`'s own teardown (`FieldSpec_Cleanup`, via its `Drop`, which runs
-            // after this method returns) frees it exactly once.
+            // `self.index` is not freed here: it hangs off the vector field this
+            // fixture added to the context's spec (see `TestContext::add_field`), so
+            // the context's own teardown (`FieldSpec_Cleanup`, via its `Drop`, above)
+            // frees it exactly once.
         }
     }
 }
@@ -609,18 +615,14 @@ fn assert_bound_metric_request(fixture: &VectorFixture, name: &[u8]) {
 /// reads it. A handle that was merely stored on the request still reads as
 /// valid, so the flag is the only thing here that tells the two apart.
 fn assert_bound_to_a_freed_iterator(request: &rlookup::MetricRequest<'_>, name: &[u8], what: &str) {
-    // SAFETY: the request names the score field, a live string owned by the
-    // vector query that reserved it.
-    assert_eq!(unsafe { read_module_string(request.metric_name) }, name);
+    assert_eq!(request.metric_name().to_bytes(), name);
 
-    let handle = request.key_handle;
-    assert!(
-        !handle.is_null(),
-        "{what} must be bound to a lookup-key handle"
-    );
-    // SAFETY: non-null checked; the handle is owned by the request and outlives
-    // the iterator that was pointed at it.
-    let is_valid = unsafe { (*handle).is_valid };
+    let handle = request
+        .key_handle()
+        .unwrap_or_else(|| panic!("{what} must be bound to a lookup-key handle"));
+    // SAFETY: the handle is owned by the request and outlives the iterator that
+    // was pointed at it.
+    let is_valid = unsafe { handle.as_ref() }.is_valid;
     assert!(
         !is_valid,
         "freeing the iterator of {what} must invalidate its handle, or the \
@@ -633,9 +635,7 @@ fn metric_names(fixture: &VectorFixture) -> Vec<Vec<u8>> {
     fixture
         .metric_requests()
         .iter()
-        // SAFETY: each request names the score field of the vector query that
-        // reserved it, a live string that query owns.
-        .map(|request| unsafe { read_module_string(request.metric_name) })
+        .map(|request| request.metric_name().to_bytes().to_vec())
         .collect()
 }
 
@@ -749,16 +749,13 @@ fn eval_vector_reserves_a_metric_request_for_the_score_field() {
 
     let requests = fixture.metric_requests();
     assert_eq!(requests.len(), 1);
-    // SAFETY: the request names the score field, a live string owned by the
-    // vector query.
-    let name = unsafe { read_module_string(requests[0].metric_name) };
-    assert_eq!(name, USER_SCORE_FIELD);
+    assert_eq!(requests[0].metric_name().to_bytes(), USER_SCORE_FIELD);
     assert!(
-        requests[0].key_handle.is_null(),
+        requests[0].key_handle().is_none(),
         "a request whose iterator was never built must carry no lookup handle"
     );
     assert!(
-        !requests[0].is_internal,
+        !requests[0].is_internal(),
         "a user-named distance field is part of the response"
     );
 }
@@ -777,7 +774,7 @@ fn eval_vector_hidden_distance_field_reserves_an_internal_metric_request() {
 
     let requests = fixture.metric_requests();
     assert_eq!(requests.len(), 1);
-    assert!(requests[0].is_internal);
+    assert!(requests[0].is_internal());
 }
 
 #[test]
@@ -942,7 +939,7 @@ fn eval_vector_binds_no_handle_to_an_iterator_that_yields_no_distance() {
     let requests = fixture.metric_requests();
     assert_eq!(requests.len(), 1);
     assert!(
-        requests[0].key_handle.is_null(),
+        requests[0].key_handle().is_none(),
         "an iterator that yields no distance must have no handle bound to it"
     );
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
@@ -984,7 +981,7 @@ fn eval_vector_keeps_the_error_a_declining_search_reported() {
     // — the same shape as when there was no index to ask.
     let requests = fixture.metric_requests();
     assert_eq!(requests.len(), 1);
-    assert!(requests[0].key_handle.is_null());
+    assert!(requests[0].key_handle().is_none());
 }
 
 #[test]
@@ -1126,8 +1123,8 @@ fn eval_vector_binds_each_node_to_the_request_it_reserved() {
 
     // The pin: binding by reserved index and binding to the last entry coincide
     // for a single-node query, and differ here — the latter leaves the root
-    // unbound and writes the child's handle twice. Whether the append also moved
-    // the array, dangling a cached pointer, is the allocator's call.
+    // unbound and binds the child's request twice. Whether the append also moved
+    // the list, dangling a cached pointer, is the allocator's call.
     assert_bound_to_a_freed_iterator(
         &requests[0],
         USER_SCORE_FIELD,
@@ -1139,7 +1136,8 @@ fn eval_vector_binds_each_node_to_the_request_it_reserved() {
         "the child, which must bind its own",
     );
     assert_ne!(
-        requests[0].key_handle, requests[1].key_handle,
+        requests[0].key_handle(),
+        requests[1].key_handle(),
         "two iterators must not share one handle"
     );
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
@@ -1174,7 +1172,7 @@ fn eval_vector_leaves_its_childs_binding_alone_when_its_own_search_declines() {
 
     let requests = fixture.metric_requests();
     assert!(
-        requests[0].key_handle.is_null(),
+        requests[0].key_handle().is_none(),
         "the root never got an iterator, so its own entry stays unbound"
     );
     // Checking the flag and not just the pointer is what makes the root's

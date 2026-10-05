@@ -49,7 +49,7 @@ pub(crate) fn eval<'index>(
     resolve_score_field(ctx, &mut node, vq).ok()?;
 
     // Reserved before the child is evaluated, so that a nested vector node
-    // lands *after* this one in the array. Paths out of here that never build
+    // lands *after* this one in the list. Paths out of here that never build
     // an iterator simply leave it unbound — see `add_metric_request`.
     let request_id = (!vq.scoreField.is_null()).then(|| {
         let is_internal = node
@@ -60,7 +60,7 @@ pub(crate) fn eval<'index>(
         // NUL-terminated string the parser or the distance-field move left on
         // the query. The request borrows it rather than owning it, and its
         // owner is the vector query — hence the AST, which outlives the
-        // metric-request array.
+        // metric-request list.
         unsafe { ctx.add_metric_request(vq.scoreField, is_internal) }
     });
 
@@ -244,11 +244,16 @@ fn bind_metric_request(
             // we hold it exclusively.
             let own_key = unsafe { vector_score_source::interop::own_key_ref(it) };
             // SAFETY: `id` was reserved by `add_metric_request` on this same
-            // context; `own_key` points into the iterator, which outlives the
-            // handle (it clears the handle's validity flag when freed).
+            // `ctx`, in `eval`. `own_key` is the iterator's own key slot, and
+            // the handle is installed on that iterator on the next line, so the
+            // iterator clears its validity flag before the slot goes away. The list
+            // owning the handle belongs to the query AST, which is freed after
+            // the pipeline and so outlives the iterator; the lookup the key is
+            // resolved from belongs to the pipeline, which frees its iterators
+            // before its lookups.
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
-            // SAFETY: as above, and `handle` is a valid handle that lives as
-            // long as the AST.
+            // SAFETY: the discriminant says this is a vector top-k iterator,
+            // held exclusively, and `handle` outlives it, as above.
             unsafe { vector_score_source::interop::set_key_handle(it, handle) };
         }
         IteratorType::MetricSortedById
@@ -260,9 +265,9 @@ fn bind_metric_request(
             // exclusively; the borrow it is typed with is discarded rather
             // than relied upon, as above.
             let own_key = unsafe { metric::own_key_ref(it) };
-            // SAFETY: as above.
+            // SAFETY: as for the vector top-k iterator above.
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
-            // SAFETY: as above.
+            // SAFETY: as for the vector top-k iterator above.
             unsafe { metric::set_key_handle(it, handle) };
         }
         // Every other type yields no metric to bind.

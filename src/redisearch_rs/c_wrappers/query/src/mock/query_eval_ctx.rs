@@ -28,7 +28,7 @@ pub struct MockQueryEvalCtx {
     spec: *mut ffi::IndexSpec,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
+    metric_requests_p: *mut *mut rlookup::MetricRequests<'static>,
     doc_table: *mut ffi::DocTable,
     config: *mut IteratorsConfig,
     qctx: *mut ffi::QueryEvalCtx,
@@ -45,18 +45,15 @@ impl Drop for MockQueryEvalCtx {
             dealloc(self.sctx.cast(), Layout::new::<ffi::RedisSearchCtx>());
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());
             drop(Box::from_raw(self.status));
-            // Reclaiming an appended list means `array_free`, a C symbol this
-            // mock deliberately doesn't invoke, so it can only refuse to be the
-            // one that appended. A test that needs to is a test that needs
-            // `rqe_iterators_test_utils::TestContext` instead, whose teardown
-            // does free the list.
-            debug_assert!(
-                (*self.metric_requests_p).is_null(),
-                "this mock cannot free an appended metric-request list"
-            );
+            // Reservations made through this context leave their list on the
+            // head for the AST's owner — here, this mock — to free.
+            let requests = *self.metric_requests_p;
+            if !requests.is_null() {
+                drop(Box::from_raw(requests));
+            }
             dealloc(
                 self.metric_requests_p.cast(),
-                Layout::new::<*mut rlookup::MetricRequest<'static>>(),
+                Layout::new::<*mut rlookup::MetricRequests<'static>>(),
             );
             dealloc(self.doc_table.cast(), Layout::new::<ffi::DocTable>());
             drop(Box::from_raw(self.config));
@@ -99,16 +96,11 @@ impl MockQueryEvalCtx {
 
             let status = Box::into_raw(Box::new(QueryError::default()));
 
-            // The head of the metric-request list, left null: the list is a
-            // tracked array, whose empty state is a null head and whose
-            // non-empty one is an interior pointer just past a length header.
-            // Seeding it with a plain allocation would look non-empty while
-            // having no header, so the first append would read and reallocate
-            // from outside it. Appending through this mock is refused outright
-            // in `drop`, for want of a C symbol to free the result with.
+            // The head of the metric-request list, left null: no request
+            // reserved yet.
             let metric_requests_p =
-                alloc_zeroed(Layout::new::<*mut rlookup::MetricRequest<'static>>())
-                    .cast::<*mut rlookup::MetricRequest<'static>>();
+                alloc_zeroed(Layout::new::<*mut rlookup::MetricRequests<'static>>())
+                    .cast::<*mut rlookup::MetricRequests<'static>>();
             assert!(!metric_requests_p.is_null());
 
             let doc_table = alloc_zeroed(Layout::new::<ffi::DocTable>()).cast::<ffi::DocTable>();
@@ -156,10 +148,6 @@ impl MockQueryEvalCtx {
 
     pub fn sctx_ptr(&self) -> *mut ffi::RedisSearchCtx {
         self.sctx
-    }
-
-    pub fn metric_requests_p(&self) -> *mut *mut rlookup::MetricRequest<'static> {
-        self.metric_requests_p
     }
 
     pub fn doc_table_ptr(&self) -> *mut ffi::DocTable {

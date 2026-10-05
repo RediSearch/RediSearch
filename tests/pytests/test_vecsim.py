@@ -690,11 +690,11 @@ def test_search_errors():
                 ).contains(f'Error parsing vector similarity query: query vector blob size ({bad_size}) does not match index\'s expected size ({query_size}).')
 
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @t $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Expected a VECTOR field at offset 10 near t')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS v]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS v]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_INDEX_EXISTS Property `v` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_INDEX_EXISTS Property `s` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_INDEX_EXISTS Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().equal('SEARCH_INDEX_EXISTS Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v;}', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_INDEX_EXISTS Property `v` already exists in schema')
 
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
@@ -750,9 +750,9 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Unknown field at offset 0 near bad')
     env.expect('FT.SEARCH', 'idx', '@v:[vector 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range -1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_QUERY_BAD Error parsing vector similarity query: negative radius (-1) given in a range query')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:dist} @v:[vector_range 0.2 $b]=>{$yield_distance_as:dist}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `dist` specified more than once')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:$dist}', 'PARAMS', '4', 'b', 'abcdefgh', 'dist', 't').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_INDEX_EXISTS Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:dist} @v:[vector_range 0.2 $b]=>{$yield_distance_as:dist}', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_FIELD_DUP Property `dist` specified more than once')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:$dist}', 'PARAMS', '4', 'b', 'abcdefgh', 'dist', 't').error().equal('SEARCH_INDEX_EXISTS Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EF_RUNTIME:10}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$HYBRID_POLICY:BATCHES}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)')
 
@@ -768,6 +768,45 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EPSILON: 2.71828}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$EPSILON: 0.1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', f'@{v_flat}:[vector_range 0.1 $b]=>{{$epsilon:0.1}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').equal('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+
+
+def raw_reply_line(env, *args):
+    """Send one command and return the first line of its reply, undecoded.
+
+    redis-py replaces invalid UTF-8 in every error it reads, even with decoding
+    off, so the reply is read off the socket of a pooled connection, whose
+    handshake (TLS, AUTH) the pool has already done, rather than parsed.
+    """
+    pool = env.getConnection().connection_pool
+    conn = pool.get_connection()
+    try:
+        conn.send_command(*args)
+        conn._sock.settimeout(10)
+        reply = b''
+        while b'\r\n' not in reply:
+            chunk = conn._sock.recv(4096)
+            if not chunk:
+                break
+            reply += chunk
+    finally:
+        # The reply bypassed the connection's parser, so it is not reused.
+        conn.disconnect()
+        pool.release(conn)
+    return reply.split(b'\r\n', 1)[0]
+
+
+# Runs in cluster too: the coordinator must pass the name's bytes through as well.
+def test_metric_name_error_keeps_raw_bytes(env):
+    """A distance field name is user data and need not be valid UTF-8: the error
+    for a name used twice carries the name's bytes unaltered"""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    query = ('@v:[vector_range 0.1 $b]=>{$yield_distance_as:$d} '
+             '@v:[vector_range 0.2 $b]=>{$yield_distance_as:$d}')
+
+    reply = raw_reply_line(env, 'FT.SEARCH', 'idx', query,
+                           'PARAMS', '4', 'b', b'abcdefgh', 'd', b'\xff\xfe')
+    env.assertEqual(reply, b'-SEARCH_FIELD_DUP Property `\xff\xfe` specified more than once')
 
 
 def test_with_fields():

@@ -26,6 +26,7 @@
 #include "redis_index.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
+#include "rlookup_ffi.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "extension.h"
@@ -964,20 +965,12 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 void QAST_Destroy(QueryAST *q) {
+  // Before the nodes: the list borrows the metric names they own.
+  MetricRequests_Free(q->metricRequests);
+  q->metricRequests = NULL;
+
   QueryNode_Free(q->root);
   q->root = NULL;
-
-  // Free the key handles in metric requests
-  if (q->metricRequests) {
-    for (size_t i = 0; i < array_len(q->metricRequests); i++) {
-      if (q->metricRequests[i].key_handle) {
-        rm_free(q->metricRequests[i].key_handle);
-      }
-    }
-  }
-
-  array_free(q->metricRequests);
-  q->metricRequests = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   rm_free(q->query);

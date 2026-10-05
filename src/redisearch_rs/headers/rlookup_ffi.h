@@ -131,6 +131,44 @@ void HashFieldNames_Free(struct HashFieldNames *names);
 struct HashFieldNames *HashFieldNames_New(void);
 
 /**
+ * Free a query's metric-request list, together with the key handles it owns.
+ *
+ * # Safety
+ *
+ * 1. `requests` must be null — the query reserved no metric — or a list that
+ *    query evaluation leaked with [`Box::into_raw`], not freed since.
+ * 2. Freeing the list frees its key handles, so precondition (2) of
+ *    [`MetricRequests::bind`] must hold for each of them.
+ */
+void MetricRequests_Free(struct MetricRequests *requests);
+
+/**
+ * Register the metrics of `requests` as keys of `lookup`, as
+ * [`MetricRequests::register_keys`] does, checking each name against the
+ * fields of `spec`.
+ *
+ * Returns `REDISMODULE_OK`, or `REDISMODULE_ERR` with `status` set if a metric
+ * is named after a schema field or after a key `lookup` already has.
+ *
+ * # Safety
+ *
+ * 1. `requests` must be a [valid], non-null pointer to a list that query
+ *    evaluation built, not mutated for the duration of the call. The metric
+ *    names it borrows, owned by the query AST, must still be live.
+ * 2. `spec` must be a [valid], non-null pointer to an [`IndexSpec`](ffi::IndexSpec).
+ * 3. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that does
+ *    not outlive the metric names: its new keys borrow them from the query
+ *    AST rather than copying them.
+ * 4. `status` must be a [valid], non-null pointer to a [`QueryError`].
+ * 5. The preconditions of [`MetricRequests::bind`] must still hold for every
+ *    key handle of `requests`, with `lookup` among the lookups its
+ *    precondition (3) names.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int MetricRequests_RegisterKeys(const struct MetricRequests *requests, const IndexSpec *spec, struct RLookup *lookup, struct QueryError *status);
+
+/**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
  *
  * The function first checks for dynamic values, and if not found, it checks the sorting vector
