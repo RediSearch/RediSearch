@@ -56,9 +56,9 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     QITR_PushRP(&hidden->pipeline.qctx, producer);
     request->reqflags |= QEXEC_F_PROFILE;
     request->base.timeout.config.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    request->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
     static bool profileCalled;
     profileCalled = false;
-    request->base.timeoutWasCapped = true;
     request->profile = [](RedisModule_Reply *reply, HybridRequest *request, const bool *published) {
       EXPECT_NE(nullptr, published);
       EXPECT_FALSE(published[0]);
@@ -95,7 +95,7 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     producerStateWriter.join();
 
     EXPECT_TRUE(profileCalled);
-    EXPECT_TRUE(request->base.timeoutWasCapped);
+    EXPECT_TRUE(request->replyflags & QUERY_REPLY_F_TIMEOUT_CAPPED);
     EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&hidden->base.reply.err));
     EXPECT_FALSE(request->base.reply.hasStoredResults);
     EXPECT_EQ(nullptr, request->base.reply.results);
