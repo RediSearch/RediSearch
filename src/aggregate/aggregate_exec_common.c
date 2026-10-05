@@ -148,7 +148,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
-     if (canRecover && *rc == RS_RESULT_TIMEDOUT && ctx->timeout->policy == TimeoutPolicy_Return) {
+     if (canRecover && *rc == RS_RESULT_TIMEDOUT && ctx->timeout->config.timeoutPolicy == TimeoutPolicy_Return) {
        Pipeline_CollectDrainResults(rp, rc, results);
      }
    } else {
