@@ -155,6 +155,74 @@ fn std_dev_of_fewer_than_two_numbers_is_zero() {
     assert_eq!(reduce(StdDev::new(&key), &key, &[num(5.0), None]), 0.0);
 }
 
+fn std_dev(values: &[f64]) -> f64 {
+    let key = key();
+    let rows = values.iter().copied().map(num).collect::<Vec<_>>();
+    reduce(StdDev::new(&key), &key, &rows)
+}
+
+#[test]
+fn std_dev_of_constant_groups_is_zero() {
+    assert_eq!(std_dev(&[0.0, 0.0, 0.0]), 0.0);
+    assert_eq!(std_dev(&[7.5, 7.5, 7.5, 7.5]), 0.0);
+}
+
+#[test]
+fn std_dev_handles_negative_and_mixed_signs() {
+    assert_eq!(std_dev(&[-3.0, -1.0, 1.0]), 2.0);
+    assert_eq!(std_dev(&[-1.0, -3.0, -5.0]), 2.0);
+}
+
+#[test]
+fn std_dev_propagates_nan_once_there_are_two_values() {
+    assert_eq!(std_dev(&[f64::NAN]), 0.0);
+    assert!(std_dev(&[f64::NAN, 1.0]).is_nan());
+    assert!(std_dev(&[1.0, f64::NAN]).is_nan());
+    assert!(std_dev(&[1.0, f64::NAN, 3.0]).is_nan());
+    assert!(std_dev(&[f64::NAN, f64::NAN]).is_nan());
+}
+
+/// An infinity makes the running mean or the squared deviation non-finite, so any
+/// group of two or more values containing one reduces to NaN.
+#[test]
+fn std_dev_with_infinities() {
+    assert_eq!(std_dev(&[f64::INFINITY]), 0.0);
+    assert_eq!(std_dev(&[f64::NEG_INFINITY]), 0.0);
+    assert!(std_dev(&[f64::INFINITY, f64::INFINITY]).is_nan());
+    assert!(std_dev(&[f64::NEG_INFINITY, f64::NEG_INFINITY]).is_nan());
+    assert!(std_dev(&[f64::INFINITY, 1.0]).is_nan());
+    assert!(std_dev(&[1.0, f64::INFINITY]).is_nan());
+    assert!(std_dev(&[f64::INFINITY, f64::NEG_INFINITY]).is_nan());
+}
+
+/// A numeric string beyond the `f64` range converts to an infinity, which takes
+/// part in the calculation rather than being skipped.
+#[test]
+fn std_dev_counts_numeric_strings_that_overflow_to_infinity() {
+    let key = key();
+    for overflowing in ["1e309", "-1e309"] {
+        let rows = [string(overflowing), num(1.0)];
+        assert!(reduce(StdDev::new(&key), &key, &rows).is_nan());
+    }
+}
+
+#[test]
+fn std_dev_with_intermediate_overflow() {
+    // The sum of squares overflows to +inf.
+    assert_eq!(std_dev(&[0.0, 1e308]), f64::INFINITY);
+    // The difference overflows to +inf, so the mean becomes +inf and the sum of
+    // squares inf * -inf.
+    assert!(std_dev(&[-1e308, 1e308]).is_nan());
+}
+
+/// Welford's update stays accurate when the mean dwarfs the spread.
+#[test]
+fn std_dev_of_large_closely_spaced_values() {
+    let base = 1e9;
+    let result = std_dev(&[base + 4.0, base + 7.0, base + 13.0, base + 16.0]);
+    assert!((result - 30.0_f64.sqrt()).abs() < 1e-6);
+}
+
 /// Runs `reducer` over two groups the way the grouper drives the C vtable: a
 /// state per group, rows interleaved between them, then finalize and free.
 /// Returns each group's result.
