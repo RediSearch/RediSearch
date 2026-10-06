@@ -715,8 +715,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // A FAIL timeout can reach PROFILE encoding before rpnetNext_Start creates the iterator.
   if (rpnet->it && (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it))) {
     // A cancelled FAIL reply is discarded, including any remaining shard profiles.
-    while (!(req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
-             QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout))) {
+    while (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
       MRReply_Free(rpnet->current.root);
       if (getNextReply(rpnet) == RS_RESULT_EOF) {
         break;
