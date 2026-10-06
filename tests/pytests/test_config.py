@@ -2380,19 +2380,19 @@ def test_flex_disk_resource_config_startup_boundaries():
             'search-disk-memory-limit-percentage': '1',
             'search-disk-write-buffer-min-percentage': '1',
             'search-disk-write-buffer-per-index-mb': '1',
-            'search-disk-max-open-files': '100',
+            'search-disk-max-open-files': '138',
         },
         {
             'search-disk-memory-limit-percentage': '60',
             'search-disk-write-buffer-min-percentage': '20',
             'search-disk-write-buffer-per-index-mb': '2',
-            'search-disk-max-open-files': '101',
+            'search-disk-max-open-files': '139',
         },
         {
             'search-disk-memory-limit-percentage': '99',
             'search-disk-write-buffer-min-percentage': '99',
             'search-disk-write-buffer-per-index-mb': '3',
-            'search-disk-max-open-files': '102',
+            'search-disk-max-open-files': '140',
         },
         {
             'search-disk-memory-limit-percentage': '100',
@@ -2480,8 +2480,8 @@ def test_flex_disk_resource_config_startup_rejections():
             'search-disk-write-buffer-per-index-mb',
         ),
         (
-            (('search-disk-max-open-files', '99'),),
-            f'argument must be between 100 and {INT_MAX} inclusive',
+            (('search-disk-max-open-files', '137'),),
+            f'argument must be between 138 and {INT_MAX} inclusive',
             'search-disk-max-open-files',
         ),
         (
