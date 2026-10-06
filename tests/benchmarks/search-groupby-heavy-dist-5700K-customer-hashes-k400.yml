@@ -22,6 +22,7 @@ dbconfig:
   - dataset_name: "customer-5_7M-v1"
   - dataset_load_timeout_secs: 3000
   - configuration-parameters:
+    - search-internal-resp-schema: "no"
     - search-io-threads: "1"
   - module-configuration-parameters:
       redisearch: &search_settings
@@ -37,6 +38,7 @@ dbconfig:
         MAXPREFIXEXPANSIONS: 1024
       module-oss: *search_settings
   - init_commands:
+    - ["CONFIG", "GET", "search-internal-resp-schema", "search-timeout"]
     - ["FT.CREATE", "idx:bench", "ON", "HASH", "PREFIX", "1", "A#", "SCHEMA",
        "profile_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
        "post_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
