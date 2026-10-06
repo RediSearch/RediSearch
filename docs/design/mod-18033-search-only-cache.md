@@ -88,33 +88,66 @@ worker and reads atomic scalar mirrors rather than inherited Rust locks.
 
 ## Cache structure
 
-An index owns one usage entry. Its atomic total and six category counters are
-published values; the native listener shares only its dirty signal. A mutex
-protects the CF target, aligned last-good samples, lifecycle flags and refresh
-cursor. The revision rejects a result collected before a layout replacement.
-A separate native-read mutex lets retirement debit accounting first and then
-drain the read before the DB is unregistered.
+Two caches share one worker. Operational usage needs immediate create/drop accounting
+and one atomic total for quota/eviction. Diagnostic INFO needs stable aggregates of
+many properties. Keeping these contracts separate avoids coupling their refresh cycles.
 
-The module-wide cache keeps a queue of weak entries and an exact accounting sum,
-with one atomic total for operational readers. It never owns a C IndexSpec.
-Health publication is separate from the operational getter and runs at most
-once per second. No freshness tickets, waiting callers, scope generations or
-cross-repository availability notifications are needed.
+```mermaid
+flowchart TD
+    Context[DiskContext] --> Collector[RSE Collector]
+    Worker[RediSearch worker] -->|calls| Collector
+    Collector --> Usage[UsageCache]
+    Collector --> Diagnostics[AsyncSnapshots]
+    Index[Rust IndexSpec] --> UE[usage_cache::Entry]
+    Index --> DE[async_snapshot::Entry]
+    Usage -. weak registry .-> UE
+    Diagnostics -. weak queue .-> DE
+    UE --> State[IndexState and CF Samples]
+    UE --> Counters[Published atomic counters]
+    DE --> Pending[Pending Collection]
+    DE --> Working[Working Collection]
+    DE --> Published[Published immutable Snapshot]
+    Working -->|publishes| Published
+    Listener[Native UsageListener] -. marks .-> Signal[DirtySignal]
+    UE --> Signal
+```
 
-Diagnostic snapshots use one concrete collection structure for both pending
-layout replacements and active worker progress. The worker holds the progress
-mutex across one native property read; replacement uses a separate pending slot
-and invalidates the old revision without waiting for that read. Retirement drains
-the read before native handles can be closed.
+The index owns its entries; the registries never keep an index alive. The worker
+borrows native DB/CF handles only for a property read and never accesses C IndexSpecs.
 
-Working and published snapshots share immutable storage. The next property read
-makes a private copy before mutation, so retained INFO snapshots stay consistent
-without an eager map copy when a layout replacement is queued. Test-only property
-readers exercise this same production collection loop.
+| Type | Role and reason for the boundary |
+|---|---|
+| `Collector` | Shared worker context, separate from the mutable main-thread `DiskContext`. Services both caches each invocation. |
+| `Target` | Weak DB reference and CF names/identities, shared by both cache implementations. Detects replaced CFs without retaining native handles. |
+| `UsageCache` / `Registry` | Global atomic total for readers; membership and the exact accounting sum change together under the registry lock. |
+| `usage_cache::Entry` / `IndexState` | Per-index published counters plus locked lifecycle/refresh state. A separate native-read lock lets drop debit accounting before draining the read. |
+| `Sample` | Last-good byte count and sample time for one CF; errors preserve both. |
+| `DirtySignal` / `UsageListener` | Minimal event notification state and its native adapter. A callback can request refresh without retaining the index. |
+| `AsyncSnapshots` | Weak scheduling queue and diagnostic error accounting; the C executor supplies the single worker. |
+| `async_snapshot::Entry` | One index's pending replacement, active collection, and published result; rejects obsolete results and drains on retirement. |
+| `Collection` | Target, cursor, due time, revision, and working snapshot. Resumes a pass after yielding between native properties. |
+| `Snapshot` / `CfSample` | Stable aggregate plus per-CF history. Per-property success times prevent a successful read from making a failed property appear fresh. |
+| `Health` | Small result type summarizing the same snapshots retained for INFO output. |
 
-The C executor has start, stop, and fork handling. Stop rejects new jobs and drains
-the pool before index destruction; there is no general pause/resume API. The single
-worker serializes collection, so the Rust cache needs no second collector mutex.
+The diagnostic entry has three distinct roles:
+
+- **Pending:** the latest layout replacement; submitting it must not wait for native I/O.
+- **Working:** mutable collection progress; its lock spans one native property read.
+- **Published:** an immutable result retained by INFO readers while collection continues.
+
+A layout revision prevents old work from publishing after replacement. Working and
+published snapshots share storage until the next property read needs a private copy.
+Per-CF history preserves matching last-good values when the layout changes; the
+precomputed aggregate keeps INFO from walking that history.
+
+These ownership and synchronization boundaries are the important part, not the
+number of named types. Small wrappers could be inlined, but that alone would not
+remove the state or locking requirements.
+
+RediSearch owns timer/pool scheduling, the pre-fork barrier, and early shutdown.
+RSE owns native collection, cache ownership, and accounting. Stop rejects new jobs
+and drains before index destruction. Child-process checks do not replace the
+pre-fork drain; there is no general pause/resume API or second collector mutex.
 
 ## Coordinated PRs and qualification
 
