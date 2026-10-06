@@ -26,6 +26,7 @@ struct GeometryApi {
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
                     t_docId docId, RedisModuleString **err_msg);
   int (*delGeom)(GeometryIndex *index, t_docId docId);
+  // Returns 1 on success; 0 on refusal, leaving the old entry unchanged.
   int (*relabelGeom)(GeometryIndex *index, t_docId oldId, t_docId newId);
   int (*holdsGeomStr)(const GeometryIndex *index, GEOMETRY_FORMAT format, const char *str,
                       size_t len, t_docId docId);

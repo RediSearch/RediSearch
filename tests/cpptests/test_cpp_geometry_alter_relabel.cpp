@@ -144,6 +144,28 @@ class GeometryAlterRelabelTest : public PartialUpdateTest {
     expectGeomOnlyUnder("geom", old, neu, wkt);
     EXPECT_EQ(geomIndexedOps() - before, 0u) << "moved, not re-indexed";
   }
+
+  // g2 fails after g1 moved; g3's kept old entry must be dropped by the error sweep.
+  void expectErrorAfterMove(const char *coords) {
+    createSchema("title", "TEXT", "g1", "GEOSHAPE", coords, "g2", "GEOSHAPE", coords, "g3",
+                 "GEOSHAPE", coords, "extra", "TAG");
+    t_docId old = indexFields(
+        "doc:1", {{"title", "hello"}, {"g1", kPoly}, {"g2", kPoint}, {"g3", kPolyHole}});
+    ASSERT_NE(old, 0);
+    ASSERT_TRUE(geomHolds("g3", old, kPolyHole));
+    RMCK::hset(ctx, "doc:1", "g2", kPolyInvalid);
+    const size_t before = geomIndexedOps();
+
+    backfillExtra();
+    const t_docId neu = spec->docs.maxDocId;
+
+    EXPECT_GT(neu, old);
+    expectGeomOnlyUnder("g1", old, neu, kPoly);
+    EXPECT_FALSE(geomHolds("g3", old, kPolyHole));
+    EXPECT_FALSE(geomHolds("g3", neu, kPolyHole));
+    EXPECT_EQ(treeShape("g3"), (TreeShape{0, 0, 0}));
+    EXPECT_EQ(geomIndexedOps() - before, 0u) << "the move is not an indexing op";
+  }
 };
 
 TEST_F(GeometryAlterRelabelTest, preexistingGeoshapeMovedFlat) {
@@ -273,6 +295,14 @@ TEST_F(GeometryAlterRelabelTest, errorBeforeGeoshapeLeavesNoOrphan) {
 
   EXPECT_FALSE(geomHolds("geom", old, kPoly));
   EXPECT_EQ(treeShape("geom"), (TreeShape{0, 0, 0}));
+}
+
+TEST_F(GeometryAlterRelabelTest, errorAfterMoveFlat) {
+  expectErrorAfterMove("FLAT");
+}
+
+TEST_F(GeometryAlterRelabelTest, errorAfterMoveSpherical) {
+  expectErrorAfterMove("SPHERICAL");
 }
 
 TEST_F(GeometryAlterRelabelTest, flagOffNoMove) {

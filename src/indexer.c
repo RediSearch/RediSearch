@@ -271,8 +271,7 @@ static void GeometryIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId
   for (int i = 0; i < spec->numFields; ++i) {
     FieldSpec *fs = &spec->fields[i];
     if (!(fs->types & INDEXFLD_T_GEOMETRY)) continue;
-    // CREATE_INDEX, as in GeometryIndex_RemoveId.
-    GeometryIndex *idx = OpenGeometryIndex(fs, CREATE_INDEX);
+    GeometryIndex *idx = OpenGeometryIndex(fs, DONT_CREATE_INDEX);
     if (!idx) {
       if (aCtx && aCtx->fieldChanges) aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
       continue;
