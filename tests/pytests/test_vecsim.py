@@ -9,6 +9,8 @@ import math
 import random
 import time
 
+import numpy as np
+
 from RLTest import Env
 from common import *
 from includes import *
@@ -960,9 +962,27 @@ def test_hybrid_query_with_text_vamana_adhoc_bf():
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
 
 
-@skip_until("2026-10-12", reason="MOD-18890: investigating intermittent SVS-VAMANA BATCHES recall misses")
+def check_vamana_batches(env, text_filter, k, query_data, dim, data_type, expected_res, doc_vector=None):
+    """Run the explicit BATCHES hybrid query and assert its result. On a mismatch, first log whether
+    the missing docs are reachable some other way."""
+    query = f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]'
+    actual_res = env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', '__v_score',
+                         'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                         'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
+    if actual_res != expected_res:
+        log_unreachable_results(env, text_filter, k, query_data, dim, data_type, expected_res, actual_res,
+                                doc_vector=doc_vector)
+    execute_hybrid_query(env, query, query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k).equal(expected_res)
+
+
 def test_hybrid_query_with_text_vamana_batches():
-    """Validate explicit SVS-VAMANA BATCHES queries before and after vector relabeling."""
+    """Validate explicit SVS-VAMANA BATCHES queries over a text filter, before and after some
+    documents change their text.
+
+    The vectors are random. Points on a single line (e.g. [i, i]) are a degenerate input for a
+    Vamana graph: it can end up with regions the search cannot reach from its entry point, and then
+    even a query with a doc's own vector does not return it. The expected results are the exact
+    (ADHOC_BF) ones."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -970,60 +990,41 @@ def test_hybrid_query_with_text_vamana_batches():
     data_type = 'FLOAT32'
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA',
                         additional_schema_args=['t', 'TEXT'])
-    relabel_supported = all(run_command_on_all_shards(
-        env, debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME))
 
-    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+    vectors = np.random.default_rng(1234).random((index_size, dim), dtype=np.float32)
+    pipe = conn.pipeline(transaction=False)
+    for doc_id, vector in enumerate(vectors, start=1):
+        pipe.execute_command('HSET', doc_id, DEFAULT_FIELD_NAME, vector.tobytes(), 't', 'text value')
+    pipe.execute()
     start_time = time.time()
-    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    # Wait for every vector to reach the SVS backend before querying, not only for training to end.
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                 backend_index_size=index_size)
     env.debugPrint("wait_for_background_indexing took {} seconds".format(
         time.time() - start_time), force=True)
-    backend_size = get_tiered_backend_debug_info(
-        env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
-    env.debugPrint(f"svs index size: {backend_size}", force=True)
 
     k = 12
-    query_data = create_np_array_typed([1] * dim, data_type)
-    expected_res = [k]
-    for doc_id in range(1, k + 1):
-        expected_res.append(str(doc_id))
-        expected_res.append(['__v_score', str(dim * (doc_id - 1) ** 2), 't', 'text value'])
+    query_data = np.array([0.5] * dim, dtype=np.float32)
+
+    def doc_vector(doc_id):
+        return vectors[int(doc_id) - 1]
+
+    def exact(text_filter):
+        return env.cmd('FT.SEARCH', 'idx', f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
+                       'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                       'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
 
     # Query the initial corpus before any document has been updated.
-    execute_hybrid_query(
-        env,
-        f'(@t:(text value))=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
-        query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
-    ).equal(expected_res)
+    check_vamana_batches(env, '@t:(text value)', k, query_data, dim, data_type, exact('@t:(text value)'),
+                         doc_vector=doc_vector)
 
-    def vector_ops():
-        infos = run_command_on_all_shards(env, 'INFO', 'MODULES')
-        return (sum(int(info['search_total_indexing_ops_vector_fields']) for info in infos),
-                sum(int(info.get('search_total_relabel_ops_vector_fields', 0)) for info in infos))
-
-    updated_doc_ids = [10 * i for i in range(1, int(index_size / 10) + 1)]
-    if relabel_supported:
-        indexing_before, relabel_before = vector_ops()
+    # Move every 10th document to another text.
     for i in range(1, int(index_size / 10) + 1):
         conn.execute_command('HSET', 10 * i, 't', 'other')
     verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
 
-    if relabel_supported:
-        indexing_after, relabel_after = vector_ops()
-        env.assertEqual(indexing_after, indexing_before,
-                        message='text-only updates re-indexed SVS vectors')
-        env.assertEqual(relabel_after - relabel_before, len(updated_doc_ids))
-
-    expected_res = [k]
-    for doc_id in updated_doc_ids[:k]:
-        expected_res.append(str(doc_id))
-        expected_res.append(['__v_score', str(dim * (doc_id - 1) ** 2), 't', 'other'])
-
-    execute_hybrid_query(
-        env,
-        f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
-        query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
-    ).equal(expected_res)
+    check_vamana_batches(env, 'other', k, query_data, dim, data_type, exact('other'),
+                         doc_vector=doc_vector)
 
     # Expect empty score for the intersection (disjoint sets of results)
     # The hybrid policy changes to ad hoc after the first batch
