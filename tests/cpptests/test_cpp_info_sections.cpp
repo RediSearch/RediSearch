@@ -141,14 +141,16 @@ class InfoSectionsTest : public ::testing::Test {
       ++cachedCollections;
       return CachedIndexMetrics{4321, 55, 9};
     };
-    api.metrics.getCollector = [](RedisSearchDisk *context) -> void * { return context; };
-    api.metrics.collect = [](void *) -> bool {
+    api.metrics.getCollector = [](RedisSearchDisk *context) -> RedisSearchDiskMetricsCollector * {
+      return reinterpret_cast<RedisSearchDiskMetricsCollector *>(context);
+    };
+    api.metrics.collect = [](RedisSearchDiskMetricsCollector *) -> bool {
       ++backgroundCollections;
       return false;
     };
-    api.metrics.setAvailable = [](void *, bool) {};
+    api.metrics.setAvailable = [](RedisSearchDiskMetricsCollector *, bool) {};
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
-    api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
+    api.metrics.getCachedTotalDiskUsage = [](RedisSearchDiskMetricsCollector *) -> uint64_t {
       ++totalReads;
       return 55;
     };
@@ -295,6 +297,46 @@ TEST_F(InfoSectionsTest, CachedTotalDoesNotReadIndexes) {
   }
 }
 
+TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
+  Restore<decltype(RSGlobalConfig.gcConfigParams.enableGC)> gcEnabled{
+      RSGlobalConfig.gcConfigParams.enableGC};
+  RSGlobalConfig.gcConfigParams.enableGC = false;
+  static uint64_t total;
+  total = 0;
+  api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
+  api.basic.reserveOpenFiles = [](RedisSearchDisk *) { return true; };
+  api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
+  api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
+                               const char *, size_t, DocumentType, bool,
+                               const SearchDiskCompactionCallbacks *, void *privateData) {
+    EXPECT_EQ(total, 0u);
+    return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
+  };
+  api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *index) {
+    auto *created = reinterpret_cast<IndexSpec *>(index);
+    EXPECT_TRUE(dictFind(specDict_g, created->specName));
+    ++targetRegistrations;
+    total += 17;
+  };
+  api.metrics.getCachedTotalDiskUsage = [](RedisSearchDiskMetricsCollector *) { return total; };
+  api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
+                                        RedisSearchDiskIndexSpec *) { total -= 17; };
+  api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
+  api.index.markToBeDeleted = [](RedisSearchDiskIndexSpec *) {};
+  SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
+  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(RSDummyContext));
+  EXPECT_EQ(callbacks.getDiskUsage(), 0u);
+  RMCK::ArgvList args("FT.CREATE", "cached_usage_lifecycle", "SKIPINITIALSCAN", "SCHEMA", "title",
+                      "TEXT");
+  QueryError error = QueryError_Default();
+  auto *created = Indexes_CreateNewSpec(RSDummyContext, args, args.size(), &error);
+  ASSERT_NE(created, nullptr);
+  EXPECT_EQ(targetRegistrations, 1);
+  EXPECT_EQ(callbacks.getDiskUsage(), 17u);
+  Indexes_RemoveSpecFromGlobals(IndexSpec_GetStrongRefUnsafe(created), false);
+  EXPECT_EQ(callbacks.getDiskUsage(), 0u);
+}
+
 TEST_F(InfoSectionsTest, RegistrationFailureDoesNotEnableCache) {
   RedisModule_BigModuleRegister = [](RedisModuleCtx *, RedisModuleBigCallbacks *) {
     return REDISMODULE_ERR;
@@ -331,14 +373,15 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
     RedisModule_StopTimer = [](RedisModuleCtx *, RedisModuleTimerID, void **) {
       return REDISMODULE_OK;
     };
-    api.metrics.collect = [](void *) { return false; };
-    api.metrics.setAvailable = [](void *, bool value) {
+    api.metrics.collect = [](RedisSearchDiskMetricsCollector *) { return false; };
+    api.metrics.setAvailable = [](RedisSearchDiskMetricsCollector *, bool value) {
       std::lock_guard<std::mutex> lock(active->mutex);
       active->available = value;
       active->changed.notify_all();
     };
-    api.metrics.waitFreshUsage = [](void *collector, RedisSearchDiskIndexSpec *, uint64_t,
-                                    uint64_t timeout, bool (*wake)(void), uint64_t *usage) {
+    api.metrics.waitFreshUsage = [](RedisSearchDiskMetricsCollector *collector,
+                                    RedisSearchDiskIndexSpec *, uint64_t, uint64_t timeout,
+                                    bool (*wake)(void), uint64_t *usage) {
       auto &self = *static_cast<CachedDiskLifecycleTest *>(active);
       ++self.requests;
       if (self.requestFails) return 3;

@@ -36,6 +36,7 @@ typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
+typedef struct RedisSearchDiskMetricsCollector RedisSearchDiskMetricsCollector;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
@@ -1032,15 +1033,16 @@ typedef struct CachedIndexMetrics {
 typedef struct MetricsDiskAPI {
   /* Borrowed collector context remains valid until basic.close, which requires
    * background collection to be drained. It is separate from mutable disk state. */
-  void *(*getCollector)(RedisSearchDisk *disk);
-  bool (*collect)(void *collector);
-  void (*setAvailable)(void *collector, bool available);
+  RedisSearchDiskMetricsCollector *(*getCollector)(RedisSearchDisk *disk);
+  bool (*collect)(RedisSearchDiskMetricsCollector *collector);
+  void (*setAvailable)(RedisSearchDiskMetricsCollector *collector, bool available);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   /* Records the freshness requirement, wakes collection, waits, and releases internal state.
    * The caller leases collector lifetime and supplies a thread-safe wake callback. */
-  int (*waitFreshUsage)(void *collector, RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
-                        uint64_t timeout_ms, bool (*wake)(void), uint64_t *usage);
-  uint64_t (*getCachedTotalDiskUsage)(void *collector);
+  int (*waitFreshUsage)(RedisSearchDiskMetricsCollector *collector, RedisSearchDiskIndexSpec *index,
+                        uint64_t max_age_ms, uint64_t timeout_ms, bool (*wake)(void),
+                        uint64_t *usage);
+  uint64_t (*getCachedTotalDiskUsage)(RedisSearchDiskMetricsCollector *collector);
   /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
   CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk,
                                                RedisSearchDiskIndexSpec *index);

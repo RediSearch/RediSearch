@@ -32,7 +32,7 @@ RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 static bool infoCacheEnabled;
-static void *metricsCollector;
+static RedisSearchDiskMetricsCollector *metricsCollector;
 
 static size_t diskMemoryLimitBytes = 0;
 
@@ -176,6 +176,10 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
+static bool collectMetrics(void *collector) {
+  return disk->metrics.collect(collector);
+}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
@@ -212,7 +216,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
 
   metricsCollector = disk->metrics.getCollector(disk_db);
-  if (!DiskMetrics_Start(ctx, disk->metrics.collect, metricsCollector)) {
+  if (!DiskMetrics_Start(ctx, collectMetrics, metricsCollector)) {
     SearchDisk_Close(ctx);
     return false;
   }
