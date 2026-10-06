@@ -9,7 +9,7 @@
 
 //! Primitives to manage the expected memory layout of the heap-allocated buffer for each [`Node`].
 //!
-//! Check out [`NodeLayout`]'s documentation for more details.
+//! Check out [`PtrMetadata`]'s documentation for more details.
 use crate::node::Node;
 use std::{alloc::Layout, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 
@@ -17,7 +17,7 @@ use std::{alloc::Layout, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 #[derive(Clone, Copy, Debug)]
 /// The first field in the allocated buffer for a [`Node`].
 ///
-/// [`NodeHeader::layout`] can be used to compute the layout of
+/// [`NodeHeader::metadata`] can be used to compute the layout of
 /// the buffer allocated for a [`Node`].
 pub(super) struct NodeHeader {
     /// The length of the label associated with this node.
@@ -106,7 +106,7 @@ impl NodeHeader {
 /// to align our type.
 ///
 /// We have optimized, in particular, for `Data=NonNull<*mut c_void>`, the scenario we have in
-/// [`crate::ffi`]. In that case, padding is minimal: `(2 + 1 + label_len + n_children) % 8`,
+/// the FFI layer. In that case, padding is minimal: `(2 + 1 + label_len + n_children) % 8`,
 /// located between the end of the array of children first bytes and the start of the
 /// array of children pointers.
 ///
@@ -357,7 +357,7 @@ impl<Data> PtrMetadata<Data> {
     /// a. `ptr` must point to an allocation with the same alignment and size of [`Self::layout`].
     /// b. `ptr` must have been allocated via the global allocator.
     /// c. `ptr` must satisfy all the requirements laid out in [`std::ptr::drop_in_place`]
-    /// d. If [`DeallocOption::drop_children`] is set to `Some(n_children)`, then
+    /// d. If [`DeallocOptions::drop_children`] is set to `Some(n_children)`, then
     ///    the children buffer length is greater than or equal to `n_children` and all
     ///    entries up to `n_children` are initialized.
     pub unsafe fn dealloc(&mut self, ptr: NonNull<NodeHeader>, options: DeallocOptions) {
@@ -519,7 +519,7 @@ impl<Data> PtrWithMetadata<Data> {
     ///
     /// a. The layout of the allocation behind [`Self::ptr`] matches *exactly* the layout it was allocated with.
     /// b. `ptr` must satisfy all the requirements laid out in [`std::ptr::drop_in_place`]
-    /// c. If [`DeallocOption::drop_children`] is set to `Some(n_children)`, then
+    /// c. If [`DeallocOptions::drop_children`] is set to `Some(n_children)`, then
     ///    the children buffer length is greater than or equal to `n_children` and all
     ///    entries up to `n_children` are initialized.
     pub unsafe fn dealloc(&mut self, options: DeallocOptions) {
