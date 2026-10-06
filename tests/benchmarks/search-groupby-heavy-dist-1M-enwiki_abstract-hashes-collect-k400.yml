@@ -19,9 +19,13 @@ setups:
   - oss-cluster-08-primaries
 
 dbconfig:
+  - configuration-parameters:
+    - search-internal-resp-schema: "yes"
+    - search-timeout: "0"
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - dataset_load_timeout_secs: 1800
   - init_commands:
+    - ["CONFIG", "GET", "search-internal-resp-schema", "search-timeout"]
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
     - '"CONFIG" "GET" "search-internal-row-block-format"'
     - '"CONFIG" "GET" "search-timeout"'
