@@ -17,17 +17,22 @@
 
 // Points for even i, 0.5-degree squares for odd i.
 inline std::string shapeAt(int i) {
-  const int x = 1 + i % 50, y = 1 + i / 50;
+  const int x = 1 + i % 50;
+  const int y = 1 + i / 50;
   if (i % 2 == 0) return "POINT(" + std::to_string(x) + " " + std::to_string(y) + ")";
-  const std::string X = std::to_string(x), Y = std::to_string(y);
-  const std::string X2 = std::to_string(x + 0.5), Y2 = std::to_string(y + 0.5);
+  const std::string X = std::to_string(x);
+  const std::string Y = std::to_string(y);
+  const std::string X2 = std::to_string(x + 0.5);
+  const std::string Y2 = std::to_string(y + 0.5);
   return "POLYGON((" + X + " " + Y + ", " + X + " " + Y2 + ", " + X2 + " " + Y2 + ", " + X2 + " " +
          Y + ", " + X + " " + Y + "))";
 }
 
 // From dump's reply log: per R-tree entry, array:6 if its id has a geometry, array:4 if not.
 struct TreeShape {
-  long numDocs = 0, withGeom = 0, withoutGeom = 0;
+  long numDocs = 0;
+  long withGeom = 0;
+  long withoutGeom = 0;
   bool operator==(const TreeShape &o) const {
     return numDocs == o.numDocs && withGeom == o.withGeom && withoutGeom == o.withoutGeom;
   }

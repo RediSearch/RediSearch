@@ -54,7 +54,7 @@ dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *do
  * doc-ids, so this is safe even if the replaced doc had no vector / geometry
  * data, and safe to call defensively on stale key-meta in disk mode.
  */
-void Indexer_HandleReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId,
+void Indexer_HandleReplacedDocVectorAndGeometry(const IndexSpec *spec, t_docId oldDocId,
                                                 const RSAddDocumentCtx *aCtx);
 
 /**

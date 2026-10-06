@@ -22,7 +22,6 @@ extern "C" {
 
 #include "geometry_test_utils.h"
 
-#include <cstdio>
 #include <string>
 
 namespace {
@@ -160,7 +159,6 @@ TEST_P(GeometryRelabelTest, relabelManyKeepsTreeConsistent) {
 
 TEST_P(GeometryRelabelTest, relabelMissesExactlyWhereRemoveMisses) {
   constexpr int kN = 200;
-  int misses = 0;
   for (int i = 1; i <= kN; ++i) {
     GeometryIndex *removed = GeometryIndexFactory(GetParam());
     GeometryIndex *moved = GeometryIndexFactory(GetParam());
@@ -172,12 +170,9 @@ TEST_P(GeometryRelabelTest, relabelMissesExactlyWhereRemoveMisses) {
     const bool removeHit = shape(removed).numDocs == kN - 1;
     const bool relabelHit = api->relabelGeom(moved, i, i + 1000) == 1;
     EXPECT_EQ(relabelHit, removeHit) << i << " " << shapeAt(i);
-    misses += !removeHit;
     api->freeIndex(removed);
     api->freeIndex(moved);
   }
-  std::printf("[ PROBE    ] %s: remove/relabel miss on a fresh %d-entry tree: %d ids\n",
-              GeometryCoordsToName(GetParam()), kN, misses);
 }
 
 TEST_P(GeometryRelabelTest, relabelPathLeaksNoMoreThanRemoveAdd) {
@@ -195,14 +190,12 @@ TEST_P(GeometryRelabelTest, relabelPathLeaksNoMoreThanRemoveAdd) {
     add(i + 1000, shapeAt(i), today);
   }
   for (int i = 1; i <= kN; ++i) EXPECT_EQ(api->delGeom(baseline, i), 1) << i;
-  const TreeShape moved = shape(), removed = shape(today), deleted = shape(baseline);
+  const TreeShape moved = shape();
+  const TreeShape removed = shape(today);
+  const TreeShape deleted = shape(baseline);
   EXPECT_EQ(moved.withGeom, kN);
   EXPECT_EQ(removed.withGeom, kN);
   EXPECT_LE(moved.withoutGeom, removed.withoutGeom);
-  std::printf(
-      "[ PROBE    ] %s: stale R-tree pairs: relabel path %ld, remove+add path %ld, "
-      "delete all %ld\n",
-      GeometryCoordsToName(GetParam()), moved.withoutGeom, removed.withoutGeom, deleted.numDocs);
   if (GetParam() == GEOMETRY_COORDS_Cartesian) {
     EXPECT_EQ(moved.withoutGeom, 0);
     EXPECT_EQ(removed.withoutGeom, 0);

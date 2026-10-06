@@ -329,7 +329,8 @@ TEST_F(GeometryAlterRelabelTest, refusedMoveReinsertsSpherical) {
   createAlterIndex("SPHERICAL");
   std::vector<t_docId> old(kN);
   for (int i = 0; i < kN; ++i) {
-    const std::string key = "doc:" + std::to_string(i), wkt = shapeAt(i);
+    const std::string key = "doc:" + std::to_string(i);
+    const std::string wkt = shapeAt(i);
     old[i] = indexFields(key.c_str(), {{"title", "t"}, {"geom", wkt.c_str()}});
     ASSERT_NE(old[i], 0);
   }
@@ -337,7 +338,8 @@ TEST_F(GeometryAlterRelabelTest, refusedMoveReinsertsSpherical) {
   const size_t before = geomIndexedOps();
 
   for (int i = 0; i < kN; ++i) {
-    const std::string key = "doc:" + std::to_string(i), wkt = shapeAt(i);
+    const std::string key = "doc:" + std::to_string(i);
+    const std::string wkt = shapeAt(i);
     const t_docId neu = backfillExtra(key.c_str());
     EXPECT_GT(neu, old[i]) << key;
     EXPECT_TRUE(geomHolds("geom", neu, wkt)) << key;

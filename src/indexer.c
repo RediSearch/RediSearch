@@ -283,7 +283,7 @@ static void GeometryIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId
 }
 
 // Contract documented on the declaration in indexer_internal.h.
-void Indexer_HandleReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId,
+void Indexer_HandleReplacedDocVectorAndGeometry(const IndexSpec *spec, t_docId oldDocId,
                                                 const RSAddDocumentCtx *aCtx) {
   if (spec->flags & Index_HasVecSim) {
     VectorIndex_RemoveOrKeepId(spec, oldDocId, aCtx);
