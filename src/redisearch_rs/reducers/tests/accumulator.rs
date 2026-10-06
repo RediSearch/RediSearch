@@ -43,11 +43,10 @@ fn reduce_rows<A: Accumulator, const N: usize>(
                 row.write_key(key, value.clone());
             }
         }
-        reducer.accumulator().add(state, &row);
+        reducer.add(state, &row);
     }
-    let result = reducer.accumulator().finalize(state);
-    // SAFETY: `state` came from `new_state` and is not used afterwards.
-    unsafe { reducer.drop_state(state) };
+    let result = reducer.finalize(state);
+    reducer.drop_state(state);
     result
 }
 
@@ -323,98 +322,49 @@ fn first_value_by_after_a_null_sort_key_needs_a_row_to_beat_the_first_non_null_o
     assert_eq!(result.as_str_bytes(), Some(&b"c"[..]));
 }
 
-/// Runs `reducer` over two groups the way the grouper drives the C vtable: a
-/// state per group, rows interleaved between them, then finalize and free.
-/// Returns each group's result.
-///
-/// # Safety
-///
-/// `reducer` must be a reducer returned by one of the `*Reducer_Create`
-/// constructors, reading `key` if it reads a property. It is freed.
-unsafe fn reduce_interleaved(
-    reducer: *mut ffi::Reducer,
+/// Runs `accumulator` over two groups the way the grouper does: a state per
+/// group, rows interleaved between them, then finalize and drop. Returns each
+/// group's result.
+fn reduce_interleaved<A: Accumulator>(
+    accumulator: A,
     key: &RLookupKey,
     rows: [(usize, f64); 4],
 ) -> [f64; 2] {
-    // SAFETY: `reducer` is live (see above); the reference ends with this statement.
-    let vtable = unsafe { &*reducer };
-    let free_instance = vtable.FreeInstance;
-    let new_instance = vtable.NewInstance.unwrap();
-    let add = vtable.Add.unwrap();
-    let finalize = vtable.Finalize.unwrap();
-    let free = vtable.Free.unwrap();
-
-    // SAFETY: `reducer` is live.
-    let groups = [unsafe { new_instance(reducer) }, unsafe {
-        new_instance(reducer)
-    }];
+    let reducer = AccumulatorReducer::new(accumulator);
+    let groups = [reducer.new_state(), reducer.new_state()];
     for (group, num) in rows {
         let mut row = RLookupRow::new();
         row.write_key(key, SharedValue::new_num(num));
-        // SAFETY: `groups[group]` is a state of `reducer`, and `row` is a live row.
-        unsafe { add(reducer, groups[group], std::ptr::from_ref(&row).cast()) };
+        reducer.add(groups[group], &row);
     }
-    let results = groups.map(|group| {
-        // SAFETY: `group` is a state of `reducer`; the returned value is owned.
-        let value = unsafe { SharedValue::from_raw(finalize(reducer, group).cast()) };
-        if let Some(free_instance) = free_instance {
-            // SAFETY: `group` is a state of `reducer`, and is not used afterwards.
-            unsafe { free_instance(reducer, group) };
-        }
+    groups.map(|group| {
+        let value = reducer.finalize(group);
+        reducer.drop_state(group);
         number(&value)
-    });
-    // SAFETY: `reducer` is live and nothing uses it or its states afterwards.
-    unsafe { free(reducer) };
-    results
+    })
 }
 
 #[test]
-fn vtable_keeps_interleaved_groups_apart() {
-    use redisearch_rs::reducers::accumulator::{
-        CountReducer_Create, FirstValueReducer_Create, MinMaxReducer_Create, StdDevReducer_Create,
-        SumReducer_Create,
-    };
-
+fn interleaved_groups_are_kept_apart() {
     let key = key();
-    let key_ptr = std::ptr::from_ref(&key).cast::<ffi::RLookupKey>();
     let rows = [(0, 1.0), (1, 10.0), (0, 3.0), (1, 20.0)];
 
-    // SAFETY: each reducer reads `key`, which outlives it and is not mutated.
-    unsafe {
-        assert_eq!(
-            reduce_interleaved(CountReducer_Create(), &key, rows),
-            [2.0, 2.0]
-        );
-    }
-    // SAFETY: as above.
-    unsafe {
-        let sums = reduce_interleaved(SumReducer_Create(key_ptr, false), &key, rows);
-        assert_eq!(sums, [4.0, 30.0]);
-    }
-    // SAFETY: as above.
-    unsafe {
-        let averages = reduce_interleaved(SumReducer_Create(key_ptr, true), &key, rows);
-        assert_eq!(averages, [2.0, 15.0]);
-    }
-    // SAFETY: as above.
-    unsafe {
-        let maxima = reduce_interleaved(MinMaxReducer_Create(key_ptr, true), &key, rows);
-        assert_eq!(maxima, [3.0, 20.0]);
-    }
-    // SAFETY: as above.
-    unsafe {
-        let deviations = reduce_interleaved(StdDevReducer_Create(key_ptr), &key, rows);
-        assert_eq!(deviations, [2.0_f64.sqrt(), 50.0_f64.sqrt()]);
-    }
-    // SAFETY: as above.
-    unsafe {
-        let first = reduce_interleaved(
-            FirstValueReducer_Create(key_ptr, key_ptr, false),
-            &key,
-            rows,
-        );
-        assert_eq!(first, [3.0, 20.0]);
-    }
+    assert_eq!(reduce_interleaved(Count, &key, rows), [2.0, 2.0]);
+    let sum = Sum::new(&key, SumMode::Sum);
+    assert_eq!(reduce_interleaved(sum, &key, rows), [4.0, 30.0]);
+    let avg = Sum::new(&key, SumMode::Average);
+    assert_eq!(reduce_interleaved(avg, &key, rows), [2.0, 15.0]);
+    let max = MinMax::new(&key, Extreme::Max);
+    assert_eq!(reduce_interleaved(max, &key, rows), [3.0, 20.0]);
+    let std_dev = StdDev::new(&key);
+    let expected = [2.0_f64.sqrt(), 50.0_f64.sqrt()];
+    assert_eq!(reduce_interleaved(std_dev, &key, rows), expected);
+    let sort_by = SortBy {
+        key: &key,
+        ascending: false,
+    };
+    let first = FirstValue::new(&key, Some(sort_by));
+    assert_eq!(reduce_interleaved(first, &key, rows), [3.0, 20.0]);
 }
 
 /// Only the reducers whose group states own something free them per group.
@@ -424,24 +374,25 @@ fn vtable_frees_group_states_only_when_they_own_something() {
         FirstValueReducer_Create, StdDevReducer_Create, SumReducer_Create,
     };
 
+    /// Whether `reducer` registers `FreeInstance`; frees it.
+    fn frees_states(reducer: *mut ffi::Reducer) -> bool {
+        // SAFETY: `reducer` is live; the reference ends with this statement.
+        let vtable = unsafe { &*reducer };
+        let (free_instance, free) = (vtable.FreeInstance, vtable.Free.unwrap());
+        // SAFETY: `reducer` is live and not used afterwards.
+        unsafe { free(reducer) };
+        free_instance.is_some()
+    }
+
     let key = key();
     let key_ptr = std::ptr::from_ref(&key).cast::<ffi::RLookupKey>();
     // SAFETY: each reducer reads `key`, which outlives it and is not mutated.
-    let reducers = unsafe {
-        [
-            (SumReducer_Create(key_ptr, false), false),
-            (StdDevReducer_Create(key_ptr), false),
-            (
-                FirstValueReducer_Create(key_ptr, std::ptr::null(), true),
-                true,
-            ),
-        ]
-    };
-    for (reducer, frees_states) in reducers {
-        // SAFETY: `reducer` is live; the reference ends with this statement.
-        let (free_instance, free) = unsafe { ((*reducer).FreeInstance, (*reducer).Free.unwrap()) };
-        assert_eq!(free_instance.is_some(), frees_states);
-        // SAFETY: `reducer` is live and not used afterwards.
-        unsafe { free(reducer) };
-    }
+    let sum = unsafe { SumReducer_Create(key_ptr, false) };
+    assert!(!frees_states(sum));
+    // SAFETY: as above.
+    let std_dev = unsafe { StdDevReducer_Create(key_ptr) };
+    assert!(!frees_states(std_dev));
+    // SAFETY: as above.
+    let first = unsafe { FirstValueReducer_Create(key_ptr, std::ptr::null(), true) };
+    assert!(frees_states(first));
 }

@@ -14,7 +14,7 @@
 //! rest of the vtable is one set of callbacks, generic over the accumulator.
 
 use std::ffi::{c_int, c_void};
-use std::ptr::{self, NonNull};
+use std::ptr;
 
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
@@ -161,11 +161,11 @@ unsafe extern "C" fn add<A: Accumulator>(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<A::State>().as_mut() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State>>().as_mut() }.unwrap();
     // SAFETY: ensured by caller (3.)
     let row = unsafe { row.cast::<RLookupRow>().as_ref() }.unwrap();
 
-    r.accumulator().add(state, row);
+    r.add(state, row);
     1 // C reducer->Add convention: always returns 1
 }
 
@@ -184,9 +184,9 @@ unsafe extern "C" fn finalize<A: Accumulator>(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<A::State>().as_ref() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State>>().as_ref() }.unwrap();
 
-    r.accumulator().finalize(state).into_raw() as *mut ffi::RSValue
+    r.finalize(state).into_raw() as *mut ffi::RSValue
 }
 
 /// # Safety
@@ -200,9 +200,9 @@ unsafe extern "C" fn finalize<A: Accumulator>(
 unsafe extern "C" fn free_instance<A: Accumulator>(r: *mut ffi::Reducer, state: *mut c_void) {
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
-    let state = NonNull::new(state.cast::<A::State>()).unwrap();
     // SAFETY: ensured by caller (2.)
-    unsafe { r.drop_state(state.as_ptr()) };
+    let state = unsafe { state.cast::<Option<A::State>>().as_mut() }.unwrap();
+    r.drop_state(state);
 }
 
 /// # Safety

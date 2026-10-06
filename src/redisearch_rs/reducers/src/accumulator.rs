@@ -19,7 +19,7 @@ use crate::Reducer;
 pub trait Accumulator {
     /// The per-group state. It lives in an arena that frees its memory with the
     /// reducer but runs no destructors, so a state that needs dropping must be
-    /// dropped in place once its group is done (see [`AccumulatorReducer::drop_state`]).
+    /// dropped once its group is done (see [`AccumulatorReducer::drop_state`]).
     type State;
 
     /// The state of a group before any of its rows.
@@ -64,18 +64,37 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     }
 
     /// Allocates the state of a new group.
-    pub fn new_state(&self) -> &mut A::State {
-        self.arena.alloc(self.accumulator.init())
+    pub fn new_state(&self) -> &mut Option<A::State> {
+        self.arena.alloc(Some(self.accumulator.init()))
     }
 
-    /// Drops the state of a group that is done.
+    /// Folds one of the group's rows into `state`.
     ///
-    /// # Safety
+    /// # Panics
     ///
-    /// 1. `state` must have been returned by [`Self::new_state`] on `self`, and must
-    ///    not be used afterwards.
-    pub unsafe fn drop_state(&self, state: *mut A::State) {
-        // SAFETY: ensured by caller (1.). The arena reclaims the memory itself.
-        unsafe { std::ptr::drop_in_place(state) }
+    /// If `state` was already dropped by [`Self::drop_state`].
+    pub fn add(&self, state: &mut Option<A::State>, row: &RLookupRow<'_>) {
+        self.accumulator.add(live(state), row);
     }
+
+    /// The group's result.
+    ///
+    /// # Panics
+    ///
+    /// If `state` was already dropped by [`Self::drop_state`].
+    pub fn finalize(&self, state: &Option<A::State>) -> SharedValue {
+        self.accumulator.finalize(state.as_ref().expect(DROPPED))
+    }
+
+    /// Drops the state of a group that is done, leaving `None` behind; dropping
+    /// it again is a no-op.
+    pub fn drop_state(&self, state: &mut Option<A::State>) {
+        *state = None;
+    }
+}
+
+const DROPPED: &str = "group state used after being dropped";
+
+const fn live<S>(state: &mut Option<S>) -> &mut S {
+    state.as_mut().expect(DROPPED)
 }
