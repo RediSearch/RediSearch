@@ -3720,6 +3720,7 @@ def _wait_for_background_fail_workers(env):
 def _exercise_background_fail_queued_cleanup(drop_index):
     for protocol in (2, 3):
         env = Env(protocol=protocol, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
+        skipIfNoEnableAssert(env)
         # Keep an index for observing global cursor cleanup after idx is dropped.
         env.expect('FT.CREATE', 'observer', 'PREFIX', 1, 'observer:',
                    'SCHEMA', 'name', 'TEXT').ok()
@@ -3980,10 +3981,17 @@ def test_internal_background_fail_serialization(env):
                 except Exception as error:
                     errors.append(error)
 
-            target.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+            read_point = 'BeforeCursorReadSendChunk' if command[0] == 'FT.HYBRID' else None
+            target.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', read_point or point)
             thread = threading.Thread(target=query, daemon=True)
             try:
                 thread.start()
+                if read_point:
+                    wait_for_condition(
+                        lambda: (target.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', read_point), {}),
+                        'HYBRID did not dispatch its internal cursor read', timeout=5)
+                    target.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+                    target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', read_point)
                 wait_for_condition(
                     lambda: (target.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), {}),
                     'Internal shard command did not serialize on its worker', timeout=5)
@@ -3998,6 +4006,8 @@ def test_internal_background_fail_serialization(env):
                 else:
                     env.assertEqual(results, [expected])
             finally:
+                if read_point:
+                    target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', read_point)
                 target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
                 thread.join(timeout=10)
                 target.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
