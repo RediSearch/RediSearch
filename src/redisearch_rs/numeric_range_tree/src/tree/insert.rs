@@ -290,8 +290,8 @@ impl NumericRangeTree {
     ///
     /// # Algorithm
     ///
-    /// 1. Compute the median value from the range's entries.
-    /// 2. If the median equals the minimum value, adjust it to the next
+    /// 1. Compute the median and the smallest value from the range's entries.
+    /// 2. If the median equals that smallest value, adjust it to the next
     ///    representable f64 (`nextafter(median, INFINITY)` equivalent) to
     ///    ensure at least one entry goes to the left child.
     /// 3. Create two new leaf children and insert them into the arena.
@@ -305,9 +305,8 @@ impl NumericRangeTree {
     /// are identical—the median would equal the minimum, and without adjustment
     /// all entries would go to the right child, leaving the left empty.
     ///
-    /// The adjustment relies on `min_val` matching the smallest value the range
-    /// stores. Adds maintain that; GC does not, so a split can still leave one child
-    /// empty — see the `newly_empty` comment in the body.
+    /// The comparison uses the smallest value actually stored, not `min_val`: GC
+    /// never raises `min_val`, so it can sit below every surviving entry.
     ///
     /// # Note
     ///
@@ -324,8 +323,8 @@ impl NumericRangeTree {
             .take_range()
             .expect("node to split must have a range");
         let split = {
-            let split = Self::compute_median(&parent_range);
-            if split == parent_range.min_val() {
+            let (split, smallest) = Self::median_and_smallest(&parent_range);
+            if split == smallest {
                 // Make sure the split is not the same as the min value
                 // Use next representable f64 greater than split
                 split.next_up()
@@ -378,12 +377,10 @@ impl NumericRangeTree {
         }
         drop(result);
 
-        // A split strands an empty child leaf when every entry falls on the same side
-        // of `split`, which still happens while GC leaves `min_val` stale: the guard
-        // above cannot fire against a bound no surviving entry holds. It must be
-        // counted, or a later add routed to that leaf underflows `empty_leaves` and
-        // aborts the process across the non-unwinding FFI boundary (MOD-16877). The
-        // parent had >= 1 entry, so at most one child can come out empty.
+        // A child comes out empty only if every entry holds the same value, which the
+        // cardinality guard on splitting should rule out. Count it anyway: an
+        // uncounted empty leaf underflows `empty_leaves` on the next add routed to it
+        // and aborts the process across the non-unwinding FFI boundary (MOD-16877).
         let newly_empty = [left_idx, right_idx]
             .into_iter()
             .filter(|&i| nodes[i].range().is_some_and(|r| r.num_docs() == 0))
@@ -408,11 +405,11 @@ impl NumericRangeTree {
         rv.num_leaves_delta += 1; // Split one leaf into two = +1 leaf
     }
 
-    /// Compute the median value from a range's entries.
-    fn compute_median(range: &NumericRange) -> f64 {
+    /// Returns the median and the smallest of the values `range` stores.
+    fn median_and_smallest(range: &NumericRange) -> (f64, f64) {
         let num_entries = range.num_entries();
         if num_entries == 0 {
-            return 0.0;
+            return (0.0, 0.0);
         }
 
         let mut values: Vec<f64> = Vec::with_capacity(num_entries);
@@ -426,8 +423,15 @@ impl NumericRangeTree {
         }
 
         let mid = values.len() / 2;
-        values.select_nth_unstable_by(mid, f64::total_cmp);
-        values[mid]
+        let (lower, median, _) = values.select_nth_unstable_by(mid, f64::total_cmp);
+        // Every value below the median index sorts at or before it, so the minimum
+        // of that partition is the range's smallest value.
+        let smallest = lower
+            .iter()
+            .copied()
+            .min_by(f64::total_cmp)
+            .unwrap_or(*median);
+        (*median, smallest)
     }
 
     /// Remove the range from a node (for GC or depth trimming).
