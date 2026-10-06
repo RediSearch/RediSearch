@@ -138,8 +138,9 @@ impl<'index> NumericRangeIterator<'index> {
 /// ordered; ranges overlap in doc-id space, so reading several back-to-back
 /// yields one ascending run per range. Ordering therefore only has to merge
 /// those runs into the increasing order [`NumericScoreBatch`] requires for its
-/// `skip_to` `partition_point` — a single run is already there, and the stable
-/// sort detects and merges the rest rather than re-sorting from scratch.
+/// `skip_to` `partition_point` — the stable sort detects and merges the runs
+/// rather than re-sorting from scratch, and is skipped when they don't
+/// interleave.
 ///
 /// A multivalue field indexes one entry per value, so a doc id can occur several
 /// times with different scores. Occurrences within this batch's ranges are
@@ -165,11 +166,7 @@ fn merge_ranges(
     let mut items: Vec<(DocId, f64)> =
         Vec::with_capacity(reserved_capacity(ranges, filter, emitted.is_some()));
     let mut record = RSIndexResult::build_numeric(0.0).build();
-    // Ranges that contributed at least one record, i.e. the number of ascending
-    // runs `items` holds.
-    let mut runs = 0usize;
     for range in ranges {
-        let run_start = items.len();
         let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record)? {
             timeout.check_timeout()?;
@@ -184,10 +181,9 @@ fn merge_ranges(
                 .expect("numeric range yields numeric records");
             items.push((record.doc_id, score));
         }
-        runs += usize::from(items.len() > run_start);
     }
     timeout.check_timeout()?;
-    if runs > 1 {
+    if !items.is_sorted_by_key(|(doc_id, _)| *doc_id) {
         // Stable sort: `sort_by_key` detects the per-range ascending runs
         // and merges them, where `sort_unstable_by_key` re-sorts from scratch.
         items.sort_by_key(|(doc_id, _)| *doc_id);
