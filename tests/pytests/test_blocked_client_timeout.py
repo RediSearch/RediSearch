@@ -2981,15 +2981,7 @@ class TestShardTimeout:
 
 
     def test_fail_dropped_index_during_queued_cursor_read(self):
-        """FAIL cursor-read replies the stored error when the index is dropped while queued.
-
-        Drops the index while the ``cursorRead_ctx`` job is queued in the
-        worker pool, so the worker takes the dropped-spec branch in
-        ``cursorRead`` and stores the error on ``storedReplyState.err``.
-        ``CursorReadReplyCallback`` then has no stored results and falls
-        into the ``QueryError_HasError`` branch, replying with the stored
-        error.
-        """
+        """FAIL cursor-read replies an error when the index is dropped while queued."""
         env = self.env
 
         # Use a dedicated index so we don't break the class-level shared 'idx'.
