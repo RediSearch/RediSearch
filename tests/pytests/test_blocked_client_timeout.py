@@ -4008,7 +4008,7 @@ def test_internal_background_fail_serialization(env):
         env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
         env.expect('_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
                    'VSIM', '@embedding', '$BLOB', 'PARAMS', 2, 'BLOB', b'x',
-                   'TIMEOUT', 0, '_SLOTS_INFO', slots_data,
+                   'TIMEOUT', 0, 'WITHCURSOR', '_SLOTS_INFO', slots_data,
                    '_COORD_DISPATCH_TIME', 0).error().contains('query vector blob size (1)')
     finally:
         for c, policy, worker in zip(shards, policies, workers):
