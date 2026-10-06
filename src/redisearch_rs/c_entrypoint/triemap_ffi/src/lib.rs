@@ -17,7 +17,6 @@ use std::{
 
 mod find_prefixes;
 mod iter;
-mod iter_types;
 mod range;
 
 pub use find_prefixes::*;

@@ -10,6 +10,7 @@
 mod automaton;
 mod contains;
 mod filter;
+mod pattern;
 mod prefixed;
 mod prefixes;
 mod range;

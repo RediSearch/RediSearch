@@ -451,6 +451,11 @@ impl QueryNodeMut<'_> {
     ///    [`RSTokenMut::from_nul_terminated_ffi`]. Both shapes the parser produces
     ///    do: a query literal is copied into an explicitly terminated allocation,
     ///    and a query parameter into a zeroed one a byte longer than its value.
+    /// 5. Every token under a [`QueryNodeType::Tag`] node, [`QueryNodeType::Token`]
+    ///    ones included, must meet the same string requirements, and on a
+    ///    case-insensitive field those of [`RSTokenMut::normalize_tag`]. The
+    ///    parser allocates every token that way, and query expansion leaves tag
+    ///    subtrees alone.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
@@ -479,7 +484,8 @@ impl QueryNodeMut<'_> {
     /// payload *is* a token: an expanded one may borrow a length-delimited string
     /// that is neither NUL-terminated nor writable, so it cannot satisfy invariant
     /// (4). That is also why [`QueryNode::Token`] alone carries an [`RSTokenRef`]
-    /// with no NUL-termination typestate.
+    /// with no NUL-termination typestate. A caller that can vouch for the string
+    /// uses [`token_node_mut`](Self::token_node_mut) instead.
     ///
     /// The check is not optional — the payload is a union, so handing out a token
     /// from a variant carrying none would reinterpret unrelated bytes as one, and
@@ -522,6 +528,30 @@ impl QueryNodeMut<'_> {
         // SAFETY: `tok` addresses the node's valid token, exclusively owned for the
         // returned handle's lifetime by the borrow of `*self`, and its string meets
         // the constructor's requirements per invariant (4).
+        Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
+    }
+
+    /// [`token_mut`](Self::token_mut) for the [`QueryNodeType::Token`] nodes it
+    /// declines, `None` for any other node type.
+    ///
+    /// # Safety
+    ///
+    /// A [`QueryNodeType::Token`] node's string must meet the requirements of
+    /// [`RSTokenMut::from_nul_terminated_ffi`].
+    pub unsafe fn token_node_mut(&mut self) -> Option<RSTokenMut<'_>> {
+        if self.as_ref().node_type() != QueryNodeType::Token {
+            return None;
+        }
+
+        // SAFETY: the node is valid, so a raw pointer to its payload union is in
+        // bounds.
+        let union_ptr = unsafe { &raw mut (*self.0.as_ptr()).__bindgen_anon_1 };
+        // `type_` is `Token`, so the union's active member is a `QueryTokenNode`,
+        // which is itself the token.
+        let token_node = union_ptr.cast::<ffi::QueryTokenNode>();
+        let tok: *mut ffi::RSToken = token_node;
+        // SAFETY: as in `token_mut`, with this method's contract in place of
+        // invariant (4).
         Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
     }
 

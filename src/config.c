@@ -187,19 +187,30 @@ static int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-// Like set_uint_numeric_config but accepts values above UINT32_MAX (clamping with a warning).
-// Used for fields that were previously long long and may have larger values persisted in RDB.
-static int set_uint_clamped_numeric_config(const char *name, long long val,
-                                           void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(err);
+// Preserve the accepted range of settings whose storage narrowed from long long.
+static uint32_t clampUint32Config(const char *name, long long val) {
   if (val > UINT32_MAX) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "%s value %lld exceeds maximum (%u), clamping",
-                    name, val, UINT32_MAX);
-    val = UINT32_MAX;
+    RedisModule_Log(RSDummyContext, "warning", "%s value %lld exceeds maximum (%u), clamping", name, val, UINT32_MAX);
+    return UINT32_MAX;
   }
-  *(unsigned int *)privdata = (unsigned int) val;
+  return (uint32_t)val;
+}
+
+static int set_uint_clamped_numeric_config(const char *name, long long val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(err);
+  *(unsigned int *)privdata = clampUint32Config(name, val);
   return REDISMODULE_OK;
+}
+
+static int set_uint32_clamped_numeric_config(const char *name, long long val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(err);
+  *(uint32_t *)privdata = clampUint32Config(name, val);
+  return REDISMODULE_OK;
+}
+
+static long long get_uint32_numeric_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return *(uint32_t *)privdata;
 }
 
 static long long get_uint_numeric_config(const char *name, void *privdata) {
@@ -659,13 +670,13 @@ CONFIG_SETTER(setTimeout) {
       newTimeoutMS, config->maxForegroundTimeoutLimitMS,
       config->maxForegroundTimeoutLimitMS);
   }
-  config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
+  config->timeoutConfigParams.queryTimeoutMS = newTimeoutMS;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
+  return sdscatprintf(ss, "%lld", config->timeoutConfigParams.queryTimeoutMS);
 }
 
 // _MAX_FOREGROUND_TIMEOUT_LIMIT
@@ -1032,12 +1043,12 @@ CONFIG_SETTER(setOnTimeout) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
   }
-  config->requestConfigParams.timeoutPolicy = top;
+  config->timeoutConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getOnTimeout) {
-  return sdsnew(TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  return sdsnew(TimeoutPolicy_ToString(config->timeoutConfigParams.timeoutPolicy));
 }
 
 // on-timeout
@@ -1122,13 +1133,18 @@ CONFIG_GETTER(getMinUnionIteratorHeap) {
 
 // CURSOR_MAX_IDLE
 CONFIG_SETTER(setCursorMaxIdle) {
-  int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
+  long long value;
+  int acrc = AC_GetLongLong(ac, &value, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  config->cursorConfigParams.maxIdle = clampUint32Config("CURSOR_MAX_IDLE", value);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getCursorMaxIdle) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->cursorMaxIdle);
+  return sdscatprintf(ss, "%u", config->cursorConfigParams.maxIdle);
 }
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
@@ -2027,11 +2043,11 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "prefix min length: %u, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %u, ", config->iteratorsConfigParams.maxPrefixExpansions);
-  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
-  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->timeoutConfigParams.queryTimeoutMS);
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
-  ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
-  ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
+  ss = sdscatprintf(ss, "cursor read size: %u, ", config->cursorConfigParams.chunkSize);
+  ss = sdscatprintf(ss, "cursor max idle (ms): %u, ", config->cursorConfigParams.maxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "max number of search results: ");
   ss = (config->maxSearchResults == MAX_SEARCH_REQUEST_RESULTS)
@@ -2318,8 +2334,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.cursorMaxIdle)
+      LLONG_MAX, get_uint32_numeric_config, set_uint32_clamped_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.cursorConfigParams.maxIdle)
     )
   )
 
@@ -2395,7 +2411,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
+      (void *)&(RSGlobalConfig.timeoutConfigParams.queryTimeoutMS)
     )
   )
 
@@ -2562,7 +2578,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
-      (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
+      (void*)&RSGlobalConfig.timeoutConfigParams.timeoutPolicy
     )
   )
 

@@ -674,6 +674,13 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
                         DocumentType type, RedisModuleKey *openKey,
                         RedisModuleString **changedFields, size_t numChangedFields);
 
+// IndexSpec_UpdateDoc for a document an FT.ALTER backfill replaces while its scan is selective.
+// Schema fields at or past `addedFieldsStart` were added by that ALTER, so their vectors are
+// inserted without a comparison; every other field is handled as by IndexSpec_UpdateDoc with no
+// change set.
+int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                DocumentType type, t_fieldIndex addedFieldsStart);
+
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                                    FieldType forType);

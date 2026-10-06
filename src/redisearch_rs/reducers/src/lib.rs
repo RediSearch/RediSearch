@@ -7,9 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod accumulator;
 pub mod collect;
+pub mod count;
+pub mod min_max;
 mod reducer;
 mod reducer_options;
+pub mod sum;
 
 pub use reducer::Reducer;
 pub use reducer_options::ReducerOptions;

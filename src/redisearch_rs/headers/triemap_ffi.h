@@ -313,6 +313,8 @@ void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minle
  * - `t` must not be freed while the iterator lives.
  * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
  *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+ * - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
+ *   suffix and wildcard modes keep reading it while iterating.
  */
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
