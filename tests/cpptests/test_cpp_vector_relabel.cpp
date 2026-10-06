@@ -33,6 +33,8 @@ extern "C" {
 #include "info/global_stats.h"
 }
 
+#include "partial_update_fixture.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -70,24 +72,9 @@ static VecSimRelabelCode refuseThenDelegate(VecSimIndex *index, size_t oldLabel,
 }
 #endif
 
-class VectorRelabelTest : public ::testing::Test {
-protected:
-  RedisModuleCtx *ctx = nullptr;
-  IndexSpec *spec = nullptr;
-  std::string indexName;
-
-  bool previousOptimizePartialUpdate = false;
-
-  void SetUp() override {
-    ctx = RedisModule_GetThreadSafeContext(nullptr);
-    RMCK::flushdb(ctx);
-    static int counter = 0;
-    indexName = "relabelidx" + std::to_string(++counter);
-    // Relabeling is gated behind OPTIMIZE_PARTIAL_UPDATE (on by default). Forced here so a
-    // config change elsewhere can't disable it out from under these tests; restored in
-    // TearDown, which runs even when an assertion fails, so no state leaks to other tests.
-    previousOptimizePartialUpdate = RSGlobalConfig.optimizePartialUpdate;
-    RSGlobalConfig.optimizePartialUpdate = true;
+class VectorRelabelTest : public PartialUpdateTest {
+ protected:
+  VectorRelabelTest() : PartialUpdateTest("relabelidx") {
   }
 
   void TearDown() override {
@@ -95,11 +82,7 @@ protected:
     VectorIndex_SetRelabelFnForTests(nullptr);
     relabelRefusalsLeft = 0;
 #endif
-    RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
-    if (ctx) {
-      RedisModule_FreeThreadSafeContext(ctx);
-      ctx = nullptr;
-    }
+    PartialUpdateTest::TearDown();
   }
 
   // `vectorAlias` is the AS alias for the vector field, or nullptr for none. The
@@ -137,14 +120,6 @@ protected:
     }
     if (!fs) return nullptr;
     return openVectorIndex(ctx, (FieldSpec *)fs, DONT_CREATE_INDEX);
-  }
-
-  t_docId docIdOf(const char *key) {
-    uint64_t docId = 0;
-    if (DocIdMeta_Get(ctx, RMCK::RString(key), spec->specId, &docId) != REDISMODULE_OK) {
-      return 0;
-    }
-    return (t_docId)docId;
   }
 
   // A label holds `blob` iff the distance to itself is 0. An absent label yields

@@ -8,7 +8,7 @@
  */
 
 #include "gtest/gtest.h"
-#include "redismock/redismock.h"  // RMCK_GetReplyLog
+#include "redismock/redismock.h"
 #include "redismock/util.h"
 
 #include "spec.h"
@@ -25,6 +25,9 @@ extern "C" {
 #include "redis_index.h"
 #include "info/global_stats.h"
 }
+
+#include "geometry_test_utils.h"
+#include "partial_update_fixture.h"
 
 #include <cmath>
 #include <string>
@@ -46,51 +49,11 @@ const char *const kPoint = "POINT(10 10)";
 // Parses, but fails validation.
 const char *const kPolyInvalid = "POLYGON((1 1, 1 100, 1 1))";
 const char *const kVecA = "aaaabbbbccccdddd";
-
-// Points tie square corners, so some SPHERICAL point moves are refused.
-std::string shapeAt(int i) {
-  const int x = 1 + i % 50, y = 1 + i / 50;
-  if (i % 2 == 0) return "POINT(" + std::to_string(x) + " " + std::to_string(y) + ")";
-  const std::string X = std::to_string(x), Y = std::to_string(y);
-  const std::string X2 = std::to_string(x + 0.5), Y2 = std::to_string(y + 0.5);
-  return "POLYGON((" + X + " " + Y + ", " + X + " " + Y2 + ", " + X2 + " " + Y2 + ", " + X2 + " " +
-         Y + ", " + X + " " + Y + "))";
-}
-
-struct TreeShape {
-  long numDocs = 0, withGeom = 0, withoutGeom = 0;
-  bool operator==(const TreeShape &o) const {
-    return numDocs == o.numDocs && withGeom == o.withGeom && withoutGeom == o.withoutGeom;
-  }
-};
-std::ostream &operator<<(std::ostream &os, const TreeShape &s) {
-  return os << "{numDocs=" << s.numDocs << ", withGeom=" << s.withGeom
-            << ", withoutGeom=" << s.withoutGeom << "}";
-}
 }  // namespace
 
-class GeometryAlterRelabelTest : public ::testing::Test {
+class GeometryAlterRelabelTest : public PartialUpdateTest {
  protected:
-  RedisModuleCtx *ctx = nullptr;
-  IndexSpec *spec = nullptr;
-  std::string indexName;
-  bool previousOptimizePartialUpdate = false;
-
-  void SetUp() override {
-    ctx = RedisModule_GetThreadSafeContext(nullptr);
-    RMCK::flushdb(ctx);
-    static int counter = 0;
-    indexName = "geomalteridx" + std::to_string(++counter);
-    previousOptimizePartialUpdate = RSGlobalConfig.optimizePartialUpdate;
-    RSGlobalConfig.optimizePartialUpdate = true;
-  }
-
-  void TearDown() override {
-    RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
-    if (ctx) {
-      RedisModule_FreeThreadSafeContext(ctx);
-      ctx = nullptr;
-    }
+  GeometryAlterRelabelTest() : PartialUpdateTest("geomalteridx") {
   }
 
   template <typename... Args>
@@ -116,14 +79,6 @@ class GeometryAlterRelabelTest : public ::testing::Test {
     return RS_INVALID_FIELD_INDEX;
   }
 
-  t_docId docIdOf(const char *key) {
-    uint64_t docId = 0;
-    if (DocIdMeta_Get(ctx, RMCK::RString(key), spec->specId, &docId) != REDISMODULE_OK) {
-      return 0;
-    }
-    return (t_docId)docId;
-  }
-
   // HSET `fields` and index with no change set.
   t_docId indexFields(const char *key,
                       std::initializer_list<std::pair<const char *, const char *>> fields) {
@@ -147,12 +102,6 @@ class GeometryAlterRelabelTest : public ::testing::Test {
     return reindexForAlter(key, "extra");
   }
 
-  void hdel(const char *key, const char *field) {
-    RedisModuleKey *k = RedisModule_OpenKey(ctx, RMCK::RString(key), REDISMODULE_WRITE);
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field, REDISMODULE_HASH_DELETE, nullptr);
-    RedisModule_CloseKey(k);
-  }
-
   GeometryIndex *geomNamed(const std::string &field) {
     for (size_t i = 0; i < spec->numFields; ++i) {
       if (!(spec->fields[i].types & INDEXFLD_T_GEOMETRY)) continue;
@@ -167,19 +116,8 @@ class GeometryAlterRelabelTest : public ::testing::Test {
     return idx && GeometryIndex_HoldsGeom(idx, id, GEOMETRY_FORMAT_WKT, wkt.data(), wkt.size());
   }
   TreeShape treeShape(const std::string &field) {
-    GeometryIndex *idx = geomNamed(field);
-    if (!idx) return {};
-    RedisModuleCtx *dumpCtx = RedisModule_GetThreadSafeContext(nullptr);
-    GeometryApi_Get(idx)->dump(idx, dumpCtx);
-    const auto &log = RMCK_GetReplyLog(dumpCtx);
-    TreeShape s;
-    s.numDocs = std::stol(log.at(1).substr(sizeof("array:") - 1));
-    for (size_t i = 2; i < log.size(); ++i) {
-      if (log[i] == "array:6") ++s.withGeom;
-      if (log[i] == "array:4") ++s.withoutGeom;
-    }
-    RedisModule_FreeThreadSafeContext(dumpCtx);
-    return s;
+    const GeometryIndex *idx = geomNamed(field);
+    return idx ? treeShapeOf(idx) : TreeShape{};
   }
   static size_t geomIndexedOps() {
     return RSGlobalStats.fieldsStats.geometryTotalDocsIndexed;
@@ -384,7 +322,8 @@ TEST_F(GeometryAlterRelabelTest, vectorAndGeoshapeTogether) {
   EXPECT_EQ(RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled - vecRelabeledBefore, 1u);
 }
 
-// Each refusal inserts, and leaves a stale old pair as plain remove does.
+// shapeAt's points tie square corners, so some SPHERICAL moves are refused. Each refusal
+// inserts, and leaves a stale old pair as plain remove does.
 TEST_F(GeometryAlterRelabelTest, refusedMoveReinsertsSpherical) {
   constexpr int kN = 200;
   createAlterIndex("SPHERICAL");
