@@ -999,6 +999,8 @@ typedef struct {
   LoadFieldProfile *profileFields;
   // Owned; NULL when loading all fields.
   struct HashFieldNames *fieldNames;
+  // Query-scoped RedisJSON paths. NULL for HASH and RedisJSON versions before V9.
+  struct JsonPathCache *pathCache;
   QueryError status;
 } RPLoader;
 
@@ -1036,27 +1038,29 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      LoadAllKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .force_string = true,
-          .status = &self->status,
-      };
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadAllKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .force_string = true,
+        .status = &self->status,
+        .path_cache = self->pathCache,
+    };
+    ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      LoadIndividualKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .keys = self->keys,
-          .nkeys = self->nkeys,
-          .force_string = true,
-          .force_load = self->forceLoad,
-          .cached_only = false,
-          .status = &self->status,
-          .profile_fields = self->profileFields,
-          .field_names = self->fieldNames,
-      };
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadIndividualKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .keys = self->keys,
+        .nkeys = self->nkeys,
+        .force_string = true,
+        .force_load = self->forceLoad,
+        .cached_only = false,
+        .status = &self->status,
+        .profile_fields = self->profileFields,
+        .field_names = self->fieldNames,
+        .path_cache = self->pathCache,
+    };
+    ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1120,6 +1124,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   rm_free(lc->keys);
   rm_free(lc->profileFields);
   HashFieldNames_Free(lc->fieldNames);
+  JsonPathCache_Free(lc->pathCache);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1146,6 +1151,9 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
   }
 
+  if (sctx && sctx->spec && isSpecJson(sctx->spec)) {
+    self->pathCache = JsonPathCache_New(RSDummyContext, self->keys, self->nkeys);
+  }
   self->lk = lk;
 }
 

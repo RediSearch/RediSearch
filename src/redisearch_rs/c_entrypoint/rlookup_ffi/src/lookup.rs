@@ -12,12 +12,12 @@ use document_metadata::DocumentMetadata;
 use libc::size_t;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use redis_json_api::RedisJsonApi;
-use rlookup::JsonDocumentFormat;
 use rlookup::{DocumentLoader, HashDocumentFormat, HashFieldNames};
 use rlookup::{
     IndexSpec, IndexSpecCache, LoadFieldProfile, OpaqueRLookup, OpaqueRLookupRow, RLookup,
     RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow,
 };
+use rlookup::{JsonDocumentFormat, JsonPathCache};
 use std::{
     borrow::Cow,
     ffi::{CStr, CString, c_char, c_int},
@@ -670,6 +670,7 @@ pub struct LoadAllKeysOptions {
     pub dmd: *const ffi::RSDocumentMetadata,
     pub force_string: bool,
     pub status: *mut OpaqueQueryError,
+    pub path_cache: *const JsonPathCache,
 }
 
 #[repr(C)]
@@ -692,6 +693,75 @@ pub struct LoadIndividualKeysOptions {
     /// processes (see [`HashFieldNames_New`]). Null makes each load build its
     /// field names afresh.
     pub field_names: *const HashFieldNames,
+    /// Optional query-owned [`JsonPathCache`] aligned with `keys`.
+    pub path_cache: *const JsonPathCache,
+}
+
+/// Compile paths for one JSON loader. With no keys, compile the document root.
+///
+/// Returns null when the RedisJSON API does not support compiled-path evaluation.
+/// Free the returned cache with [`JsonPathCache_Free`].
+///
+/// # Safety
+///
+/// 1. The RedisJSON module must be initialized and `ctx` must be a [valid] Redis context.
+/// 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null lookup keys
+///    that remain valid throughout this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JsonPathCache_New(
+    ctx: *mut redis_module::RedisModuleCtx,
+    keys: *const *const ffi::RLookupKey,
+    nkeys: size_t,
+) -> *mut JsonPathCache {
+    // SAFETY: ensured by caller (1.).
+    let Some(api) = (unsafe { RedisJsonApi::get() }) else {
+        return ptr::null_mut();
+    };
+    // SAFETY: ensured by caller (1.).
+    if unsafe { RedisJsonApi::version() } < 9 {
+        return ptr::null_mut();
+    }
+    let vtable = api.vtable();
+    // SAFETY: the negotiated API includes the V9 entry.
+    let get_with_path = unsafe { &raw const (*vtable.as_ptr()).getWithPath };
+    // SAFETY: the pointer refers to an initialized entry in the API table.
+    if unsafe { get_with_path.read() }.is_none() {
+        return ptr::null_mut();
+    }
+
+    let cache = if nkeys == 0 {
+        // SAFETY: ensured by caller (1.).
+        unsafe { JsonPathCache::new(ctx, &api, std::iter::once(Some(redis_json_api::JSON_ROOT))) }
+    } else {
+        // SAFETY: ensured by caller (2.).
+        let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
+        let paths = keys.iter().map(|&key| {
+            // SAFETY: caller (2.); the generated bindings match the Rust lookup-key layout.
+            let key = unsafe { &*key.cast::<RLookupKey<'_>>() };
+            key.path().as_deref()
+        });
+        // SAFETY: ensured by caller (1.).
+        unsafe { JsonPathCache::new(ctx, &api, paths) }
+    };
+    Box::into_raw(Box::new(cache))
+}
+
+/// Free a cache returned by [`JsonPathCache_New`]. Null is a no-op.
+///
+/// # Safety
+///
+/// `paths` must be null or a [valid] pointer returned by [`JsonPathCache_New`]. A non-null
+/// cache must be freed exactly once, with no load in progress and no subsequent uses.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JsonPathCache_Free(paths: *mut JsonPathCache) {
+    if !paths.is_null() {
+        // SAFETY: ensured by the caller.
+        drop(unsafe { Box::from_raw(paths) });
+    }
 }
 
 /// Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
@@ -725,6 +795,8 @@ pub unsafe extern "C" fn HashFieldNames_Free(names: *mut HashFieldNames) {
 ///    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
 /// 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
 ///    be a valid [`DocumentType`].
+/// 5. `(*opts).path_cache` must be null or a [valid] pointer returned by
+///    [`JsonPathCache_New`] for root loading and kept alive for this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -774,7 +846,11 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
+            let mut format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
+            // SAFETY: ensured by caller (5.).
+            if let Some(path_cache) = unsafe { opts.path_cache.as_ref() } {
+                format = format.with_path_cache(path_cache);
+            }
 
             DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
@@ -821,6 +897,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 ///    pointer to a properly initialized key that outlives this call.
 /// 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
 ///    has not been freed, and no other thread may access it for the duration of this call.
+/// 7. `(*opts).path_cache` must be null or a [valid] pointer returned by
+///    [`JsonPathCache_New`] for these keys in the same order, kept alive for this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -905,7 +983,11 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
+            let mut format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
+            // SAFETY: ensured by caller (7.).
+            if let Some(path_cache) = unsafe { opts.path_cache.as_ref() } {
+                format = format.with_path_cache(path_cache);
+            }
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)

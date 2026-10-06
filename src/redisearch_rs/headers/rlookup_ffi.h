@@ -17,6 +17,8 @@ typedef struct QueryError QueryError;
  */
 typedef struct RSValue RSValue;
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
 typedef struct RedisModuleKey RedisModuleKey;
 
 /**
@@ -31,6 +33,7 @@ typedef struct LoadAllKeysOptions {
   const RSDocumentMetadata *dmd;
   bool force_string;
   struct QueryError *status;
+  const struct JsonPathCache *path_cache;
 } LoadAllKeysOptions;
 
 typedef struct LoadIndividualKeysOptions {
@@ -57,6 +60,10 @@ typedef struct LoadIndividualKeysOptions {
    * field names afresh.
    */
   const struct HashFieldNames *field_names;
+  /**
+   * Optional query-owned [`JsonPathCache`] aligned with `keys`.
+   */
+  const struct JsonPathCache *path_cache;
 } LoadIndividualKeysOptions;
 
 /**
@@ -129,6 +136,34 @@ void HashFieldNames_Free(struct HashFieldNames *names);
  * Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
  */
 struct HashFieldNames *HashFieldNames_New(void);
+
+/**
+ * Free a cache returned by [`JsonPathCache_New`]. Null is a no-op.
+ *
+ * # Safety
+ *
+ * `paths` must be null or a [valid] pointer returned by [`JsonPathCache_New`]. A non-null
+ * cache must be freed exactly once, with no load in progress and no subsequent uses.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void JsonPathCache_Free(struct JsonPathCache *paths);
+
+/**
+ * Compile paths for one JSON loader. With no keys, compile the document root.
+ *
+ * Returns null when the RedisJSON API does not support compiled-path evaluation.
+ * Free the returned cache with [`JsonPathCache_Free`].
+ *
+ * # Safety
+ *
+ * 1. The RedisJSON module must be initialized and `ctx` must be a [valid] Redis context.
+ * 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null lookup keys
+ *    that remain valid throughout this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct JsonPathCache *JsonPathCache_New(struct RedisModuleCtx *ctx, const RLookupKey *const *keys, size_t nkeys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -586,6 +621,8 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
+ * 5. `(*opts).path_cache` must be null or a [valid] pointer returned by
+ *    [`JsonPathCache_New`] for root loading and kept alive for this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -607,6 +644,8 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  *    pointer to a properly initialized key that outlives this call.
  * 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
  *    has not been freed, and no other thread may access it for the duration of this call.
+ * 7. `(*opts).path_cache` must be null or a [valid] pointer returned by
+ *    [`JsonPathCache_New`] for these keys in the same order, kept alive for this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

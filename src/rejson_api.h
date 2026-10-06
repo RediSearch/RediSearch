@@ -179,9 +179,15 @@ typedef struct RedisJSONAPI {
   // The caller owns the key handle and must keep it open while using the returned RedisJSON.
   RedisJSON (*getJsonFromHandle)(RedisModuleKey *redis_key);
 
+  ////////////////
+  // V9 entries //
+  ////////////////
+  // Like `get`, but evaluates a path previously compiled by `pathParse`.
+  JSONResultsIterator (*getWithPath)(RedisJSON json, JSONPath path);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 8
+#define RedisJSONAPI_LATEST_API_VER 9
 #ifdef __cplusplus
 }
 #endif

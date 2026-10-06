@@ -129,6 +129,11 @@ typedef uint32_t RLookup_Opt;
 typedef struct HashFieldNames HashFieldNames;
 
 /**
+ * Owns the compiled [`JsonPath`]s for one query loader, in field-load order.
+ */
+typedef struct JsonPathCache JsonPathCache;
+
+/**
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a list of [`RLookupKey`]s addressable by string name.

@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use lending_iterator::LendingIterator;
-use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi, SerializeError};
+use redis_json_api::{JsonPath, JsonType, JsonValueRef, RedisJsonApi, ResultsIter, SerializeError};
 use redis_module::RedisString;
 use std::ffi::CStr;
 use std::ptr::{self, NonNull};
@@ -23,10 +23,45 @@ use value::{SharedValue, Value};
 
 const JSON_ROOT: &CStr = c"$";
 
+/// Owns the compiled [`JsonPath`]s for one query loader, in field-load order.
+pub struct JsonPathCache {
+    paths: Vec<Option<JsonPath>>,
+}
+
+impl JsonPathCache {
+    /// Compiles JSON paths, leaving sentinels and malformed paths on the string-loading path.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` must be a [valid] Redis module context.
+    /// The negotiated API must support V9 and provide `getWithPath`.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn new<'p>(
+        ctx: *mut redis_module::RedisModuleCtx,
+        api: &RedisJsonApi,
+        paths: impl Iterator<Item = Option<&'p CStr>>,
+    ) -> Self {
+        let paths = paths
+            .map(|path| {
+                let path = path.filter(|path| path.to_bytes().starts_with(b"$"))?;
+                // SAFETY: the caller guarantees a valid context.
+                unsafe { JsonPath::parse(path, ctx, api) }.ok()
+            })
+            .collect();
+        Self { paths }
+    }
+
+    fn get(&self, index: usize) -> Option<&JsonPath> {
+        self.paths.get(index).and_then(Option::as_ref)
+    }
+}
+
 pub struct JsonDocumentFormat<'a> {
     ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
     api_version: u8,
+    path_cache: Option<&'a JsonPathCache>,
 }
 
 pub struct JsonFieldLoader<'a> {
@@ -34,6 +69,7 @@ pub struct JsonFieldLoader<'a> {
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
     api_version: u8,
+    path_cache: Option<&'a JsonPathCache>,
 }
 
 impl<'a> JsonDocumentFormat<'a> {
@@ -46,7 +82,14 @@ impl<'a> JsonDocumentFormat<'a> {
             ctx,
             japi,
             api_version,
+            path_cache: None,
         }
+    }
+
+    /// Uses a query-owned [`JsonPathCache`] for field or root loading.
+    pub const fn with_path_cache(mut self, path_cache: &'a JsonPathCache) -> Self {
+        self.path_cache = Some(path_cache);
+        self
     }
 
     fn open_key(&self, key_name: &RedisString) -> Option<JsonValueRef<'a>> {
@@ -58,6 +101,33 @@ impl<'a> JsonDocumentFormat<'a> {
                 DOCUMENT_OPEN_KEY_QUERY_FLAGS,
             )
         }
+    }
+
+    fn load_root_without_path_cache(
+        &self,
+        key_name: &RedisString,
+    ) -> Result<SharedValue, LoadAllError> {
+        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
+        self.load_root_from_iter(json_root.get(JSON_ROOT))
+    }
+
+    fn load_root_with_path(
+        &self,
+        key_name: &RedisString,
+        path: &JsonPath,
+    ) -> Result<SharedValue, LoadAllError> {
+        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
+        // SAFETY: the cache requires V9; it owns the path throughout iteration.
+        self.load_root_from_iter(unsafe { json_root.get_with_path(path) })
+    }
+
+    fn load_root_from_iter(
+        &self,
+        iter: Option<ResultsIter<'_>>,
+    ) -> Result<SharedValue, LoadAllError> {
+        let iter = iter.ok_or(LoadAllError::JsonRootMissing)?;
+        // Unlike per-field loading, an absent root is a document-level failure.
+        json_iter_to_value(self.ctx, iter, self.api_version)?.ok_or(LoadAllError::JsonRootMissing)
     }
 }
 
@@ -78,6 +148,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             value,
             key_name,
             api_version: self.api_version,
+            path_cache: self.path_cache,
         })
     }
 
@@ -101,6 +172,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             value,
             key_name,
             api_version: self.api_version,
+            path_cache: self.path_cache,
         })
     }
 
@@ -110,16 +182,10 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError> {
-        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
-
-        let json_iter = json_root
-            .get(JSON_ROOT)
-            .ok_or(LoadAllError::JsonRootMissing)?;
-
-        // For `load_all` an absent root is a document-level failure: a JSON document
-        // is expected to have a `$` value, so collapse `Ok(None)` to `Err`.
-        let value = json_iter_to_value(self.ctx, json_iter, self.api_version)?
-            .ok_or(LoadAllError::JsonRootMissing)?;
+        let value = match self.path_cache.and_then(|cache| cache.get(0)) {
+            Some(path) => self.load_root_with_path(key_name, path)?,
+            None => self.load_root_without_path_cache(key_name)?,
+        };
 
         let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
             rlk.into_current().unwrap()
@@ -137,6 +203,39 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 
 impl FieldLoader for JsonFieldLoader<'_> {
     fn load_field(&self, key: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError> {
+        self.load_field_without_path_cache(key, dst_row)
+    }
+
+    fn load_field_at(
+        &self,
+        index: usize,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+    ) -> Result<(), LoadFieldError> {
+        match self.path_cache.and_then(|cache| cache.get(index)) {
+            Some(path) => self.load_field_with_path(key, dst_row, path),
+            None => self.load_field_without_path_cache(key, dst_row),
+        }
+    }
+}
+
+impl JsonFieldLoader<'_> {
+    fn load_field_with_path(
+        &self,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+        path: &JsonPath,
+    ) -> Result<(), LoadFieldError> {
+        // SAFETY: the cache requires V9; it owns the path throughout iteration.
+        let iter = unsafe { self.value.get_with_path(path) };
+        self.load_field_from_iter(key, dst_row, iter)
+    }
+
+    fn load_field_without_path_cache(
+        &self,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+    ) -> Result<(), LoadFieldError> {
         let path = match key.path() {
             Some(p) => p.as_ref(),
             // No path set — nothing to load.
@@ -148,14 +247,7 @@ impl FieldLoader for JsonFieldLoader<'_> {
         // For per-field loads, "field absent" is not an error — we just leave it unset
         // and continue. Only hard failures bubble up as `Err`.
         let val = if path.to_bytes().starts_with(JSON_ROOT.to_bytes()) {
-            let Some(iter) = self.value.get(path) else {
-                // JSONPath did not match any value in the document — skip silently.
-                return Ok(());
-            };
-            match json_iter_to_value(self.ctx, iter, self.api_version) {
-                Ok(Some(v)) => v,
-                Ok(None) | Err(_) => return Ok(()),
-            }
+            return self.load_field_from_iter(key, dst_row, self.value.get(path));
         } else if path == UNDERSCORE_KEY {
             SharedValue::new_string(self.key_name.to_vec())
         } else {
@@ -165,6 +257,21 @@ impl FieldLoader for JsonFieldLoader<'_> {
 
         dst_row.write_key(key, val);
 
+        Ok(())
+    }
+
+    fn load_field_from_iter(
+        &self,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+        iter: Option<ResultsIter<'_>>,
+    ) -> Result<(), LoadFieldError> {
+        let Some(iter) = iter else {
+            return Ok(());
+        };
+        if let Ok(Some(value)) = json_iter_to_value(self.ctx, iter, self.api_version) {
+            dst_row.write_key(key, value);
+        }
         Ok(())
     }
 }
