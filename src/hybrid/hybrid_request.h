@@ -91,16 +91,6 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
 // subquery's channel. Wake every possible reader after publishing cancellation.
 void HybridRequest_WakeAbortChannels(HybridRequest *req);
 
-static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
-  return req->base.async.requiresAggregateResultsSync;
-}
-
-bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
-
-void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req);
-
-void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
-
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
   // Borrowed; the cycle owns the request (see QueryRequest).

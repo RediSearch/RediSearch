@@ -28,8 +28,8 @@ struct HybridRequest;
  * **Syntax:**
  *   _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <vector_args> [options] <DEBUG_PARAMS> DEBUG_PARAMS_COUNT <count>
  *
- * On a multi-shard coordinator, query debug requires `ON_TIMEOUT RETURN`. `ON_TIMEOUT FAIL` and
- * `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks and are rejected with
+ * On a multi-shard coordinator, query debug requires `ON_TIMEOUT RETURN`. `ON_TIMEOUT FAIL`
+ * uses a blocked-client timeout callback and is rejected with
  * `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *
   * **Parameters:**

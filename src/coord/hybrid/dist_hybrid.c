@@ -955,6 +955,9 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     // transferring strong_ref ownership here, so only release the strong ref.
     StrongRef_Release(indexSpecRef);
 
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_UNBLOCK);
+#endif
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     void *privdata = RedisModule_BlockClientGetPrivateData(bc);
     RedisModule_UnblockClient(bc, privdata);
@@ -1102,7 +1105,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       goto cleanup;
     }
 
-    HREQ_ReplyOrStoreError(hreq, ctx, status);
+    HREQ_ReplyError(hreq, ctx, status);
 
     cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -1164,10 +1167,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
-    }
-
-    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
-        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
     }
 
     scheduleDepleters(hreq);
@@ -1253,10 +1252,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return;
     }
 
-    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
-        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
-    }
-
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
     CurrentThread_ClearIndexSpec();
@@ -1295,86 +1290,6 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-
-  return REDISMODULE_OK;
-}
-
-// Timeout callback for Coordinator HybridRequest execution
-// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
-int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  // Installed by BeginCycle on the main thread before the command returned,
-  // so no callback can observe missing privdata.
-  RS_ASSERT(request != NULL);
-  HybridRequest *hreq = QueryRequest_GetHybrid(request);
-
-  // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
-  HybridRequest_PropagateTimeoutToSubqueries(hreq);
-
-  // Record the per-stage breakdown at the stage the deadline caught the request.
-  recordCoordHybridTimeoutStage(hreq, /*isError=*/false);
-
-  HybridRequest_WakeAbortChannels(hreq);
-
-  if (HybridRequest_TryClaimAggregateResults(hreq)) {
-    // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase
-    // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
-    // derives isProfile from the command so the profile envelope is preserved for
-    // FT.PROFILE ... HYBRID even on this fast path.
-    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
-    return REDISMODULE_OK;
-  }
-
-  if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
-    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
-    return REDISMODULE_OK;
-  }
-
-  // Losing TryClaim means BG owns the claim; wait for it to finish writing
-  // `base.reply` (the abort-channel wakes above let it exit promptly).
-  HybridRequest_WaitForAggregateResultsComplete(hreq);
-
-  // The coordinator hybrid pipeline is not drainable: the tail merger and the
-  // per-subquery depleters run on separate coord-pool threads, so a main-thread
-  // drain would re-enter live upstream processors. Reply only with whatever the
-  // tail already accumulated into `base.reply.results` before the deadline.
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  serializeStoredResults_hybrid(hreq, reply);
-  RedisModule_EndReply(reply);
-
-  return REDISMODULE_OK;
-}
-
-// Reply callback for Coordinator HybridRequest execution (FAIL policy).
-// Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in hreq->base.reply, which we use to build the reply.
-// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
-int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
-
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  RS_ASSERT(request != NULL);
-  HybridRequest *hreq = QueryRequest_GetHybrid(request);
-
-  // Check if results were stored (background thread completed successfully)
-  if (!hreq->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
-  // Call serializeStoredResults_hybrid to build reply from stored results
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  serializeStoredResults_hybrid(hreq, reply);
-  RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
 }
