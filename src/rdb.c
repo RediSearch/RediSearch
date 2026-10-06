@@ -13,7 +13,6 @@
 #include "alias.h"
 #include "rdb.h"
 #include "rules.h"
-#include "search_disk.h"
 #include "util/dict/dict.h"
 
 dict *specDict_g_bkup;
@@ -40,6 +39,7 @@ void Restore_Globals(RedisModuleCtx *ctx) {
   dictRelease(specDict_g);
   specDict_g = specDict_g_bkup;
   specDict_g_bkup = NULL;
+
   dictRelease(specIdDict_g);
   specIdDict_g = specIdDict_g_bkup;
   specIdDict_g_bkup = NULL;
