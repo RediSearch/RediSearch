@@ -401,6 +401,94 @@ def testArrayCommands_withVector(env):
 
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
+def _assert_reindexed(env, key, previous_id, write):
+    """Asserts that `write` reindexed `key` and returns its new internal id. JSON notifications
+    carry no change set, so every handled JSON write takes the full-reindex path and gets a new id
+    (see get_internal_id). An unchanged id means the write's keyspace notification never reached
+    the indexer, whatever the queries return."""
+    current_id = get_internal_id(env, key)
+    env.assertGreater(current_id, previous_id, message=f'{write} did not reindex {key}')
+    return current_id
+
+def _knn_query(field, *vector):
+    """Returns the FT.SEARCH args for a KNN 1 query on `field` from `vector`, returning only the
+    score."""
+    blob = create_np_array_typed(list(vector), 'FLOAT32').tobytes()
+    return ('FT.SEARCH', 'idx', f'*=>[KNN 1 @{field} $b AS score]', 'PARAMS', '2', 'b', blob,
+            'RETURN', '1', 'score', 'DIALECT', '2')
+
+@skip(cluster=True, msan=True, no_json=True)
+def testNumpowby(env):
+    """JSON.NUMPOWBY emits `json.numpowby`, which must reindex the document like the other JSON
+    write events, so NUMERIC and VECTOR queries see the new value."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC',
+               '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    env.expect('JSON.SET', 'doc:1', '$', r'{"n":2,"vec":[2,3]}').ok()
+    doc_id = get_internal_id(env, 'doc:1')
+
+    env.expect('JSON.NUMPOWBY', 'doc:1', '$.n', '2').equal('[4]')
+    doc_id = _assert_reindexed(env, 'doc:1', doc_id, 'JSON.NUMPOWBY $.n')
+    env.expect('FT.SEARCH', 'idx', '@n:[4 4]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n:[2 2]', 'NOCONTENT').equal([0])
+
+    env.expect('JSON.NUMPOWBY', 'doc:1', '$.vec[0]', '2').equal('[4]')
+    env.expect('JSON.GET', 'doc:1', '$.vec').equal('[[4,3]]')
+    _assert_reindexed(env, 'doc:1', doc_id, 'JSON.NUMPOWBY $.vec[0]')
+    # Distance 0 from [4, 3]: the index holds the new vector, not [2, 3].
+    env.expect(*_knn_query('vec', 4, 3)).equal([1, 'doc:1', ['score', '0']])
+
+@skip(cluster=True, msan=True, no_json=True)
+def testClear(env):
+    """JSON.CLEAR emits `json.clear`, which must reindex the document like the other JSON write
+    events. It resets a number to 0, so the NUMERIC field matches 0 instead of the old value, and
+    it empties an array, so the TAG and multi-value VECTOR fields over it no longer match."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC',
+               '$.tags[*]', 'AS', 'tags', 'TAG',
+               '$.vecs[*]', 'AS', 'vecs', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    env.expect('JSON.SET', 'doc:1', '$', r'{"n":5,"tags":["a"],"vecs":[[2,3]]}').ok()
+    env.expect('FT.SEARCH', 'idx', '@tags:{a}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect(*_knn_query('vecs', 2, 3)).equal([1, 'doc:1', ['score', '0']])
+    doc_id = get_internal_id(env, 'doc:1')
+
+    env.expect('JSON.CLEAR', 'doc:1', '$.n').equal(1)
+    doc_id = _assert_reindexed(env, 'doc:1', doc_id, 'JSON.CLEAR $.n')
+    env.expect('FT.SEARCH', 'idx', '@n:[0 0]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n:[5 5]', 'NOCONTENT').equal([0])
+
+    env.expect('JSON.CLEAR', 'doc:1', '$.tags').equal(1)
+    doc_id = _assert_reindexed(env, 'doc:1', doc_id, 'JSON.CLEAR $.tags')
+    env.expect('FT.SEARCH', 'idx', '@tags:{a}', 'NOCONTENT').equal([0])
+
+    env.expect('JSON.CLEAR', 'doc:1', '$.vecs').equal(1)
+    _assert_reindexed(env, 'doc:1', doc_id, 'JSON.CLEAR $.vecs')
+    env.expect(*_knn_query('vecs', 2, 3)).equal([0])
+
+@skip(cluster=True, msan=True, no_json=True)
+def testClearRoot(env):
+    """JSON.CLEAR on the root turns the document into `{}`. The `json.clear` reindex must drop
+    every old value, including the SORTABLE copies. `{}` has no `$.n`, so nothing matches 0 either.
+    The key still exists and matches the index's rules, so it stays indexed, with no field values
+    and no sort vector."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.name', 'AS', 'name', 'TEXT', 'SORTABLE', '$.n', 'AS', 'n', 'NUMERIC', 'SORTABLE').ok()
+    env.expect('JSON.SET', 'doc:1', '$', r'{"name":"hello","n":5}').ok()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n:[5 5]', 'NOCONTENT').equal([1, 'doc:1'])
+    # SORTBY reads @n from the sort vector, not from the document.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC').equal([1, ['n', '5']])
+    doc_id = get_internal_id(env, 'doc:1')
+
+    env.expect('JSON.CLEAR', 'doc:1', '$').equal(1)
+    env.expect('JSON.GET', 'doc:1', '$').equal('[{}]')
+    _assert_reindexed(env, 'doc:1', doc_id, 'JSON.CLEAR $')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@n:[5 5]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@n:[0 0]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC').equal([1, []])
+
 @skip(msan=True, no_json=True)
 def testRootValues(env):
     # Search all JSON types as a top-level element
