@@ -32,7 +32,7 @@ RDBS_SHORT_READS = {
     'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb': ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
     'short-reads/redisearch_2.8.0.rdb'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
     'short-reads/redisearch_2.8.4.rdb'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-    'short-reads/redisearch_2.10.3.rdb'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35]),
+    'short-reads/redisearch_2.10.3.rdb'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
     'short-reads/redisearch_2.10.3_missing.rdb'    : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
     'short-reads/redisearch_existing_3.0.rdb'      : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
 }
@@ -478,17 +478,8 @@ class Debug:
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
 def sendShortReads(env, rdb_file, expected_index):
-    # Add some initial content (index+keys) to test backup/restore/discard when short read fails
-    # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
     env.assertCmdOk('replicaof', 'no', 'one')
     env.flush()
-    add_index(env, True,  'idxBackup1', 'a', 5, 10, 5)
-    add_index(env, False, 'idxBackup2', 'b', 5, 10, 5)
-
-    res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-    env.assertEqual(res[0], 5)
-    res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-    env.assertEqual(res[0], 5)
 
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
@@ -563,27 +554,16 @@ def runShortRead(env, data, total_len, expected_index):
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
-        if server_version_less_than(env, '7.0.0'):
-            # Async load in 'swapdb' mode is supported in redis < 7.
+        if not is_shortread:
             res = env.cmd('ft._list')
-            if is_shortread:
-                # Verify original data, that existed before the failed attempt to short-read, is restored
-                env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
-                res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-                env.assertEqual(res[0], 5)
-                res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-                env.assertEqual(res[0], 5)
-            else:
-                # Verify new data was loaded and the backup was discarded
-                # TODO: How to verify internal backup was indeed discarded
-                res.sort()
-                env.assertEqual(len(res), expected_index.count)
-                r = re.compile(expected_index.pattern)
-                expected_indices = list(filter(lambda x: r.match(x), res))
-                env.assertEqual(len(expected_indices), expected_index.count)
-                for ind, expected_result_count in zip(expected_indices, expected_index.search_result_count):
-                    res = env.cmd('ft.search ', ind, '*', 'limit', '0', '0')
-                    env.assertEqual(res[0], expected_result_count)
+            res.sort()
+            env.assertEqual(len(res), expected_index.count)
+            r = re.compile(expected_index.pattern)
+            expected_indices = list(filter(lambda x: r.match(x), res))
+            env.assertEqual(len(expected_indices), expected_index.count)
+            for ind, expected_result_count in zip(expected_indices, expected_index.search_result_count):
+                res = env.cmd('ft.search ', ind, '*', 'limit', '0', '0')
+                env.assertEqual(res[0], expected_result_count)
 
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')

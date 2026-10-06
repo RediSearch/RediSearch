@@ -1276,60 +1276,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
 
 
-void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-
-  REDISMODULE_NOT_USED(eid);
-  switch(subevent) {
-  case REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE:
-    Backup_Globals();
-    break;
-  case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
-    Restore_Globals(ctx);
-    refreshDiskResourceState(ctx);
-    break;
-  case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
-    Discard_Globals_Backup(ctx);
-    refreshDiskResourceState(ctx);
-    break;
-  }
-}
-
-void ReplicaAsyncLoad(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-	REDISMODULE_NOT_USED(eid);
-	// Todo: implement callbacks to support async read requests during diskless rdb replication
-	//  in "swapdb" mode.
-}
-
-
-int CheckVersionForShortRead() {
-  // Minimal versions: 6.2.5
-  // (6.0.15 is not supporting the required event notification for modules)
-  if (redisVersion.majorVersion >= 7 || (redisVersion.majorVersion == 6 && redisVersion.minorVersion >= 2)) {
-	  return REDISMODULE_OK;
-  }
-  if (redisVersion.majorVersion == 6 && redisVersion.minorVersion == 2) {
-      return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
-  } else if (redisVersion.majorVersion == 255 &&
-           redisVersion.minorVersion == 255 &&
-           redisVersion.patchVersion == 255) {
-    // Also supported on master (version=255.255.255)
-    return REDISMODULE_OK;
-  }
-  return REDISMODULE_ERR;
-}
-
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
-  if (CheckVersionForShortRead() == REDISMODULE_OK) {
-    int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
-    RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
-    int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
-    RedisModule_SetModuleOptions(ctx, optionsFlags);
-    if (redisVersion.majorVersion < 7 || IsEnterprise()) {
-      RedisModule_Log(ctx, "notice", "Enabled diskless replication");
-      // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
-      //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
-    }
-  }
+  int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
+  RedisModule_SetModuleOptions(ctx, optionsFlags);
 }
 
 void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
