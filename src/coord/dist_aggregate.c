@@ -497,7 +497,8 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 
 // Build the distributed MR command for FT.AGGREGATE
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp,
+                           bool respSchemaEnabled) {
   // We need to prepend the array with the command, index, and query that
   // we want to use. Lengths ride along so binary-capable arguments (the query,
   // user-defined names) reach the shards without strlen truncation.
@@ -534,6 +535,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   APPEND_LITERAL("_NUM_SSTRING");
+  if (respSchemaEnabled) {
+    APPEND_LITERAL("_RESP_SCHEMA");
+  }
 
   int argOffset = 0;
   // Preserve WITHCOUNT flag from the original command
@@ -636,7 +640,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
   array_free(tmplens);
 }
-
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us,
                              int (*nextFunc)(ResultProcessor *, SearchResult *),
@@ -830,7 +833,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   AggregateKnnContext knnSnapshot;
   bool hasKnnSnapshot = false;
-  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp,
+                 r->reqConfig.internalRespSchemaEnabled);
 
   if (knnCtx) {
     hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);

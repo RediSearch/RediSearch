@@ -390,6 +390,17 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
   return replyRSValue(reply, v, flags, RSValueTrioSelection_Middle);
 }
 
+int RedisModule_Reply_RowValue(RedisModule_Reply *reply, const RSValue *v,
+                               SendReplyFlags flags, unsigned int apiVersion) {
+  RSValueTrioSelection selection = RSValueTrioSelection_Left;
+  if (flags & SENDREPLY_FLAG_EXPAND) {
+    selection = RSValueTrioSelection_Right;
+  } else if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+    selection = RSValueTrioSelection_Middle;
+  }
+  return replyRSValue(reply, v, flags, selection);
+}
+
 // The row value RedisModule_Reply_RLookupRow emits for `kk`, or NULL when the key is skipped. Shared with the
 // counting pass so a declared map length can never disagree with what gets written.
 static inline const RSValue *rlookupRowReplyValue(const RLookupKey *kk, const RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags) {

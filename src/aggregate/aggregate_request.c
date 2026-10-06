@@ -400,6 +400,9 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE) &&
+             AC_AdvanceIfMatch(ac, "_RESP_SCHEMA")) {
+    papCtx->reqConfig->internalRespSchema = papCtx->reqConfig->internalRespSchemaEnabled;
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
@@ -408,17 +411,17 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     if (parseParams(&(papCtx->searchopts->params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS") && papCtx->requiredFields) {
+  } else if (AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS") && papCtx->requiredFields) {
     if (parseRequiredFields(papCtx->requiredFields, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_REQUIRED_FIELDS);
-  } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+  } else if (AC_AdvanceIfMatch(ac, "DIALECT")) {
     dialect_specified = true;
     if (parseDialect(&papCtx->reqConfig->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
+  } else if (AC_AdvanceIfMatch(ac, "FORMAT")) {
     if (parseValueFormat(papCtx->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -467,7 +470,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
     }
     *papCtx->querySlots = slot_array;
-  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, COORD_DISPATCH_TIME_STR)) {
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) &&
+             AC_AdvanceIfMatch(ac, COORD_DISPATCH_TIME_STR)) {
     // Parse coordinator dispatch time for internal commands
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " missing argument");
