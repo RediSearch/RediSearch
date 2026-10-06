@@ -1728,6 +1728,7 @@ booleanConfigs = [
 configOnlyBooleanConfigs = [
     # configName, defaultValue
     ('search-_info-on-zero-indexes', 'no'),
+    ('search-internal-resp-schema', 'no'),
 ]
 
 @skip(redis_less_than='7.9.227')
