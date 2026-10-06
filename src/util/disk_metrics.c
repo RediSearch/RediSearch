@@ -31,8 +31,7 @@ static void collectJob(void* unused);
 
 /* Called under gate. A successor replaces the current job; it does not accumulate. */
 static bool submit(void) {
-  if (!pool || atomic_load(&stopping) || atomic_load(&forking) ||
-      atomic_load_explicit(&inChild, memory_order_relaxed))
+  if (!pool || atomic_load(&stopping) || atomic_load(&forking) || atomic_load_explicit(&inChild, memory_order_relaxed))
     return false;
   if (submitted) return true;
   submitted = redisearch_thpool_add_work(pool, collectJob, NULL, THPOOL_PRIORITY_LOW) == 0;

@@ -213,8 +213,7 @@ typedef struct BasicDiskAPI {
    *       a background thread (the StrongRef destructor) and cannot make Redis module
    *       API calls from there.
    */
-  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
-                                 RedisSearchDiskIndexSpec *index);
+  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
@@ -1038,8 +1037,7 @@ typedef struct MetricsDiskAPI {
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedTotalDiskUsage)(RedisSearchDiskMetricsCollector *collector);
   /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
-  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk,
-                                               RedisSearchDiskIndexSpec *index);
+  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *

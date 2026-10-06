@@ -76,8 +76,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
-    info.total_inverted_index_blocks +=
-        cachedDisk ? diskMetrics.blocks : IndexSpec_TotalBlockCount(sp);
+    info.total_inverted_index_blocks += cachedDisk ? diskMetrics.blocks : IndexSpec_TotalBlockCount(sp);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);

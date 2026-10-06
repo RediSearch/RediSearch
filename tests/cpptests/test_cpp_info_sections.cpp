@@ -325,8 +325,7 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(RSDummyContext));
   EXPECT_EQ(callbacks.getDiskUsage(), 0u);
-  RMCK::ArgvList args(RSDummyContext, "FT.CREATE", "cached_usage_lifecycle", "SKIPINITIALSCAN",
-                      "SCHEMA", "title", "TEXT");
+  RMCK::ArgvList args(RSDummyContext, "FT.CREATE", "cached_usage_lifecycle", "SKIPINITIALSCAN", "SCHEMA", "title", "TEXT");
   QueryError error = QueryError_Default();
   auto *created = Indexes_CreateNewSpec(RSDummyContext, args, args.size(), &error);
   ASSERT_NE(created, nullptr);
