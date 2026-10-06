@@ -3874,9 +3874,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                          struct ConcurrentCmdCtx *cmdCtx);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString **argv, int argc,
@@ -4016,16 +4014,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
   handlerCtx.bcCtx.request = &r->base;
-  if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    handlerCtx.bcCtx.reply_callback =
-        policy == TimeoutPolicy_ReturnStrict ? DistAggregateReplyCallback : NULL;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistAggregateTimeoutFailCallback
-        : DistAggregateTimeoutReturnStrictCallback;
+  handlerCtx.bcCtx.reply_callback = NULL;
+  if (policy == TimeoutPolicy_Fail) {
+    handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    if (policy == TimeoutPolicy_ReturnStrict) {
-      r->base.async.requiresAggregateResultsSync = true;
-    }
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

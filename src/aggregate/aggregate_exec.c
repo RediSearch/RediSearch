@@ -2117,7 +2117,7 @@ static void coordCursorRead_ctx(void *p) {
 
 /* Block the client with the taken cursor's request as private data and dispatch a
  * slim coordCursorRead_ctx job to `poolType`. FAIL keeps a timeout callback
- * while the worker serializes; only RETURN_STRICT uses a reply callback. */
+ * while the worker serializes the reply. */
 static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long long count,
                                    RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
                                    rs_wall_clock_ms_t timeout_ms, int poolType) {
@@ -2215,10 +2215,7 @@ static void fallbackCursorToReturn(const Cursor *cursor, AREQ *req) {
 
 // Coordinator blocked-client callbacks (coord/dist_aggregate.c), used when the
 // taken cursor is a coordinator (RPNet) cursor.
-int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                              int argc);
 
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
@@ -2282,10 +2279,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // without one (single-cursor hybrid) are not user-reachable.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
-    if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
+    if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {
       // Apply the foreground cap to the blocked-client timer budget. The
       // cursor cached its queryTimeoutMS at WITHCURSOR time; tightening
       // search-_max-foreground-timeout-limit (or disabling workers) between
@@ -2300,12 +2296,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
           cursor->queryTimeoutMS, capped);
       }
-      replyCallback = cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict
-                          ? DistAggregateReplyCallback
-                          : NULL;
-      timeoutCallback = (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail)
-          ? DistAggregateTimeoutFailCallback
-          : DistCursorReadTimeoutReturnStrictCallback;
+      timeoutCallback = DistAggregateTimeoutFailCallback;
       timeoutMS = (rs_wall_clock_ms_t)capped;
     }
     QueryRequestTimeout_BeginCycle(&req->base.timeout, timeoutCallback
@@ -2313,10 +2304,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                                                            : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
     // reset it to QUEUE after selecting the new cycle's source; the BG job
-    // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
-    // depletes its cursor, so the freeze cannot swallow this store on a live cursor.
+    // advances it back to PIPELINE at pickup.
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
-    return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
+    return cursorReadDispatchTaken(ctx, cursor, count, NULL, timeoutCallback, timeoutMS,
                                    DIST_THREADPOOL);
   }
 
