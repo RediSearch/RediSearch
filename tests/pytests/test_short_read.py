@@ -21,7 +21,9 @@ from common import *
 from includes import *
 
 
-SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
+# A step of 1 takes minutes per RDB now that the load is diskless (each retry costs ~40ms),
+# so the default is a prime step to avoid aligning with RDB record boundaries.
+SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '13'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
@@ -503,7 +505,7 @@ def runShortRead(env, data, total_len, expected_index):
 
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
-        res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
+        res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'on-empty-db')
         env.assertTrue(res)
         res = env.cmd('replicaof', '127.0.0.1', shardMock.server_port)
         env.assertTrue(res)
