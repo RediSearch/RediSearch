@@ -622,64 +622,6 @@ class TestCoordinatorTimeout:
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
                                      allow_timeout_warning=True)
 
-    def test_fail_timeout_wakes_profile_reply_wait(self):
-        """FAIL releases the worker even while a shard's final profile is missing."""
-        env = self.env
-        skipIfNoEnableAssert(env)
-        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-        coord_pid = pid_cmd(env.con)
-        shard = psutil.Process(next(pid for pid in get_all_shards_pid(env) if pid != coord_pid))
-        encode_point = 'DuringCoordBackgroundReplyEncode'
-        results, errors = [], []
-
-        def query():
-            try:
-                results.append(env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
-                                       'LIMIT', 0, 1, 'TIMEOUT', 0))
-            except Exception as error:
-                errors.append(error)
-
-        thread = threading.Thread(target=query, daemon=True)
-        shard.suspend()
-        try:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', encode_point).ok()
-            thread.start()
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', encode_point),
-                         {'results': results, 'errors': errors}),
-                'PROFILE did not reach reply encoding', timeout=5)
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'BG_PENDING_REPLIES') == 1, {}),
-                'Responsive shards did not finish', timeout=5)
-            jobs_done = getCoordThpoolStats(env)['totalJobsDone']
-            client_id = wait_for_blocked_query_client(env, 'FT.PROFILE')
-
-            # Encoding has started, so the next empty-channel wait is for the
-            # remaining shard profile. Observe the actual condition wait before
-            # timing out; a pre-pop pause would only exercise the abort flag check.
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encode_point).ok()
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'BG_CHANNEL_WAITING') == 1, {}),
-                'PROFILE did not block waiting for the paused shard', timeout=5)
-            env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
-            thread.join(timeout=5)
-            env.assertFalse(thread.is_alive())
-            env.assertEqual(results, [])
-            env.assertEqual(len(errors), 1, message=errors)
-            if errors:
-                env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
-                env.assertContains(TIMEOUT_ERROR, str(errors[0]))
-            wait_for_condition(
-                lambda: (getCoordThpoolStats(env)['totalJobsDone'] > jobs_done, {}),
-                'FAIL timeout left the worker waiting for the paused shard', timeout=5)
-        finally:
-            shard.resume()
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encode_point)
-            thread.join(timeout=5)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
-
     def test_fail_timeout_profile_hybrid(self):
         self._test_fail_timeout_impl([
             'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',

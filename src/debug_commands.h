@@ -280,7 +280,7 @@ void QueryRequestOnFreeDebug_Increment(void);
 uint64_t QueryRequestOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
-// channel state via FT.DEBUG BG_PENDING_REPLIES / BG_CHANNEL_WAITING. Set after the
+// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
 // iterator is created in the RPNet start path; cleared before it is released
 // in rpnetFree. Only one query is expected to be active at a time in tests.
 struct MRIterator;

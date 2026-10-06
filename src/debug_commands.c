@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -48,7 +47,6 @@
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
-#include "coord/rmr/chan.h"
 #include "VecSim/info_iterator.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/vec_sim_common.h"
@@ -198,20 +196,21 @@ void StoreResultsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalStoreResultsDebugCtx.pause, pause);
 }
 
-// Pin the observed iterator until a debug command finishes reading it.
-static pthread_mutex_t debugBgIteratorLock = PTHREAD_MUTEX_INITIALIZER;
-static struct MRIterator *globalDebugBgIterator = NULL;
+// Tracks the currently active coordinator MRIterator. Set by RPNet after the
+// iterator is created, cleared before it is released. A simple pointer is
+// sufficient since tests only run one blocked aggregate at a time.
+static _Atomic(struct MRIterator *) globalDebugBgIterator = NULL;
 
 void DebugBgIterator_Set(struct MRIterator *it) {
-  pthread_mutex_lock(&debugBgIteratorLock);
-  globalDebugBgIterator = it;
-  pthread_mutex_unlock(&debugBgIteratorLock);
+  atomic_store_explicit(&globalDebugBgIterator, it, memory_order_release);
 }
 
 void DebugBgIterator_Clear(struct MRIterator *it) {
-  pthread_mutex_lock(&debugBgIteratorLock);
-  if (globalDebugBgIterator == it) globalDebugBgIterator = NULL;
-  pthread_mutex_unlock(&debugBgIteratorLock);
+  // CAS so a stale clear (if iterators ever overlapped) cannot wipe the
+  // pointer set by a newer iterator.
+  struct MRIterator *expected = it;
+  atomic_compare_exchange_strong_explicit(&globalDebugBgIterator, &expected, NULL,
+                                          memory_order_release, memory_order_relaxed);
 }
 
 // ============================================================================
@@ -3437,21 +3436,9 @@ DEBUG_COMMAND(sendError) {
 DEBUG_COMMAND(bgPendingReplies) {
   if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  pthread_mutex_lock(&debugBgIteratorLock);
-  struct MRIterator *it = globalDebugBgIterator;
+  struct MRIterator *it = atomic_load_explicit(&globalDebugBgIterator, memory_order_acquire);
   long long pending = it ? (long long)MRIterator_GetPending(it) : -1;
-  pthread_mutex_unlock(&debugBgIteratorLock);
   return RedisModule_ReplyWithLongLong(ctx, pending);
-}
-
-DEBUG_COMMAND(bgChannelWaiting) {
-  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  if (argc != 2) return RedisModule_WrongArity(ctx);
-  pthread_mutex_lock(&debugBgIteratorLock);
-  struct MRIterator *it = globalDebugBgIterator;
-  bool waiting = it && MRChannel_DebugIsWaiting(MRIterator_GetChannel(it));
-  pthread_mutex_unlock(&debugBgIteratorLock);
-  return RedisModule_ReplyWithLongLong(ctx, waiting);
 }
 
 #ifdef ENABLE_ASSERT
@@ -3956,7 +3943,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
     {"BG_PENDING_REPLIES", bgPendingReplies},
-    {"BG_CHANNEL_WAITING", bgChannelWaiting},
     {"IO_RUNTIME_PENDING_REQUESTS", ioRuntimePendingRequests},
     {"SEND_ERROR", sendError},
     {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},

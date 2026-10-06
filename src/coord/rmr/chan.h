@@ -38,11 +38,6 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
  * its abort flag. Safe to call even if no reader is blocked. */
 void MRChannel_WakeAbort(MRChannel *chan);
 
-#ifdef ENABLE_ASSERT
-// Observe a consumer parked in PopWithTimeout, synchronized with its condition wait.
-bool MRChannel_DebugIsWaiting(MRChannel *chan);
-#endif
-
 // Same as MRChannel_Pop, but does not lock the channel nor wait for results if it's empty.
 // This is unsafe, and should only be used when the caller is sure that the channel is not being used by other threads.
 void *MRChannel_UnsafeForcePop(MRChannel *chan);
