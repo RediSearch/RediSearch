@@ -476,16 +476,21 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 #endif
 
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-    QueryError_ClearError(status);
-  } else if (QueryRequest_UsesReplyCallback(&hreq->base)) {
+  if (QueryRequest_UsesReplyCallback(&hreq->base)) {
+    // Deep copy since QueryError contains heap-allocated strings.
+    // reply_callback will clear the stored error after replying.
     QueryError_ClearError(&hreq->base.reply.err);
     QueryError_CloneFrom(status, &hreq->base.reply.err);
+    // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
     QueryError_ClearError(status);
   } else if (!ShouldReplyWithError(QueryError_GetCode(status), hreq->reqConfig.timeoutPolicy,
                                    IsProfile(hreq))) {
-    common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status), IsInternal(hreq),
-                                    IsProfile(hreq));
+    // Error is a timeout under a non-fail policy, which must not surface as an
+    // error: reply an empty result set with the timeout warning instead.
+    common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
+                                    IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
