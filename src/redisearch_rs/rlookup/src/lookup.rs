@@ -205,18 +205,51 @@ impl<'a> RLookup<'a> {
 
     /// Resolve a writable key by name, lazily indexing wide lookups before the search.
     pub(crate) fn get_or_create_key_by_name(&mut self, name: &[u8]) -> &RLookupKey<'a> {
-        let slot = if let Some(slot) = self.keys.find_slot_for_write(name) {
-            slot
-        } else {
-            // By-name callers only promise that the source string is valid for this call. Existing
-            // keys merely compare against it, but a newly inserted key must outlive that buffer.
-            self.get_key_write_slot(
-                CString::new(name).expect("field names cannot contain NUL"),
-                RLookupKeyFlags::empty(),
-            )
-            .expect("a missing key must be writable")
-        };
+        let slot = self.get_or_create_key_by_name_slot(name, None).unwrap();
         self.keys.get(slot).unwrap()
+    }
+
+    /// Resolve a key without changing its flags, or append an owned name below `max_keys`.
+    ///
+    /// Returns [`None`] for a missing key when the lookup has reached `max_keys` or
+    /// [`u16::MAX`], or when the name contains a NUL byte. Existing keys remain accessible
+    /// at capacity. Appending is allowed after [`Self::seal`].
+    ///
+    /// Preserves the allocation's raw-pointer provenance. The pointer remains valid until
+    /// this lookup is dropped; see [`RLookup`] for the key stability contract.
+    pub fn get_or_create_key_by_name_ptr(
+        &mut self,
+        name: &[u8],
+        max_keys: usize,
+    ) -> Option<NonNull<RLookupKey<'a>>> {
+        let slot = self.get_or_create_key_by_name_slot(name, Some(max_keys))?;
+        self.keys.get_ptr(slot)
+    }
+
+    fn get_or_create_key_by_name_slot(
+        &mut self,
+        name: &[u8],
+        max_keys: Option<usize>,
+    ) -> Option<u16> {
+        if let Some(slot) = self.keys.find_slot_for_write(name) {
+            return Some(slot);
+        }
+        if max_keys
+            .is_some_and(|limit| self.keys.row_len() as usize >= limit.min(u16::MAX as usize))
+        {
+            return None;
+        }
+        // Legacy row writes retain their unchecked insertion policy; the bounded FFI
+        // resolver rejects malformed names rather than panicking across the C boundary.
+        let name = if max_keys.is_some() {
+            CString::new(name).ok()?
+        } else {
+            CString::new(name).expect("field names cannot contain NUL")
+        };
+        Some(
+            self.get_key_write_slot(name, RLookupKeyFlags::empty())
+                .expect("a missing key must be writable"),
+        )
     }
 
     /// Add all non-overridden keys from `src` to `self`.

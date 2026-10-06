@@ -503,17 +503,17 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   req->base.reply.hasStoredResults = true;
 }
 
-static int populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
-                                    cachedVars *cv, RespSchema *schema) {
-  // populate the reply with an array containing the serialized results
-  int len = array_len(results);
-  array_foreach(results, res, {
-    serializeResult(req, reply, res, cv, schema);
-    SearchResult_Destroy(res);
-    rm_free(res);
-  });
-  array_free(results);
-  return len;
+static int populateReplyWithResults(RedisModule_Reply *reply,
+  SearchResult **results, AREQ *req, cachedVars *cv, RespSchema *schema) {
+    // populate the reply with an array containing the serialized results
+    int len = array_len(results);
+    array_foreach(results, res, {
+      serializeResult(req, reply, res, cv, schema);
+      SearchResult_Destroy(res);
+      rm_free(res);
+    });
+    array_free(results);
+    return len;
 }
 
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
@@ -770,15 +770,15 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_2:
-  finishRespSchema(req, reply, cv, &schema);
-  RedisModule_Reply_ArrayEnd(reply);  // </results>
+    finishRespSchema(req, reply, cv, &schema);
+    RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-  state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
+    state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
-  trackWarnings_Resp2(req, qctx, rc);
-  finishSendChunkReply_Resp2(req, reply, state->cursor_done);
+    trackWarnings_Resp2(req, qctx, rc);
+    finishSendChunkReply_Resp2(req, reply, state->cursor_done);
 
-  return rc;
+    return rc;
 }
 
 /* Reply-callback mode: hand the cycle's results to the main thread instead of

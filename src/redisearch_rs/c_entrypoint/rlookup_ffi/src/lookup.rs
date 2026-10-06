@@ -144,6 +144,44 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
         .map_or(ptr::null(), ptr::from_ref)
 }
 
+/// Resolve a key with the bounded, owned-name policy of
+/// [`RLookup::get_or_create_key_by_name_ptr`].
+///
+/// Returns a null pointer when that policy rejects the name or capacity.
+/// The lookup owns the returned key; its pointer remains [valid] until the lookup is dropped.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] exclusively
+///    accessible for this call.
+/// 2. `name` must be non-null and [valid] for reads of `name_len` bytes within one allocation.
+///    These bytes must remain unchanged during the call and must not overlap `lookup` itself.
+///    Names from separately allocated existing keys are permitted. No NUL terminator is required.
+/// 3. `name_len` must not exceed [`isize::MAX`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_GetOrCreateKeyByName<'a>(
+    lookup: *mut OpaqueRLookup,
+    name: *const c_char,
+    name_len: size_t,
+    max_keys: size_t,
+) -> *const RLookupKey<'a> {
+    debug_assert!(!lookup.is_null(), "lookup must not be null");
+    // SAFETY: caller guarantees a valid lookup with exclusive access for this call.
+    let lookup = unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("lookup must not be null");
+    debug_assert!(!name.is_null(), "name must not be null");
+    debug_assert!(
+        name_len <= isize::MAX as usize,
+        "name length must fit isize"
+    );
+    // SAFETY: caller guarantees a non-null immutable range in one allocation, bounded by isize::MAX.
+    let name = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len) };
+    lookup
+        .get_or_create_key_by_name_ptr(name, max_keys)
+        .map_or(ptr::null(), |key| key.as_ptr().cast_const())
+}
+
 /// Get an RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the

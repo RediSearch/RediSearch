@@ -130,28 +130,28 @@ TEST(InternalRespSchema, WideSealedLookupRetainsKeysAcrossChunks) {
   RLookup_Cleanup(&lookup);
 }
 
-TEST(InternalRespSchema, FullCoordinatorLookupRejectsNewTrailerColumn) {
+TEST(InternalRespSchema, BoundedResolverPreservesSealedKeysAndOwnedNames) {
   RLookup lookup = RLookup_New();
-  RLookupRow scratch = RLookupRow_New();
-  for (size_t i = 0; i < UINT16_MAX; ++i) {
-    auto name = "field" + std::to_string(i);
-    RLookupRow_WriteByNameOwned(&lookup, name.c_str(), name.size(), &scratch, RSValue_NullStatic());
+  const RLookupKey *existing = RLookup_GetKey_Write(&lookup, "existing", RLOOKUP_F_HIDDEN);
+  ASSERT_NE(existing, nullptr);
+  uint32_t flags = RLookupKey_GetFlags(existing);
+  RLookup_Seal(&lookup);
+  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "existing", 8, 1), existing);
+  EXPECT_EQ(RLookupKey_GetFlags(existing), flags);
+  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "missing", 7, 1), nullptr);
+  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "bad\0name", 8, 2), nullptr);
+  EXPECT_EQ(RLookup_Iter(&lookup).remaining, 1u);
+  const RLookupKey *owned;
+  {
+    std::string name = "transient";
+    owned = RLookup_GetOrCreateKeyByName(&lookup, name.data(), name.size(), 2);
+    ASSERT_NE(owned, nullptr);
+    name.assign(name.size(), 'x');
   }
-  RLookupRow_Reset(&scratch);
-  RPNet nc = {};
-  nc.cmd.protocol = 3;
-  nc.lookup = &lookup;
-  MRReply *reply = parse(chunk(3, {}, {str("new-unused-column")}));
-  ASSERT_NE(reply, nullptr);
-  EXPECT_FALSE(RPNet_DebugPrepareRespSchema(&nc, reply));
-  EXPECT_EQ(RLookup_Iter(&lookup).remaining, (size_t)UINT16_MAX);
-  RPNet_resetCurrent(&nc);
-  MRReply_Free(reply);
-  reply = parse(chunk(3, {}, {str("field" + std::to_string(UINT16_MAX - 1))}));
-  ASSERT_NE(reply, nullptr);
-  EXPECT_TRUE(RPNet_DebugPrepareRespSchema(&nc, reply));
-  RPNet_resetCurrent(&nc);
-  MRReply_Free(reply);
+  EXPECT_STREQ(RLookupKey_GetName(owned), "transient");
+  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "transient", 9, 2), owned);
+  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "overflow", 8, 2), nullptr);
+  EXPECT_EQ(RLookup_Iter(&lookup).remaining, 2u);
   RLookup_Cleanup(&lookup);
 }
 

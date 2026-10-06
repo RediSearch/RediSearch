@@ -641,6 +641,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmplens);
 }
 
+
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us,
                              int (*nextFunc)(ResultProcessor *, SearchResult *),
                              const AggregateKnnContext *knnSnapshot) {
