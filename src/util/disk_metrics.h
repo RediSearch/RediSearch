@@ -9,13 +9,12 @@
 #ifndef RS_DISK_METRICS_H
 #define RS_DISK_METRICS_H
 
-#include <stdbool.h>
 #include "redismodule.h"
+#include <stdbool.h>
 
 /* The callback uses no Redis API/GIL; its context stays live until Stop returns. */
 bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*), void* collector);
 void DiskMetrics_Stop(RedisModuleCtx* ctx);
-bool DiskMetrics_Wake(void);
 bool DiskMetrics_InForkChild(void);
 
 #endif

@@ -36,8 +36,31 @@ context. No separate retirement or blocking freshness API crosses FFI.
 
 RediSearch owns one dedicated single-worker pool using its existing `deps/thpool`
 implementation. It does not share the query or GC queue. A 50 ms module timer
-submits work. There is at most one outstanding collection job. A running
-job may replace itself with one continuation.
+submits a job only when none is outstanding. This polls RSE's due times and dirty
+flags; it does not collect properties every 50 ms. There is no external wake API.
+Unfinished work resubmits immediately, without waiting for another timer.
+
+| Owner | Responsibility |
+|---|---|
+| RediSearch | Redis timer, worker pool, single outstanding job, fork barrier, shutdown drain. |
+| RSE | Per-index/CF eligibility, refresh intervals, dirty flags, retry backoff, and collection progress. |
+
+The split reuses RediSearch's module lifecycle and thread-pool wiring. It is an
+implementation choice, not a requirement that the executor live in RediSearch.
+Moving it to RSE would still require timing, shutdown, and fork coordination.
+
+When nothing is due, a job checks the registries and returns without reading native
+properties. Those checks still cost CPU and scale with index count. The 50 ms poll
+lets dirty notifications and retries be noticed sooner than the one-second periodic
+usage deadline. It is not a freshness guarantee: event-loop or worker load can delay
+it. A longer poll reduces idle checks but increases that delay.
+
+With no dirty events or errors, usage is due one second after its pass **starts**;
+diagnostics are due five seconds after their pass **finishes**. A usage pass from
+0.00 to 0.10 s is next due at 1.00 s; a diagnostic pass finishing at 0.10 s is next
+due at 5.10 s. Intervening timer jobs only check eligibility. Usage passes lasting
+over one second are immediately eligible again, and dirty events can start usage
+earlier. These periods therefore do not mean exactly one worker job per interval.
 
 RSE supplies one private collection callback/context. Each operational batch
 checks its approximately 5 ms budget between native reads. A single property

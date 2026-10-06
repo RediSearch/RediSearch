@@ -37,7 +37,7 @@ class DiskMetricsTest : public ::testing::Test {
   static inline RedisModuleTimerProc timerProc;
   static inline void* timerData;
   static inline unsigned timersCreated;
-  static inline unsigned timersStopped;
+  static inline std::atomic<unsigned> timersStopped;
 
   void SetUp() override {
     savedCreate = RedisModule_CreateTimer;
@@ -85,10 +85,9 @@ TEST_F(DiskMetricsTest, StopCancelsTimerAndRejectsFurtherWork) {
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(1));
   DiskMetrics_Stop(nullptr);
-  EXPECT_EQ(timersStopped, 1u);
-  EXPECT_FALSE(DiskMetrics_Wake());
+  EXPECT_EQ(timersStopped.load(), 1u);
   DiskMetrics_Stop(nullptr);
-  EXPECT_EQ(timersStopped, 1u);
+  EXPECT_EQ(timersStopped.load(), 1u);
 }
 
 TEST_F(DiskMetricsTest, TimerCollectsAndRearmsAfterInitialCollection) {
@@ -110,18 +109,34 @@ TEST_F(DiskMetricsTest, TimerCollectsAndRearmsAfterInitialCollection) {
   FAIL() << "Timer did not collect again after the initial job";
 }
 
-TEST_F(DiskMetricsTest, WakeSubmitsWithoutAnEventLoopAndDoesNotWaitForNativeWork) {
+TEST_F(DiskMetricsTest, TimerDoesNotWaitForOrQueueBehindAnActiveBatch) {
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(1));
   const auto started = std::chrono::steady_clock::now();
-  ASSERT_TRUE(DiskMetrics_Wake());
+  for (unsigned i = 0; i < 10; ++i) timerProc(nullptr, timerData);
   EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(1));
   {
     std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(calls, 1u);
     release = true;
     changed.notify_all();
   }
-  ASSERT_TRUE(await(2));
+  DiskMetrics_Stop(nullptr);
+  EXPECT_EQ(calls, 1u);
+}
+
+TEST_F(DiskMetricsTest, UnfinishedBatchContinuesWithoutAnotherTimer) {
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, [](void* context) {
+    auto& self = *static_cast<DiskMetricsTest*>(context);
+    std::lock_guard<std::mutex> lock(self.mutex);
+    ++self.calls;
+    self.changed.notify_all();
+    return self.calls < 3;
+  }, this));
+  ASSERT_TRUE(await(3));
+  DiskMetrics_Stop(nullptr);
+  EXPECT_EQ(calls, 3u);
+  EXPECT_EQ(timersCreated, 1u);
 }
 
 TEST_F(DiskMetricsTest, StopDrainsNativeWorkAndAllowsRestart) {
@@ -133,10 +148,9 @@ TEST_F(DiskMetricsTest, StopDrainsNativeWorkAndAllowsRestart) {
     stopped.store(true);
   });
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (DiskMetrics_Wake() && std::chrono::steady_clock::now() < deadline) {
+  while (timersStopped.load() == 0 && std::chrono::steady_clock::now() < deadline) {
     std::this_thread::yield();
   }
-  EXPECT_FALSE(DiskMetrics_Wake());
   EXPECT_FALSE(stopped.load());
   {
     std::lock_guard<std::mutex> lock(mutex);
@@ -145,7 +159,6 @@ TEST_F(DiskMetricsTest, StopDrainsNativeWorkAndAllowsRestart) {
   }
   stop.join();
   EXPECT_TRUE(stopped.load());
-  EXPECT_FALSE(DiskMetrics_Wake());
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(2));
 }
@@ -173,7 +186,7 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         };
         api.basic.close = [](RedisModuleCtx*, RedisSearchDisk*) {
           active->closed = active->collectionFinished && active->otherWorkerFinished.load() &&
-                           specDict_g == nullptr && !DiskMetrics_Wake();
+                           specDict_g == nullptr && timersStopped.load() == 1;
         };
         disk = &api;
         disk_db = reinterpret_cast<RedisSearchDisk*>(&state);
@@ -208,7 +221,7 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         }
         std::thread releaseCollection([&state] {
           const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-          while (DiskMetrics_Wake()) {
+          while (timersStopped.load() == 0) {
             if (std::chrono::steady_clock::now() >= deadline) _exit(1);
             std::this_thread::yield();
           }
@@ -220,7 +233,7 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         RediSearch_CleanupModule(nullptr);
         RedisModule_ThreadSafeContextUnlock(nullptr);
         releaseCollection.join();
-        _exit(state.retainedIndexes && state.closed && timersStopped == 1 ? 0 : 1);
+        _exit(state.retainedIndexes && state.closed && timersStopped.load() == 1 ? 0 : 1);
       },
       ::testing::ExitedWithCode(0), "");
 }
@@ -228,28 +241,36 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
 TEST_F(DiskMetricsTest, ForkDrainsAnActiveCollectionBeforeCreatingTheChild) {
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(1));
-  std::thread releaseCollection([this] {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (DiskMetrics_Wake()) {
-      if (std::chrono::steady_clock::now() >= deadline) _exit(1);
-      std::this_thread::yield();
-    }
+  std::atomic<bool> forkStarted{false};
+  std::atomic<bool> forkFinished{false};
+  pid_t child = -1;
+  std::thread forkingThread([&] {
+    forkStarted.store(true);
+    child = fork();
+    if (child == 0) _exit(DiskMetrics_InForkChild() && release ? 0 : 1);
+    forkFinished.store(true);
+  });
+  while (!forkStarted.load()) std::this_thread::yield();
+  // The collector is still blocked; creating the child must wait for its release.
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    EXPECT_FALSE(changed.wait_for(lock, std::chrono::milliseconds(50), [&] { return calls >= 2; }));
+  }
+  EXPECT_FALSE(forkFinished.load());
+  {
     std::lock_guard<std::mutex> lock(mutex);
     release = true;
     changed.notify_all();
-  });
-  const pid_t child = fork();
-  if (child == 0) {
-    _exit(DiskMetrics_InForkChild() && release && !DiskMetrics_Wake() ? 0 : 1);
   }
-  releaseCollection.join();
+  forkingThread.join();
   ASSERT_NE(child, -1);
   int status;
   ASSERT_EQ(waitpid(child, &status, 0), child);
   ASSERT_TRUE(WIFEXITED(status));
   EXPECT_EQ(WEXITSTATUS(status), 0);
   EXPECT_FALSE(DiskMetrics_InForkChild());
-  EXPECT_TRUE(DiskMetrics_Wake());
+  timerProc(nullptr, timerData);
+  ASSERT_TRUE(await(2));
 }
 
 TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
@@ -259,7 +280,9 @@ TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
   pid_t child = fork();
   ASSERT_NE(child, -1);
   if (child == 0) {
-    bool safe = DiskMetrics_InForkChild() && !DiskMetrics_Wake();
+    const auto created = timersCreated;
+    timerProc(nullptr, timerData);
+    bool safe = DiskMetrics_InForkChild() && timersCreated == created;
     DiskMetrics_Stop(nullptr);
     _exit(safe ? 0 : 1);
   }
@@ -268,7 +291,7 @@ TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
   ASSERT_TRUE(WIFEXITED(status));
   EXPECT_EQ(WEXITSTATUS(status), 0);
   EXPECT_FALSE(DiskMetrics_InForkChild());
-  EXPECT_TRUE(DiskMetrics_Wake());
+  timerProc(nullptr, timerData);
   ASSERT_TRUE(await(2));
 }
 #endif

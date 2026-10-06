@@ -8,8 +8,8 @@
  */
 
 #include "disk_metrics.h"
-#include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
+#include "thpool/thpool.h"
 #include <pthread.h>
 #include <stdatomic.h>
 
@@ -21,7 +21,6 @@ static void* collectionContext;
 static RedisModuleTimerID timer;
 static bool timerActive;
 static bool submitted;
-static bool wakeRequested;
 static _Atomic bool stopping;
 static _Atomic bool forking;
 static _Atomic bool inChild;
@@ -42,17 +41,17 @@ static void collectJob(void* unused) {
   (void)unused;
   pthread_mutex_lock(&nativeGate);
   pthread_mutex_lock(&gate);
-  wakeRequested = false;
   bool run = pool && !atomic_load(&stopping) && !atomic_load(&forking);
   pthread_mutex_unlock(&gate);
   bool more = run && collectBatch(collectionContext);
   pthread_mutex_lock(&gate);
   submitted = false;
-  if (more || wakeRequested) submit();
+  if (more) submit();
   pthread_mutex_unlock(&gate);
   pthread_mutex_unlock(&nativeGate);
 }
 
+/* Poll for due/dirty work; RSE owns refresh deadlines. This does not sample metrics on the main thread. */
 static void tick(RedisModuleCtx* ctx, void* unused) {
   (void)unused;
   timerActive = false;
@@ -96,7 +95,10 @@ bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*), void* collec
   submitted = false;
   timer = RedisModule_CreateTimer(ctx, 50, tick, NULL);
   timerActive = true;
-  if (DiskMetrics_Wake()) return true;
+  pthread_mutex_lock(&gate);
+  bool started = submit();
+  pthread_mutex_unlock(&gate);
+  if (started) return true;
   DiskMetrics_Stop(ctx);
   return false;
 }
@@ -116,15 +118,6 @@ void DiskMetrics_Stop(RedisModuleCtx* ctx) {
   collectionContext = NULL;
   submitted = false;
   pthread_mutex_unlock(&gate);
-}
-
-bool DiskMetrics_Wake(void) {
-  if (DiskMetrics_InForkChild()) return false;
-  pthread_mutex_lock(&gate);
-  wakeRequested = true;
-  bool accepted = submit();
-  pthread_mutex_unlock(&gate);
-  return accepted;
 }
 
 bool DiskMetrics_InForkChild(void) {
