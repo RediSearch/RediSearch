@@ -56,9 +56,8 @@ background SST reads is a separate simplification, not required for cheap reads.
 
 There is no hard freshness bound under sustained overload or a long native
 read. Last-good values remain available; collection failure retries with a short
-backoff. Operators can inspect operational oldest-sample age, pending dirty
-indexes, unready indexes and collection errors. Health is sampled by the worker;
-its getters do not scan SSTs. There is no synchronous expiry fallback.
+backoff. No new INFO fields, commands, or configuration options are exposed.
+There is no synchronous expiry fallback.
 
 ## Ownership and lifecycle
 
@@ -102,7 +101,7 @@ flowchart TD
     Index --> DE[async_snapshot::Entry]
     Usage -. weak registry .-> UE
     Diagnostics -. weak queue .-> DE
-    UE --> State[IndexState and CF Samples]
+    UE --> State[IndexState and CF byte counts]
     UE --> Counters[Published atomic counters]
     DE --> Pending[Pending Collection]
     DE --> Working[Working Collection]
@@ -121,13 +120,11 @@ borrows native DB/CF handles only for a property read and never accesses C Index
 | `Target` | Weak DB reference and CF names/identities, shared by both cache implementations. Detects replaced CFs without retaining native handles. |
 | `UsageCache` / `Registry` | Global atomic total for readers; membership and the exact accounting sum change together under the registry lock. |
 | `usage_cache::Entry` / `IndexState` | Per-index published counters plus locked lifecycle/refresh state. A separate native-read lock lets drop debit accounting before draining the read. |
-| `Sample` | Last-good byte count and sample time for one CF; errors preserve both. |
 | `DirtySignal` / `UsageListener` | Minimal event notification state and its native adapter. A callback can request refresh without retaining the index. |
-| `AsyncSnapshots` | Weak scheduling queue and diagnostic error accounting; the C executor supplies the single worker. |
+| `AsyncSnapshots` | Weak scheduling queue; the C executor supplies the single worker. |
 | `async_snapshot::Entry` | One index's pending replacement, active collection, and published result; rejects obsolete results and drains on retirement. |
 | `Collection` | Target, cursor, due time, revision, and working snapshot. Resumes a pass after yielding between native properties. |
-| `Snapshot` / `CfSample` | Stable aggregate plus per-CF history. Per-property success times prevent a successful read from making a failed property appear fresh. |
-| `Health` | Small result type summarizing the same snapshots retained for INFO output. |
+| `Snapshot` | Stable aggregate plus per-CF last-good values, preserved on failed property reads. |
 
 The diagnostic entry has three distinct roles:
 
@@ -162,5 +159,5 @@ native flush events, persisted reopen, layout replacement, retention of last-goo
 values on errors, diagnostic fairness, stop/drain, fork and shutdown.
 Representative performance qualification remains a separate matched comparison
 on an idle machine: normal writes/reads with and without INFO, main-thread
-property attribution, operational cache age and collector native contention.
+property attribution, operational refresh progress and collector native contention.
 Historical prototype timings do not establish this implementation's results.
