@@ -750,11 +750,6 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
 void SearchDisk_ActivateUsage(IndexSpec *spec);
 void SearchDisk_PauseMetrics(void);
 void SearchDisk_ResumeMetrics(void);
-/* Internal only. Never use in INFO/admission, on the collector, or holding its locks.
- * index == NULL selects the visible total. Returns 0 success, 1 timeout,
- * 2 scope changed, 3 unavailable. usage is written only on success. */
-int SearchDisk_WaitFreshUsage(RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
-                              uint64_t timeout_ms, uint64_t *usage);
 bool SearchDisk_InfoCacheEnabled(void);
 CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
 

@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #include "disk_metrics.h"
 #include "thpool/thpool.h"
@@ -15,8 +15,6 @@
 
 static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t nativeGate = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t waitersDone = PTHREAD_COND_INITIALIZER;
-static size_t waiters;
 static redisearch_thpool_t* pool;
 static bool (*collectBatch)(void*);
 static void* collectionContext;
@@ -114,7 +112,6 @@ void DiskMetrics_Stop(RedisModuleCtx* ctx) {
   redisearch_thpool_wait(pool);
   redisearch_thpool_destroy(pool);
   pthread_mutex_lock(&gate);
-  while (waiters) pthread_cond_wait(&waitersDone, &gate);
   pool = NULL;
   collectBatch = NULL;
   collectionContext = NULL;
@@ -150,20 +147,4 @@ bool DiskMetrics_Wake(void) {
 
 bool DiskMetrics_InForkChild(void) {
   return atomic_load_explicit(&inChild, memory_order_relaxed);
-}
-
-bool DiskMetrics_BeginWait(void) {
-  if (DiskMetrics_InForkChild()) return false;
-  pthread_mutex_lock(&gate);
-  bool available = pool && !atomic_load(&pauses);
-  if (available) ++waiters;
-  pthread_mutex_unlock(&gate);
-  return available;
-}
-
-void DiskMetrics_EndWait(void) {
-  pthread_mutex_lock(&gate);
-  RS_ASSERT(waiters);
-  if (--waiters == 0) pthread_cond_broadcast(&waitersDone);
-  pthread_mutex_unlock(&gate);
 }

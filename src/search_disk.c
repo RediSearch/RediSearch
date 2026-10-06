@@ -252,7 +252,6 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
     SearchDisk_PauseMetrics();
     DiskMetrics_Stop(ctx);
-    if (metricsCollector) disk->metrics.setAvailable(metricsCollector, false);
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
     diskMemoryLimitBytes = 0;
@@ -270,23 +269,12 @@ void SearchDisk_ActivateUsage(IndexSpec *spec) {
 void SearchDisk_PauseMetrics(void) {
   if (!metricsCollector || DiskMetrics_InForkChild()) return;
   DiskMetrics_Pause();
-  disk->metrics.setAvailable(metricsCollector, false);
 }
 
 void SearchDisk_ResumeMetrics(void) {
   if (!metricsCollector || DiskMetrics_InForkChild()) return;
   bool available = DiskMetrics_Resume();
-  disk->metrics.setAvailable(metricsCollector, available);
   if (available) DiskMetrics_Wake();
-}
-
-int SearchDisk_WaitFreshUsage(RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,
-                              uint64_t timeout_ms, uint64_t *usage) {
-  if (!usage || !DiskMetrics_BeginWait()) return 3;
-  int status = disk->metrics.waitFreshUsage(metricsCollector, index, max_age_ms, timeout_ms,
-                                            DiskMetrics_Wake, usage);
-  DiskMetrics_EndWait();
-  return status;
 }
 
 static void *Compaction_BeginUpdate(void *private_data) {

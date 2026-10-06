@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "gtest/gtest.h"
 #include "common.h"
 #include "module.h"
@@ -87,7 +87,6 @@ TEST_F(DiskMetricsTest, StopCancelsTimerAndRejectsFurtherWork) {
   DiskMetrics_Stop(nullptr);
   EXPECT_EQ(timersStopped, 1u);
   EXPECT_FALSE(DiskMetrics_Wake());
-  EXPECT_FALSE(DiskMetrics_BeginWait());
   DiskMetrics_Stop(nullptr);
   EXPECT_EQ(timersStopped, 1u);
 }
@@ -142,13 +141,10 @@ TEST_F(DiskMetricsTest, PauseDrainsNativeWorkAndNestedResumeRemainsPaused) {
   pause.join();
   EXPECT_TRUE(paused.load());
   EXPECT_FALSE(DiskMetrics_Wake());
-  EXPECT_FALSE(DiskMetrics_BeginWait());
   DiskMetrics_Pause();
   EXPECT_FALSE(DiskMetrics_Resume());
   EXPECT_FALSE(DiskMetrics_Wake());
   EXPECT_TRUE(DiskMetrics_Resume());
-  EXPECT_TRUE(DiskMetrics_BeginWait());
-  DiskMetrics_EndWait();
   ASSERT_TRUE(await(2));
 }
 
@@ -173,10 +169,9 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         api.metrics.getCollector = [](RedisSearchDisk*) {
           return reinterpret_cast<RedisSearchDiskMetricsCollector*>(active);
         };
-        api.metrics.setAvailable = [](RedisSearchDiskMetricsCollector*, bool) {};
         api.basic.close = [](RedisModuleCtx*, RedisSearchDisk*) {
           active->closed = active->collectionFinished && active->otherWorkerFinished.load() &&
-                           specDict_g == nullptr && !DiskMetrics_BeginWait();
+                           specDict_g == nullptr && !DiskMetrics_Wake();
         };
         disk = &api;
         disk_db = reinterpret_cast<RedisSearchDisk*>(&state);
@@ -211,8 +206,7 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         }
         std::thread releaseCollection([&state] {
           const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-          while (DiskMetrics_BeginWait()) {
-            DiskMetrics_EndWait();
+          while (DiskMetrics_Wake()) {
             if (std::chrono::steady_clock::now() >= deadline) _exit(1);
             std::this_thread::yield();
           }
@@ -263,7 +257,7 @@ TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
   pid_t child = fork();
   ASSERT_NE(child, -1);
   if (child == 0) {
-    bool safe = DiskMetrics_InForkChild() && !DiskMetrics_Wake() && !DiskMetrics_BeginWait();
+    bool safe = DiskMetrics_InForkChild() && !DiskMetrics_Wake();
     DiskMetrics_Stop(nullptr);
     _exit(safe ? 0 : 1);
   }
