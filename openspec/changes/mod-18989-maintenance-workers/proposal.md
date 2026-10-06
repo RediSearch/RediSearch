@@ -2,7 +2,7 @@
 
 ## Why
 
-[MOD-18989](https://redislabs.atlassian.net/browse/MOD-18989): with `WORKERS 0`, the
+With `WORKERS 0`, the
 workers pool is empty, so VecSim writes in place. Every vector delete or overwrite then
 repairs the HNSW graph on the main thread. A transaction of a few hundred deletes on
 large-dimension indexes blocks the event loop for seconds, which is long enough for a

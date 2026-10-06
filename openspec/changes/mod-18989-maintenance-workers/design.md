@@ -12,6 +12,12 @@ to the floor thread at `WORKERS 0`. With `MIN_MAINTENANCE_WORKERS` above a non-z
 The thread is started on the first queued job, so a shard without vector writes does
 not run it.
 
+SVS follows the same sizing: the shared SVS pool is resized with the workers pool, and
+an SVS update or GC job runs on one worker and reserves up to pool size - 1 others. So
+`WORKERS 1` and `WORKERS N > 1` are unchanged by the floor. At `WORKERS 0`, SVS goes
+from in-place writes on the main thread (training included) to async writes, with
+training, backend updates and GC on the single floor thread, at parallelism 1.
+
 Shrinking to the floor needs care. The old shrink was to an empty pool, where leaving
 threads exit only once the queue is empty. The thread pool supports that mode only for
 a shrink to zero; a partial shrink removes threads as soon as they finish their current
