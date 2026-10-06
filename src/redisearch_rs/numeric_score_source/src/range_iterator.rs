@@ -127,14 +127,18 @@ impl<'index> NumericRangeIterator<'index> {
     }
 }
 
+/// Most records [`merge_ranges`] reserves up front: enough for a small-k batch,
+/// little wasted on one the filter empties.
+const RESERVE_CAP: usize = 1024;
+
 /// Read each range's records that satisfy `filter` into a single
 /// `(doc_id, score)` vector, one strictly-increasing entry per doc id.
 ///
 /// A range read through [`FilterNumericReader`] yields only records whose value
 /// lies in the filter's window, since the tree's buckets are coarser than the
-/// window. Ranges overlap in doc-id space, so reading them back-to-back yields
-/// interleaved ids; the sort restores the increasing order that
-/// [`NumericScoreBatch`] requires for its `skip_to` `partition_point`.
+/// window. Each range yields one ascending doc-id run; the stable sort merges
+/// the runs into the order [`NumericScoreBatch`]'s `skip_to` needs, and is
+/// skipped when they don't interleave, sparing its scratch buffer.
 ///
 /// A multivalue field indexes one entry per value, so a doc id can occur several
 /// times with different scores. Occurrences within this batch's ranges are
@@ -157,7 +161,9 @@ fn merge_ranges(
     emitted: Option<&mut HashSet<DocId>>,
     timeout: &mut impl TimeoutContext,
 ) -> Result<NumericScoreBatch, RQEIteratorError> {
-    let mut items: Vec<(DocId, f64)> = Vec::new();
+    let reserve: u32 = ranges.iter().map(|r| r.num_docs()).sum();
+    let mut items: Vec<(DocId, f64)> =
+        Vec::with_capacity(RESERVE_CAP.min(reserve.try_into().unwrap_or(usize::MAX)));
     let mut record = RSIndexResult::build_numeric(0.0).build();
     for range in ranges {
         let mut reader = FilterNumericReader::new(filter, range.reader());
@@ -176,7 +182,9 @@ fn merge_ranges(
         }
     }
     timeout.check_timeout()?;
-    items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
+    if !items.is_sorted_by_key(|(doc_id, _)| *doc_id) {
+        items.sort_by_key(|(doc_id, _)| *doc_id);
+    }
     if let Some(emitted) = emitted {
         coalesce_by_doc_id(&mut items, filter.ascending);
         emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
@@ -307,6 +315,49 @@ mod tests {
 
         assert!(scores.iter().all(|&s| s > 10.0 && s < 20.0));
         assert!(!scores.contains(&10.0) && !scores.contains(&20.0));
+    }
+
+    #[test]
+    fn one_batch_merges_ranges_with_interleaved_doc_ids() {
+        // Odd ids take low values and even ids high ones, so the value split
+        // leaves every range's doc ids interleaved with another range's.
+        let docs = 40u64;
+        let value_of = |id: u64| {
+            if id % 2 == 1 {
+                id as f64
+            } else {
+                100.0 + id as f64
+            }
+        };
+        let mut tree = NumericRangeTree::new(false);
+        for id in 1..=docs {
+            tree.add(id, value_of(id), false, false, 0);
+        }
+        let filter = NumericFilter::default();
+        let ranges = tree.find(&filter).len();
+        assert!(ranges >= 2, "expected a split");
+
+        let single_batch = || {
+            let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
+            let batch = it.next_n(ranges, &mut NoTimeoutChecker).unwrap().unwrap();
+            assert!(it.is_exhausted(), "every range must land in the one batch");
+            batch
+        };
+
+        let mut batch = single_batch();
+        let mut pairs = Vec::new();
+        while let Some(pair) = batch.next() {
+            pairs.push(pair);
+        }
+        let expected: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, value_of(id))).collect();
+        assert_eq!(pairs, expected);
+
+        // `skip_to` binary-searches the merged order, across run boundaries.
+        let mut batch = single_batch();
+        let target = docs / 2;
+        assert_eq!(batch.skip_to(target), Some((target, value_of(target))));
+        assert_eq!(batch.next(), Some((target + 1, value_of(target + 1))));
+        assert_eq!(batch.skip_to(docs + 1), None);
     }
 
     #[test]
