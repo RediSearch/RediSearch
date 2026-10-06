@@ -1105,7 +1105,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       goto cleanup;
     }
 
-    HREQ_ReplyError(hreq, ctx, status);
+    HREQ_ReplyOrStoreError(hreq, ctx, status);
 
     cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));

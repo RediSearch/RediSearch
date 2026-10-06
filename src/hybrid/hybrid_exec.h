@@ -54,8 +54,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);
 
-// Reply from the executing thread unless the blocked-client timeout already replied.
-void HREQ_ReplyError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
+// Initial shard mapping errors are deferred to the main-thread reply callback.
+void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
 
 /**
  * Helper function to get the search context from a hybrid request.

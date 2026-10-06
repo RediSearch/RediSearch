@@ -172,7 +172,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
 #ifdef ENABLE_ASSERT
 static bool isBackgroundFailReply(const HybridRequest *hreq) {
-  return hreq->base.blockedClientCycleActive && hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail;
+  return hreq->base.blockedClientCycleActive &&
+         hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+         !QueryRequest_UsesReplyCallback(&hreq->base);
 }
 #endif
 
@@ -473,8 +475,12 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 }
 #endif
 
-void HREQ_ReplyError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
+void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    QueryError_ClearError(status);
+  } else if (QueryRequest_UsesReplyCallback(&hreq->base)) {
+    QueryError_ClearError(&hreq->base.reply.err);
+    QueryError_CloneFrom(status, &hreq->base.reply.err);
     QueryError_ClearError(status);
   } else if (!ShouldReplyWithError(QueryError_GetCode(status), hreq->reqConfig.timeoutPolicy,
                                    IsProfile(hreq))) {
@@ -612,18 +618,8 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
 static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hreq,
                                      bool timedOut) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
-#ifdef ENABLE_ASSERT
-    if (isBackgroundFailReply(hreq)) {
-      SyncPoint_Wait(SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
-    }
-#endif
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
-#ifdef ENABLE_ASSERT
-    if (isBackgroundFailReply(hreq)) {
-      SyncPoint_Wait(SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
-    }
-#endif
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ *areq = hreq->requests[i];
       if (IsHybridSearchSubquery(areq)) {
@@ -653,11 +649,6 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
 
     RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
-#ifdef ENABLE_ASSERT
-    if (isBackgroundFailReply(hreq)) {
-      SyncPoint_Wait(SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
-    }
-#endif
 }
 
 // Collect each subquery's end depleter, unwrapping a profile RP. Returns NULL
@@ -790,7 +781,9 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     // Pause after publication (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);
 
-    replyWithCursors(replyCtx, req, depletionTimedOut);
+    if (!QueryRequest_UsesReplyCallback(&req->base)) {
+      replyWithCursors(replyCtx, req, depletionTimedOut);
+    }
 
     return REDISMODULE_OK;
 }
@@ -942,6 +935,32 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   return REDISMODULE_OK;
 }
 
+// The initial shard reply is only cursor IDs and warnings; keep it on the main thread.
+static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(request != NULL);
+  HybridRequest *req = QueryRequest_GetHybrid(request);
+
+  if (QueryError_HasError(&req->base.reply.err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, SHARD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+    return REDISMODULE_OK;
+  }
+
+  if (req->nrequests == 0 ||
+      req->requests[0]->base.cursorInfo.disposition != CURSOR_DISPOSITION_PAUSE) {
+    RedisModule_ReplyWithError(ctx, "ERR Internal error: no cursors stored");
+    return REDISMODULE_OK;
+  }
+
+  // The container parks the cursors at cycle teardown, after this reply.
+  replyWithCursors(ctx, req, false);
+  return REDISMODULE_OK;
+}
+
 // Background execution functions implementation
 static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
                                                    HybridPipelineParams *hybridParams,
@@ -966,15 +985,17 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
+    RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
     if (timeoutPolicy == TimeoutPolicy_Fail) {
+      replyCallback = internal ? HybridQueryCursorReplyCallback : NULL;
       timeoutCallback = HybridQueryTimeoutFailCallback;
       timeoutMS = hreq->reqConfig.queryTimeoutMS;
     }
 
     RedisModuleBlockedClient *blockedClient =
-        BlockQueryClientWithTimeout(ctx, &hreq->base, NULL, timeoutCallback, timeoutMS);
+        BlockQueryClientWithTimeout(ctx, &hreq->base, replyCallback, timeoutCallback, timeoutMS);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, hybridParams, blockedClient, spec_ref, internal);
 
@@ -1246,7 +1267,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    HREQ_ReplyError(hreq, outctx, &status);
+    HREQ_ReplyOrStoreError(hreq, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientHybridCtx_destroy(BCHCtx);
     return;
@@ -1281,7 +1302,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
       HybridRequest_GetError(hreq, &status);
       HybridRequest_ClearErrors(hreq);
     }
-    HREQ_ReplyError(hreq, outctx, &status);
+    HREQ_ReplyOrStoreError(hreq, outctx, &status);
   }
 
   // Reclaim the cycle's loans on every path — depletion has finished (or never
