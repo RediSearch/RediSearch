@@ -210,7 +210,12 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
             _exit(1);
         }
         std::thread releaseCollection([&state] {
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+          while (DiskMetrics_BeginWait()) {
+            DiskMetrics_EndWait();
+            if (std::chrono::steady_clock::now() >= deadline) _exit(1);
+            std::this_thread::yield();
+          }
           std::lock_guard<std::mutex> lock(state.mutex);
           state.release = true;
           state.changed.notify_all();
