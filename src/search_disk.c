@@ -33,8 +33,6 @@ RedisSearchDisk *disk_db = NULL;
 
 static bool infoCacheEnabled;
 static void *metricsCollector;
-static uint64_t usageGroup = 1;
-static uint64_t backupUsageGroup;
 
 static size_t diskMemoryLimitBytes = 0;
 
@@ -256,32 +254,13 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
     diskMemoryLimitBytes = 0;
     infoCacheEnabled = false;
     metricsCollector = NULL;
-    usageGroup = 1;
-    backupUsageGroup = 0;
   }
 }
 
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (metricsCollector && spec && spec->diskSpec) {
-    disk->metrics.activateTarget(spec->diskSpec, usageGroup);
+    disk->metrics.activateTarget(spec->diskSpec);
   }
-}
-
-void SearchDisk_BackupUsage(void) {
-  if (!metricsCollector) return;
-  backupUsageGroup = usageGroup;
-  usageGroup = disk->metrics.switchUsageGroup(metricsCollector, 0);
-}
-
-void SearchDisk_RestoreUsage(void) {
-  if (!metricsCollector || !backupUsageGroup) return;
-  usageGroup = backupUsageGroup;
-  backupUsageGroup = 0;
-  disk->metrics.switchUsageGroup(metricsCollector, usageGroup);
-}
-
-void SearchDisk_DiscardUsageBackup(void) {
-  backupUsageGroup = 0;
 }
 
 void SearchDisk_PauseMetrics(void) {
@@ -363,7 +342,7 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
     spec->diskRegistered = true;
     dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
     if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
-      disk->metrics.activateTarget(result, usageGroup);
+      disk->metrics.activateTarget(result);
     }
     return;
   }

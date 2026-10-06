@@ -1287,11 +1287,9 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
     Restore_Globals(ctx);
-    refreshDiskResourceState(ctx);
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
     Discard_Globals_Backup(ctx);
-    refreshDiskResourceState(ctx);
     break;
   }
 }

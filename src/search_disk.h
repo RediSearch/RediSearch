@@ -748,9 +748,6 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  */
 
 void SearchDisk_ActivateUsage(IndexSpec *spec);
-void SearchDisk_BackupUsage(void);
-void SearchDisk_RestoreUsage(void);
-void SearchDisk_DiscardUsageBackup(void);
 void SearchDisk_PauseMetrics(void);
 void SearchDisk_ResumeMetrics(void);
 /* Internal only. Never use in INFO/admission, on the collector, or holding its locks.

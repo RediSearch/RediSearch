@@ -1035,10 +1035,7 @@ typedef struct MetricsDiskAPI {
   void *(*getCollector)(RedisSearchDisk *disk);
   bool (*collect)(void *collector);
   void (*setAvailable)(void *collector, bool available);
-  void (*activateTarget)(RedisSearchDiskIndexSpec *index, uint64_t group);
-  /* group == 0 allocates and selects a new load group; otherwise selects an existing group.
-   * Returns the selected group. Initial visible group is 1. */
-  uint64_t (*switchUsageGroup)(void *collector, uint64_t group);
+  void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   /* Records the freshness requirement, wakes collection, waits, and releases internal state.
    * The caller leases collector lifetime and supplies a thread-safe wake callback. */
   int (*waitFreshUsage)(void *collector, RedisSearchDiskIndexSpec *index, uint64_t max_age_ms,

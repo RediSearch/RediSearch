@@ -14,8 +14,6 @@
 extern "C" {
 #include "info/info_redis/info_redis.h"
 #include "search_disk.h"
-#include "rdb.h"
-#include "rules.h"
 #include "util/disk_metrics.h"
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
@@ -149,7 +147,7 @@ class InfoSectionsTest : public ::testing::Test {
       return false;
     };
     api.metrics.setAvailable = [](void *, bool) {};
-    api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *, uint64_t) {};
+    api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
     api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
       ++totalReads;
       return 55;
@@ -323,17 +321,10 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
   int result = 0;
   unsigned requests = 0;
   unsigned releases = 0;
-  uint64_t selectedGroup = 1;
-  uint64_t nextGroup = 2;
-  std::map<RedisSearchDiskIndexSpec *, uint64_t> entries;
-  std::vector<StrongRef> pins;
-  bool createdPrefixes = false;
 
   void SetUp() override {
     InfoSectionsTest::SetUp();
     active = this;
-    createdPrefixes = SchemaPrefixes_g == nullptr;
-    SchemaPrefixes_Create();
     RedisModule_CreateTimer = [](RedisModuleCtx *, mstime_t, RedisModuleTimerProc, void *) {
       return RedisModuleTimerID{1};
     };
@@ -375,63 +366,11 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
       active->closed = true;
       active->changed.notify_all();
     };
-    api.metrics.switchUsageGroup = [](void *, uint64_t group) {
-      active->selectedGroup = group ? group : active->nextGroup++;
-      return active->selectedGroup;
-    };
-    api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *index, uint64_t group) {
-      active->entries[index] = group;
-    };
-    api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
-                                          RedisSearchDiskIndexSpec *index) {
-      active->entries.erase(index);
-    };
-    api.metrics.getCachedTotalDiskUsage = [](void *) -> uint64_t {
-      uint64_t total = 0;
-      for (auto [index, group] : active->entries) {
-        if (group == active->selectedGroup) total += 55;
-      }
-      return total;
-    };
-    api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
-    api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
-    pins.push_back(StrongRef_Clone(ref));
   }
 
   void TearDown() override {
-    for (auto pin : pins) {
-      auto *index = static_cast<IndexSpec *>(StrongRef_Get(pin));
-      index->diskSpec = nullptr;
-      index->diskRegistered = false;
-    }
     InfoSectionsTest::TearDown();
-    for (auto pin : pins) StrongRef_Release(pin);
-    if (createdPrefixes) {
-      SchemaPrefixes_Free(SchemaPrefixes_g);
-      SchemaPrefixes_g = nullptr;
-    }
     active = nullptr;
-  }
-
-  void activate(IndexSpec *index) {
-    index->diskRegistered = true;
-    SearchDisk_ActivateUsage(index);
-  }
-
-  StrongRef stagedIndex() {
-    Restore<decltype(isFlex)> mode{isFlex};
-    isFlex = false;
-    const char *args[] = {"SCHEMA", "title", "TEXT"};
-    QueryError error = QueryError_Default();
-    auto staged = IndexSpec_ParseC(nullptr, "staged_usage", args, 3, &error);
-    auto *index = static_cast<IndexSpec *>(StrongRef_Get(staged));
-    if (index) {
-      Spec_AddToDict(staged.rm);
-      index->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(index);
-      pins.push_back(StrongRef_Clone(staged));
-      activate(index);
-    }
-    return staged;
   }
 };
 
@@ -489,48 +428,6 @@ TEST_F(CachedDiskLifecycleTest, ShutdownWakesWaiterAndWaitsForTicketCleanup) {
   EXPECT_EQ(releases, 1);
   EXPECT_TRUE(closed);
   EXPECT_FALSE(DiskMetrics_BeginWait());
-}
-
-TEST_F(CachedDiskLifecycleTest, RdbRollbackRestoresOldTotalAndDropSubtractsImmediately) {
-  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
-  activate(spec);
-  EXPECT_EQ(callbacks.getDiskUsage(), 55);
-  auto *oldPrefixes = SchemaPrefixes_g;
-  Backup_Globals();
-  EXPECT_NE(SchemaPrefixes_g, oldPrefixes);
-  EXPECT_EQ(callbacks.getDiskUsage(), 0);
-  auto staged = stagedIndex();
-  EXPECT_NE(StrongRef_Get(staged), nullptr);
-  EXPECT_EQ(callbacks.getDiskUsage(), 55);
-  Restore_Globals(RSDummyContext);
-  EXPECT_EQ(SchemaPrefixes_g, oldPrefixes);
-  EXPECT_EQ(callbacks.getDiskUsage(), 55);
-  EXPECT_EQ(entries.size(), 1);
-  EXPECT_EQ(Indexes_LoadIndexSpecUnsafe("info_sections").rm, ref.rm);
-  EXPECT_EQ(Indexes_LoadIndexSpecUnsafe("staged_usage").rm, nullptr);
-  Indexes_RemoveSpecFromGlobals(ref, false);
-  spec = nullptr;
-  EXPECT_EQ(callbacks.getDiskUsage(), 0);
-}
-
-TEST_F(CachedDiskLifecycleTest, DiscardingBackupKeepsLoadedTotalAndClearsRollback) {
-  ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
-  activate(spec);
-  Backup_Globals();
-  auto staged = stagedIndex();
-  EXPECT_NE(StrongRef_Get(staged), nullptr);
-  EXPECT_EQ(entries.size(), 2);
-  EXPECT_EQ(callbacks.getDiskUsage(), 55);
-  Discard_Globals_Backup(RSDummyContext);
-  ref = staged;
-  spec = static_cast<IndexSpec *>(StrongRef_Get(staged));
-  EXPECT_EQ(entries.size(), 1);
-  EXPECT_EQ(callbacks.getDiskUsage(), 55);
-  SearchDisk_RestoreUsage();
-  EXPECT_EQ(callbacks.getDiskUsage(), 55);
-  Indexes_RemoveSpecFromGlobals(ref, false);
-  spec = nullptr;
-  EXPECT_EQ(callbacks.getDiskUsage(), 0);
 }
 
 }  // namespace

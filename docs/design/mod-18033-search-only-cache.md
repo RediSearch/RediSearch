@@ -22,14 +22,13 @@ filesystem usage, retained obsolete files, or memtable bytes.
 
 ## Private interface
 
-Eight added callbacks connect the repositories: `getCollector`, `collect`,
-`setAvailable`, `activateTarget`, `switchUsageGroup`, `waitFreshUsage`,
+Seven added callbacks connect the repositories: `getCollector`, `collect`,
+`setAvailable`, `activateTarget`, `waitFreshUsage`,
 `getCachedTotalDiskUsage` and `readCachedIndexMetrics`. The last returns one
 numeric record containing memory, operational disk usage and block estimates,
 and stages the component snapshot for the existing INFO output callback.
 
-`switchUsageGroup(0)` allocates and selects a staging group; a nonzero argument
-selects a previous group for rollback. Index retirement and INFO-map cleanup run
+Index retirement and INFO-map cleanup run
 through the existing main-thread close callback, which receives the owning disk
 context. No separate retirement API or freshness-ticket ownership crosses FFI.
 
@@ -67,7 +66,7 @@ The worker never touches `specDict_g` or C IndexSpecs. Its Rust registry holds
 weak entry/DB references and CF names plus native identities. A DB and CF are
 pinned only during a native read. A CF-layout revision rejects results collected
 for an old target. Each index publishes its contribution and metric categories
-atomically; a wider internal group ledger prevents overflow from breaking later
+atomically; a wider internal ledger prevents overflow from breaking later
 subtraction. The externally visible total saturates at `u64::MAX`.
 
 A separate lifetime native listener marks flush and compaction completion with
@@ -78,9 +77,7 @@ existing reclaimed-byte semantics.
 An index becomes accounted when added to the visible C registry. Removal/drop
 subtracts its contribution immediately, then drains its current native read
 before BigModule unregisters the DB. Late completion cannot re-add a removed
-index. Load backup/restore switches one visible accounting group in O(1), so
-staged/backup indexes cannot be double-counted and a rollback restores the
-previous total. Dynamic CF creation replaces the target and requests refresh.
+index. Dynamic CF creation replaces the target and requests refresh.
 Cold DB open/reopen seeds existing SSTs before activation.
 
 Disk consistency windows pause and drain the collector, and resume it only when
@@ -118,13 +115,13 @@ module shutdown.
 ## Coordinated PRs and qualification
 
 1. **RediSearch:** the pool, pause/fork/shutdown gates, V1 callback, cached INFO
-   reads, visibility/group hooks, private FFI contract and C/C++ tests.
+   reads, visibility hooks, private FFI contract and C/C++ tests.
 2. **RediSearchEnterprise:** the operational ledger, listener ownership, seeding,
    fair incremental refresh, diagnostic snapshots and scalar mirrors, internal
    freshness tickets, Rust tests and the matching RediSearch dependency.
 
 Validation must cover successful/error/zero samples, overflow followed by drop,
-load groups, native flush events, persisted reopen, internal wait deadlines,
+native flush events, persisted reopen, internal wait deadlines,
 all-CF freshness, worker wake without a timer, pause/drain, fork and shutdown.
 Representative performance qualification remains a separate matched comparison
 on an idle machine: normal writes/reads with and without INFO, main-thread
