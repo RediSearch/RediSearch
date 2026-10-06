@@ -10,8 +10,8 @@
 use redis_json_api::mock::{json_api_calls, reset_json_api_calls, with_json_api};
 use redis_module::RedisString;
 use rlookup::{
-    DocumentFormat, FieldLoader, JsonDocumentFormat, JsonPathCache, RLookup, RLookupKeyFlags,
-    RLookupRow,
+    DocumentFormat, FieldLoader, JsonDocumentFormat, JsonPathCache, LoadAllError, RLookup,
+    RLookupKeyFlags, RLookupRow,
 };
 use serde_json::{Value as JsonValue, json};
 use std::{
@@ -237,6 +237,38 @@ fn root_load_uses_compiled_path_and_preserves_whole_document() {
         );
     });
     assert_eq!(json_api_calls().path_free, 1);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // RedisModule_CreateString crosses the C FFI boundary.
+fn cached_root_load_preserves_errors_without_writing_a_value() {
+    redis_mock::init_redis_module_mock();
+    for (doc, expected) in [
+        (None, LoadAllError::OpenKeyFailed),
+        (Some(json!([])), LoadAllError::JsonRootMissing),
+    ] {
+        with_json_api(doc, |api, ctx| {
+            // SAFETY: the mock context is live, its vtable implements V9, and the path is static.
+            let cache = unsafe { JsonPathCache::new(ctx.as_ptr(), &api, [Some(c"$")].into_iter()) };
+            for cached in [false, true] {
+                let mut format = JsonDocumentFormat::new(ctx, &api, MULTI);
+                if cached {
+                    format = format.with_path_cache(&cache);
+                }
+                let mut lookup = RLookup::new();
+                let mut row = RLookupRow::new();
+                let error = format
+                    .load_all(&mut lookup, &mut row, &key_name())
+                    .unwrap_err();
+                assert_eq!(
+                    std::mem::discriminant(&error),
+                    std::mem::discriminant(&expected),
+                    "cached={cached}: expected {expected:?}, got {error:?}"
+                );
+                assert!(lookup.find_key_by_name(c"$").is_none());
+            }
+        });
+    }
 }
 
 unsafe extern "C" {
