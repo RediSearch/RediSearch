@@ -106,7 +106,7 @@ int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 
 #ifdef ENABLE_ASSERT
 // Exercises the decoder's validation and mapping with synthetic shard chunks.
-bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *envelope);
+bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *envelope, uint16_t maxColumns);
 #endif
 
 // Get the next reply from the channel.

@@ -33,6 +33,41 @@ def rows(env, reply):
         return [r['extra_attributes'] for r in reply['results']]
     return [dict(zip(r[::2], r[1::2])) for r in reply[1:]]
 
+def payload(env, reply):
+    return reply['results'] if env.protocol == 3 else reply
+
+
+def wire_rows(env, chunk):
+    return chunk[1] if env.protocol == 3 else chunk[1][1:]
+
+
+def decode_schema(env, chunk):
+    decoded = []
+    for mask, values in wire_rows(env, chunk):
+        names = chunk[2] if mask is None else [
+            name for name, bit in zip(chunk[2], mask) if bit == '1']
+        if mask is not None:
+            env.assertEqual(mask.count('1'), len(values))
+        decoded.append(dict(zip(names, values)))
+    return decoded
+
+
+def compare_modes(env, *command):
+    with schema_mode(env, 'no'):
+        legacy = env.cmd(*command)
+    with schema_mode(env, 'yes'):
+        compact = env.cmd(*command)
+    env.assertEqual(compact, legacy, message=command)
+    return compact
+
+
+def load_sparse(env, count, key_pattern):
+    conn = getConnectionByEnv(env)
+    for i in range(count):
+        fields = ['id', i] + (['optional', 'value'] if i % 2 else [])
+        conn.execute_command('HSET', key_pattern.format(i), *fields)
+
+
 @skip(cluster=False)
 def test_resp_schema_wire():
     """Exercise dense/sparse schema replies and late LOAD * fields in both protocols."""
@@ -59,28 +94,21 @@ def test_resp_schema_wire():
             reply = shard.execute_command('_FT.AGGREGATE', 'idx', '*',
                                           'LOAD', '*',
                                           'WITHCURSOR', 'COUNT', 2, '_RESP_SCHEMA')
-            payload = reply[0]['results'] if protocol == 3 else reply[0]
-            env.assertEqual(payload[0], TAG)
-            env.assertEqual(len(payload), 3)
-            names = payload[2]
+            chunk = payload(env, reply[0])
+            env.assertEqual(chunk[0], TAG)
+            env.assertEqual(len(chunk), 3)
+            names = chunk[2]
             env.assertEqual(set(names), {'id', 'first', 'late'})
-            wire_rows = payload[1] if protocol == 3 else payload[1][1:]
-            env.assertEqual(len(wire_rows), 2)
-            env.assertEqual(wire_rows[0][0], None)
-            env.assertEqual(len(wire_rows[0][1]), 2)
-            env.assertEqual(wire_rows[1][0].count('0'), 1)
-            recovered = []
-            for mask, values in wire_rows:
-                if mask is None:
-                    recovered.append(dict(zip(names, values)))
-                else:
-                    env.assertEqual(mask.count('1'), len(values))
-                    recovered.append(dict(zip([name for name, bit in zip(names, mask)
-                                               if bit == '1'], values)))
+            records = wire_rows(env, chunk)
+            env.assertEqual(len(records), 2)
+            env.assertEqual(records[0][0], None)
+            env.assertEqual(len(records[0][1]), 2)
+            env.assertEqual(records[1][0].count('0'), 1)
+            recovered = decode_schema(env, chunk)
             env.assertEqual(recovered, [{'id': '1', 'first': 'a'}, {'id': '2', 'late': 'b'}])
             env.assertNotEqual(reply[1], 0)
             tail = shard.execute_command('_FT.CURSOR', 'READ', 'idx', reply[1], 'COUNT', 2)
-            tail_payload = tail[0]['results'] if protocol == 3 else tail[0]
+            tail_payload = payload(env, tail[0])
             env.assertEqual(tail_payload[0], TAG)
             env.assertEqual(tail[1], 0)
             for workers in (0, 2):
@@ -90,9 +118,9 @@ def test_resp_schema_wire():
                             command = ['_FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'LOAD', 1, '@id']
                             expected = rows(env, shard.execute_command(*command))
                             scored = shard.execute_command(*command, '_RESP_SCHEMA')
-                            scored = scored['results'] if protocol == 3 else scored
+                            scored = payload(env, scored)
                             env.assertEqual(scored[0], TAG)
-                            scored_rows = scored[1] if protocol == 3 else scored[1][1:]
+                            scored_rows = wire_rows(env, scored)
                             env.assertEqual(len(scored_rows), 3)
                             env.assertEqual(set(scored[2]), {'id', '__score'})
                             for i, (mask, values) in enumerate(scored_rows):
@@ -132,11 +160,7 @@ def test_resp_schema_results():
         for policy in ('return', 'fail', 'return-strict'):
             with schema_mode(env, policy, 'search-on-timeout'):
                 for query in queries:
-                    with schema_mode(env, 'no'):
-                        legacy = env.cmd('FT.AGGREGATE', 'idx', '*', *query)
-                    with schema_mode(env, 'yes'):
-                        compact = env.cmd('FT.AGGREGATE', 'idx', '*', *query)
-                    env.assertEqual(compact, legacy, message=(policy, query))
+                    compare_modes(env, 'FT.AGGREGATE', 'idx', '*', *query)
         query = ['LOAD', '*', 'SORTBY', 2, '@id', 'ASC', 'LIMIT', 0, 12, 'WITHCURSOR', 'COUNT', 3]
         all_modes = []
         for mode in ('no', 'yes'):
@@ -171,11 +195,7 @@ def test_resp_schema_json():
                         'LIMIT', 0, 12, 'DIALECT', dialect]
                 if protocol == 3:
                     args += ['FORMAT', fmt]
-                with schema_mode(env, 'no'):
-                    legacy = env.cmd('FT.AGGREGATE', 'idx', '*', *args)
-                with schema_mode(env, 'yes'):
-                    compact = env.cmd('FT.AGGREGATE', 'idx', '*', *args)
-                env.assertEqual(compact, legacy, message=(dialect, fmt))
+                compact = compare_modes(env, 'FT.AGGREGATE', 'idx', '*', *args)
                 result = rows(env, compact)
                 env.assertEqual(len(result), 12)
                 env.assertFalse('optional' in result[0], message=result[0])
@@ -183,71 +203,18 @@ def test_resp_schema_json():
 
 @skip(cluster=False)
 def test_resp_schema_profile_and_timeout():
-    """Preserve profile envelopes and deterministic shard RETURN timeout chunks."""
+    """Preserve full profiles, LIMIT drain counters and deterministic RETURN timeout chunks."""
     for protocol in (2, 3):
         env = Env(protocol=protocol)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC').ok()
-        conn = getConnectionByEnv(env)
-        for i in range(60):
-            conn.execute_command('HSET', f'{{time{i}}}:1', 'id', i)
+        load_sparse(env, 60, '{{time{}}}:1')
         with schema_mode(env, 'yes'), schema_mode(env, 'return', 'search-on-timeout'):
             profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@id')
             result = profile['Results'] if protocol == 3 else profile[0]
             env.assertEqual(len(rows(env, result)), 60)
-            command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'LIMIT', 0, 60]
-            reply = runDebugQueryCommandTimeoutAfterN(env, command, 5, internal_only=True)
-            result = rows(env, reply)
-            env.assertEqual(len(result), 5 if protocol == 3 else 60)
-            for row in result:
-                env.assertEqual(set(row), {'id'})
-            if protocol == 3:
-                VerifyTimeoutWarningResp3(env, reply)
-
-
-@skip(cluster=False)
-def test_resp_schema_multiple_internal_chunks():
-    """Resolve schemas afresh across interleaved shards and their internal cursor reads."""
-    for protocol in (2, 3):
-        env = Env(protocol=protocol)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC', 'SORTABLE').ok()
-        conn = getConnectionByEnv(env)
-        count = 4000
-        for i in range(count):
-            args = ['id', i]
-            if i % 2:
-                args += ['optional', 'value']
-            conn.execute_command('HSET', f'{{chunk{i}}}:1', *args)
-        for shard in env.getOSSMasterNodesConnectionList():
-            env.assertGreater(shard.execute_command('DBSIZE'), 1000)
-        command = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 2, '@id', '@optional',
-                   'SORTBY', 2, '@id', 'ASC', 'LIMIT', 0, count]
-        with schema_mode(env, 'no'):
-            expected = env.cmd(*command)
-        with schema_mode(env, 'yes'):
-            compact = env.cmd(*command)
-        env.assertEqual(compact, expected)
-        result = rows(env, compact)
-        env.assertEqual(len(result), count)
-        env.assertEqual(result[0], {'id': '0'})
-        env.assertEqual(result[-1], {'id': str(count - 1), 'optional': 'value'})
-
-
-@skip(cluster=False)
-def test_resp_schema_profile_drain():
-    """Drain remaining shard chunks after the coordinator LIMIT stops consuming rows."""
-    for protocol in (2, 3):
-        env = Env(protocol=protocol)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC').ok()
-        conn = getConnectionByEnv(env)
-        for i in range(60):
-            args = ['id', i]
-            if i % 2:
-                args += ['optional', 'value']
-            conn.execute_command('HSET', f'{{drain{i}}}:1', *args)
-        shards = env.getOSSMasterNodesConnectionList()
-        for shard in shards:
-            env.assertGreater(shard.execute_command('DBSIZE'), 0)
-        with schema_mode(env, 'yes'), schema_mode(env, 'return', 'search-on-timeout'):
+            shards = env.getOSSMasterNodesConnectionList()
+            for shard in shards:
+                env.assertGreater(shard.execute_command('DBSIZE'), 0)
             reply = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
                             'LOAD', 2, '@id', '@optional', 'LIMIT', 0, 1, 'TIMEOUT', 0)
             result = reply['Results'] if protocol == 3 else reply[0]
@@ -265,6 +232,33 @@ def test_resp_schema_profile_drain():
             env.assertLess(network['Results processed'], 2)
             env.assertTrue(network['Fields converted'] in (1, 2), message=network)
             env.assertEqual(len(profile['Shards']), len(shards))
+            command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'LIMIT', 0, 60]
+            reply = runDebugQueryCommandTimeoutAfterN(env, command, 5, internal_only=True)
+            result = rows(env, reply)
+            env.assertEqual(len(result), 5 if protocol == 3 else 60)
+            for row in result:
+                env.assertEqual(set(row), {'id'})
+            if protocol == 3:
+                VerifyTimeoutWarningResp3(env, reply)
+
+
+@skip(cluster=False)
+def test_resp_schema_multiple_internal_chunks():
+    """Resolve schemas afresh across interleaved shards and their internal cursor reads."""
+    for protocol in (2, 3):
+        env = Env(protocol=protocol)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC', 'SORTABLE').ok()
+        count = 4000
+        load_sparse(env, count, '{{chunk{}}}:1')
+        for shard in env.getOSSMasterNodesConnectionList():
+            env.assertGreater(shard.execute_command('DBSIZE'), 1000)
+        command = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 2, '@id', '@optional',
+                   'SORTBY', 2, '@id', 'ASC', 'LIMIT', 0, count]
+        compact = compare_modes(env, *command)
+        result = rows(env, compact)
+        env.assertEqual(len(result), count)
+        env.assertEqual(result[0], {'id': '0'})
+        env.assertEqual(result[-1], {'id': str(count - 1), 'optional': 'value'})
 
 
 @skip(cluster=False)
@@ -274,12 +268,7 @@ def test_resp_schema_buffered_timeout():
         env = Env(protocol=protocol)
         skipIfNoEnableAssert(env)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC').ok()
-        conn = getConnectionByEnv(env)
-        for i in range(6):
-            args = ['id', i]
-            if i % 2:
-                args += ['optional', 'value']
-            conn.execute_command('HSET', f'{{buffered}}:{i}', *args)
+        load_sparse(env, 6, '{{buffered}}:{}')
         shard = next(c for c in env.getOSSMasterNodesConnectionList()
                      if c.execute_command('DBSIZE'))
         with schema_mode(env, 'yes'), schema_mode(env, 2, 'search-workers'):
@@ -321,15 +310,9 @@ def test_resp_schema_buffered_timeout():
                             continue
                         reply, cursor = results[0]
                         env.assertEqual(cursor, 0)
-                        payload = reply['results'] if protocol == 3 else reply
-                        env.assertEqual(payload[0], TAG)
-                        names = payload[2]
-                        wire_rows = payload[1] if protocol == 3 else payload[1][1:]
-                        decoded = []
-                        for mask, values in wire_rows:
-                            present = names if mask is None else [
-                                name for name, bit in zip(names, mask) if bit == '1']
-                            decoded.append(dict(zip(present, values)))
+                        chunk = payload(env, reply)
+                        env.assertEqual(chunk[0], TAG)
+                        decoded = decode_schema(env, chunk)
                         env.assertEqual(decoded, [{'id': '0'},
                                                   {'id': '1', 'optional': 'value'},
                                                   {'id': '2'}])

@@ -464,54 +464,6 @@ mod tests {
     use std::ffi::CString;
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "large capacity fixture; ownership and pointer stability covered by bounded_resolve"
-    )]
-    fn bounded_resolver_enforces_actual_row_capacity() {
-        let limit = usize::from(u16::MAX);
-        let mut lookup = crate::RLookup::new();
-        // Repeated public appends validate the whole list in debug builds. Construct
-        // this near-capacity fixture directly and validate once to keep setup linear.
-        let live = (0..limit - 1)
-            .map(|slot| {
-                let mut key = RLookupKey::new(
-                    CString::new(format!("field{slot}")).unwrap(),
-                    RLookupKeyFlags::empty(),
-                );
-                key.dstidx = u16::try_from(slot).unwrap();
-                OwnedKey::new(key)
-            })
-            .collect();
-        lookup.keys.store = Some(Box::new(KeyStore {
-            live,
-            retired: Vec::new(),
-            by_name: None,
-        }));
-        lookup.keys.assert_valid("near-capacity fixture");
-        lookup.seal();
-        let first = lookup.keys.get_ptr(0).unwrap();
-        let last = lookup
-            .get_or_create_key_by_name_ptr(b"last", usize::MAX)
-            .expect("the last usable row slot must accept a key");
-        assert_eq!(lookup.get_row_len() as usize, limit);
-        assert!(
-            lookup
-                .get_or_create_key_by_name_ptr(b"overflow", usize::MAX)
-                .is_none()
-        );
-        assert_eq!(
-            lookup.get_or_create_key_by_name_ptr(b"field0", usize::MAX),
-            Some(first)
-        );
-        assert_eq!(
-            lookup.get_or_create_key_by_name_ptr(b"last", usize::MAX),
-            Some(last)
-        );
-        assert_eq!(lookup.get_row_len() as usize, limit);
-    }
-
-    #[test]
     fn append_and_lookup_preserve_row_order() {
         let mut keys = KeyList::new();
         keys.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));

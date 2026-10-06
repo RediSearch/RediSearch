@@ -243,13 +243,13 @@ static int respSchemaNameEqual(void *unused, const void *left, const void *right
   return !strcmp(left, right);
 }
 
-// Duplicate detection borrows names only for the current hiredis reply.
+// Names are borrowed from sealed lookup keys or the current hiredis reply.
 static dictType respSchemaNames = {
     .hashFunction = respSchemaNameHash,
     .keyCompare = respSchemaNameEqual,
 };
 
-static bool prepareRespSchema(RPNet *nc, MRReply *envelope) {
+static bool prepareRespSchema(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
   if (MRReply_Length(envelope) != 3 || nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
   MRReply *rows = MRReply_ArrayElement(envelope, 1);
   MRReply *names = MRReply_ArrayElement(envelope, 2);
@@ -263,7 +263,7 @@ static bool prepareRespSchema(RPNet *nc, MRReply *envelope) {
     return false;
   size_t width = MRReply_Length(names);
   // Row capacity is also u16, so slot UINT16_MAX cannot hold a value.
-  if (width > UINT16_MAX || RLookup_Iter(nc->lookup).remaining > UINT16_MAX) return false;
+  if (width > maxColumns || RLookup_Iter(nc->lookup).remaining > maxColumns) return false;
   // Validate every record before exposing any row from a malformed chunk.
   for (size_t i = start; i < MRReply_Length(rows); ++i) {
     MRReply *row = MRReply_ArrayElement(rows, i);
@@ -286,29 +286,46 @@ static bool prepareRespSchema(RPNet *nc, MRReply *envelope) {
     }
   }
   nc->current.schemaKeys = array_new(const RLookupKey *, width);
+  dict *byName = dictCreate(&respSchemaNames, NULL);
   dict *seen = dictCreate(&respSchemaNames, NULL);
+  RLookupRow scratch = RLookupRow_New();
   bool valid = false;
+  RLOOKUP_FOREACH(key, nc->lookup,
+                  { dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key); });
   for (size_t i = 0; i < width; ++i) {
     MRReply *name = MRReply_ArrayElement(names, i);
     if (!name || MRReply_Type(name) != MR_REPLY_STRING) goto cleanup;
     size_t len;
     const char *bytes = MRReply_String(name, &len);
     if (memchr(bytes, '\0', len) || dictAdd(seen, (void *)bytes, NULL) != DICT_OK) goto cleanup;
-    const RLookupKey *key = RLookup_GetOrCreateKeyByName(nc->lookup, bytes, len, UINT16_MAX);
-    if (!key) goto cleanup;
+    dictEntry *entry = dictFind(byName, bytes);
+    const RLookupKey *key = entry ? dictGetVal(entry) : NULL;
+    if (!key) {
+      size_t previousWidth = RLookup_Iter(nc->lookup).remaining;
+      if (previousWidth >= maxColumns) goto cleanup;
+      // Preserve the legacy indexed by-name append policy and owned-name lifetime.
+      // Retaining one scratch row avoids allocating through every new slot repeatedly.
+      RLookupRow_WriteByNameOwned(nc->lookup, bytes, len, &scratch, RSValue_NullStatic());
+      RLookupIterator iterator = RLookup_Iter(nc->lookup);
+      if (iterator.remaining != previousWidth + 1) goto cleanup;
+      key = iterator.current[previousWidth];
+      dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key);
+    }
     array_append(nc->current.schemaKeys, key);
   }
   nc->current.rows = rows;
   nc->current.schema = true;
   valid = true;
 cleanup:
+  RLookupRow_Reset(&scratch);
   dictRelease(seen);
+  dictRelease(byName);
   return valid;
 }
 
 #ifdef ENABLE_ASSERT
-bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *envelope) {
-  return isRespSchemaReply(envelope) && prepareRespSchema(nc, envelope);
+bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
+  return isRespSchemaReply(envelope) && prepareRespSchema(nc, envelope, maxColumns);
 }
 #endif
 
@@ -433,7 +450,7 @@ int getNextReply(RPNet *nc) {
   if (isRespSchemaReply(rows)) {
     rs_wall_clock convertStart;
     if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
-    bool valid = prepareRespSchema(nc, rows);
+    bool valid = prepareRespSchema(nc, rows, UINT16_MAX);
     if (nc->profileBreakdown) accumulateSince(&nc->breakdown.convertTime, &convertStart);
     if (!valid) return invalidRespSchema(nc);
     rows = nc->current.rows;

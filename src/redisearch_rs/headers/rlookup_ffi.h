@@ -541,26 +541,6 @@ RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint3
 RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup, const char *name, size_t name_len, uint32_t flags);
 
 /**
- * Resolve a key with the bounded, owned-name policy of
- * [`RLookup::get_or_create_key_by_name_ptr`].
- *
- * Returns a null pointer when that policy rejects the name or capacity.
- * The lookup owns the returned key; its pointer remains [valid] until the lookup is dropped.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] exclusively
- *    accessible for this call.
- * 2. `name` must be non-null and [valid] for reads of `name_len` bytes within one allocation.
- *    These bytes must remain unchanged during the call and must not overlap `lookup` itself.
- *    Names from separately allocated existing keys are permitted. No NUL terminator is required.
- * 3. `name_len` must not exceed [`isize::MAX`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-const RLookupKey *RLookup_GetOrCreateKeyByName(struct RLookup *lookup, const char *name, size_t name_len, size_t max_keys);
-
-/**
  * Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
  *
  * # Safety
