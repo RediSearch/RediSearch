@@ -96,7 +96,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   case QT_TERM:
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_normalize(source->s, source->len);
-    if (target_len) *target_len = strlen(target_value);
+    if (target_len) *target_len = strlen(*(char **)target_value);
     return false; // done
 
   case QT_TERM_CASE:
