@@ -37,10 +37,13 @@ def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
 
-def run_cmd_expect_disconnect(env, query_args, unexpected):
-    client = env.getConnection()
+def run_cmd_expect_disconnect(env, query_args, unexpected, client=None):
+    client = client or env.getConnection()
     connection = client.connection_pool.get_connection()
     try:
+        if query_args[0].startswith('_FT.'):
+            connection.send_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            connection.read_response()
         connection.send_command(*query_args)
         connection.read_response()
         unexpected.append(AssertionError('query returned after its client was killed'))
@@ -50,6 +53,50 @@ def run_cmd_expect_disconnect(env, query_args, unexpected):
         unexpected.append(exc)
     finally:
         client.connection_pool.release(connection)
+
+
+def _assert_disconnect_no_timeout_error(env, command, point, conn=None):
+    """Check counters after cancellation has propagated through worker cleanup."""
+    conn = conn or env.getConnection()
+    before_info = info_modules_to_dict(conn)
+    freed = int(conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                     'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
+    unexpected = []
+    thread = threading.Thread(target=run_cmd_expect_disconnect,
+                              args=(env, command, unexpected, conn), daemon=True)
+    # HYBRID's initial shard mapping has a separate publication hook.
+    mapping = point in ('BEFORE', 'AFTER')
+    if mapping:
+        arm = [debug_cmd(), 'QUERY_CONTROLLER', f'SET_PAUSE_{point}_HYBRID_STORE_CURSORS']
+        waiting = [debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_HYBRID_STORE_CURSORS_PAUSED']
+        conn.execute_command(*arm, 'true')
+    else:
+        waiting = [debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point]
+        conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+    command_name = command[0] + ('|READ' if command[0].endswith('.CURSOR') else '')
+    try:
+        thread.start()
+        wait_for_condition(lambda: (conn.execute_command(*waiting) == 1, {}),
+                           f'{command_name} did not pause at {point}')
+        client_id = get_query_client(conn, command_name)
+        env.assertTrue(client_id, message=f'No blocked {command_name} client')
+        env.assertEqual(conn.execute_command('CLIENT', 'KILL', 'ID', client_id), 1)
+        thread.join(timeout=10)
+        env.assertFalse(thread.is_alive(), message=f'{command_name} did not disconnect')
+        env.assertEqual(unexpected, [], message=unexpected)
+        wait_for_condition(
+            lambda: (int(conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                             'GET_BLOCKED_REQUEST_ONFREE_COUNT')) > freed, {}),
+            f'{command_name} did not release its blocked-client cycle')
+        # PROFILE may encode a discarded timeout warning; no timeout callback ran.
+        _verify_metrics_not_changed(env, conn, before_info,
+                                    [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_WARNING_SHARD_METRIC])
+    finally:
+        if mapping:
+            conn.execute_command(*arm, 'false')
+        else:
+            conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+        thread.join(timeout=10)
 
 
 def _coord_cursor_total(env, idx='idx'):
@@ -462,11 +509,12 @@ class TestCoordinatorTimeout:
             connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
             connection.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
+        before_info = info_modules_to_dict(env)
         free_count_before = _get_blocked_request_onfree_count(env)
         unexpected = []
         t_query = threading.Thread(
             target=run_cmd_expect_disconnect,
-            args=(env, query_args, unexpected),
+            args=(env, [*query_args, 'TIMEOUT', 0], unexpected),
             daemon=True,
         )
         try:
@@ -501,6 +549,7 @@ class TestCoordinatorTimeout:
                 f'Disconnect did not release the blocked {command_name} request',
                 timeout=10,
             )
+            _verify_metrics_not_changed(env, env, before_info, [])
             env.assertTrue(env.isUp())
         finally:
             for connection in shard_connections:
@@ -529,6 +578,55 @@ class TestCoordinatorTimeout:
             ],
             'FT.HYBRID',
         )
+
+    def test_disconnect_cursor_read(self):
+        """Coordinator cursor cancellation must not increment timeout errors."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        with _preserve_config(env, ON_TIMEOUT_CONFIG):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+            _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0,
+                                'WITHCURSOR', 'COUNT', 1)
+            env.assertNotEqual(cursor, 0)
+            _assert_disconnect_no_timeout_error(
+                env, ['FT.CURSOR', 'READ', 'idx', cursor], 'BeforeCursorReadSendChunk')
+            env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('Cursor not found')
+
+    def test_internal_disconnect_no_timeout_error(self):
+        """Cover shard queries, MT HYBRID mappings, and both kinds of cursor read."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        conn = non_coord_shard_conns(env)[0]
+        prev_policy = to_dict(conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG))[ON_TIMEOUT_CONFIG]
+        conn.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+        try:
+            for kind in ('SEARCH', 'AGGREGATE'):
+                _assert_disconnect_no_timeout_error(
+                    env, [f'_FT.{kind}', 'idx', '*', 'TIMEOUT', 0],
+                    'BeforeAggregateResultsClaim', conn)
+
+            aggregate = ['_FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0, 'WITHCURSOR', 'COUNT', 1]
+            _assert_disconnect_no_timeout_error(env, aggregate, 'BeforeAggregateResultsClaim', conn)
+            conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            _, cursor = conn.execute_command(*aggregate)
+            env.assertNotEqual(cursor, 0)
+            _assert_disconnect_no_timeout_error(
+                env, ['_FT.CURSOR', 'READ', 'idx', cursor], 'BeforeCursorReadSendChunk', conn)
+
+            hybrid = ['_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                      'VSIM', '@embedding', '$BLOB', 'PARAMS', 2, 'BLOB', self.hybrid_query_vec,
+                      'TIMEOUT', 0, 'WITHCURSOR', 'COUNT', 1, '_COORD_DISPATCH_TIME', 0]
+            for point in ('BEFORE', 'AFTER'):
+                _assert_disconnect_no_timeout_error(env, hybrid, point, conn)
+            conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            cursors = _internal_hybrid_cursor_map(conn.execute_command(*hybrid))
+            for cursor in cursors.values():
+                env.assertNotEqual(cursor, 0)
+                _assert_disconnect_no_timeout_error(
+                    env, ['_FT.CURSOR', 'READ', 'hybrid_idx', cursor],
+                    'BeforeCursorReadSendChunk', conn)
+        finally:
+            conn.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def _test_fail_timeout_impl(self, query_args, allow_timeout_warning=False):
         env = self.env
@@ -2069,11 +2167,15 @@ class TestCoordinatorReducePause:
     def test_disconnect_during_reduce(self):
         """A coordinator FT.SEARCH treats disconnect as cancellation."""
         env = self.env
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        before_info = info_modules_to_dict(env)
+        freed = _get_blocked_request_onfree_count(env)
         unexpected = []
         setPauseBeforeReduce(env, 1)
         t_query = threading.Thread(
             target=run_cmd_expect_disconnect,
-            args=(env, ['FT.SEARCH', 'idx', '*'], unexpected),
+            args=(env, ['FT.SEARCH', 'idx', '*', 'TIMEOUT', 0], unexpected),
             daemon=True,
         )
         try:
@@ -2089,9 +2191,14 @@ class TestCoordinatorReducePause:
             env.assertFalse(t_query.is_alive(),
                             message='Disconnected coordinator query should finish')
             env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+            self._cleanup_pause_state()
+            wait_for_condition(lambda: (_get_blocked_request_onfree_count(env) > freed, {}),
+                               'Disconnected SEARCH did not release its request')
+            _verify_metrics_not_changed(env, env, before_info, [])
             env.assertTrue(env.isUp())
         finally:
             self._cleanup_pause_state()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_timeout_fail_during_reduce_before_first(self):
         """Test timeout occurring during reduction before the first result is reduced."""
@@ -2380,42 +2487,27 @@ class TestShardTimeout:
         ).noError()
 
     def test_disconnect_marks_blocked_client_timeout(self):
-        """A disconnect releases workers waiting on the blocked-client atomic."""
+        """Disconnect cancels standalone queries without counting a timeout error."""
         env = self.env
         skipIfNoEnableAssert(env)
-        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        with _preserve_config(env, ON_TIMEOUT_CONFIG):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+            for kind in ('SEARCH', 'AGGREGATE', 'HYBRID'):
+                query = (self._standalone_hybrid_query(['TIMEOUT', 0]) if kind == 'HYBRID'
+                         else [f'FT.{kind}', 'idx', '*', 'TIMEOUT', 0])
+                point = ('BeforeHybridResultsClaim' if kind == 'HYBRID'
+                         else 'BeforeAggregateResultsClaim')
+                _assert_disconnect_no_timeout_error(env, query, point)
+                profile = ['FT.PROFILE', query[1], kind, 'QUERY', *query[2:]]
+                _assert_disconnect_no_timeout_error(env, profile, point)
 
-        unexpected = []
-        query = ['FT.AGGREGATE', 'idx', '*']
-        point = 'BeforeAggregateResultsClaim'
-        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
-        t_query = threading.Thread(
-            target=run_cmd_expect_disconnect,
-            args=(env, query, unexpected),
-            daemon=True,
-        )
-        try:
-            t_query.start()
-            blocked_client_id = wait_for_blocked_query_client(env, query[0])
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
-                         {'paused': env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point)}),
-                'Timeout waiting for query to pause before collecting results',
-            )
-            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 0,
-                         {'paused': env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point)}),
-                'Disconnect did not trigger the blocked-client timeout atomic',
-            )
-            t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(), message='Disconnected FT.AGGREGATE should finish')
-            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
-        finally:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
-            env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+            aggregate = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0, 'WITHCURSOR', 'COUNT', 1]
+            _assert_disconnect_no_timeout_error(env, aggregate, 'BeforeAggregateResultsClaim')
+            _, cursor = env.cmd(*aggregate)
+            env.assertNotEqual(cursor, 0)
+            _assert_disconnect_no_timeout_error(
+                env, ['FT.CURSOR', 'READ', 'idx', cursor], 'BeforeCursorReadSendChunk')
+            env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('Cursor not found')
 
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
