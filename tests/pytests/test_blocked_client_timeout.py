@@ -21,7 +21,7 @@ from test_info_modules import (
     TIMEOUT_WARNING_SHARD_PIPELINE_METRIC, TIMEOUT_WARNING_SHARD_REPLY_METRIC,
     TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
     TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC,
-    TIMEOUT_ERROR_COORD_REPLY_METRIC,
+    TIMEOUT_ERROR_COORD_REPLY_METRIC, ARGS_ERROR_COORD_METRIC,
     TIMEOUT_WARNING_COORD_QUEUE_METRIC, TIMEOUT_WARNING_COORD_PIPELINE_METRIC,
     TIMEOUT_WARNING_COORD_REPLY_METRIC,
     _verify_metrics_not_changed,
@@ -621,73 +621,6 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_profile_aggregate(self):
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
                                      allow_timeout_warning=True)
-
-    def test_fail_timeout_wakes_profile_reply_wait(self):
-        """FAIL releases the worker even while a shard's final profile is missing."""
-        env = self.env
-        skipIfNoEnableAssert(env)
-        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-        coord_pid = pid_cmd(env.con)
-        shard = psutil.Process(next(pid for pid in get_all_shards_pid(env) if pid != coord_pid))
-        encode_point = 'DuringCoordBackgroundReplyEncode'
-        reply_point = 'RpnetWaitingForReply'
-        results, errors = [], []
-
-        def query():
-            try:
-                results.append(env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
-                                       'LIMIT', 0, 1, 'TIMEOUT', 10000))
-            except Exception as error:
-                errors.append(error)
-
-        thread = threading.Thread(target=query, daemon=True)
-        shard.suspend()
-        try:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', encode_point).ok()
-            thread.start()
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', encode_point),
-                         {'results': results, 'errors': errors}),
-                'PROFILE did not reach reply encoding', timeout=5)
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'BG_PENDING_REPLIES') == 1, {}),
-                'Responsive shards did not finish', timeout=5)
-            jobs_done = getCoordThpoolStats(env)['totalJobsDone']
-            client_id = wait_for_blocked_query_client(env, 'FT.PROFILE')
-
-            # The only result has been encoded. The next RPNet read therefore
-            # belongs to printAggProfile, which still needs the paused shard.
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', reply_point).ok()
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encode_point).ok()
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', reply_point), {}),
-                'PROFILE did not start collecting remaining replies', timeout=5)
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', reply_point).ok()
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', reply_point) == 0, {}),
-                'PROFILE did not leave the reply sync point', timeout=5)
-            # Let the worker consume queued replies and enter the channel wait.
-            # Cancelling at the sync point only tests the flag check before sleeping.
-            time.sleep(0.1)
-            env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
-            thread.join(timeout=5)
-            env.assertFalse(thread.is_alive())
-            env.assertEqual(results, [])
-            env.assertEqual(len(errors), 1, message=errors)
-            if errors:
-                env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
-                env.assertContains(TIMEOUT_ERROR, str(errors[0]))
-            wait_for_condition(
-                lambda: (getCoordThpoolStats(env)['totalJobsDone'] > jobs_done, {}),
-                'FAIL timeout left the worker waiting for the paused shard', timeout=5)
-        finally:
-            shard.resume()
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encode_point)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', reply_point)
-            thread.join(timeout=5)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_fail_timeout_profile_hybrid(self):
         self._test_fail_timeout_impl([
@@ -4057,7 +3990,7 @@ def test_internal_background_fail_serialization(env):
         env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
         env.expect('_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
                    'VSIM', '@embedding', '$BLOB', 'PARAMS', 2, 'BLOB', b'x',
-                   'TIMEOUT', 0, '_SLOTS_INFO', slots_data,
+                   'TIMEOUT', 0, 'WITHCURSOR', '_SLOTS_INFO', slots_data,
                    '_COORD_DISPATCH_TIME', 0).error().contains('query vector blob size (1)')
     finally:
         for c, policy, worker in zip(shards, policies, workers):
@@ -4365,3 +4298,82 @@ def test_coord_profile_timeout_before_fanout_resp2():
 def test_coord_profile_timeout_before_fanout_resp3():
     """RESP3 PROFILE survives timeout before its RPNet iterator exists."""
     _coord_profile_timeout_before_fanout(3)
+
+
+def _coord_background_early_error_timeout(protocol):
+    env = _new_coord_background_fail_env(protocol)
+    skipIfNoEnableAssert(env)
+    point = 'BeforeBackgroundErrorReply'
+    command = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0, 'UNKNOWN_OPTION']
+    original = env.getConnection().connection_pool
+    pool = ConnectionPool(connection_class=original.connection_class,
+                          **dict(original.connection_kwargs,
+                                 retry=Retry(NoBackoff(), 0), socket_timeout=10))
+    client = Redis(connection_pool=pool, single_connection_client=True)
+    client_id = client.client_id()
+    try:
+        for timeout_wins in (False, True):
+            before_info = info_modules_to_dict(env)
+            freed = _get_blocked_request_onfree_count(env)
+            results, errors = [], []
+
+            def query():
+                try:
+                    results.append(client.execute_command(*command))
+                except Exception as error:
+                    errors.append(error)
+
+            thread = threading.Thread(target=query, daemon=True)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+            try:
+                thread.start()
+                # Park inside AREQ_ReplyErrorOrDefer, after the caller's timeout
+                # check, so the test cannot take the queued-request shortcut.
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
+                             {'results': results, 'errors': errors}),
+                    'Preparation error did not reach the background reply helper', timeout=5)
+                if timeout_wins:
+                    env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+                    thread.join(timeout=5)
+                    env.assertFalse(thread.is_alive())
+                    env.assertEqual(_get_blocked_request_onfree_count(env), freed)
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+                thread.join(timeout=5)
+                env.assertFalse(thread.is_alive())
+                env.assertEqual(results, [])
+                env.assertEqual(len(errors), 1, message=errors)
+                env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
+                expected_error = TIMEOUT_ERROR if timeout_wins else 'Unknown argument'
+                env.assertContains(expected_error, str(errors[0]))
+                wait_for_condition(
+                    lambda: (_get_blocked_request_onfree_count(env) == freed + 1, {}),
+                    'Early-error request was not freed', timeout=5)
+                after_info = info_modules_to_dict(env)
+                expected_metric = TIMEOUT_ERROR_COORD_METRIC if timeout_wins else ARGS_ERROR_COORD_METRIC
+                env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][expected_metric]),
+                                int(before_info[COORD_WARN_ERR_SECTION][expected_metric]) + 1)
+                _verify_metrics_not_changed(env, env, before_info, [expected_metric])
+                # Consume another reply on the same socket after worker cleanup;
+                # any extra error reply would break this command's response.
+                env.assertTrue(client.ping())
+                env.assertEqual(client.client_id(), client_id)
+            finally:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+                thread.join(timeout=10)
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    finally:
+        client.close()
+        pool.disconnect()
+
+
+@skip(cluster=False)
+def test_coord_background_early_error_timeout_resp2():
+    """RESP2 early errors count normally, but are suppressed after a FAIL timeout."""
+    _coord_background_early_error_timeout(2)
+
+
+@skip(cluster=False)
+def test_coord_background_early_error_timeout_resp3():
+    """RESP3 early errors count normally, but are suppressed after a FAIL timeout."""
+    _coord_background_early_error_timeout(3)

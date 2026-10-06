@@ -1187,6 +1187,11 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
   QueryError *err = &req->base.reply.err;
   RS_ASSERT(QueryError_HasError(err));
+#ifdef ENABLE_ASSERT
+  if (isBackgroundFailReply(req)) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_BACKGROUND_ERROR_REPLY);
+  }
+#endif
   if (QueryRequest_UsesReplyCallback(&req->base)) {
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
     // No current coord caller reaches here while a timer is waiting; kept as a
