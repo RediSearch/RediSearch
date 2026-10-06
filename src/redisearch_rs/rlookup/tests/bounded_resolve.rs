@@ -44,11 +44,12 @@ fn owns_transient_names_and_reuses_existing_flags_at_capacity() {
             .is_none()
     );
     assert_eq!(lookup.get_row_len(), 2);
-    // SAFETY: both pointers remain owned by the live sealed lookup, and are only read here.
-    unsafe {
-        assert_eq!(existing.as_ref().flags, flags | RLookupKeyFlag::QuerySrc);
-        assert_eq!(owned.as_ref().name().as_ref().to_bytes(), b"transient\xff");
-    }
+    // SAFETY: the existing pointer remains owned by the live sealed lookup and is only read here.
+    let existing = unsafe { existing.as_ref() };
+    assert_eq!(existing.flags, flags | RLookupKeyFlag::QuerySrc);
+    // SAFETY: the appended key remains owned by the live sealed lookup and is only read here.
+    let owned = unsafe { owned.as_ref() };
+    assert_eq!(owned.name().as_ref().to_bytes(), b"transient\xff");
 }
 
 #[test]
