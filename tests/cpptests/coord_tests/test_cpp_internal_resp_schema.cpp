@@ -13,7 +13,6 @@ extern "C" {
 #include "rpnet.h"
 #include "aggregate/internal_resp_schema.h"
 #include "rlookup_ffi.h"
-#include "value_ffi.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
 
@@ -51,21 +50,40 @@ MRReply *parse(const std::string &wire) {
   return reinterpret_cast<MRReply *>(reply);
 }
 
-void check(const std::string &wire, int protocol, bool accepted) {
-  MRReply *reply = parse(wire);
-  ASSERT_NE(reply, nullptr);
+struct Decoder {
   RLookup lookup = RLookup_New();
   RPNet nc = {};
-  nc.cmd.protocol = protocol;
-  nc.lookup = &lookup;
-  EXPECT_EQ(RPNet_DebugPrepareRespSchema(&nc, reply), accepted);
-  if (accepted) {
-    EXPECT_TRUE(nc.current.schema);
-    EXPECT_EQ(array_len(nc.current.schemaKeys), MRReply_Length(MRReply_ArrayElement(reply, 2)));
+  MRReply *reply = nullptr;
+
+  explicit Decoder(int protocol = 3) {
+    nc.cmd.protocol = protocol;
+    nc.lookup = &lookup;
   }
-  RPNet_resetCurrent(&nc);
-  MRReply_Free(reply);
-  RLookup_Cleanup(&lookup);
+  ~Decoder() {
+    reset();
+    RLookup_Cleanup(&lookup);
+  }
+  void reset() {
+    RPNet_resetCurrent(&nc);
+    MRReply_Free(reply);
+    reply = nullptr;
+  }
+  bool prepare(const std::string &wire, uint16_t maxColumns = UINT16_MAX) {
+    reset();
+    reply = parse(wire);
+    EXPECT_NE(reply, nullptr);
+    return reply && RPNet_DebugPrepareRespSchema(&nc, reply, maxColumns);
+  }
+};
+
+void check(const std::string &wire, int protocol, bool accepted, uint16_t maxColumns = UINT16_MAX) {
+  Decoder decoder(protocol);
+  EXPECT_EQ(decoder.prepare(wire, maxColumns), accepted);
+  if (accepted) {
+    EXPECT_TRUE(decoder.nc.current.schema);
+    EXPECT_EQ(array_len(decoder.nc.current.schemaKeys),
+              MRReply_Length(MRReply_ArrayElement(decoder.reply, 2)));
+  }
 }
 }  // namespace
 
@@ -103,56 +121,42 @@ TEST(InternalRespSchema, MalformedWidthsMasksAndNames) {
 }
 
 TEST(InternalRespSchema, WideSealedLookupRetainsKeysAcrossChunks) {
-  RLookup lookup = RLookup_New();
-  RLookup_Seal(&lookup);
-  RPNet nc = {};
-  nc.cmd.protocol = 3;
-  nc.lookup = &lookup;
+  Decoder decoder;
+  RLookup_Seal(&decoder.lookup);
   std::vector<std::string> names;
   for (size_t i = 0; i < 1024; ++i) names.push_back(str("field" + std::to_string(i)));
-  MRReply *reply = parse(chunk(3, {arr({str("1"), arr({str("value")})})}, names));
-  ASSERT_NE(reply, nullptr);
-  ASSERT_TRUE(RPNet_DebugPrepareRespSchema(&nc, reply));
-  ASSERT_EQ(array_len(nc.current.schemaKeys), names.size());
-  const RLookupKey *first = nc.current.schemaKeys[0];
-  const RLookupKey *last = nc.current.schemaKeys[names.size() - 1];
-  RPNet_resetCurrent(&nc);
-  MRReply_Free(reply);
-  reply =
-      parse(chunk(3, {arr({nil, arr({str("a"), str("b")})})}, {str("field1023"), str("field0")}));
-  ASSERT_NE(reply, nullptr);
-  ASSERT_TRUE(RPNet_DebugPrepareRespSchema(&nc, reply));
-  EXPECT_EQ(nc.current.schemaKeys[0], last);
-  EXPECT_EQ(nc.current.schemaKeys[1], first);
-  EXPECT_EQ(RLookup_Iter(&lookup).remaining, names.size());
-  RPNet_resetCurrent(&nc);
-  MRReply_Free(reply);
-  RLookup_Cleanup(&lookup);
+  ASSERT_TRUE(decoder.prepare(chunk(3, {arr({str("1"), arr({str("value")})})}, names)));
+  ASSERT_EQ(array_len(decoder.nc.current.schemaKeys), names.size());
+  const RLookupKey *first = decoder.nc.current.schemaKeys[0];
+  const RLookupKey *last = decoder.nc.current.schemaKeys[names.size() - 1];
+  ASSERT_TRUE(decoder.prepare(
+      chunk(3, {arr({nil, arr({str("a"), str("b")})})}, {str("field1023"), str("field0")})));
+  EXPECT_EQ(decoder.nc.current.schemaKeys[0], last);
+  EXPECT_EQ(decoder.nc.current.schemaKeys[1], first);
+  EXPECT_EQ(RLookup_Iter(&decoder.lookup).remaining, names.size());
 }
 
-TEST(InternalRespSchema, BoundedResolverPreservesSealedKeysAndOwnedNames) {
-  RLookup lookup = RLookup_New();
-  const RLookupKey *existing = RLookup_GetKey_Write(&lookup, "existing", RLOOKUP_F_HIDDEN);
+TEST(InternalRespSchema, CapacityPreservesExistingKeysAndOwnedNames) {
+  check(chunk(3, {}, {}), 3, true, 0);
+  check(chunk(3, {}, {str("field")}), 3, false, 0);
+  Decoder decoder;
+  const RLookupKey *existing = RLookup_GetKey_Write(&decoder.lookup, "existing", RLOOKUP_F_HIDDEN);
   ASSERT_NE(existing, nullptr);
   uint32_t flags = RLookupKey_GetFlags(existing);
-  RLookup_Seal(&lookup);
-  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "existing", 8, 1), existing);
+  RLookup_Seal(&decoder.lookup);
+  ASSERT_TRUE(decoder.prepare(chunk(3, {}, {str("existing")}), 1));
+  EXPECT_EQ(decoder.nc.current.schemaKeys[0], existing);
   EXPECT_EQ(RLookupKey_GetFlags(existing), flags);
-  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "missing", 7, 1), nullptr);
-  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "bad\0name", 8, 2), nullptr);
-  EXPECT_EQ(RLookup_Iter(&lookup).remaining, 1u);
-  const RLookupKey *owned;
-  {
-    std::string name = "transient";
-    owned = RLookup_GetOrCreateKeyByName(&lookup, name.data(), name.size(), 2);
-    ASSERT_NE(owned, nullptr);
-    name.assign(name.size(), 'x');
-  }
-  EXPECT_STREQ(RLookupKey_GetName(owned), "transient");
-  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "transient", 9, 2), owned);
-  EXPECT_EQ(RLookup_GetOrCreateKeyByName(&lookup, "overflow", 8, 2), nullptr);
-  EXPECT_EQ(RLookup_Iter(&lookup).remaining, 2u);
-  RLookup_Cleanup(&lookup);
+  ASSERT_TRUE(decoder.prepare(chunk(3, {}, {str("existing"), str("transient\xff")}), 2));
+  const RLookupKey *owned = decoder.nc.current.schemaKeys[1];
+  EXPECT_FALSE(decoder.prepare(chunk(3, {}, {str("overflow")}), 2));
+  EXPECT_EQ(RLookup_Iter(&decoder.lookup).remaining, 2u);
+  EXPECT_STREQ(RLookupKey_GetName(owned), "transient\xff");
+  EXPECT_FALSE(decoder.prepare(chunk(3, {}, {}), 1));
+  ASSERT_TRUE(decoder.prepare(chunk(3, {}, {str("transient\xff"), str("existing")}), 2));
+  EXPECT_EQ(decoder.nc.current.schemaKeys[0], owned);
+  EXPECT_EQ(decoder.nc.current.schemaKeys[1], existing);
+  EXPECT_EQ(RLookup_Iter(&decoder.lookup).remaining, 2u);
 }
 
 #endif
