@@ -22,22 +22,21 @@ filesystem usage, retained obsolete files, or memtable bytes.
 
 ## Private interface
 
-Seven added callbacks connect the repositories: `getCollector`, `collect`,
-`setAvailable`, `activateTarget`, `waitFreshUsage`,
+Five added callbacks connect the repositories: `getCollector`, `collect`,
+`activateTarget`,
 `getCachedTotalDiskUsage` and `readCachedIndexMetrics`. The last returns one
 numeric record containing memory, operational disk usage and block estimates,
 and stages the component snapshot for the existing INFO output callback.
 
 Index retirement and INFO-map cleanup run
 through the existing main-thread close callback, which receives the owning disk
-context. No separate retirement API or freshness-ticket ownership crosses FFI.
+context. No separate retirement or blocking freshness API crosses FFI.
 
 ## Executor and scheduling
 
 RediSearch owns one dedicated single-worker pool using its existing `deps/thpool`
 implementation. It does not share the query or GC queue. A 50 ms module timer
-submits work; an internal freshness request can submit directly without needing
-the main event loop. There is at most one outstanding collection job. A running
+submits work. There is at most one outstanding collection job. A running
 job may replace itself with one continuation.
 
 RSE supplies one private collection callback/context. Each operational batch
@@ -45,11 +44,12 @@ checks its approximately 5 ms budget between native reads. A single property
 read can exceed that budget. Indexes rotate fairly, one CF at a time. Each
 index's next ordinary pass is due one second after the previous pass started.
 An overrun therefore makes the next pass immediately eligible. Flush/compaction
-completion advances an index's dirty generation, making it eligible before its
+completion sets an index's dirty flag, making it eligible before its
 normal due time. Events coalesce and never enqueue a job per write.
 
-Operational batches run first. Diagnostic snapshots run when no operational
-continuation is needed; their existing slower refresh cadence remains. Both
+Each worker invocation runs an operational batch and a diagnostic batch, so
+a large operational pass cannot starve diagnostics. Their slower refresh cadence
+remains. Both
 lanes retain progress across jobs. Diagnostic SST fields are sampled in that
 lane too, but INFO overlays them with operational SST values. Removing duplicate
 background SST reads is a separate simplification, not required for cheap reads.
@@ -80,49 +80,38 @@ before BigModule unregisters the DB. Late completion cannot re-add a removed
 index. Dynamic CF creation replaces the target and requests refresh.
 Cold DB open/reopen seeds existing SSTs before activation.
 
-Disk consistency windows pause and drain the collector, and resume it only when
-all pause reasons are released. Shutdown disables freshness waits, stops the
-timer, drains/joins the pool and waits for active internal API callers before
+The collector only reads native properties, so foreground persistence windows
+do not pause it. Shutdown stops the timer and drains/joins the pool before
 closing DiskContext. Generic `pthread_atfork` hooks prevent new work and drain
 one current batch before fork. The parent resumes; the child submits/joins no
 worker and reads atomic scalar mirrors rather than inherited Rust locks.
 
-## Internal freshness API
+## Cache structure
 
-No new client command or blocked-client behavior is introduced. The private
-Search disk API offers one blocking call for one index incarnation or the visible
-total. Rust captures and owns the ticket, invokes the supplied worker-wake
-callback after capture, waits with a deadline and drops the ticket on every
-return path. C leases collector lifetime across that call. Neither side performs
-a native collection on the waiting thread.
+An index owns one usage entry. Its atomic total and six category counters are
+published values; the native listener shares only its dirty signal. A mutex
+protects the CF target, aligned last-good samples, lifecycle flags and refresh
+cursor. The revision rejects a result collected before a layout replacement.
+A separate native-read mutex lets retirement debit accounting first and then
+drain the read before the DB is unregistered.
 
-`max_age=0` requires a sample whose native read started after the request. An
-already-fresh request may return immediately. Every captured CF must have a
-successful sample meeting the cutoff and captured dirty generation; a recent
-aggregate publication alone is insufficient. Later events do not extend the
-captured requirement indefinitely. CF-layout or visible-scope changes return
-`ScopeChanged`; pause/shutdown/child return `Unavailable`; expiry returns
-`TimedOut`. Errors preserve last-good values and cannot satisfy freshness.
-
-Callers must not hold a spec/lifecycle lock or be the collection worker. This is
-for controlled internal/test/background paths. Normal Redis commands never call
-it. A main-thread internal call is technically supported because submission
-requires no timer, but it deliberately stalls that thread until completion or
-deadline and must not be added to ordinary request paths. The caller keeps an
-index alive while creating its ticket; outstanding waits are leased across
-module shutdown.
+The module-wide cache keeps a queue of weak entries and an exact accounting sum,
+with one atomic total for operational readers. It never owns a C IndexSpec.
+Health publication is separate from the operational getter and runs at most
+once per second. No freshness tickets, waiting callers, scope generations or
+cross-repository availability notifications are needed.
 
 ## Coordinated PRs and qualification
 
 1. **RediSearch:** the pool, pause/fork/shutdown gates, V1 callback, cached INFO
    reads, visibility hooks, private FFI contract and C/C++ tests.
 2. **RediSearchEnterprise:** the operational ledger, listener ownership, seeding,
-   fair incremental refresh, diagnostic snapshots and scalar mirrors, internal
-   freshness tickets, Rust tests and the matching RediSearch dependency.
+   fair incremental refresh, diagnostic snapshots and scalar mirrors,
+   Rust tests and the matching RediSearch dependency.
 
 Validation must cover successful/error/zero samples, overflow followed by drop,
-native flush events, persisted reopen, internal wait deadlines,
-all-CF freshness, worker wake without a timer, pause/drain, fork and shutdown.
+native flush events, persisted reopen, layout replacement, retention of last-good
+values on errors, diagnostic fairness, pause/drain, fork and shutdown.
 Representative performance qualification remains a separate matched comparison
 on an idle machine: normal writes/reads with and without INFO, main-thread
 property attribution, operational cache age and collector native contention.
