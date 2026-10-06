@@ -3724,11 +3724,13 @@ def _exercise_background_fail_queued_cleanup(drop_index):
         env.expect('FT.CREATE', 'observer', 'PREFIX', 1, 'observer:',
                    'SCHEMA', 'name', 'TEXT').ok()
 
-        for kind in ('search', 'cursor_initial', 'cursor_read'):
+        for kind in ('search', 'cursor_initial', 'cursor_read', 'hybrid'):
             env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:',
-                       'SCHEMA', 'name', 'TEXT', 'SORTABLE').ok()
+                       'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'embedding', 'VECTOR', 'FLAT', 6,
+                       'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
             for i in range(4):
-                env.cmd('HSET', f'doc:{i}', 'name', f'hello{i}')
+                env.cmd('HSET', f'doc:{i}', 'name', f'hello{i}', 'embedding',
+                        np.array([float(i), float(i)], dtype=np.float32).tobytes())
             baseline = _background_fail_cursor_total(env, 'observer')
             timeout = 0
             aggregate = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', timeout,
@@ -3736,6 +3738,9 @@ def _exercise_background_fail_queued_cleanup(drop_index):
             cursor_id = None
             if kind == 'search':
                 command = ['FT.SEARCH', 'idx', '*', 'TIMEOUT', timeout]
+            elif kind == 'hybrid':
+                command = _background_hybrid_query(np.zeros(2, dtype=np.float32).tobytes())
+                command[1] = 'idx'
             elif kind == 'cursor_initial':
                 command = aggregate
             else:
@@ -3757,6 +3762,7 @@ def _exercise_background_fail_queued_cleanup(drop_index):
                 except Exception as error:
                     errors.append(error)
 
+            freed = _get_blocked_request_onfree_count(env)
             thread = threading.Thread(target=query, daemon=True)
             env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
             paused = True
@@ -3788,7 +3794,8 @@ def _exercise_background_fail_queued_cleanup(drop_index):
                 def cleaned_up():
                     stats = to_dict(env.cmd(debug_cmd(), 'WORKERS', 'STATS'))
                     return (stats['numJobsInProgress'] == 0 and stats['totalPendingJobs'] == 0
-                            and _background_fail_cursor_total(env, 'observer') == baseline, stats)
+                            and _background_fail_cursor_total(env, 'observer') == baseline
+                            and _get_blocked_request_onfree_count(env) == freed + 1, stats)
 
                 wait_for_condition(cleaned_up, f'{kind}: queued job leaked a cursor', timeout=5)
                 env.assertTrue(client.ping())
