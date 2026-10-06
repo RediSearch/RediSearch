@@ -1247,6 +1247,7 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
+ "numeric_score_source",
  "query_types",
  "redis-module",
  "redis_reply",
@@ -1604,6 +1605,7 @@ name = "numeric_score_source"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "cheadergen",
  "index_result",
  "inverted_index",
  "itertools 0.15.0",
