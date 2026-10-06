@@ -8,8 +8,13 @@
 */
 #include "gtest/gtest.h"
 #include "common.h"
+#include "module.h"
+#include "concurrent_ctx.h"
 extern "C" {
 #include "util/disk_metrics.h"
+#include "search_disk.h"
+extern RedisSearchDiskAPI* disk;
+extern RedisSearchDisk* disk_db;
 }
 #include <atomic>
 #include <chrono>
@@ -148,6 +153,77 @@ TEST_F(DiskMetricsTest, PauseDrainsNativeWorkAndNestedResumeRemainsPaused) {
 }
 
 #ifndef _WIN32
+TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndDiskContext) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_EXIT(
+      {
+        struct State {
+          std::mutex mutex;
+          std::condition_variable changed;
+          bool collecting = false;
+          bool release = false;
+          bool retainedIndexes = false;
+          bool collectionFinished = false;
+          std::atomic<bool> otherWorkerFinished{false};
+          bool closed = false;
+        } state;
+        static State* active;
+        active = &state;
+        RedisSearchDiskAPI api{};
+        api.metrics.getCollector = [](RedisSearchDisk*) {
+          return reinterpret_cast<RedisSearchDiskMetricsCollector*>(active);
+        };
+        api.metrics.setAvailable = [](RedisSearchDiskMetricsCollector*, bool) {};
+        api.basic.close = [](RedisModuleCtx*, RedisSearchDisk*) {
+          active->closed = active->collectionFinished && active->otherWorkerFinished.load() &&
+                           specDict_g == nullptr && !DiskMetrics_BeginWait();
+        };
+        disk = &api;
+        disk_db = reinterpret_cast<RedisSearchDisk*>(&state);
+        RedisModule_BigModuleRegister = [](RedisModuleCtx*, RedisModuleBigCallbacks*) {
+          return REDISMODULE_OK;
+        };
+        if (!SearchDisk_RegisterBigModuleCallbacks(nullptr)) _exit(1);
+        ConcurrentSearch_CreatePool(1);
+        ConcurrentSearch_ThreadPoolRun([](void*) { active->otherWorkerFinished.store(true); },
+                                       nullptr);
+        RMCK::ArgvList args(RSDummyContext, "FT.CREATE", "cleanup_metrics", "SCHEMA", "t", "TEXT");
+        QueryError error = QueryError_Default();
+        if (!Indexes_CreateNewSpec(RSDummyContext, args, args.size(), &error)) _exit(1);
+        if (!DiskMetrics_Start(
+                nullptr,
+                [](void*) {
+                  std::unique_lock<std::mutex> lock(active->mutex);
+                  active->collecting = true;
+                  active->changed.notify_all();
+                  active->changed.wait(lock, [] { return active->release; });
+                  active->retainedIndexes = specDict_g && dictSize(specDict_g) > 0;
+                  active->collectionFinished = true;
+                  return false;
+                },
+                nullptr))
+          _exit(1);
+        {
+          std::unique_lock<std::mutex> lock(state.mutex);
+          if (!state.changed.wait_for(lock, std::chrono::seconds(5),
+                                      [&state] { return state.collecting; }))
+            _exit(1);
+        }
+        std::thread releaseCollection([&state] {
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          std::lock_guard<std::mutex> lock(state.mutex);
+          state.release = true;
+          state.changed.notify_all();
+        });
+        RedisModule_ThreadSafeContextLock(nullptr);
+        RediSearch_CleanupModule(nullptr);
+        RedisModule_ThreadSafeContextUnlock(nullptr);
+        releaseCollection.join();
+        _exit(state.retainedIndexes && state.closed && timersStopped == 1 ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+
 TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
   release = true;
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
