@@ -243,7 +243,7 @@ static int respSchemaNameEqual(void *unused, const void *left, const void *right
   return !strcmp(left, right);
 }
 
-// Names are borrowed from sealed lookup keys or the current hiredis reply.
+// Duplicate detection borrows names only for the current hiredis reply.
 static dictType respSchemaNames = {
     .hashFunction = respSchemaNameHash,
     .keyCompare = respSchemaNameEqual,
@@ -286,40 +286,23 @@ static bool prepareRespSchema(RPNet *nc, MRReply *envelope) {
     }
   }
   nc->current.schemaKeys = array_new(const RLookupKey *, width);
-  dict *byName = dictCreate(&respSchemaNames, NULL);
   dict *seen = dictCreate(&respSchemaNames, NULL);
-  RLookupRow scratch = RLookupRow_New();
   bool valid = false;
-  RLOOKUP_FOREACH(key, nc->lookup,
-                  { dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key); });
   for (size_t i = 0; i < width; ++i) {
     MRReply *name = MRReply_ArrayElement(names, i);
     if (!name || MRReply_Type(name) != MR_REPLY_STRING) goto cleanup;
     size_t len;
     const char *bytes = MRReply_String(name, &len);
     if (memchr(bytes, '\0', len) || dictAdd(seen, (void *)bytes, NULL) != DICT_OK) goto cleanup;
-    dictEntry *entry = dictFind(byName, bytes);
-    const RLookupKey *key = entry ? dictGetVal(entry) : NULL;
-    if (!key) {
-      size_t previousWidth = RLookup_Iter(nc->lookup).remaining;
-      if (previousWidth >= UINT16_MAX) goto cleanup;
-      // Preserve the legacy indexed by-name append policy and owned-name lifetime.
-      // Retaining one scratch row avoids allocating through every new slot repeatedly.
-      RLookupRow_WriteByNameOwned(nc->lookup, bytes, len, &scratch, RSValue_NullStatic());
-      RLookupIterator iterator = RLookup_Iter(nc->lookup);
-      if (iterator.remaining != previousWidth + 1) goto cleanup;
-      key = iterator.current[previousWidth];
-      dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key);
-    }
+    const RLookupKey *key = RLookup_GetOrCreateKeyByName(nc->lookup, bytes, len, UINT16_MAX);
+    if (!key) goto cleanup;
     array_append(nc->current.schemaKeys, key);
   }
   nc->current.rows = rows;
   nc->current.schema = true;
   valid = true;
 cleanup:
-  RLookupRow_Reset(&scratch);
   dictRelease(seen);
-  dictRelease(byName);
   return valid;
 }
 
@@ -532,12 +515,12 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 }
 
 void RPNet_resetCurrent(RPNet *nc) {
-  array_free(nc->current.schemaKeys);
-  nc->current.schemaKeys = NULL;
-  nc->current.schema = false;
-  nc->current.root = NULL;
-  nc->current.rows = NULL;
-  nc->current.meta = NULL;
+    array_free(nc->current.schemaKeys);
+    nc->current.schemaKeys = NULL;
+    nc->current.schema = false;
+    nc->current.root = NULL;
+    nc->current.rows = NULL;
+    nc->current.meta = NULL;
 }
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
