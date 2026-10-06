@@ -1583,36 +1583,6 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Shard FT.CURSOR READ callback for deferred serialization.
-// Mirrors QueryReplyCallback. Not invoked if the timeout fired first.
-// Can be consolidated with QueryReplyCallback - See MOD-15038.
-static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
-
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  // Installed by BeginCycle on the main thread before the command returned,
-  // so no callback can observe missing privdata.
-  RS_ASSERT(request != NULL);
-
-  AREQ *req = QueryRequest_GetAREQ(request);
-
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
-  AREQ_ReplyWithStoredResults(ctx, req);
-
-  return REDISMODULE_OK;
-}
-
 // FT.SEARCH SORTBY on a schema field puts the async loader in the pipeline:
 // the arrange step loads any sort key missing from the lookup, and flex has
 // no SORTABLE fields to make one unnecessary. Vector-distance keys are
@@ -2315,16 +2285,12 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // worker serializes the reply.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
     if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {
       // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
       RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
       RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
-      const bool backgroundReply =
-          !CURSOR_IS_COORD(cursor->id) && !IsCoordinator(req) && !IsHybrid(req);
-      replyCallback = backgroundReply ? NULL : CursorReadReplyCallback;
       timeoutCallback = CursorReadTimeoutFailCallback;
       timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
     }
@@ -2338,8 +2304,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // advances it back to PIPELINE at pickup.
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, &req->base, replyCallback,
-                                              timeoutCallback, timeoutMS);
+    cr_ctx->bc =
+        BlockCursorClientWithTimeout(ctx, cursor, &req->base, NULL, timeoutCallback, timeoutMS);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
