@@ -54,8 +54,37 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);
 
-// Initial shard mapping errors are deferred to the main-thread reply callback.
+/**
+ * Store pipeline results for reply_callback path (FAIL policy with workers).
+ * Called after pipeline execution to store results for serialization on the main thread.
+ */
+void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
+
+/**
+ * Helper for error handling in coordinator HREQ execution.
+ * For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
+ * For RETURN policy: replies with error directly.
+ */
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
+
+/**
+ * Serialize results from stored state (reply_callback path for FAIL policy).
+ * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ */
+void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
+
+/**
+ * Link RETURN_STRICT safe-loader synchronization contexts into the HYBRID tail
+ * and subquery pipelines. Must run before any linked safe loader can execute.
+ */
+void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq);
+
+/**
+ * Return true when any HYBRID tail or subquery safe loader is parked at the
+ * Redis GIL gate and a RETURN_STRICT timeout callback must preempt instead of
+ * waiting while holding the GIL.
+ */
+bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq);
 
 /**
  * Helper function to get the search context from a hybrid request.

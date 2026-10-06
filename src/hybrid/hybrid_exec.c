@@ -235,6 +235,25 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
 }
 #endif
 
+void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
+  // The tail and every subquery pipeline link the top-level request, whose
+  // GIL-handshake state is a counter shared by concurrent loaders.
+  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, &hreq->base);
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    if (subquery) {
+      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), &hreq->base);
+    }
+  }
+}
+
+bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
+  // The tail and all subquery safe loaders share the top-level request, so a
+  // single check covers every pipeline.
+  return QueryRequest_TimeoutPreemptSafeLoaderGIL(&hreq->base);
+}
+
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeout = &hreq->base.timeout,
@@ -246,9 +265,22 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   };
 
 #ifdef ENABLE_ASSERT
-  // Pause before the tail starts consuming results.
+  // Sync point (debug): pause before the TryClaim race
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
 #endif
+
+  // Bail if the RETURN-STRICT timeout callback already owns the reply.
+  // The timeout check MUST come first so it short-circuits the CAS.
+  if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
+      (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout) ||
+       !HybridRequest_TryClaimAggregateResults(hreq))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
+
+  if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+    HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+  }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
 
@@ -453,6 +485,33 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 }
 
 #ifdef ENABLE_ASSERT
+// Helper function to pause before/after store results for hybrid (for testing timeout during store).
+// The pause is gated by the global StoreResultsDebugCtx scope: INTERNAL_ONLY skips
+// non-internal (user-facing) HybridRequests, NON_INTERNAL_ONLY skips internal
+// (coordinator-dispatched) HybridRequests, and the default (BOTH) applies to all.
+static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  // Only pause if we are using reply callback (otherwise we don't store results)
+  if (!QueryRequest_UsesReplyCallback(&hreq->base)) {
+    return;
+  }
+  bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
+                        : StoreResultsDebugCtx_IsPauseAfterEnabled();
+  if (!enabled) return;
+  StoreResultsScope scope = StoreResultsDebugCtx_GetScope();
+  bool is_internal = IsInternal(hreq);
+  if (scope == STORE_RESULTS_SCOPE_INTERNAL_ONLY     && !is_internal) return;
+  if (scope == STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY &&  is_internal) return;
+  StoreResultsDebugCtx_SetPause(true);
+  while (StoreResultsDebugCtx_IsPaused()) {
+    // Check if timed out - break to avoid deadlock with timeout callback
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+      StoreResultsDebugCtx_SetPause(false);
+      break;
+    }
+    usleep(1000);  // Spin-wait with 1ms sleep
+  }
+}
+
 // Helper function to pause before/after hybrid cursor storage ONLY (separate command)
 static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before) {
   bool enabled = before ? HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled()
@@ -469,12 +528,41 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
   }
 }
 #else
+static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  UNUSED(hreq);
+  UNUSED(before);
+}
 static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before) {
   UNUSED(hreq);
   UNUSED(before);
 }
 #endif
 
+/**
+ * Store pipeline results for reply_callback path (FAIL policy with workers).
+ * Called after startPipelineHybrid when using reply_callback mode.
+ * Stores results in hreq->base.reply so serializeStoredResults_hybrid can be called
+ * from the reply_callback on the main thread.
+ *
+ * @param hreq The hybrid request
+ * @param results Pipeline results (ownership transferred to hreq->base.reply)
+ * @param rc Pipeline return code
+ * @param cv Cached variables for result serialization
+ */
+void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv) {
+  hreq->base.reply.results = results;
+  hreq->base.reply.rc = rc;
+  hreq->base.reply.cv = cv;
+  hreq->base.reply.hasStoredResults = true;
+
+}
+
+// Helper for error handling in coordinator HREQ execution.
+// FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
+//   reply_callback to handle.
+// RETURN (useReplyCallback=false): reply directly - an empty result set with a
+//   timeout warning when the error is a non-fail-policy timeout (no result set
+//   was produced here), otherwise the error itself.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
     // Deep copy since QueryError contains heap-allocated strings.
@@ -544,6 +632,20 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       }
     }
 
+    if (QueryRequest_UsesReplyCallback(&hreq->base)) {
+      // Store results for reply_callback (includes cv)
+      debugPauseStoreResultsHybrid(hreq, true);  // pause before
+      HREQ_StoreResults(hreq, results, rc, cv);
+      debugPauseStoreResultsHybrid(hreq, false); // pause after
+
+      // Signal completion for main-thread timeout
+      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_SignalAggregateResultsComplete(hreq);
+      }
+
+      return;
+    }
+
     fatalError = HybridRequest_GetFatalError(hreq);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
@@ -558,6 +660,35 @@ done_err:
                        : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
   }
 #endif
+}
+
+/**
+ * Serialize results from stored state (reply_callback path for FAIL policy).
+ * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ */
+void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
+    QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+    ResultProcessor *rp = qctx->endProc;
+    ChunkReplyState *stored = &hreq->base.reply;
+
+    // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
+    SearchResult r = SearchResult_New();
+
+    // Get stored results and rc
+    SearchResult **results = stored->results;
+    int rc = stored->rc;
+    const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
+    bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
+
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
+                                    fatalError);
+
+    // Clear stored results pointer since ownership was transferred
+    stored->results = NULL;
+    stored->hasStoredResults = false;
+
+    finishSendChunk_HREQ(hreq, results, &r,
+                         rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), countQuery);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
@@ -866,6 +997,14 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
       depleters = collectDepleters(hreq, RP_SAFE_DEPLETER, status);
       if (!depleters) {
         goto done;
+      }
+      // The strict timeout callback preempts a loader parked at the GIL gate
+      // only if that loader is linked to the shared gate. Link before any
+      // depleter can run: a sub loader that races past an unlinked check is
+      // invisible to the gate, and the callback then waits for results while
+      // holding the GIL the loader needs — deadlock.
+      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
 #ifdef ENABLE_ASSERT
       // Sync point (debug): pause while still holding the read lock, before

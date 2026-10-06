@@ -114,7 +114,7 @@ typedef enum {
   STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY,// Pause only for non-internal (user-facing) requests
 } StoreResultsScope;
 
-// Struct used for debugging store results (pause before/after AREQ_StoreResults)
+// Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
 // Only available in debug builds to avoid affecting release performance
 typedef struct StoreResultsDebugCtx {
   atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
