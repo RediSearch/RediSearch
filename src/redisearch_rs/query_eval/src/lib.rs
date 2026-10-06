@@ -18,7 +18,8 @@
 //! integration tests. This module keeps what they share: the evaluator
 //! [`Config`], the [`Evaluated`] outcome type, the dispatcher and its
 //! [`qast_iterate`] entry point, and the helpers for evaluating a child node
-//! ([`eval_child_iterator`]) and for delegating an unported node to C
+//! ([`eval_child_iterator`]), lowering an evaluated one
+//! ([`into_child_iterator`]) and delegating an unported node to C
 //! ([`eval_node_c`]).
 
 use std::ptr::NonNull;
@@ -241,17 +242,23 @@ fn eval_node_c<'index>(
 }
 
 /// Evaluate a child node into an owning [`CRQEIterator`] for use as a child of
-/// a Rust compound iterator.
-///
-/// A `None` child (no results) becomes a freshly boxed [`Empty`] so the
-/// reducer can apply its empty-child rules, since a missing child is
-/// equivalent to one that matches nothing.
+/// a Rust compound iterator, lowered by [`into_child_iterator`].
 fn eval_child_iterator(
     ctx: &mut QueryEvalContext,
     child: QueryNodeMut<'_>,
     config: Config,
 ) -> CRQEIterator {
-    let ptr = match eval_node(&mut *ctx, child, config) {
+    into_child_iterator(eval_node(&mut *ctx, child, config))
+}
+
+/// Lower an evaluated child into an owning [`CRQEIterator`] for use as a child
+/// of a Rust compound iterator.
+///
+/// A `None` child (no results) becomes a freshly boxed [`Empty`] so the
+/// reducer can apply its empty-child rules, since a missing child is
+/// equivalent to one that matches nothing.
+fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
+    let ptr = match evaluated {
         Some(ev) => ev.into_c_iterator(),
         None => RQEIteratorWrapper::boxed_new(Empty),
     };

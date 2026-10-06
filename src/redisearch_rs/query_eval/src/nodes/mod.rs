@@ -25,6 +25,11 @@ pub(crate) mod numeric;
 pub(crate) mod optional;
 pub(crate) mod phrase;
 pub(crate) mod prefix;
+#[expect(
+    dead_code,
+    reason = "not dispatched yet: tag nodes are still evaluated by C"
+)]
+pub(crate) mod tag;
 pub(crate) mod token;
 pub(crate) mod union;
 pub(crate) mod vector;
