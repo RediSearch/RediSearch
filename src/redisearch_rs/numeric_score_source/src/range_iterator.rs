@@ -42,7 +42,7 @@ pub struct NumericRangeIterator<'index> {
     /// A multivalue field indexes one entry per value, so a doc's values can
     /// fall in different range chunks and be split across `next_n` batches — or
     /// even across expanded windows. Ranges are strictly value-ordered and
-    /// disjoint, so a doc's first emission is on its best value; later, worse
+    /// disjoint, so a doc's first emission is from its best-scored range; later
     /// occurrences are dropped to keep it scored exactly once. A single-valued
     /// field occupies one range per doc and needs no such tracking, so it skips
     /// the per-record set lookup entirely.
@@ -143,9 +143,8 @@ impl<'index> NumericRangeIterator<'index> {
 ///
 /// A multivalue field indexes one entry per value, so a doc id can occur several
 /// times with different scores. Occurrences within this batch's ranges are
-/// coalesced to a single entry carrying the doc's best score for the sort
-/// direction; occurrences already handed out by an earlier batch (tracked in
-/// `emitted`) are dropped, since their better value was scored there.
+/// coalesced to the first one read (the sort is stable); occurrences already
+/// handed out by an earlier batch (tracked in `emitted`) are dropped.
 ///
 /// `emitted` is the single statement of whether the field is multivalued at all:
 /// `None` says no document carries more than one value, so a doc id cannot
@@ -193,7 +192,7 @@ fn merge_ranges(
         items.sort_by_key(|(doc_id, _)| *doc_id);
     }
     if let Some(emitted) = emitted {
-        coalesce_by_doc_id(&mut items, filter.ascending);
+        coalesce_by_doc_id(&mut items);
         emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
     }
     debug_assert!(
@@ -229,25 +228,9 @@ fn reserved_capacity(ranges: &[&NumericRange], filter: NumericFilter, multivalue
         .sum()
 }
 
-/// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,
-/// keeping the best score for the sort direction: the smallest when `ascending`,
-/// the largest otherwise.
-fn coalesce_by_doc_id(items: &mut Vec<(DocId, f64)>, ascending: bool) {
-    items.dedup_by(|dropped, kept| {
-        if dropped.0 != kept.0 {
-            return false;
-        }
-        // `dedup_by` retains `kept`, so fold the better score into it.
-        let dropped_is_better = if ascending {
-            dropped.1 < kept.1
-        } else {
-            dropped.1 > kept.1
-        };
-        if dropped_is_better {
-            kept.1 = dropped.1;
-        }
-        true
-    });
+/// Keep the first entry of each run of equal doc ids.
+fn coalesce_by_doc_id(items: &mut Vec<(DocId, f64)>) {
+    items.dedup_by_key(|(doc_id, _)| *doc_id);
 }
 
 #[cfg(test)]
@@ -461,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn multivalue_doc_is_coalesced_to_its_best_ascending_value() {
+    fn multivalue_doc_is_coalesced_to_its_first_value_ascending() {
         // `is_multivalued` lets a doc id repeat with several values, as a
         // multivalue field does.
         let mut tree = NumericRangeTree::new(false);
@@ -473,14 +456,14 @@ mod tests {
 
         let ids: Vec<DocId> = pairs.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, [1, 2], "each doc id appears exactly once");
-        assert_eq!(pairs[0].1, 5.0, "ascending keeps the doc's smallest value");
+        assert_eq!(pairs[0].1, 90.0, "ascending keeps the doc's first value");
     }
 
     #[test]
-    fn multivalue_doc_is_coalesced_to_its_best_descending_value() {
+    fn multivalue_doc_is_coalesced_to_its_first_value_descending() {
         let mut tree = NumericRangeTree::new(false);
-        tree.add(1, 90.0, false, true, 0);
         tree.add(1, 5.0, false, true, 0);
+        tree.add(1, 90.0, false, true, 0);
 
         let filter = NumericFilter {
             ascending: false,
@@ -488,11 +471,7 @@ mod tests {
         };
         let pairs = drain_pairs(&tree, &filter);
 
-        assert_eq!(
-            pairs,
-            [(1, 90.0)],
-            "descending keeps the doc's largest value"
-        );
+        assert_eq!(pairs, [(1, 5.0)], "descending keeps the doc's first value");
     }
 
     #[test]
@@ -537,5 +516,24 @@ mod tests {
             [20.0],
             "descending must emit the doc once, on its largest value"
         );
+    }
+
+    #[test]
+    fn multivalue_doc_spanning_ranges_in_one_batch_is_scored_from_its_best_range() {
+        let doc = 1000;
+        let tree = tree_with_multivalue_doc_spanning_two_ranges(doc);
+        let filter = NumericFilter {
+            ascending: false,
+            ..NumericFilter::default()
+        };
+
+        let pairs = drain_pairs(&tree, &filter);
+
+        let occurrences: Vec<f64> = pairs
+            .iter()
+            .filter(|(id, _)| *id == doc)
+            .map(|(_, score)| *score)
+            .collect();
+        assert_eq!(occurrences, [20.0], "scored from its best-scored range");
     }
 }
