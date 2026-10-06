@@ -74,13 +74,20 @@ class DiskMetricsTest : public ::testing::Test {
     self.changed.wait(lock, [&] { return self.release; });
     return false;
   }
+  static bool continuingBatch(void* context) {
+    auto& self = *static_cast<DiskMetricsTest*>(context);
+    std::lock_guard<std::mutex> lock(self.mutex);
+    ++self.calls;
+    self.changed.notify_all();
+    return self.calls < 3;
+  }
   bool await(unsigned count) {
     std::unique_lock<std::mutex> lock(mutex);
     return changed.wait_for(lock, std::chrono::seconds(5), [&] { return calls >= count; });
   }
 };
 
-TEST_F(DiskMetricsTest, StopCancelsTimerAndRejectsFurtherWork) {
+TEST_F(DiskMetricsTest, StopCancelsTimerAndIsIdempotent) {
   release = true;
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(1));
@@ -126,13 +133,7 @@ TEST_F(DiskMetricsTest, TimerDoesNotWaitForOrQueueBehindAnActiveBatch) {
 }
 
 TEST_F(DiskMetricsTest, UnfinishedBatchContinuesWithoutAnotherTimer) {
-  ASSERT_TRUE(DiskMetrics_Start(nullptr, [](void* context) {
-    auto& self = *static_cast<DiskMetricsTest*>(context);
-    std::lock_guard<std::mutex> lock(self.mutex);
-    ++self.calls;
-    self.changed.notify_all();
-    return self.calls < 3;
-  }, this));
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, continuingBatch, this));
   ASSERT_TRUE(await(3));
   DiskMetrics_Stop(nullptr);
   EXPECT_EQ(calls, 3u);
