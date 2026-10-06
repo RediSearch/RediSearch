@@ -25,9 +25,15 @@ RSSortingVector SortingVector_RdbLoad(RedisModuleIO *rdb) {
 
     switch (t) {
       case RSValueType_String: {
-        size_t len;
+        size_t len = 0;
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
+        if (!s || len == 0) {
+          // Without even the terminator the payload is corrupt.
+          RedisModule_Free(s);
+          RSSortingVector_PutNull(&vec, i);
+          break;
+        }
         s[len - 1] = '\0';
         RSSortingVector_PutStr(&vec, i, s);
         RedisModule_Free(s);
