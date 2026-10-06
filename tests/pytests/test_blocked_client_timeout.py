@@ -3009,8 +3009,8 @@ class TestShardTimeout:
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         after_info = info_modules_to_dict(env)
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message="Coordinator timeout error should be +1 after sticky FAIL cursor-read timeout")
+                        str(base_err_coord + 2),
+                        message="Sticky FAIL cursor read should count callback and worker timeout errors")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',
