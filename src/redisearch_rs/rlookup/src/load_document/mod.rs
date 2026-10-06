@@ -348,6 +348,7 @@ mod tests {
     struct StubFormat {
         opens: Cell<usize>,
         loaded: RefCell<Vec<CString>>,
+        loaded_indices: RefCell<Vec<usize>>,
     }
 
     struct StubLoader<'key>(&'key StubFormat);
@@ -382,6 +383,16 @@ mod tests {
     }
 
     impl FieldLoader for StubLoader<'_> {
+        fn load_field_at(
+            &self,
+            index: usize,
+            key: &RLookupKey,
+            row: &mut RLookupRow,
+        ) -> Result<(), LoadFieldError> {
+            self.0.loaded_indices.borrow_mut().push(index);
+            self.load_field(key, row)
+        }
+
         fn load_field(
             &self,
             kk: &RLookupKey,
@@ -437,6 +448,7 @@ mod tests {
             vec![c"a".to_owned(), c"b".to_owned()]
         );
         assert_eq!(format.opens.get(), 1);
+        assert_eq!(*format.loaded_indices.borrow(), [1, 2]);
         assert_eq!(profile.map(|entry| entry.load_count), [1, 1, 1]);
     }
 }
