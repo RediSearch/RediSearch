@@ -72,6 +72,8 @@ void Discard_Globals_Backup(RedisModuleCtx *ctx) {
   AliasTable_g = AliasTable_g_bkup;
   // clear data
   Indexes_Free(ctx, specDict_g, false);
+  dictRelease(specDict_g);
+  dictRelease(specIdDict_g);
   SchemaPrefixes_Free(SchemaPrefixes_g);
   IndexAlias_DestroyGlobal(&AliasTable_g);
   // restore global from temp
