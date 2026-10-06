@@ -229,6 +229,33 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
       ::testing::ExitedWithCode(0), "");
 }
 
+TEST_F(DiskMetricsTest, ForkDrainsAnActiveCollectionBeforeCreatingTheChild) {
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
+  ASSERT_TRUE(await(1));
+  std::thread releaseCollection([this] {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (DiskMetrics_Wake()) {
+      if (std::chrono::steady_clock::now() >= deadline) _exit(1);
+      std::this_thread::yield();
+    }
+    std::lock_guard<std::mutex> lock(mutex);
+    release = true;
+    changed.notify_all();
+  });
+  const pid_t child = fork();
+  if (child == 0) {
+    _exit(DiskMetrics_InForkChild() && release && !DiskMetrics_Wake() ? 0 : 1);
+  }
+  releaseCollection.join();
+  ASSERT_NE(child, -1);
+  int status;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+  EXPECT_FALSE(DiskMetrics_InForkChild());
+  EXPECT_TRUE(DiskMetrics_Wake());
+}
+
 TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
   release = true;
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));

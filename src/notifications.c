@@ -986,7 +986,6 @@ static void DiskConsistencyWindow_Quiesce(void) {
     disk_window_held |= DISK_WINDOW_GC_PAUSED;
   }
 
-  SearchDisk_PauseMetrics();
   ForEachIndex(SearchDisk_OpenConsistencyWindow);  // disable + cancel compactions
   disk_window_held |= DISK_WINDOW_INDEX_HOOKS;
 }
@@ -1067,7 +1066,6 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
       break;
 
     case DISK_WINDOW_END_RESUME:
-      if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) SearchDisk_ResumeMetrics();
       CloseIndexWindows(CloseWindowReopeningGate);
       if (disk_window_held & DISK_WINDOW_GC_PAUSED) {
         ForEachIndex(ResumeIndexGCScheduling);
