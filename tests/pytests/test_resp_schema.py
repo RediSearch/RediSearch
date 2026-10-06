@@ -233,6 +233,41 @@ def test_resp_schema_multiple_internal_chunks():
 
 
 @skip(cluster=False)
+def test_resp_schema_profile_drain():
+    """Drain remaining shard chunks after the coordinator LIMIT stops consuming rows."""
+    for protocol in (2, 3):
+        env = Env(protocol=protocol)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(60):
+            args = ['id', i]
+            if i % 2:
+                args += ['optional', 'value']
+            conn.execute_command('HSET', f'{{drain{i}}}:1', *args)
+        shards = env.getOSSMasterNodesConnectionList()
+        for shard in shards:
+            env.assertGreater(shard.execute_command('DBSIZE'), 0)
+        with schema_mode(env, 'yes'), schema_mode(env, 'return', 'search-on-timeout'):
+            reply = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                            'LOAD', 2, '@id', '@optional', 'LIMIT', 0, 1, 'TIMEOUT', 0)
+            result = reply['Results'] if protocol == 3 else reply[0]
+            env.assertEqual(len(rows(env, result)), 1)
+            profile = reply['Profile'] if protocol == 3 else to_dict(reply[1])
+            coordinator = profile['Coordinator']
+            if protocol == 2:
+                coordinator = to_dict(coordinator)
+            processors = coordinator['Result processors profile']
+            if protocol == 2:
+                processors = [to_dict(processor) for processor in processors]
+            network = next(processor for processor in processors if processor['Type'] == 'Network')
+            # All shard profiles with just one converted row require draining the other chunks.
+            env.assertEqual(network['Shard replies'], len(shards))
+            env.assertLess(network['Results processed'], 2)
+            env.assertTrue(network['Fields converted'] in (1, 2), message=network)
+            env.assertEqual(len(profile['Shards']), len(shards))
+
+
+@skip(cluster=False)
 def test_resp_schema_buffered_timeout():
     """Force buffered shard timeouts after sparse rows, including a live config change."""
     for protocol in (2, 3):
