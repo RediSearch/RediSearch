@@ -408,7 +408,7 @@ def test_tag_union_child_count_is_not_capped_at_16_bits(env):
     normally.
 
     Unlike the plain-text union test, the children here all come from values that actually
-    exist on the document, exercising the tag-node evaluation path in `Query_EvalTagNode`
+    exist on the document, exercising the tag-node evaluation path
     rather than the generic union constructor.
     """
     conn = getConnectionByEnv(env)
