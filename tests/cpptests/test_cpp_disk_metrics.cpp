@@ -33,6 +33,7 @@ class DiskMetricsTest : public ::testing::Test {
   std::mutex mutex;
   std::condition_variable changed;
   unsigned calls = 0;
+  unsigned periodicCalls = 0;
   bool release = false;
   static inline RedisModuleTimerProc timerProc;
   static inline void* timerData;
@@ -46,7 +47,8 @@ class DiskMetricsTest : public ::testing::Test {
     timersStopped = 0;
     timerProc = nullptr;
     timerData = nullptr;
-    RedisModule_CreateTimer = [](RedisModuleCtx*, mstime_t, RedisModuleTimerProc proc, void* data) {
+    RedisModule_CreateTimer = [](RedisModuleCtx*, mstime_t period, RedisModuleTimerProc proc, void* data) {
+      EXPECT_EQ(period, 1000);
       timerProc = proc;
       timerData = data;
       return RedisModuleTimerID{++timersCreated};
@@ -66,15 +68,16 @@ class DiskMetricsTest : public ::testing::Test {
     RedisModule_CreateTimer = savedCreate;
     RedisModule_StopTimer = savedStop;
   }
-  static bool blockedBatch(void* context) {
+  static bool blockedBatch(void* context, bool periodic) {
     auto& self = *static_cast<DiskMetricsTest*>(context);
     std::unique_lock<std::mutex> lock(self.mutex);
     ++self.calls;
+    self.periodicCalls += periodic;
     self.changed.notify_all();
     self.changed.wait(lock, [&] { return self.release; });
     return false;
   }
-  static bool continuingBatch(void* context) {
+  static bool continuingBatch(void* context, bool) {
     auto& self = *static_cast<DiskMetricsTest*>(context);
     std::lock_guard<std::mutex> lock(self.mutex);
     ++self.calls;
@@ -116,7 +119,7 @@ TEST_F(DiskMetricsTest, TimerCollectsAndRearmsAfterInitialCollection) {
   FAIL() << "Timer did not collect again after the initial job";
 }
 
-TEST_F(DiskMetricsTest, TimerDoesNotWaitForOrQueueBehindAnActiveBatch) {
+TEST_F(DiskMetricsTest, TimerRequestsCoalesceDuringAnActiveBatch) {
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(1));
   const auto started = std::chrono::steady_clock::now();
@@ -128,8 +131,29 @@ TEST_F(DiskMetricsTest, TimerDoesNotWaitForOrQueueBehindAnActiveBatch) {
     release = true;
     changed.notify_all();
   }
+  ASSERT_TRUE(await(2));
   DiskMetrics_Stop(nullptr);
-  EXPECT_EQ(calls, 1u);
+  EXPECT_EQ(calls, 2u);
+  EXPECT_EQ(periodicCalls, 2u);
+}
+
+TEST_F(DiskMetricsTest, NativeRequestsCoalesceAndWakeWithoutATimer) {
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
+  ASSERT_TRUE(await(1));
+  for (unsigned i = 0; i < 100; ++i) DiskMetrics_Request();
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(calls, 1u);
+    release = true;
+    changed.notify_all();
+  }
+  ASSERT_TRUE(await(2));
+  DiskMetrics_Stop(nullptr);
+  EXPECT_EQ(calls, 2u);
+  EXPECT_EQ(periodicCalls, 1u);
+  EXPECT_EQ(timersCreated, 1u);
+  DiskMetrics_Request();
+  EXPECT_EQ(calls, 2u);
 }
 
 TEST_F(DiskMetricsTest, UnfinishedBatchContinuesWithoutAnotherTimer) {
@@ -182,7 +206,7 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         static State* active;
         active = &state;
         RedisSearchDiskAPI api{};
-        api.metrics.getCollector = [](RedisSearchDisk*) {
+        api.metrics.getCollector = [](RedisSearchDisk*, void (*)(void)) {
           return reinterpret_cast<RedisSearchDiskMetricsCollector*>(active);
         };
         api.basic.close = [](RedisModuleCtx*, RedisSearchDisk*) {
@@ -203,7 +227,7 @@ TEST_F(DiskMetricsTest, GlobalCleanupDrainsCollectionBeforeDestroyingIndexesAndD
         if (!Indexes_CreateNewSpec(RSDummyContext, args, args.size(), &error)) _exit(1);
         if (!DiskMetrics_Start(
                 nullptr,
-                [](void*) {
+                [](void*, bool) {
                   std::unique_lock<std::mutex> lock(active->mutex);
                   active->collecting = true;
                   active->changed.notify_all();
@@ -283,6 +307,7 @@ TEST_F(DiskMetricsTest, ForkChildReadsCacheWithoutSubmittingOrJoiningAWorker) {
   if (child == 0) {
     const auto created = timersCreated;
     timerProc(nullptr, timerData);
+    DiskMetrics_Request();
     bool safe = DiskMetrics_InForkChild() && timersCreated == created;
     DiskMetrics_Stop(nullptr);
     _exit(safe ? 0 : 1);

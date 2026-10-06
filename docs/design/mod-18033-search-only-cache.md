@@ -22,7 +22,7 @@ filesystem usage, retained obsolete files, or memtable bytes.
 
 ## Private interface
 
-Five added callbacks connect the repositories: `getCollector`, `collect`,
+Five added callbacks connect the repositories: `getCollector` (also registers the executor notification), `collect`,
 `activateTarget`,
 `getCachedTotalDiskUsage` and `readCachedIndexMetrics`. The last returns one
 numeric record containing memory, operational disk usage and block estimates,
@@ -35,52 +35,54 @@ context. No separate retirement or blocking freshness API crosses FFI.
 ## Executor and scheduling
 
 RediSearch owns one dedicated single-worker pool using its existing `deps/thpool`
-implementation. It does not share the query or GC queue. A 50 ms module timer
-submits a job only when none is outstanding. This polls RSE's due times and dirty
-flags; it does not collect properties every 50 ms. There is no external wake API.
-Unfinished work resubmits immediately, without waiting for another timer.
+implementation. One Redis timer requests periodic reconciliation every second.
+There is no 50 ms poll. RSE marks all registered usage entries dirty for that
+periodic request; otherwise it collects only entries with an event request or an
+unfinished pass. Diagnostic snapshots retain their five-second deadline after a
+completed pass and get a batch on every worker invocation, preventing starvation.
+The periodic timer checks that deadline too; it can observe it up to one timer
+interval later, before accounting for other load.
+
+Native flush/compaction completion marks the affected index dirty and calls the
+thread-safe executor notification registered through `getCollector`. Activation
+and layout changes request work through the same path. The callback calls no Redis
+timer API and does not wait for collection. It is process-lifetime code; its target
+is the static executor gate, not a pointer into a freed collector or index.
 
 | Owner | Responsibility |
 |---|---|
-| RediSearch | Redis timer, worker pool, single outstanding job, fork barrier, shutdown drain. |
-| RSE | Per-index/CF eligibility, refresh intervals, dirty flags, retry backoff, and collection progress. |
+| RediSearch | One-second timer, worker pool, coalesced submission, fork barrier, shutdown drain. |
+| RSE | Dirty indexes, incremental collection, retry backoff, five-second diagnostic deadline. |
 
-The split reuses RediSearch's module lifecycle and thread-pool wiring. It is an
-implementation choice, not a requirement that the executor live in RediSearch.
-Moving it to RSE would still require timing, shutdown, and fork coordination.
+The executor gate protects `submitted`, `requested`, and `periodicRequested`.
+Requests set the appropriate flags and submit only if no job is outstanding. A job
+consumes these flags before collecting. A request arriving during collection stays
+pending; completion schedules at most one successor for that request or unfinished
+work. A periodic request received during an active pass is preserved as well.
 
-When nothing is due, a job checks the registries and returns without reading native
-properties. Those checks still cost CPU and scale with index count. The 50 ms poll
-lets dirty notifications and retries be noticed sooner than the one-second periodic
-usage deadline. It is not a freshness guarantee: event-loop or worker load can delay
-it. A longer poll reduces idle checks but increases that delay.
+RSE clears an index's dirty flag before its native reads. Events after that point
+survive publication, because a flush after a CF was sampled need not be covered by
+the newly published result. Per-index failure state enforces at least a one-second
+backoff; the periodic request retries later. Failed reads keep last-good values.
+No immediate failure retry loop or dedicated retry timer is needed.
 
-With no dirty events or errors, usage is due one second after its pass **starts**;
-diagnostics are due five seconds after their pass **finishes**. A usage pass from
-0.00 to 0.10 s is next due at 1.00 s; a diagnostic pass finishing at 0.10 s is next
-due at 5.10 s. Intervening timer jobs only check eligibility. Usage passes lasting
-over one second are immediately eligible again, and dirty events can start usage
-earlier. These periods therefore do not mean exactly one worker job per interval.
+Each worker invocation runs an operational batch and a diagnostic batch. Each
+batch checks its approximately 5 ms budget between native reads; a single native
+read can exceed that budget. Unfinished work resubmits immediately. Repeated events
+coalesce, but sustained changes can cause back-to-back passes; there is no hard
+freshness bound. INFO overlays diagnostic SST fields with operational SST values.
 
-RSE supplies one private collection callback/context. Each operational batch
-checks its approximately 5 ms budget between native reads. A single property
-read can exceed that budget. Indexes rotate fairly, one CF at a time. Each
-index's next ordinary pass is due one second after the previous pass started.
-An overrun therefore makes the next pass immediately eligible. Flush/compaction
-completion sets an index's dirty flag, making it eligible before its
-normal due time. Events coalesce and never enqueue a job per write.
+Stop disables submissions under the executor gate before draining and destroying
+the worker. Later native notifications are harmless. Fork prepare blocks new
+submissions and drains the current batch. Pending requests during that window are
+serviced by an existing queued job or the next periodic timer in the parent. Child
+notifications are rejected before taking executor locks; Rust also checks its
+creator PID before calling the notification.
 
-Each worker invocation runs an operational batch and a diagnostic batch, so
-a large operational pass cannot starve diagnostics. Their slower refresh cadence
-remains. Both
-lanes retain progress across jobs. Diagnostic SST fields are sampled in that
-lane too, but INFO overlays them with operational SST values. Removing duplicate
-background SST reads is a separate simplification, not required for cheap reads.
-
-There is no hard freshness bound under sustained overload or a long native
-read. Last-good values remain available; collection failure retries with a short
-backoff. No new INFO fields, commands, or configuration options are exposed.
-There is no synchronous expiry fallback.
+This split reuses RediSearch's module lifecycle and pool wiring. Moving the executor
+to RSE remains possible but would still need timer, shutdown, and fork coordination.
+No new INFO fields, commands, configuration options, or synchronous expiry fallback
+are introduced.
 
 ## Ownership and lifecycle
 
@@ -91,8 +93,8 @@ for an old target. Each index publishes its contribution and metric categories
 atomically; a wider internal ledger prevents overflow from breaking later
 subtraction. The externally visible total saturates at `u64::MAX`.
 
-A separate lifetime native listener marks flush and compaction completion with
-atomics only. Its RAII token is owned alongside the DB using `self_cell`, so it
+A separate lifetime native listener marks flush and compaction completion dirty
+and notifies the executor. Its RAII token is owned alongside the DB using `self_cell`, so it
 is removed before the DB closes. Existing GC-scoped listeners retain their
 existing reclaimed-byte semantics.
 

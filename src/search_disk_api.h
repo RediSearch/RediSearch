@@ -1031,9 +1031,10 @@ typedef struct CachedIndexMetrics {
 
 typedef struct MetricsDiskAPI {
   /* Borrowed collector context remains valid until basic.close, which requires
-   * background collection to be drained. It is separate from mutable disk state. */
-  RedisSearchDiskMetricsCollector *(*getCollector)(RedisSearchDisk *disk);
-  bool (*collect)(RedisSearchDiskMetricsCollector *collector);
+   * background collection to be drained. It is separate from mutable disk state.
+   * request is process-lifetime code, callable from native threads, and inert after executor stop. */
+  RedisSearchDiskMetricsCollector *(*getCollector)(RedisSearchDisk *disk, void (*request)(void));
+  bool (*collect)(RedisSearchDiskMetricsCollector *collector, bool periodic);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedTotalDiskUsage)(RedisSearchDiskMetricsCollector *collector);
   /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */

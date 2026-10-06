@@ -141,10 +141,10 @@ class InfoSectionsTest : public ::testing::Test {
       ++cachedCollections;
       return CachedIndexMetrics{4321, 55, 9};
     };
-    api.metrics.getCollector = [](RedisSearchDisk *context) -> RedisSearchDiskMetricsCollector * {
+    api.metrics.getCollector = [](RedisSearchDisk *context, void (*)(void)) -> RedisSearchDiskMetricsCollector * {
       return reinterpret_cast<RedisSearchDiskMetricsCollector *>(context);
     };
-    api.metrics.collect = [](RedisSearchDiskMetricsCollector *) -> bool {
+    api.metrics.collect = [](RedisSearchDiskMetricsCollector *, bool) -> bool {
       ++backgroundCollections;
       return false;
     };

@@ -16,11 +16,13 @@
 static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t nativeGate = PTHREAD_MUTEX_INITIALIZER;
 static redisearch_thpool_t* pool;
-static bool (*collectBatch)(void*);
+static bool (*collectBatch)(void*, bool);
 static void* collectionContext;
 static RedisModuleTimerID timer;
 static bool timerActive;
 static bool submitted;
+static bool requested;
+static bool periodicRequested;
 static _Atomic bool stopping;
 static _Atomic bool forking;
 static _Atomic bool inChild;
@@ -42,24 +44,30 @@ static void collectJob(void* unused) {
   pthread_mutex_lock(&nativeGate);
   pthread_mutex_lock(&gate);
   bool run = pool && !atomic_load(&stopping) && !atomic_load(&forking);
+  bool periodic = periodicRequested;
+  if (run) {
+    requested = false;
+    periodicRequested = false;
+  }
   pthread_mutex_unlock(&gate);
-  bool more = run && collectBatch(collectionContext);
+  bool more = run && collectBatch(collectionContext, periodic);
   pthread_mutex_lock(&gate);
   submitted = false;
-  if (more) submit();
+  if (more || requested) submit();
   pthread_mutex_unlock(&gate);
   pthread_mutex_unlock(&nativeGate);
 }
 
-/* Poll for due/dirty work; RSE owns refresh deadlines. This does not sample metrics on the main thread. */
+/* Periodic reconciliation is the backstop; storage events request immediate work. */
 static void tick(RedisModuleCtx* ctx, void* unused) {
   (void)unused;
   timerActive = false;
   if (atomic_load_explicit(&inChild, memory_order_relaxed)) return;
   pthread_mutex_lock(&gate);
+  requested = periodicRequested = true;
   submit();
   pthread_mutex_unlock(&gate);
-  timer = RedisModule_CreateTimer(ctx, 50, tick, NULL);
+  timer = RedisModule_CreateTimer(ctx, 1000, tick, NULL);
   timerActive = true;
 }
 
@@ -81,21 +89,25 @@ static void afterForkChild(void) {
   pthread_mutex_unlock(&nativeGate);
 }
 
-bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*), void* collector) {
+bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*, bool), void* collector) {
   RS_ASSERT(!pool);
   if (!forkHooksInstalled) {
     if (pthread_atfork(beforeFork, afterForkParent, afterForkChild) != 0) return false;
     forkHooksInstalled = true;
   }
+  pthread_mutex_lock(&gate);
   pool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, NULL, "metrics");
-  if (!pool) return false;
+  if (!pool) {
+    pthread_mutex_unlock(&gate);
+    return false;
+  }
   collectionContext = collector;
   collectBatch = collect;
   stopping = false;
   submitted = false;
-  timer = RedisModule_CreateTimer(ctx, 50, tick, NULL);
+  requested = periodicRequested = true;
+  timer = RedisModule_CreateTimer(ctx, 1000, tick, NULL);
   timerActive = true;
-  pthread_mutex_lock(&gate);
   bool started = submit();
   pthread_mutex_unlock(&gate);
   if (started) return true;
@@ -109,7 +121,9 @@ void DiskMetrics_Stop(RedisModuleCtx* ctx) {
     RedisModule_StopTimer(ctx, timer, NULL);
     timerActive = false;
   }
+  pthread_mutex_lock(&gate);
   atomic_store(&stopping, true);
+  pthread_mutex_unlock(&gate);
   redisearch_thpool_wait(pool);
   redisearch_thpool_destroy(pool);
   pthread_mutex_lock(&gate);
@@ -117,6 +131,17 @@ void DiskMetrics_Stop(RedisModuleCtx* ctx) {
   collectBatch = NULL;
   collectionContext = NULL;
   submitted = false;
+  pthread_mutex_unlock(&gate);
+}
+
+/* Safe from native event threads: no Redis timer API, and no native work under gate. */
+void DiskMetrics_Request(void) {
+  if (DiskMetrics_InForkChild()) return;
+  pthread_mutex_lock(&gate);
+  if (!atomic_load(&stopping)) {
+    requested = true;
+    submit();
+  }
   pthread_mutex_unlock(&gate);
 }
 

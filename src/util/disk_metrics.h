@@ -13,7 +13,8 @@
 #include <stdbool.h>
 
 /* The callback uses no Redis API/GIL; its context stays live until Stop returns. */
-bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*), void* collector);
+bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*, bool periodic), void* collector);
+void DiskMetrics_Request(void);
 void DiskMetrics_Stop(RedisModuleCtx* ctx);
 bool DiskMetrics_InForkChild(void);
 

@@ -176,8 +176,8 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
-static bool collectMetrics(void *collector) {
-  return disk->metrics.collect(collector);
+static bool collectMetrics(void *collector, bool periodic) {
+  return disk->metrics.collect(collector, periodic);
 }
 
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
@@ -215,7 +215,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
-  metricsCollector = disk->metrics.getCollector(disk_db);
+  metricsCollector = disk->metrics.getCollector(disk_db, DiskMetrics_Request);
   if (!DiskMetrics_Start(ctx, collectMetrics, metricsCollector)) {
     SearchDisk_Close(ctx);
     return false;
@@ -239,7 +239,7 @@ static size_t getDiskUsageCallback(void) {
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   if (!RedisModule_BigModuleRegister) return false;
-  if (!metricsCollector) metricsCollector = disk->metrics.getCollector(disk_db);
+  if (!metricsCollector) metricsCollector = disk->metrics.getCollector(disk_db, DiskMetrics_Request);
   RedisModuleBigCallbacksV1 callbacks = {.version = 1, .getDiskUsage = getDiskUsageCallback};
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) return false;
   infoCacheEnabled = true;
