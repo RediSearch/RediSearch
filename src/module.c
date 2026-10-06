@@ -73,6 +73,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
 #include "search_disk.h"
+#include "util/disk_metrics.h"
 #include "search_disk_utils.h"
 #include "disk_gc.h"
 #include "rs_wall_clock.h"
@@ -1936,6 +1937,9 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   }
   invoked = 1;
 
+  SearchDisk_PauseMetrics();
+  DiskMetrics_Stop(ctx);
+
   // First free all indexes
   Indexes_Free(ctx, specDict_g, false);
   dictRelease(specDict_g);
@@ -1960,6 +1964,7 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  SearchDisk_Close(ctx);
 
   // Only after every pool whose cycles register in BlockedQueries has stopped
   // (the workers pool above and the coordinator pool just now): no new cycle

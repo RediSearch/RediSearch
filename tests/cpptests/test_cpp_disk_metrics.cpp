@@ -29,14 +29,25 @@ class DiskMetricsTest : public ::testing::Test {
   std::condition_variable changed;
   unsigned calls = 0;
   bool release = false;
+  static inline RedisModuleTimerProc timerProc;
+  static inline void* timerData;
+  static inline unsigned timersCreated;
+  static inline unsigned timersStopped;
 
   void SetUp() override {
     savedCreate = RedisModule_CreateTimer;
     savedStop = RedisModule_StopTimer;
-    RedisModule_CreateTimer = [](RedisModuleCtx*, mstime_t, RedisModuleTimerProc, void*) {
-      return RedisModuleTimerID{1};
+    timersCreated = 0;
+    timersStopped = 0;
+    timerProc = nullptr;
+    timerData = nullptr;
+    RedisModule_CreateTimer = [](RedisModuleCtx*, mstime_t, RedisModuleTimerProc proc, void* data) {
+      timerProc = proc;
+      timerData = data;
+      return RedisModuleTimerID{++timersCreated};
     };
     RedisModule_StopTimer = [](RedisModuleCtx*, RedisModuleTimerID, void**) {
+      ++timersStopped;
       return REDISMODULE_OK;
     };
   }
@@ -63,6 +74,37 @@ class DiskMetricsTest : public ::testing::Test {
     return changed.wait_for(lock, std::chrono::seconds(5), [&] { return calls >= count; });
   }
 };
+
+TEST_F(DiskMetricsTest, StopCancelsTimerAndRejectsFurtherWork) {
+  release = true;
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
+  ASSERT_TRUE(await(1));
+  DiskMetrics_Stop(nullptr);
+  EXPECT_EQ(timersStopped, 1u);
+  EXPECT_FALSE(DiskMetrics_Wake());
+  EXPECT_FALSE(DiskMetrics_BeginWait());
+  DiskMetrics_Stop(nullptr);
+  EXPECT_EQ(timersStopped, 1u);
+}
+
+TEST_F(DiskMetricsTest, TimerCollectsAndRearmsAfterInitialCollection) {
+  release = true;
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
+  ASSERT_TRUE(await(1));
+  EXPECT_EQ(timersCreated, 1u);
+  ASSERT_NE(timerProc, nullptr);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto previous = timersCreated;
+    timerProc(nullptr, timerData);
+    EXPECT_EQ(timersCreated, previous + 1);
+    std::unique_lock<std::mutex> lock(mutex);
+    if (changed.wait_for(lock, std::chrono::milliseconds(10), [this] { return calls >= 3; })) {
+      return;
+    }
+  }
+  FAIL() << "Timer did not collect again after the initial job";
+}
 
 TEST_F(DiskMetricsTest, WakeSubmitsWithoutAnEventLoopAndDoesNotWaitForNativeWork) {
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));

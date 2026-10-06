@@ -2626,8 +2626,8 @@ int bit(t_fieldMask id) {
 static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   char* name = NULL;
   size_t len = 0;
-  LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);  // NOSONAR: Freed via fieldName.
-  f->fieldName = NewHiddenString(name, len, false);
+  LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
+  f->fieldName = NewHiddenString(name, len, false);  // NOSONAR: FieldSpec_Free owns the loaded name.
   // These encodings predate field paths; a field without one uses its name, as elsewhere.
   f->fieldPath = f->fieldName;
   // the old versions encoded the bit id of the field directly
