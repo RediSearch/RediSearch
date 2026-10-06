@@ -15,7 +15,7 @@ name: PR Pipeline (one job-type)
 # only the first, so they start as soon as it lands.
 #
 # MIRI is NOT part of this pipeline. It's dispatched as its own top-level job
-# (task-miri.yml) from event-pull_request.yml because it can't share the
+# (task-rust-standalone-tests.yml) from event-pull_request.yml because it can't share the
 # nextest archive and would otherwise gate the other test jobs.
 
 on:
