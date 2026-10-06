@@ -3963,7 +3963,8 @@ def test_internal_background_fail_serialization(env):
     workers = [c.execute_command('CONFIG', 'GET', 'search-workers') for c in shards]
     point = 'AfterBackgroundReplyEncode'
     query_vec = _setup_hybrid_index(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, '{doc}:',
+               'SCHEMA', 'name', 'TEXT').ok()
     getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'name', 'hello')
     try:
         for c in shards:
