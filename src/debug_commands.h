@@ -145,6 +145,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_BACKGROUND_ERROR_REPLY "BeforeBackgroundErrorReply"
 #define SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE "BeforeBackgroundReplyEncode"
 #define SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE "DuringBackgroundReplyEncode"
 #define SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE "AfterBackgroundReplyEncode"
@@ -279,7 +280,7 @@ void QueryRequestOnFreeDebug_Increment(void);
 uint64_t QueryRequestOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
-// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
+// channel state via FT.DEBUG BG_PENDING_REPLIES / BG_CHANNEL_WAITING. Set after the
 // iterator is created in the RPNet start path; cleared before it is released
 // in rpnetFree. Only one query is expected to be active at a time in tests.
 struct MRIterator;

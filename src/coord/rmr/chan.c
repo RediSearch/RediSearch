@@ -22,6 +22,9 @@ struct MRChannel {
   chanItem *tail;
   size_t size;
   volatile bool wait;
+#ifdef ENABLE_ASSERT
+  bool waiting;
+#endif
   pthread_mutex_t lock;
   pthread_cond_t cond;
 };
@@ -183,7 +186,14 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
     // One-shot unblock via MRChannel_Unblock; reset for the next pop.
     if (!chan->wait) { chan->wait = true; goto aborted; }
     // Park until pushed/broadcast/deadline. Re-checks all conditions on wake.
-    if (waitForCond(&chan->cond, &chan->lock, abstimeMono)) {
+#ifdef ENABLE_ASSERT
+    chan->waiting = true;
+#endif
+    bool expired = waitForCond(&chan->cond, &chan->lock, abstimeMono);
+#ifdef ENABLE_ASSERT
+    chan->waiting = false;
+#endif
+    if (expired) {
       if (timedOut) *timedOut = true;
       goto aborted;
     }
@@ -194,6 +204,16 @@ aborted:
   pthread_mutex_unlock(&chan->lock);
   return NULL;
 }
+
+#ifdef ENABLE_ASSERT
+bool MRChannel_DebugIsWaiting(MRChannel *chan) {
+  // Taking the mutex proves the consumer released it into the condition wait.
+  pthread_mutex_lock(&chan->lock);
+  bool waiting = chan->waiting;
+  pthread_mutex_unlock(&chan->lock);
+  return waiting;
+}
+#endif
 
 void MRChannel_WakeAbort(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
