@@ -662,7 +662,8 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
-  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+  // Timeout can finish the pipeline before rpnetNext_Start creates the iterator.
+  if (rpnet->it && (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it))) {
     while (!profileShouldStopCollectingReplies(req)) {
       MRReply_Free(rpnet->current.root);
       if (getNextReply(rpnet) == RS_RESULT_EOF) {
@@ -671,7 +672,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     }
   }
 
-  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
+  size_t num_shards = rpnet->it ? MRIterator_GetNumShards(rpnet->it) : 0;
   size_t profile_count = array_len(rpnet->shardsProfile);
 
   PrintShardProfile_ctx sCtx = {
