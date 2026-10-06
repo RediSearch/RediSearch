@@ -1937,7 +1937,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   }
   invoked = 1;
 
-  SearchDisk_PauseMetrics();
   DiskMetrics_Stop(ctx);
 
   // First free all indexes

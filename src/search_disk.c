@@ -250,7 +250,6 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
 void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (DiskMetrics_InForkChild()) return;
   if (disk && disk_db) {
-    SearchDisk_PauseMetrics();
     DiskMetrics_Stop(ctx);
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
@@ -264,17 +263,6 @@ void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (metricsCollector && spec && spec->diskSpec) {
     disk->metrics.activateTarget(spec->diskSpec);
   }
-}
-
-void SearchDisk_PauseMetrics(void) {
-  if (!metricsCollector || DiskMetrics_InForkChild()) return;
-  DiskMetrics_Pause();
-}
-
-void SearchDisk_ResumeMetrics(void) {
-  if (!metricsCollector || DiskMetrics_InForkChild()) return;
-  bool available = DiskMetrics_Resume();
-  if (available) DiskMetrics_Wake();
 }
 
 static void *Compaction_BeginUpdate(void *private_data) {

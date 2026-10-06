@@ -124,27 +124,29 @@ TEST_F(DiskMetricsTest, WakeSubmitsWithoutAnEventLoopAndDoesNotWaitForNativeWork
   ASSERT_TRUE(await(2));
 }
 
-TEST_F(DiskMetricsTest, PauseDrainsNativeWorkAndNestedResumeRemainsPaused) {
+TEST_F(DiskMetricsTest, StopDrainsNativeWorkAndAllowsRestart) {
   ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(1));
-  std::atomic<bool> paused{false};
-  std::thread pause([&] {
-    DiskMetrics_Pause();
-    paused.store(true);
+  std::atomic<bool> stopped{false};
+  std::thread stop([&] {
+    DiskMetrics_Stop(nullptr);
+    stopped.store(true);
   });
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (DiskMetrics_Wake() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+  EXPECT_FALSE(DiskMetrics_Wake());
+  EXPECT_FALSE(stopped.load());
   {
     std::lock_guard<std::mutex> lock(mutex);
-    EXPECT_FALSE(paused.load());
     release = true;
     changed.notify_all();
   }
-  pause.join();
-  EXPECT_TRUE(paused.load());
+  stop.join();
+  EXPECT_TRUE(stopped.load());
   EXPECT_FALSE(DiskMetrics_Wake());
-  DiskMetrics_Pause();
-  EXPECT_FALSE(DiskMetrics_Resume());
-  EXPECT_FALSE(DiskMetrics_Wake());
-  EXPECT_TRUE(DiskMetrics_Resume());
+  ASSERT_TRUE(DiskMetrics_Start(nullptr, blockedBatch, this));
   ASSERT_TRUE(await(2));
 }
 

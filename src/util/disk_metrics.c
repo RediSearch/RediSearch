@@ -22,7 +22,7 @@ static RedisModuleTimerID timer;
 static bool timerActive;
 static bool submitted;
 static bool wakeRequested;
-static _Atomic size_t pauses;
+static _Atomic bool stopping;
 static _Atomic bool forking;
 static _Atomic bool inChild;
 static bool forkHooksInstalled;
@@ -31,7 +31,7 @@ static void collectJob(void* unused);
 
 /* Called under gate. A successor replaces the current job; it does not accumulate. */
 static bool submit(void) {
-  if (!pool || atomic_load(&pauses) || atomic_load(&forking) ||
+  if (!pool || atomic_load(&stopping) || atomic_load(&forking) ||
       atomic_load_explicit(&inChild, memory_order_relaxed))
     return false;
   if (submitted) return true;
@@ -44,7 +44,7 @@ static void collectJob(void* unused) {
   pthread_mutex_lock(&nativeGate);
   pthread_mutex_lock(&gate);
   wakeRequested = false;
-  bool run = pool && !atomic_load(&pauses) && !atomic_load(&forking);
+  bool run = pool && !atomic_load(&stopping) && !atomic_load(&forking);
   pthread_mutex_unlock(&gate);
   bool more = run && collectBatch(collectionContext);
   pthread_mutex_lock(&gate);
@@ -93,7 +93,7 @@ bool DiskMetrics_Start(RedisModuleCtx* ctx, bool (*collect)(void*), void* collec
   if (!pool) return false;
   collectionContext = collector;
   collectBatch = collect;
-  pauses = 0;
+  stopping = false;
   submitted = false;
   timer = RedisModule_CreateTimer(ctx, 50, tick, NULL);
   timerActive = true;
@@ -108,7 +108,7 @@ void DiskMetrics_Stop(RedisModuleCtx* ctx) {
     RedisModule_StopTimer(ctx, timer, NULL);
     timerActive = false;
   }
-  DiskMetrics_Pause();
+  atomic_store(&stopping, true);
   redisearch_thpool_wait(pool);
   redisearch_thpool_destroy(pool);
   pthread_mutex_lock(&gate);
@@ -117,23 +117,6 @@ void DiskMetrics_Stop(RedisModuleCtx* ctx) {
   collectionContext = NULL;
   submitted = false;
   pthread_mutex_unlock(&gate);
-}
-
-void DiskMetrics_Pause(void) {
-  if (DiskMetrics_InForkChild()) return;
-  atomic_fetch_add(&pauses, 1);
-  pthread_mutex_lock(&nativeGate);
-  pthread_mutex_unlock(&nativeGate);
-}
-
-bool DiskMetrics_Resume(void) {
-  if (DiskMetrics_InForkChild()) return false;
-  pthread_mutex_lock(&gate);
-  RS_ASSERT(atomic_load(&pauses));
-  bool available = atomic_fetch_sub(&pauses, 1) == 1;
-  submit();
-  pthread_mutex_unlock(&gate);
-  return available;
 }
 
 bool DiskMetrics_Wake(void) {

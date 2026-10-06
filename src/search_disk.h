@@ -748,8 +748,6 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  */
 
 void SearchDisk_ActivateUsage(IndexSpec *spec);
-void SearchDisk_PauseMetrics(void);
-void SearchDisk_ResumeMetrics(void);
 bool SearchDisk_InfoCacheEnabled(void);
 CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
 

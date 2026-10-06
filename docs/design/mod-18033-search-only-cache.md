@@ -101,9 +101,24 @@ Health publication is separate from the operational getter and runs at most
 once per second. No freshness tickets, waiting callers, scope generations or
 cross-repository availability notifications are needed.
 
+Diagnostic snapshots use one concrete collection structure for both pending
+layout replacements and active worker progress. The worker holds the progress
+mutex across one native property read; replacement uses a separate pending slot
+and invalidates the old revision without waiting for that read. Retirement drains
+the read before native handles can be closed.
+
+Working and published snapshots share immutable storage. The next property read
+makes a private copy before mutation, so retained INFO snapshots stay consistent
+without an eager map copy when a layout replacement is queued. Test-only property
+readers exercise this same production collection loop.
+
+The C executor has start, stop, and fork handling. Stop rejects new jobs and drains
+the pool before index destruction; there is no general pause/resume API. The single
+worker serializes collection, so the Rust cache needs no second collector mutex.
+
 ## Coordinated PRs and qualification
 
-1. **RediSearch:** the pool, pause/fork/shutdown gates, V1 callback, cached INFO
+1. **RediSearch:** the pool, fork/shutdown gates, V1 callback, cached INFO
    reads, visibility hooks, private FFI contract and C/C++ tests.
 2. **RediSearchEnterprise:** the operational ledger, listener ownership, seeding,
    fair incremental refresh, diagnostic snapshots and scalar mirrors,
@@ -111,7 +126,7 @@ cross-repository availability notifications are needed.
 
 Validation must cover successful/error/zero samples, overflow followed by drop,
 native flush events, persisted reopen, layout replacement, retention of last-good
-values on errors, diagnostic fairness, pause/drain, fork and shutdown.
+values on errors, diagnostic fairness, stop/drain, fork and shutdown.
 Representative performance qualification remains a separate matched comparison
 on an idle machine: normal writes/reads with and without INFO, main-thread
 property attribution, operational cache age and collector native contention.
