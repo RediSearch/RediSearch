@@ -17,20 +17,20 @@ use std::ffi::c_void;
 
 use std::ptr::NonNull;
 
-pub struct JsonPath<'a> {
+pub struct JsonPath {
     pub(crate) ptr: NonNull<c_void>,
     pub(crate) free: unsafe extern "C" fn(*const c_void),
-    pub(crate) api: &'a RedisJsonApi,
+    pub(crate) api: RedisJsonApi,
 }
 
-impl Drop for JsonPath<'_> {
+impl Drop for JsonPath {
     fn drop(&mut self) {
         // Safety: `ptr` is valid by construction.
         unsafe { (self.free)(self.ptr.as_ptr()) }
     }
 }
 
-impl<'a> JsonPath<'a> {
+impl JsonPath {
     /// Parses a JSON path expression.
     ///
     /// Returns the parsed path on success, or an error message on failure.
@@ -43,7 +43,7 @@ impl<'a> JsonPath<'a> {
     pub unsafe fn parse(
         path: &CStr,
         ctx: *mut redis_module::RedisModuleCtx,
-        api: &'a RedisJsonApi,
+        api: &RedisJsonApi,
     ) -> Result<Self, RedisString> {
         let path_parse = vtable_fn!(api, pathParse);
 
@@ -58,7 +58,7 @@ impl<'a> JsonPath<'a> {
             Ok(Self {
                 ptr,
                 free: path_free,
-                api,
+                api: *api,
             })
         } else {
             Err(RedisString::from_redis_module_string(
