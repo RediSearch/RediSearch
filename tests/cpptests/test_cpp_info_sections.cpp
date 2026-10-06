@@ -314,7 +314,7 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   };
   api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *index) {
     auto *created = reinterpret_cast<IndexSpec *>(index);
-    EXPECT_TRUE(dictFind(specDict_g, created->specName));
+    EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("cached_usage_lifecycle")), created);
     ++targetRegistrations;
     total += 17;
   };
@@ -326,8 +326,8 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(RSDummyContext));
   EXPECT_EQ(callbacks.getDiskUsage(), 0u);
-  RMCK::ArgvList args("FT.CREATE", "cached_usage_lifecycle", "SKIPINITIALSCAN", "SCHEMA", "title",
-                      "TEXT");
+  RMCK::ArgvList args(RSDummyContext, "FT.CREATE", "cached_usage_lifecycle", "SKIPINITIALSCAN",
+                      "SCHEMA", "title", "TEXT");
   QueryError error = QueryError_Default();
   auto *created = Indexes_CreateNewSpec(RSDummyContext, args, args.size(), &error);
   ASSERT_NE(created, nullptr);
@@ -419,7 +419,12 @@ class CachedDiskLifecycleTest : public InfoSectionsTest {
 
 TEST_F(CachedDiskLifecycleTest, FreshnessWrapperPreservesOutputAndHoldsLeaseThroughCallback) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
-  ASSERT_TRUE(DiskMetrics_Start(nullptr, api.metrics.collect, disk_db));
+  ASSERT_TRUE(DiskMetrics_Start(
+      nullptr,
+      [](void *collector) {
+        return disk->metrics.collect(static_cast<RedisSearchDiskMetricsCollector *>(collector));
+      },
+      disk_db));
   uint64_t usage = 999;
   EXPECT_EQ(SearchDisk_WaitFreshUsage(spec->diskSpec, 0, 100, &usage), 0);
   EXPECT_EQ(usage, 55);
@@ -445,7 +450,12 @@ TEST_F(CachedDiskLifecycleTest, FreshnessWrapperPreservesOutputAndHoldsLeaseThro
 
 TEST_F(CachedDiskLifecycleTest, ShutdownWakesWaiterAndWaitsForTicketCleanup) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
-  ASSERT_TRUE(DiskMetrics_Start(nullptr, api.metrics.collect, disk_db));
+  ASSERT_TRUE(DiskMetrics_Start(
+      nullptr,
+      [](void *collector) {
+        return disk->metrics.collect(static_cast<RedisSearchDiskMetricsCollector *>(collector));
+      },
+      disk_db));
   result = 3;
   releaseTicket = false;
   uint64_t usage = 999;
