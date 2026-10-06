@@ -1547,3 +1547,30 @@ TEST_F(RdbMockTest, testSortingVectorRdbLoadTruncatedString) {
   RSSortingVector_ClearAndDeAlloc(&vec);
   RMCK_FreeRdbIO(io);
 }
+
+TEST_F(RdbMockTest, testLegacyDocTableFailsOnTruncatedSortingVector) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  DocTable table = NewDocTable(4, 4);
+  RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 4);
+  RMCK_SaveStringBuffer(io, "doc", 3);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, Document_DefaultFlags | Document_HasSortVector);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 0.5);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, RSValueType_String);
+  io->read_pos = 0;
+
+  auto originalLoadFloat = RedisModule_LoadFloat;
+  RedisModule_LoadFloat = [](RedisModuleIO *rdb) { return static_cast<float>(RMCK_LoadDouble(rdb)); };
+  int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+  RedisModule_LoadFloat = originalLoadFloat;
+  EXPECT_EQ(result, REDISMODULE_ERR);
+  EXPECT_EQ(DocTable_Borrow(&table, 1), nullptr);
+  DocTable_Free(&table);
+  RMCK_FreeRdbIO(io);
+}

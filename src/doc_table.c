@@ -533,6 +533,13 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     dmd->sortVector = RSSortingVector_Empty();
     if (dmd->flags & Document_HasSortVector) {
       dmd->sortVector = SortingVector_RdbLoad(rdb);
+      if (RedisModule_IsIOError(rdb)) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: truncated sorting vector for doc id %llu",
+                               (unsigned long long)dmd->id);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
       t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);
     }
 
