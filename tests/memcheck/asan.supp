@@ -1,0 +1,5 @@
+# State allocated once at module load lives for the whole process and is never
+# freed at shutdown. It is bounded, not a per-operation leak.
+leak:DetectClusterType
+leak:moduleLoadInternalModules
+leak:moduleOnLoad
