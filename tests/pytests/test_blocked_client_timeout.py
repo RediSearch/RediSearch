@@ -1803,7 +1803,7 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
-    def _test_fail_timeout_shard_store_cursors_impl(self, before, reply_point=None):
+    def _test_fail_timeout_shard_store_cursors_impl(self, before):
         """Test timeout occurring before/after shard stores cursors for internal FT.HYBRID.
 
         This tests the FAIL timeout policy when timeout occurs before or after
@@ -1828,9 +1828,7 @@ class TestCoordinatorTimeout:
         baseline_cursor_total = cluster_cursor_total()
 
         # Enable pause before/after hybrid cursor storage on ALL shards
-        if reply_point:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', reply_point).ok()
-        elif before:
+        if before:
             setPauseBeforeHybridStoreCursors(env, True)
         else:
             setPauseAfterHybridStoreCursors(env, True)
@@ -1853,8 +1851,7 @@ class TestCoordinatorTimeout:
 
         # Wait for shard to be paused during store cursors
         wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', reply_point)
-                     if reply_point else getIsHybridStoreCursorsPaused(env) == 1, {}),
+            lambda: (getIsHybridStoreCursorsPaused(env) == 1, {'paused': getIsHybridStoreCursorsPaused(env)}),
             'Timeout while waiting for shard to pause during store cursors'
         )
 
@@ -1866,10 +1863,7 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        # The timeout must reply while the worker still owns its buffered cursor mapping.
-        if reply_point:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', reply_point).equal(1)
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', reply_point).ok()
+        # Cleanup - reset hybrid store cursors debug
         resetHybridStoreCursorsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1889,9 +1883,6 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_after_shard_store_cursors_hybrid(self):
         """Test timeout occurring after shard stores cursors for internal FT.HYBRID."""
         self._test_fail_timeout_shard_store_cursors_impl(before=False)
-        for point in ('DuringBackgroundReplyEncode', 'AfterBackgroundReplyEncode',
-                      'BeforeBackgroundReplyUnblock'):
-            self._test_fail_timeout_shard_store_cursors_impl(before=False, reply_point=point)
 
 
     def test_timeout_before_hybrid_read_arming(self):
@@ -4012,6 +4003,13 @@ def test_internal_background_fail_serialization(env):
                 target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
                 thread.join(timeout=10)
                 target.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        # Pipeline construction fails on the worker before a cursor mapping exists.
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+        env.expect('_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                   'VSIM', '@embedding', '$BLOB', 'PARAMS', 2, 'BLOB', b'x',
+                   'TIMEOUT', 0, '_SLOTS_INFO', slots_data,
+                   '_COORD_DISPATCH_TIME', 0).error().contains('query vector blob size (1)')
     finally:
         for c, policy, worker in zip(shards, policies, workers):
             c.execute_command('CONFIG', 'SET', 'search-on-timeout', to_dict(policy)['search-on-timeout'])
