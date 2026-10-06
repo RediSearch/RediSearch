@@ -83,7 +83,11 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     ///
     /// If `state` was already dropped by [`Self::drop_state`].
     pub fn finalize(&self, state: &Option<A::State>) -> SharedValue {
-        self.accumulator.finalize(state.as_ref().expect(DROPPED))
+        self.accumulator.finalize(
+            state
+                .as_ref()
+                .expect("group state used after being dropped"),
+        )
     }
 
     /// Drops the state of a group that is done, leaving `None` behind; dropping
@@ -93,8 +97,8 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     }
 }
 
-const DROPPED: &str = "group state used after being dropped";
-
 const fn live<S>(state: &mut Option<S>) -> &mut S {
-    state.as_mut().expect(DROPPED)
+    state
+        .as_mut()
+        .expect("group state used after being dropped")
 }

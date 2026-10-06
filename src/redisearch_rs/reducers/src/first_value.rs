@@ -29,10 +29,27 @@ pub struct FirstValue<'a> {
 ///
 /// A null sort key never wins over a non-null one. A group whose first sort key
 /// is null keeps the first row's value, though: the first non-null sort key only
-/// becomes the one later rows must beat.
+/// becomes the one later rows must beat. Ties keep the earlier row.
 pub struct SortBy<'a> {
     pub key: &'a RLookupKey<'a>,
-    pub ascending: bool,
+    pub direction: Direction,
+}
+
+/// Which end of the sort order a [`FirstValue`] reducer takes its value from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Ascending,
+    Descending,
+}
+
+impl Direction {
+    /// How a sort key must compare against the current best to replace it.
+    const fn winning(self) -> Ordering {
+        match self {
+            Self::Ascending => Ordering::Less,
+            Self::Descending => Ordering::Greater,
+        }
+    }
 }
 
 impl<'a> FirstValue<'a> {
@@ -41,12 +58,28 @@ impl<'a> FirstValue<'a> {
     }
 }
 
-/// The per-group state of [`FirstValue`]: the value kept so far and, with a sort
-/// key, the sort key it must be beaten on. Both are `None` before the first row.
+/// The per-group state of [`FirstValue`]: nothing before the first row.
 #[derive(Default)]
-pub struct FirstValueState {
-    value: Option<SharedValue>,
-    sort_value: Option<SharedValue>,
+pub struct FirstValueState(Option<Kept>);
+
+/// The value kept so far, and the sort key a later row must beat to replace it.
+struct Kept {
+    value: SharedValue,
+    /// Null without a sort key, which never reads it.
+    sort_value: SharedValue,
+}
+
+impl Kept {
+    fn of_row(
+        row: &RLookupRow<'_>,
+        key: &RLookupKey<'_>,
+        sort_key: Option<&RLookupKey<'_>>,
+    ) -> Self {
+        Self {
+            value: get_or_null(row, key),
+            sort_value: sort_key.map_or_else(SharedValue::null_static, |key| get_or_null(row, key)),
+        }
+    }
 }
 
 fn get_or_null(row: &RLookupRow<'_>, key: &RLookupKey<'_>) -> SharedValue {
@@ -63,39 +96,32 @@ impl Accumulator for FirstValue<'_> {
     }
 
     fn add(&self, state: &mut FirstValueState, row: &RLookupRow<'_>) {
-        let Some(sort_by) = &self.sort_by else {
-            if state.value.is_none() {
-                state.value = Some(get_or_null(row, self.key));
-            }
+        let sort_key = self.sort_by.as_ref().map(|sort_by| sort_by.key);
+        let Some(kept) = &mut state.0 else {
+            state.0 = Some(Kept::of_row(row, self.key, sort_key));
             return;
         };
-
-        let Some(best) = &mut state.sort_value else {
-            state.value = Some(get_or_null(row, self.key));
-            state.sort_value = Some(get_or_null(row, sort_by.key));
+        let Some(sort_by) = &self.sort_by else {
             return;
         };
         // Borrowed: most rows do not win, so only a winning sort key is cloned.
         let Some(sort_value) = row.get(sort_by.key).filter(|value| !is_null(value)) else {
             return;
         };
-        if is_null(best) {
-            *best = sort_value.clone();
-            return;
-        }
-        let wanted = if sort_by.ascending {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        };
-        if compare_with_query_error(sort_value, best, None) == wanted {
-            *best = sort_value.clone();
-            state.value = Some(get_or_null(row, self.key));
+        if is_null(&kept.sort_value) {
+            kept.sort_value = sort_value.clone();
+        } else if compare_with_query_error(sort_value, &kept.sort_value, None)
+            == sort_by.direction.winning()
+        {
+            *kept = Kept::of_row(row, self.key, sort_key);
         }
     }
 
     fn finalize(&self, state: &FirstValueState) -> SharedValue {
-        state.value.clone().unwrap_or_else(SharedValue::null_static)
+        state
+            .0
+            .as_ref()
+            .map_or_else(SharedValue::null_static, |kept| kept.value.clone())
     }
 }
 

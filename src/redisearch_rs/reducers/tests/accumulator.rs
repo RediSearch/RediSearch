@@ -16,7 +16,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
-use reducers::first_value::{FirstValue, SortBy};
+use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
@@ -262,9 +262,14 @@ fn first_value_by(ascending: bool, rows: &[[Option<SharedValue>; 2]]) -> SharedV
     let mut sort_key = RLookupKey::new(c"rank", RLookupKeyFlags::empty());
     // Its own row slot, apart from `key`'s.
     sort_key.dstidx = 1;
+    let direction = if ascending {
+        Direction::Ascending
+    } else {
+        Direction::Descending
+    };
     let sort_by = SortBy {
         key: &sort_key,
-        ascending,
+        direction,
     };
     reduce_rows(
         FirstValue::new(&key, Some(sort_by)),
@@ -322,6 +327,46 @@ fn first_value_by_after_a_null_sort_key_needs_a_row_to_beat_the_first_non_null_o
     assert_eq!(result.as_str_bytes(), Some(&b"c"[..]));
 }
 
+/// Equal sort keys keep the earliest row, in both directions.
+#[test]
+fn first_value_by_keeps_the_earliest_row_on_a_tie() {
+    let rows = [
+        [string("a"), num(2.0)],
+        [string("b"), num(2.0)],
+        [string("c"), num(2.0)],
+    ];
+    for ascending in [true, false] {
+        let result = first_value_by(ascending, &rows);
+        assert_eq!(result.as_str_bytes(), Some(&b"a"[..]), "{ascending}");
+    }
+}
+
+/// A NaN sort key compares equal to everything, so it never wins and nothing
+/// beats it.
+#[test]
+fn first_value_by_never_prefers_a_nan_sort_key() {
+    for ascending in [true, false] {
+        let nan_later = [[string("a"), num(1.0)], [string("b"), num(f64::NAN)]];
+        let result = first_value_by(ascending, &nan_later);
+        assert_eq!(result.as_str_bytes(), Some(&b"a"[..]), "{ascending}");
+
+        let nan_first = [[string("a"), num(f64::NAN)], [string("b"), num(1.0)]];
+        let result = first_value_by(ascending, &nan_first);
+        assert_eq!(result.as_str_bytes(), Some(&b"a"[..]), "{ascending}");
+    }
+}
+
+#[test]
+fn first_value_by_orders_string_sort_keys_bytewise() {
+    let rows = [
+        [string("a"), string("pear")],
+        [string("b"), string("apple")],
+        [string("c"), string("zebra")],
+    ];
+    assert_eq!(first_value_by(true, &rows).as_str_bytes(), Some(&b"b"[..]));
+    assert_eq!(first_value_by(false, &rows).as_str_bytes(), Some(&b"c"[..]));
+}
+
 /// Runs `accumulator` over two groups the way the grouper does: a state per
 /// group, rows interleaved between them, then finalize and drop. Returns each
 /// group's result.
@@ -361,7 +406,7 @@ fn interleaved_groups_are_kept_apart() {
     assert_eq!(reduce_interleaved(std_dev, &key, rows), expected);
     let sort_by = SortBy {
         key: &key,
-        ascending: false,
+        direction: Direction::Descending,
     };
     let first = FirstValue::new(&key, Some(sort_by));
     assert_eq!(reduce_interleaved(first, &key, rows), [3.0, 20.0]);

@@ -18,7 +18,7 @@ use std::ptr;
 
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
-use reducers::first_value::{FirstValue, SortBy};
+use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
@@ -98,8 +98,8 @@ pub unsafe extern "C" fn StdDevReducer_Create(srckey: *const ffi::RLookupKey) ->
 /// # Safety
 ///
 /// 1. `retkey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey], and
-///    `sortkey` null or one, that remain valid, and are not mutated, for the
-///    lifetime of the returned reducer.
+///    `sortkey` either null or such a pointer. Both must remain valid, and not be
+///    mutated, for the lifetime of the returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -112,7 +112,12 @@ pub unsafe extern "C" fn FirstValueReducer_Create(
     let key = unsafe { retkey.cast::<RLookupKey>().as_ref() }.expect("retkey must not be null");
     // SAFETY: ensured by caller (1.)
     let sort_key = unsafe { sortkey.cast::<RLookupKey>().as_ref() };
-    let sort_by = sort_key.map(|key| SortBy { key, ascending });
+    let direction = if ascending {
+        Direction::Ascending
+    } else {
+        Direction::Descending
+    };
+    let sort_by = sort_key.map(|key| SortBy { key, direction });
     into_c_reducer(FirstValue::new(key, sort_by))
 }
 

@@ -168,8 +168,8 @@ Reducer *CountReducer_Create(void);
  * # Safety
  *
  * 1. `retkey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey], and
- *    `sortkey` null or one, that remain valid, and are not mutated, for the
- *    lifetime of the returned reducer.
+ *    `sortkey` either null or such a pointer. Both must remain valid, and not be
+ *    mutated, for the lifetime of the returned reducer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
