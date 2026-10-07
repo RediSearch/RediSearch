@@ -158,8 +158,7 @@ type GeoFilterAndRangeIterator<'index> =
 /// Geo fields are stored as sorted numeric geohash values. The radius maps to up to
 /// [`geo::GEO_RANGE_COUNT`] contiguous geohash ranges; each range is queried via the numeric range
 /// tree. Returns one `(filter, variants)` pair per non-trivial range so that callers can
-/// associate each [`NumericIteratorVariant`] with its [`NumericFilter`] (needed by C profiling;
-/// see the comment in `NewGeoRangeIterator`).
+/// associate each [`NumericIteratorVariant`] with its [`NumericFilter`] (needed by profiling).
 ///
 /// Returns:
 /// - `Err(`[`GeoRangeError::InvalidInput`]`)` if `gf`'s parameters are invalid.
