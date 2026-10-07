@@ -198,22 +198,25 @@ static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup
 static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                                   const cachedVars *cv, RespSchema *schema) {
   respSchemaRefresh(schema, req, cv->lastLookup);
-  size_t width = array_len(schema->keys), present = 0;
+  size_t width = array_len(schema->keys), present = 0, extent = 0;
   const RLookupRow *row = SearchResult_GetRowData(r);
   for (size_t i = 0; i < width; ++i) {
     bool exists = RLookupRow_Get(schema->keys[i], row) != NULL;
     schema->presence[i] = exists ? '1' : '0';
-    present += exists;
+    if (exists) {
+      ++present;
+      extent = i + 1;
+    }
   }
   RedisModule_Reply_ArrayWithLen(reply, 2);
-  if (present == width)
+  if (present == extent)
     RedisModule_Reply_Null(reply);
   else
-    RedisModule_Reply_StringBuffer(reply, schema->presence, width);
+    RedisModule_Reply_StringBuffer(reply, schema->presence, extent);
   RedisModule_Reply_ArrayWithLen(reply, present);
   SendReplyFlags flags = (AREQ_RequestFlags(req) & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
   flags |= (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-  for (size_t i = 0; i < width; ++i) {
+  for (size_t i = 0; i < extent; ++i) {
     if (schema->presence[i] == '1') {
       RedisModule_Reply_RowValue(reply, RLookupRow_Get(schema->keys[i], row), flags,
                                  AREQ_SearchCtx(req)->apiVersion);
