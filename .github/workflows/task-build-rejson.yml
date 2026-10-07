@@ -19,7 +19,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos-15). Part of the build cache key.'
+        description: 'Platform name (e.g., ubuntu:noble, alpine:3.23). Part of the build cache key.'
         type: string
         required: true
       san:
