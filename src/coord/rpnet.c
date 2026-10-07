@@ -249,42 +249,62 @@ static dictType respSchemaNames = {
     .keyCompare = respSchemaNameEqual,
 };
 
-static bool prepareRespSchemaBounded(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
-  if (MRReply_Length(envelope) != 3 || nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
-  MRReply *rows = MRReply_ArrayElement(envelope, 1);
-  MRReply *names = MRReply_ArrayElement(envelope, 2);
-  if (!rows || MRReply_Type(rows) != MR_REPLY_ARRAY || !names ||
-      MRReply_Type(names) != MR_REPLY_ARRAY)
+static bool validateRespSchemaRow(MRReply *row, size_t columnCount) {
+  if (!row || MRReply_Type(row) != MR_REPLY_ARRAY || MRReply_Length(row) != 2) {
     return false;
-  const bool resp3 = nc->cmd.protocol == 3;
-  size_t start = resp3 ? 0 : 1;
-  if (!resp3 &&
-      (!MRReply_Length(rows) || MRReply_Type(MRReply_ArrayElement(rows, 0)) != MR_REPLY_INTEGER))
+  }
+
+  MRReply *mask = MRReply_ArrayElement(row, 0);
+  MRReply *values = MRReply_ArrayElement(row, 1);
+  if (!mask || !values || MRReply_Type(values) != MR_REPLY_ARRAY) {
     return false;
-  size_t width = MRReply_Length(names);
-  // Row capacity is also u16, so slot UINT16_MAX cannot hold a value.
-  if (width > maxColumns || RLookup_Iter(nc->lookup).remaining > maxColumns) return false;
-  // Validate every record before exposing any row from a malformed chunk.
-  for (size_t i = start; i < MRReply_Length(rows); ++i) {
-    MRReply *row = MRReply_ArrayElement(rows, i);
-    if (!row || MRReply_Type(row) != MR_REPLY_ARRAY || MRReply_Length(row) != 2) return false;
-    MRReply *mask = MRReply_ArrayElement(row, 0);
-    MRReply *values = MRReply_ArrayElement(row, 1);
-    if (!mask || !values || MRReply_Type(values) != MR_REPLY_ARRAY) return false;
-    if (MRReply_Type(mask) == MR_REPLY_NIL) {
-      if (MRReply_Length(values) > width) return false;
-    } else {
-      if (MRReply_Type(mask) != MR_REPLY_STRING) return false;
-      size_t len, count = 0;
-      const char *bits = MRReply_String(mask, &len);
-      if (len > width) return false;
-      for (size_t j = 0; j < len; ++j) {
-        if (bits[j] != '0' && bits[j] != '1') return false;
-        count += bits[j] == '1';
-      }
-      if (count != MRReply_Length(values)) return false;
+  }
+
+  if (MRReply_Type(mask) == MR_REPLY_NIL) {
+    return MRReply_Length(values) <= columnCount;
+  }
+  if (MRReply_Type(mask) != MR_REPLY_STRING) {
+    return false;
+  }
+
+  size_t maskLength;
+  const char *bits = MRReply_String(mask, &maskLength);
+  if (maskLength > columnCount) {
+    return false;
+  }
+  size_t presentCount = 0;
+  for (size_t i = 0; i < maskLength; ++i) {
+    if (bits[i] != '0' && bits[i] != '1') {
+      return false;
+    }
+    presentCount += bits[i] == '1';
+  }
+  return presentCount == MRReply_Length(values);
+}
+
+static bool validateRespSchemaRows(MRReply *rows, size_t columnCount, int protocol) {
+  const size_t firstRowIndex = protocol == 3 ? 0 : 1;
+  if (protocol != 3) {
+    if (MRReply_Length(rows) == 0) {
+      return false;
+    }
+    MRReply *count = MRReply_ArrayElement(rows, 0);
+    if (!count || MRReply_Type(count) != MR_REPLY_INTEGER) {
+      return false;
     }
   }
+
+  // Validate every record before exposing any row from a malformed chunk.
+  for (size_t i = firstRowIndex; i < MRReply_Length(rows); ++i) {
+    if (!validateRespSchemaRow(MRReply_ArrayElement(rows, i), columnCount)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool mapRespSchemaKeys(RPNet *nc, MRReply *names, uint16_t maxColumns) {
+  size_t width = MRReply_Length(names);
   nc->current.schemaKeys = array_new(const RLookupKey *, width);
   dict *byName = dictCreate(&respSchemaNames, NULL);
   dict *seen = dictCreate(&respSchemaNames, NULL);
@@ -313,8 +333,6 @@ static bool prepareRespSchemaBounded(RPNet *nc, MRReply *envelope, uint16_t maxC
     }
     array_append(nc->current.schemaKeys, key);
   }
-  nc->current.rows = rows;
-  nc->current.schema = true;
   valid = true;
 cleanup:
   RLookupRow_Reset(&scratch);
@@ -323,13 +341,30 @@ cleanup:
   return valid;
 }
 
-static bool prepareRespSchema(RPNet *nc, MRReply *envelope) {
-  return prepareRespSchemaBounded(nc, envelope, UINT16_MAX);
+static bool prepareRespSchemaBounded(RPNet *nc, MRReply *chunk, uint16_t maxColumns) {
+  if (MRReply_Length(chunk) != 3 || nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
+  MRReply *rows = MRReply_ArrayElement(chunk, 1);
+  MRReply *names = MRReply_ArrayElement(chunk, 2);
+  if (!rows || MRReply_Type(rows) != MR_REPLY_ARRAY || !names ||
+      MRReply_Type(names) != MR_REPLY_ARRAY)
+    return false;
+  size_t width = MRReply_Length(names);
+  // Row capacity is also u16, so slot UINT16_MAX cannot hold a value.
+  if (width > maxColumns || RLookup_Iter(nc->lookup).remaining > maxColumns) return false;
+  if (!validateRespSchemaRows(rows, width, nc->cmd.protocol)) return false;
+  if (!mapRespSchemaKeys(nc, names, maxColumns)) return false;
+  nc->current.rows = rows;
+  nc->current.schema = true;
+  return true;
+}
+
+static bool prepareRespSchema(RPNet *nc, MRReply *chunk) {
+  return prepareRespSchemaBounded(nc, chunk, UINT16_MAX);
 }
 
 #ifdef ENABLE_ASSERT
-bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
-  return isRespSchemaReply(envelope) && prepareRespSchemaBounded(nc, envelope, maxColumns);
+bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns) {
+  return isRespSchemaReply(chunk) && prepareRespSchemaBounded(nc, chunk, maxColumns);
 }
 #endif
 
