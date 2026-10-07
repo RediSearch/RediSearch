@@ -80,9 +80,13 @@ required.
 The worker never touches `specDict_g` or C IndexSpecs. Its Rust registry holds
 weak entry/DB references and CF names plus native identities. A DB and CF are
 pinned only during a native read. A CF-layout revision rejects results collected
-for an old target. Each index publishes its contribution and metric categories
-atomically; a wider internal ledger prevents overflow from breaking later
-subtraction. The externally visible total saturates at `u64::MAX`.
+for an old target. Each index publishes an atomic usage contribution. INFO copies
+its category breakdown under the short accounting lock, which is never held during
+a native read. Exact category sums update incrementally; wider internal ledgers
+prevent overflow from breaking later subtraction. The externally visible total
+saturates at `u64::MAX`. Separately read totals are not a transaction-wide snapshot.
+Retirement debits accounting immediately; the worker prunes retired weak entries
+during traversal instead of scanning the registry on each index drop.
 
 A separate lifetime native listener marks flush and compaction completion dirty
 and notifies the executor. Its RAII token is owned alongside the DB using `self_cell`, so it
@@ -107,9 +111,8 @@ many properties. Keeping these contracts separate avoids coupling their refresh 
 
 ```mermaid
 flowchart TD
-    Context[DiskContext] --> Collector[RSE Collector]
-    Context --> Worker
-    Worker[RSE worker] -->|calls| Collector
+    Context[DiskContext] --> Worker
+    Worker[RSE worker] -->|owns| Collector[RSE Collector]
     Collector --> Usage[UsageCache]
     Collector --> Diagnostics[AsyncSnapshots]
     Index[Rust IndexSpec] --> UsageEntry[usage_cache::Entry]
@@ -117,7 +120,7 @@ flowchart TD
     Usage -. weak registry .-> UsageEntry
     Diagnostics -. weak queue .-> DE
     UsageEntry --> State[IndexState and CF byte counts]
-    UsageEntry --> Counters[Published atomic counters]
+    UsageEntry --> Counters[Published atomic usage]
     DE --> Pending[Pending Collection]
     DE --> Working[Working Collection]
     DE --> Published[Published immutable Snapshot]
@@ -134,10 +137,10 @@ borrows native DB/CF handles only for a property read and never accesses C Index
 | `Worker` | DiskContext-owned join handle; stopping it drains collection before teardown. Its thread captures only shared collector state. |
 | `Wake` / `State` | Shared condition variable and pending/stopped flags. Native listeners can notify without retaining the worker or disk context. |
 | `ForkGate` / `BatchGuard` | Process-lifetime native barrier and its thread-bound guard. Fork hooks cannot retain a particular disk context or touch inherited Rust locks in the child. |
-| `Collector` | Shared worker context, separate from the mutable main-thread `DiskContext`. Services both caches each invocation. |
+| `Collector` | Worker-owned coordinator, separate from the mutable main-thread `DiskContext`. Services both caches each invocation. |
 | `Target` | Weak DB reference and CF names/identities, shared by both cache implementations. Detects replaced CFs without retaining native handles. |
 | `UsageCache` / `Registry` | Global atomic total for readers; membership and the exact accounting sum change together under the registry lock. |
-| `usage_cache::Entry` / `IndexState` | Per-index published counters plus locked lifecycle/refresh state. A separate native-read lock lets drop debit accounting before draining the read. |
+| `usage_cache::Entry` / `IndexState` | Atomic index usage plus locked category sums and lifecycle/refresh state. A separate native-read lock lets drop debit accounting before draining the read. |
 | `DirtySignal` / `UsageListener` | Minimal event notification state and its native adapter. A callback can request refresh without retaining the index. |
 | `AsyncSnapshots` | Weak scheduling queue serviced by the RSE worker. |
 | `async_snapshot::Entry` | One index's pending replacement, active collection, and published result; rejects obsolete results and drains on retirement. |
