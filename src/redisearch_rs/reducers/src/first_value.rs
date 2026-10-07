@@ -96,16 +96,19 @@ impl Accumulator for FirstValue<'_> {
     }
 
     fn add(&self, state: &mut FirstValueState, row: &RLookupRow<'_>) {
-        let sort_key = self.sort_by.as_ref().map(|sort_by| sort_by.key);
-        let Some(kept) = &mut state.0 else {
-            state.0 = Some(Kept::of_row(row, self.key, sort_key));
-            return;
-        };
         let Some(sort_by) = &self.sort_by else {
+            if state.0.is_none() {
+                state.0 = Some(Kept::of_row(row, self.key, None));
+            }
             return;
         };
         // Borrowed: most rows do not win, so only a winning sort key is cloned.
-        let Some(sort_value) = row.get(sort_by.key).filter(|value| !is_null(value)) else {
+        let sort_value = row.get(sort_by.key).filter(|value| !is_null(value));
+        let Some(kept) = &mut state.0 else {
+            state.0 = Some(Kept::of_row(row, self.key, Some(sort_by.key)));
+            return;
+        };
+        let Some(sort_value) = sort_value else {
             return;
         };
         if is_null(&kept.sort_value) {
@@ -113,7 +116,7 @@ impl Accumulator for FirstValue<'_> {
         } else if compare_with_query_error(sort_value, &kept.sort_value, None)
             == sort_by.direction.winning()
         {
-            *kept = Kept::of_row(row, self.key, sort_key);
+            *kept = Kept::of_row(row, self.key, Some(sort_by.key));
         }
     }
 
