@@ -229,6 +229,31 @@ def test_resp_schema_json():
                 env.assertFalse('optional' in result[0], message=result[0])
                 env.assertTrue('optional' in result[1], message=result[1])
 
+        # Prefixes, holes, absent rows and an explicit JSON null share one fixed schema.
+        cases = [({'a': 'A'}, None, 1), ({'b': 'B'}, '01', 1), ({}, None, 0),
+                 ({'a': None}, None, 1), ({'a': 'A', 'c': 'C'}, '101', 2),
+                 ({'a': 'A', 'b': 'B', 'c': 'C', 'd': 'D'}, None, 4)]
+        for i, (fields, _, _) in enumerate(cases):
+            conn.execute_command('JSON.SET', f'{{compact}}:{i}', '$',
+                                 json.dumps(dict(id=100 + i, **fields)))
+        shard = next(c for c in env.getOSSMasterNodesConnectionList()
+                     if c.execute_command('EXISTS', '{compact}:0'))
+        shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        command = ['_FT.AGGREGATE', 'idx', '@id:[100 105]', 'LOAD', 12,
+                   '$.a', 'AS', 'a', '$.b', 'AS', 'b', '$.c', 'AS', 'c', '$.d', 'AS', 'd',
+                   'DIALECT', 2, 'TIMEOUT', 0]
+        if protocol == 3:
+            command += ['FORMAT', 'EXPAND']
+        legacy = rows(env, shard.execute_command(*command))
+        compact = payload(env, shard.execute_command(*command, '_RESP_SCHEMA'))
+        env.assertEqual(compact[0], TAG)
+        env.assertEqual(compact[2], ['a', 'b', 'c', 'd'])
+        env.assertEqual([(mask, len(values)) for mask, values in wire_rows(env, compact)],
+                        [(mask, size) for _, mask, size in cases])
+        env.assertEqual(decode_schema(env, compact), legacy)
+        env.assertFalse('a' in legacy[2], message=legacy)
+        env.assertTrue('a' in legacy[3], message=legacy)
+
 @skip(cluster=False)
 def test_resp_schema_profile_and_timeout():
     """Preserve full profiles, LIMIT drain counters and deterministic RETURN timeout chunks."""
