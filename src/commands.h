@@ -13,7 +13,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-bool RS_IsEnterpriseServer(void);
+bool RS_IsOSSCoordinator(void);
 #ifdef __cplusplus
 }
 #endif
@@ -91,7 +91,7 @@ bool RS_IsEnterpriseServer(void);
 #define RS_RESTORE_IF_NX_INTERNAL "_" RS_RESTORE_IF_NX_PUBLIC
 
 // Local execution and replication must select the same command names.
-#define CMD_FOR_COORDINATOR(cmd) (RS_IsEnterpriseServer() ? cmd##_PUBLIC : cmd##_INTERNAL)
+#define CMD_FOR_COORDINATOR(cmd) (RS_IsOSSCoordinator() ? cmd##_INTERNAL : cmd##_PUBLIC)
 
 // Legacy write commands that are key-bounded (+ extra legacy commands that have to be registered for enterprise)
 #define RS_ADD_CMD "FT.ADD"

@@ -1336,7 +1336,7 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restoreCmd) {
   int rc;
 
-  const char *schema_flags = RS_IsEnterpriseServer() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
+  const char *schema_flags = RS_IsOSSCoordinator() ? "write "CMD_INTERNAL : "write "CMD_PROXY_FILTERED;
   rc = RedisModule_CreateSubcommand(restoreCmd, "SCHEMA", RestoreSchema, schema_flags, 0, 0, 0);
   if (rc != REDISMODULE_OK) return rc;
 
@@ -1518,7 +1518,7 @@ static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char 
     categories = "";
     // We don't want the user running internal commands. For that, we mark the
     // command internal on OSS, or exclude it from the proxy on Enterprise.
-    if (RS_IsEnterpriseServer()) {
+    if (!RS_IsOSSCoordinator()) {
         rm_asprintf(&internalFlags, "%s %s", flags, CMD_PROXY_FILTERED);
     } else {
         rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
@@ -1594,22 +1594,13 @@ int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   return RedisModule_ReplyWithError(ctx, "Module Disabled in Open Source Redis");
 }
 
-/** A wrapper function that safely checks whether we are running in OSS cluster when registering
- * commands.
- * If we are, and the module was not compiled for oss clusters, this wrapper will return a pointer
- * to a dummy function disabling the actual handler.
- *
- * If we are running in RLEC or in a special OSS build - we simply return the original command.
- *
- * All coordinator handlers must be wrapped in this decorator.
- */
+// Enterprise coordinator builds retain their existing runtime guard.
 static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (RS_IsEnterpriseServer() && clusterConfig.type != ClusterType_RedisLabs) {
-    /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
+#ifdef RS_CLUSTER_ENTERPRISE
+  if (RS_IsEnterpriseServer() && RS_IsOSSCoordinator()) {
     return DisabledCommandHandler;
   }
-
-  /* Valid - we return the original function */
+#endif
   return f;
 }
 
@@ -1854,6 +1845,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   // Enterprise: uses public "FT" prefix (DMC handles routing)
   // OSS: uses internal "_FT" prefix (coordinator registers public FT commands separately)
   const bool enterprise = RS_IsEnterpriseServer();
+  const bool oss_coord = RS_IsOSSCoordinator();
 
   SearchCommand commands[] = {
     // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
@@ -1867,19 +1859,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DiskDisabledCmd(DeleteCommand),        "write",           NULL, NONE, "write",       enterprise,       indexDocCmdArgs, true),
 
     // write commands (on enterprise we do not define them, the dmc takes care of them)
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_CREATE_CMD),         CreateIndexCommand,            "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD),   CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_RESTORE_IF_NX),      NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_SYNUPDATE_CMD),      DiskDisabledCmd(SynUpdateCommand),              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALTER_CMD),          DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALTER_IF_NX_CMD),    DiskDisabledCmd(AlterIndexIfNXCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DICT_ADD),           DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DICT_DEL),           DiskDisabledCmd(DictDelCommand),  "write",            SetFtDictdelInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASADD),           AliasAddCommand,               "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASADD_IF_NX),     AliasAddCommandIfNX,           "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_CREATE_CMD),         CreateIndexCommand,            "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD),   CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_RESTORE_IF_NX),      NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_SYNUPDATE_CMD),      DiskDisabledCmd(SynUpdateCommand),              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALTER_CMD),          DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALTER_IF_NX_CMD),    DiskDisabledCmd(AlterIndexIfNXCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DICT_ADD),           DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DICT_DEL),           DiskDisabledCmd(DictDelCommand),  "write",            SetFtDictdelInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASADD),           AliasAddCommand,               "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASADD_IF_NX),     AliasAddCommandIfNX,           "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, oss_coord),
     DEFINE_COMMAND(RS_ALIASLIST_CMD,                   AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, false),
 
     // Suggestion commands key specs should be 1, 1, 1
@@ -1914,10 +1906,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   }
   // Special cases: Register drop commands which write to arbitrary keys
   SearchCommand arbitraryWriteCommands[] = {
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_CMD),            DropIndexCommand,         "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_INDEX_CMD),      DropIndexCommand,         "write", SetFtDropindexInfo,  SET_COMMAND_INFO, "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_IF_X_CMD),       DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_INDEX_IF_X_CMD), DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_CMD),            DropIndexCommand,         "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_INDEX_CMD),      DropIndexCommand,         "write", SetFtDropindexInfo,  SET_COMMAND_INFO, "write slow dangerous", true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_IF_X_CMD),       DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, oss_coord),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_INDEX_IF_X_CMD), DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, oss_coord),
   };
 
   if (CreateArbitraryWriteSearchCommands(ctx, arbitraryWriteCommands, sizeof(arbitraryWriteCommands) / sizeof(arbitraryWriteCommands[0])) != REDISMODULE_OK) {
@@ -4898,7 +4890,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MR_Init(num_io_threads, conn_pool_size);
   MR_InitLocalNodeId();
 
-  if (clusterConfig.type == ClusterType_RedisOSS) {
+  if (RS_IsOSSCoordinator()) {
     if (isClusterEnabled) {
       // Start the topology updater and fetch the initial topology. Must come after MR_Init
       // and MR_InitLocalNodeId, as the initial fetch feeds the topology into the MR layer.
@@ -4961,7 +4953,7 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     RedisModule_Log(ctx, "warning", "Error registering module configuration");
     return REDISMODULE_ERR;
   }
-  if (isClusterEnabled || clusterConfig.type == ClusterType_RedisLabs) {
+  if (isClusterEnabled || !RS_IsOSSCoordinator()) {
     // Register module configuration parameters for cluster
     RM_TRY_F(RegisterClusterModuleConfig, ctx);
   }
@@ -5094,7 +5086,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // OSS commands (registered via proxy in Enterprise)
-  if (!RS_IsEnterpriseServer()) {
+  if (RS_IsOSSCoordinator()) {
     SearchCommand writeCommands[] = {
       DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),

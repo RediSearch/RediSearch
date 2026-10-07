@@ -323,10 +323,17 @@ static RSConfigOptions clusterOptions_g = {
 
 SearchClusterConfig clusterConfig = {0};
 
-/* Detect the cluster type, by trying to see if we are running inside RLEC.
- * If we cannot determine, we return OSS type anyway
- */
+bool RS_IsOSSCoordinator(void) {
+  return clusterConfig.type == ClusterType_RedisOSS;
+}
+
 MRClusterType DetectClusterType() {
+#ifndef RS_CLUSTER_ENTERPRISE
+  // Flex reports rlec_version even when using native OSS clustering.
+  if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_CLUSTER) {
+    return ClusterType_RedisOSS;
+  }
+#endif
   RedisModuleCallReply *r = RedisModule_Call(RSDummyContext, "INFO", "c", "SERVER");
   MRClusterType ret = ClusterType_RedisOSS;
 
