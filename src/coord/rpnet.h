@@ -38,7 +38,6 @@ typedef struct {
     MRReply *rows;  // Array containing reply rows for quick access
     MRReply *meta;  // Metadata for the current reply, if any (RESP3)
     arrayof(const RLookupKey *) schemaKeys;  // Owned mapping for this reply only
-    bool schema;
   } current;
   // Lookup - the rows are written in here
   RLookup *lookup;

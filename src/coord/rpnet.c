@@ -305,7 +305,7 @@ static bool validateRespSchemaRows(MRReply *rows, size_t columnCount, int protoc
 
 static bool mapRespSchemaKeys(RPNet *nc, MRReply *names, uint16_t maxColumns) {
   size_t width = MRReply_Length(names);
-  nc->current.schemaKeys = array_new(const RLookupKey *, width);
+  arrayof(const RLookupKey *) keys = array_new(const RLookupKey *, width);
   dict *byName = dictCreate(&respSchemaNames, NULL);
   dict *seen = dictCreate(&respSchemaNames, NULL);
   RLookupRow scratch = RLookupRow_New();
@@ -331,13 +331,17 @@ static bool mapRespSchemaKeys(RPNet *nc, MRReply *names, uint16_t maxColumns) {
       key = iterator.current[previousWidth];
       dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key);
     }
-    array_append(nc->current.schemaKeys, key);
+    array_append(keys, key);
   }
   valid = true;
 cleanup:
   RLookupRow_Reset(&scratch);
   dictRelease(seen);
   dictRelease(byName);
+  if (valid)
+    nc->current.schemaKeys = keys;
+  else
+    array_free(keys);
   return valid;
 }
 
@@ -354,7 +358,6 @@ static bool prepareRespSchemaBounded(RPNet *nc, MRReply *chunk, uint16_t maxColu
   if (!validateRespSchemaRows(rows, width, nc->cmd.protocol)) return false;
   if (!mapRespSchemaKeys(nc, names, maxColumns)) return false;
   nc->current.rows = rows;
-  nc->current.schema = true;
   return true;
 }
 
@@ -573,7 +576,6 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 void RPNet_resetCurrent(RPNet *nc) {
     array_free(nc->current.schemaKeys);
     nc->current.schemaKeys = NULL;
-    nc->current.schema = false;
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
@@ -740,7 +742,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   size_t fields_length = 0;
-  if (!nc->current.schema && resp3) {
+  if (!nc->current.schemaKeys && resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
     // extract score if it exists, WITHSCORES was specified
     score = MRReply_MapElement(fields, "score");
@@ -748,7 +750,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
     // we do not have keys to return.
     fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
-  } else if (!nc->current.schema) {
+  } else if (!nc->current.schemaKeys) {
     fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
     RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
   }
@@ -779,7 +781,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   rs_wall_clock convertStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
-  if (nc->current.schema) {
+  if (nc->current.schemaKeys) {
     MRReply *mask = MRReply_ArrayElement(fields, 0);
     MRReply *values = MRReply_ArrayElement(fields, 1);
     size_t width = MRReply_Length(values), valueIdx = 0;
@@ -792,7 +794,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
     fields_length = valueIdx * 2;
   }
-  for (size_t i = 0; i < fields_length && !nc->current.schema; i += 2) {
+  for (size_t i = 0; i < fields_length && !nc->current.schemaKeys; i += 2) {
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
