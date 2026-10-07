@@ -160,18 +160,10 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
 }
 
 typedef struct {
-  bool enabled;
   arrayof(const RLookupKey *) keys;
   uint32_t lookupWidth;
   char *presence;
 } RespSchema;
-
-static RespSchema respSchemaInit(const AREQ *req) {
-  const uint32_t metadata = QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS |
-                            QEXEC_F_SEND_SORTKEYS | QEXEC_F_REQUIRED_FIELDS;
-  return (RespSchema){.enabled = IsInternal(req) && req->internalRespSchema &&
-                                 !(AREQ_RequestFlags(req) & metadata)};
-}
 
 static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup *lookup) {
   RLookupIterator iterator = RLookup_Iter(lookup);
@@ -227,7 +219,7 @@ static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const Sea
 
 static void finishRespSchema(AREQ *req, RedisModule_Reply *reply, const cachedVars *cv,
                              RespSchema *schema) {
-  if (!schema->enabled) return;
+  if (!req->internalRespSchema) return;
   RedisModule_Reply_ArrayEnd(reply);  // rows
   respSchemaRefresh(schema, req, cv->lastLookup);
   RedisModule_Reply_ArrayWithLen(reply, array_len(schema->keys));
@@ -386,7 +378,7 @@ static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const Sea
 
 static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                             const cachedVars *cv, RespSchema *schema) {
-  if (schema->enabled)
+  if (req->internalRespSchema)
     serializeSchemaResult(req, reply, r, cv, schema);
   else
     serializeLegacyResult(req, reply, r, cv);
@@ -628,7 +620,7 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
  * Updates the optimizer and opens the reply wrappers and the results array.
  */
 static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
-                                        QueryProcessingCtx *qctx, bool schema) {
+                                        QueryProcessingCtx *qctx) {
   if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
@@ -641,7 +633,7 @@ static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   }
 
   RedisModule_Reply_Array(reply);
-  if (schema) {
+  if (req->internalRespSchema) {
     RedisModule_Reply_CString(reply, INTERNAL_RESP_SCHEMA_TAG);
     RedisModule_Reply_Array(reply);
   }
@@ -745,8 +737,8 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       return rc;
     }
 
-    RespSchema schema = respSchemaInit(req);
-    prepareSendChunkReply_Resp2(req, reply, qctx, schema.enabled);
+    RespSchema schema = {0};
+    prepareSendChunkReply_Resp2(req, reply, qctx);
 
     // Once we get here, we want to return the results we got from the pipeline (with no error).
     // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
@@ -893,7 +885,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
 /**
  * Prepares reply structure for RESP3 format.
  */
-static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, bool schema) {
+static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply_ArrayWithLen(reply, RESULTS_WITH_CURSOR_REPLY_LEN);
   }
@@ -921,7 +913,7 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply, boo
 
   // <results>
   RedisModule_ReplyKV_Array(reply, "results");
-  if (schema) {
+  if (req->internalRespSchema) {
     RedisModule_Reply_CString(reply, INTERNAL_RESP_SCHEMA_TAG);
     RedisModule_Reply_Array(reply);
   }
@@ -979,8 +971,8 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
       return rc;
     }
 
-    RespSchema schema = respSchemaInit(req);
-    prepareSendChunkReply_Resp3(req, reply, schema.enabled);
+    RespSchema schema = {0};
+    prepareSendChunkReply_Resp3(req, reply);
 
     // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
     // timeout so the harvested rows are not dropped.

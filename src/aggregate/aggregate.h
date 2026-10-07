@@ -183,6 +183,7 @@ typedef struct AREQ {
 
   int protocol; // RESP2/3
 
+  // Finalized by AREQ_Compile and retained across cursor reads.
   bool internalRespSchema;
 
   /** Profile variables */

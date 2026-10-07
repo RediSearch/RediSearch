@@ -1343,6 +1343,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
     goto error;
   }
 
+  // Metadata options can follow _RESP_SCHEMA, so finalize the format after parsing all arguments.
+  req->internalRespSchema =
+      req->internalRespSchema && IsInternal(req) &&
+      !(AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS |
+                                  QEXEC_F_SEND_SORTKEYS | QEXEC_F_REQUIRED_FIELDS));
+
   // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
   // on disk.
   if (isDiskIndex && req->base.reqConfig.dialectVersion >= 4) {
