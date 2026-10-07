@@ -152,7 +152,7 @@ void AppendUtf8(std::string &out, uint32_t cp) {
 std::vector<std::string> MakeVocabulary(size_t count) {
   constexpr uint32_t kFirstRuneBase = 0x100;
   constexpr uint32_t kFirstRuneSpan = 0x3000;  // stays below the surrogate range
-  std::mt19937 rng(42);
+  std::mt19937 rng(42);  // NOSONAR: fixed-seed benchmark input, not a security context
   std::set<std::string> words;
   while (words.size() < count) {
     std::string word;

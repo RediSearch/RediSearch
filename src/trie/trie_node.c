@@ -624,10 +624,12 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
       TrieNode_Free(nodes[i], freecb);
       __trieNode_removeChild(n, i);
       nodes = TrieNode_Children(n);
+      // a delete leaves at most one child to remove, so fold the remaining bounds and stop
       for (; i < n->numChildren; i++) {
         updateScore(n, nodes[i]->subtreeMaxScore);
       }
       rc++;
+      break;
     } else {
 
       // this node is ok!
@@ -655,6 +657,9 @@ typedef struct {
 } TrieDeleteFrame;
 
 int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
+  if (!n) return 0;
+  // uniform across the trie; cached for the same reason as in TrieNode_Get
+  const TrieSortMode mode = n->sortMode;
   t_len offset = 0;
   TrieDeleteFrame localStack[TRIE_INITIAL_STRING_LEN];
   TrieDeleteFrame *stack = localStack;
@@ -710,6 +715,9 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
           stack[stackPos - 1].childIdx = i;
           break;
         }
+        if (mode == Trie_Sort_Lex && str[offset] < ckey) {
+          break;
+        }
       }
 
       // we couldn't find a matching child
@@ -728,7 +736,7 @@ end:;
   while (stackPos) {
     --stackPos;
     TrieNode *node = stack[stackPos].node;
-    if (node->sortMode == Trie_Sort_Score) {
+    if (mode == Trie_Sort_Score) {
       __trieNode_optimizeChildren(node, freecb);
     } else if (stackPos + 1 < depth) {
       __trieNode_optimizeChild(node, stack[stackPos].childIdx, freecb);

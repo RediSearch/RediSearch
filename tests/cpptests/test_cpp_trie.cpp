@@ -531,29 +531,48 @@ static bool containsRaw(TrieNode *root, const std::string &s) {
   return node != NULL && TrieNode_IsTerminal(node);
 }
 
-// The shape a delete must leave behind it: below the root no childless
-// tombstones and no non-terminal node with a single child, and every node's
-// children kept in ascending first-rune order.
-static void assertLexCompact(const TrieNode *n, bool isRoot) {
+// The compaction a delete must leave behind it in either sort mode: below the
+// root no childless tombstones and no non-terminal node with a single child.
+static void assertCompactNode(const TrieNode *n, bool isRoot) {
   if (!isRoot) {
     ASSERT_FALSE(n->numChildren == 0 && (n->flags & TRIENODE_DELETED)) << "childless tombstone";
     ASSERT_FALSE(n->numChildren == 1 && !TrieNode_IsTerminal(n)) << "unmerged single child";
   }
+}
+
+// Lex mode adds ascending first-rune order among children.
+static void assertLexTrie(const TrieNode *n, bool isRoot) {
+  ASSERT_NO_FATAL_FAILURE(assertCompactNode(n, isRoot));
   for (t_len i = 0; i < n->numChildren; i++) {
     const TrieNode *child = TrieNode_ChildAt(n, i);
     if (i > 0) {
       ASSERT_LT(TrieNode_ChildAt(n, i - 1)->str[0], child->str[0]);
     }
-    assertLexCompact(child, false);
+    assertLexTrie(child, false);
+  }
+}
+
+// Score mode adds a bound covering the node's own score and every child's
+// bound, which is what FT.SUGGET prunes on. Not equality: ADD_REPLACE lowering
+// a score leaves an over-estimate by design. Child order is not checked, since
+// the insert split path places the new child by rune rather than by bound.
+static void assertScoreTrie(const TrieNode *n, bool isRoot) {
+  ASSERT_NO_FATAL_FAILURE(assertCompactNode(n, isRoot));
+  ASSERT_GE(n->subtreeMaxScore, n->score);
+  for (t_len i = 0; i < n->numChildren; i++) {
+    const TrieNode *child = TrieNode_ChildAt(n, i);
+    ASSERT_GE(n->subtreeMaxScore, child->subtreeMaxScore);
+    assertScoreTrie(child, false);
   }
 }
 
 // Random inserts and deletes over a tiny alphabet, so keys share prefixes and
-// every delete splits, frees or merges nodes along its path. Exact lookups of
-// the whole key space check the trie against a model set.
-TEST_F(TrieTest, testLexDeleteKeepsTrieCompact) {
+// every delete splits, frees or merges nodes along its path. Scores come from a
+// small set so equal bounds are common. The trie's shape is checked after every
+// operation, then exact lookups of the whole key space check it against a model.
+static void runRandomInsertDelete(TrieSortMode mode, void (*assertShape)(const TrieNode *, bool)) {
   rune emptyRoot[1] = {0};
-  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Lex, 0);
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, mode, 0);
 
   std::vector<std::string> keySpace;
   for (size_t len = 1, n = 3; len <= 5; len++, n *= 3) {
@@ -566,17 +585,18 @@ TEST_F(TrieTest, testLexDeleteKeepsTrieCompact) {
     }
   }
 
-  std::mt19937 rng(42);
+  std::mt19937 rng(42);  // NOSONAR: fixed-seed test input, not a security context
   std::set<std::string> model;
   for (int op = 0; op < 20000; op++) {
     const std::string &key = keySpace[rng() % keySpace.size()];
     if (rng() % 2) {
-      addRaw(&root, key.c_str(), 1.0f, ADD_INCR);
+      float score = 1.0f + rng() % 3;
+      addRaw(&root, key.c_str(), score, rng() % 2 ? ADD_INCR : ADD_REPLACE);
       model.insert(key);
     } else {
       ASSERT_EQ(model.erase(key), deleteRaw(root, key)) << key;
     }
-    ASSERT_NO_FATAL_FAILURE(assertLexCompact(root, true)) << "after op " << op;
+    ASSERT_NO_FATAL_FAILURE(assertShape(root, true)) << "after op " << op;
   }
 
   for (const std::string &key : keySpace) {
@@ -584,6 +604,14 @@ TEST_F(TrieTest, testLexDeleteKeepsTrieCompact) {
   }
 
   TrieNode_Free(root, NULL);
+}
+
+TEST_F(TrieTest, testLexDeleteKeepsTrieCompact) {
+  runRandomInsertDelete(Trie_Sort_Lex, assertLexTrie);
+}
+
+TEST_F(TrieTest, testScoreDeleteKeepsTrieCompact) {
+  runRandomInsertDelete(Trie_Sort_Score, assertScoreTrie);
 }
 
 /* leave for future benchmarks if needed
