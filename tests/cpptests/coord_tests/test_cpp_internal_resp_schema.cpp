@@ -72,7 +72,9 @@ struct Decoder {
     reset();
     reply = parse(wire);
     EXPECT_NE(reply, nullptr);
-    return reply && RPNet_DebugPrepareRespSchema(&nc, reply, maxColumns);
+    bool accepted = reply && RPNet_DebugPrepareRespSchema(&nc, reply, maxColumns);
+    if (!accepted) EXPECT_EQ(nc.current.schemaKeys, nullptr);
+    return accepted;
   }
 };
 
@@ -80,7 +82,7 @@ void check(const std::string &wire, int protocol, bool accepted, uint16_t maxCol
   Decoder decoder(protocol);
   EXPECT_EQ(decoder.prepare(wire, maxColumns), accepted);
   if (accepted) {
-    EXPECT_TRUE(decoder.nc.current.schema);
+    EXPECT_NE(decoder.nc.current.schemaKeys, nullptr);
     EXPECT_EQ(array_len(decoder.nc.current.schemaKeys),
               MRReply_Length(MRReply_ArrayElement(decoder.reply, 2)));
   }
