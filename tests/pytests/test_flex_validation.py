@@ -351,17 +351,6 @@ def test_flex_aggregate_rejects_withcursor(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_hybrid_commands(env):
-    _create_flex_search(env)
-
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-    env.expect('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_blocks_dict_commands(env):
     _create_flex_search(env)
 
@@ -636,6 +625,33 @@ def test_disk_vector_query_validation(env: Env):
         env.assertEqual(res[0], 2, message=f'Expected 2 results for query "{query}"')
         env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'}, message=f'Expected results doc:1 and doc:2 for query "{query}"')
 
+    hybrid_args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b', 'KNN', 2, 'K', 2,
+                   'PARAMS', 2, 'b', query_blob]
+    response = env.cmd('FT.HYBRID', *hybrid_args)
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, 2, message=response)
+    env.assertEqual(set(results), {'doc:1', 'doc:2'}, message=response)
+    env.expect('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:]).noError()
+    for command in [('FT.HYBRID', *hybrid_args),
+                    ('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:])]:
+        env.expect(debug_cmd(), *command, 'TIMEOUT_AFTER_N_SEARCH', 100,
+                   'DEBUG_PARAMS_COUNT', 2).noError()
+    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:],
+               'TIMEOUT_AFTER_N_SEARCH', 100, 'dEbUg_PaRaMs_CoUnT', 2).noError()
+
+    env.expect('FT.HYBRID', *hybrid_args, 'WITHCURSOR') \
+        .error().contains('WITHCURSOR is not supported in Redis Flex')
+    filtered_args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b',
+                     'KNN', 2, 'K', 2, 'FILTER', 1, '@t:hello',
+                     'PARAMS', 2, 'b', query_blob]
+    env.expect('FT.HYBRID', *filtered_args).error().contains('FILTER ... POLICY')
+    wildcard_filter = filtered_args.copy()
+    wildcard_filter[12] = '*'
+    env.expect('FT.HYBRID', *wildcard_filter).error().contains('FILTER ... POLICY')
+    for policy in ['ADHOC', 'BATCHES']:
+        env.expect('FT.HYBRID', *filtered_args[:10], 'FILTER', 3, '@t:hello',
+                   'POLICY', policy, *filtered_args[-4:]).noError()
+
     # Vector range queries are supported on Flex disk indexes. With L2 (squared)
     # distance and a query vector of [1.0, 1.0]: doc:1 -> 0, doc:2 -> 2,
     # doc:3 -> 4802. Radius 10 returns doc:1 and doc:2; radius 0 returns doc:1
@@ -660,6 +676,7 @@ def test_disk_vector_query_validation(env: Env):
     # Negative radius is still rejected by the vector index validation path.
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE -1 $b]', 'NOCONTENT',
                'PARAMS', '2', 'b', query_blob).error()
+    env.expect('FT.DROPINDEX', 'idx').ok()
 
 
 @skip(cluster=True)
@@ -811,7 +828,7 @@ def test_flex_blocks_cursor_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
+def test_flex_debug_wrappers_for_aggregate(env):
     _create_flex_search(env)
 
     # Debug FT.AGGREGATE follows the command's flex enablement (MOD-16604).
@@ -819,13 +836,6 @@ def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
         .noError()
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .noError()
-
-    env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
-               'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
-               'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
 
 
 @skip(cluster=True)

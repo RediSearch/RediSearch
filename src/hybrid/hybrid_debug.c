@@ -27,6 +27,7 @@
 #include "query_error_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "search_ctx.h"
+#include "spec.h"
 
 // Wrapper structure for hybrid request with debug capabilities
 typedef struct {
@@ -259,9 +260,6 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return RedisModule_WrongArity(ctx);
   }
 
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   // Get index name and create search context (same pattern as regular hybridCommandHandler)
@@ -270,6 +268,22 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!sctx) {
     QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  if (sctx->spec->diskSpec) {
+    // Disk loaders need background execution so swap-in completions can run on the main thread.
+    SearchCtx_Free(sctx);
+    HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
+    if (QueryError_HasError(&status)) {
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+    if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+    int hybridArgc = argc - debugParams.debug_params_count - 2;
+    debugParams.debug_argv = NULL;
+    debugParams.debug_params_count = 0;
+    return hybridCommandHandler(ctx, argv, hybridArgc, false, EXEC_NO_FLAGS, &debugParams);
   }
 
   // Create debug hybrid request using the same sctx
