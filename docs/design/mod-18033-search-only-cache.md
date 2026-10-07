@@ -99,6 +99,7 @@ many properties. Keeping these contracts separate avoids coupling their refresh 
 ```mermaid
 flowchart TD
     Context[DiskContext] --> Collector[RSE Collector]
+    Context --> Worker
     Worker[RSE worker] -->|calls| Collector
     Collector --> Usage[UsageCache]
     Collector --> Diagnostics[AsyncSnapshots]
@@ -121,6 +122,9 @@ borrows native DB/CF handles only for a property read and never accesses C Index
 
 | Type | Role and reason for the boundary |
 |---|---|
+| `Worker` | DiskContext-owned join handle; stopping it drains collection before teardown. Its thread captures only shared collector state. |
+| `Wake` / `State` | Shared condition variable and pending/stopped flags. Native listeners can notify without retaining the worker or disk context. |
+| `ForkGate` / `BatchGuard` | Process-lifetime native barrier and its thread-bound guard. Fork hooks cannot retain a particular disk context or touch inherited Rust locks in the child. |
 | `Collector` | Shared worker context, separate from the mutable main-thread `DiskContext`. Services both caches each invocation. |
 | `Target` | Weak DB reference and CF names/identities, shared by both cache implementations. Detects replaced CFs without retaining native handles. |
 | `UsageCache` / `Registry` | Global atomic total for readers; membership and the exact accounting sum change together under the registry lock. |
