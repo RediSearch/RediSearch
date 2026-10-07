@@ -401,8 +401,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE) &&
-             AC_AdvanceIfMatch(ac, "_RESP_SCHEMA")) {
-    papCtx->reqConfig->internalRespSchema = papCtx->reqConfig->internalRespSchemaEnabled;
+             papCtx->internalRespSchema && AC_AdvanceIfMatch(ac, "_RESP_SCHEMA")) {
+    *papCtx->internalRespSchema = papCtx->reqConfig->internalRespSchemaEnabled;
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
@@ -625,6 +625,7 @@ static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->base.reqConfig,
+    .internalRespSchema = &req->internalRespSchema,
     .timeoutConfig = &req->base.timeout.config,
     .searchopts = &req->searchopts,
     .prefixesOffset = &req->prefixesOffset,
@@ -1134,6 +1135,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
 }
 
 static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
+  req->internalRespSchema = false;
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &RSGlobalConfig.requestConfigParams,
                     &RSGlobalConfig.timeoutConfigParams, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
