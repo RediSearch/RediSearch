@@ -169,7 +169,7 @@ typedef struct {
 static RespSchema respSchemaInit(const AREQ *req) {
   const uint32_t metadata = QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS |
                             QEXEC_F_SEND_SORTKEYS | QEXEC_F_REQUIRED_FIELDS;
-  return (RespSchema){.enabled = IsInternal(req) && req->reqConfig.internalRespSchema &&
+  return (RespSchema){.enabled = IsInternal(req) && req->internalRespSchema &&
                                  !(AREQ_RequestFlags(req) & metadata)};
 }
 

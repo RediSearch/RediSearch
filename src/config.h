@@ -105,7 +105,6 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // Snapshot enablement before worker dispatch; internal opt-in is parsed separately.
   bool internalRespSchemaEnabled;
-  bool internalRespSchema;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
