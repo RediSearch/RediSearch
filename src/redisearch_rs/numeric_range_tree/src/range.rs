@@ -259,10 +259,6 @@ impl NumericRange {
     /// Takes the HLL registers and value bounds that the GC scan computed over the
     /// surviving entries, then folds in the entries added since the fork.
     ///
-    /// If those entries cannot all be read back, the current bounds are kept: they
-    /// still cover every stored entry, while the survivor bounds would miss the
-    /// unread ones.
-    ///
     /// # Arguments
     ///
     /// * `ignored_last_block` - Whether the last block was ignored during GC scan (from
@@ -278,56 +274,60 @@ impl NumericRange {
         bounds: (ValueBounds, ValueBounds),
     ) {
         let mut blocks_to_rescan = blocks_since_fork;
-        let (registers, mut bounds) = if ignored_last_block {
+        let (registers, bounds) = if ignored_last_block {
             blocks_to_rescan += 1; // The last block was ignored, so re-add it too
             (registers.1, bounds.1)
         } else {
             (registers.0, bounds.0)
         };
         self.hll.set_registers(*registers);
-
-        if blocks_to_rescan > 0 && !self.fold_entries_since_fork(blocks_to_rescan, &mut bounds) {
-            return;
-        }
-        self.min_val = bounds.min;
-        self.max_val = bounds.max;
+        self.fold_entries_since_fork(blocks_to_rescan, bounds);
     }
 
     /// Add the entries of the last `blocks_to_rescan` blocks to the HLL and to
-    /// `bounds`. Returns `false` if they could not all be read.
-    fn fold_entries_since_fork(
-        &mut self,
-        blocks_to_rescan: usize,
-        bounds: &mut ValueBounds,
-    ) -> bool {
-        let num_blocks = self.entries.num_blocks();
-        debug_assert!(
-            blocks_to_rescan <= num_blocks,
-            "The number of blocks should never decrease in between two GC runs, \
-            therefore the number of blocks to rescan can never be greater than the current number of blocks"
-        );
-        let Some(start_id) = num_blocks
-            .checked_sub(blocks_to_rescan)
-            .and_then(|start_idx| self.entries.block_first_id(start_idx))
-        else {
-            return false;
-        };
+    /// `bounds`, then make `bounds` the range's bounds.
+    fn fold_entries_since_fork(&mut self, blocks_to_rescan: usize, mut bounds: ValueBounds) {
+        if blocks_to_rescan > 0 {
+            let num_blocks = self.entries.num_blocks();
+            debug_assert!(
+                blocks_to_rescan <= num_blocks,
+                "The number of blocks should never decrease in between two GC runs, \
+                therefore the number of blocks to rescan can never be greater than the current number of blocks"
+            );
+            // Unreachable while the assertion above holds. In release builds, keep the
+            // current bounds: they cover every stored entry, where `bounds` would miss
+            // the entries left unread.
+            let Some(start_id) = num_blocks
+                .checked_sub(blocks_to_rescan)
+                .and_then(|start_idx| self.entries.block_first_id(start_idx))
+            else {
+                return;
+            };
 
-        let mut reader = self.entries.reader();
-        reader.skip_to(start_id);
-        let mut result = RSIndexResult::build_numeric(0.0).build();
-        loop {
-            match reader.next_record(&mut result) {
-                Ok(true) => {}
-                Ok(false) => return true,
-                Err(_) => return false,
+            let mut reader = self.entries.reader();
+            reader.skip_to(start_id);
+            let mut result = RSIndexResult::build_numeric(0.0).build();
+            loop {
+                let read = reader.next_record(&mut result);
+                debug_assert!(
+                    read.is_ok(),
+                    "decoding an in-memory numeric block failed: {read:?}"
+                );
+                match read {
+                    Ok(true) => {}
+                    Ok(false) => break,
+                    // Same fallback as above.
+                    Err(_) => return,
+                }
+                // SAFETY: We know the result contains numeric data
+                let value = unsafe { result.as_numeric_unchecked() };
+                // Read back out of the index, so already in stored form.
+                self.hll.add(&StoredValue::from_decoded(value).into());
+                bounds.include(value);
             }
-            // SAFETY: We know the result contains numeric data
-            let value = unsafe { result.as_numeric_unchecked() };
-            // Read back out of the index, so already in stored form.
-            self.hll.add(&StoredValue::from_decoded(value).into());
-            bounds.include(value);
         }
+        self.min_val = bounds.min;
+        self.max_val = bounds.max;
     }
 }
 
