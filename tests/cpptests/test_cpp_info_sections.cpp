@@ -100,7 +100,7 @@ class InfoSectionsTest : public ::testing::Test {
   static inline unsigned totalReads = 0;
   static inline unsigned indexUsageReads = 0;
   static inline int targetRegistrations = 0;
-  static inline RedisModuleBigCallbacksV1 callbacks{};
+  static inline RedisModuleBigCallbacks callbacks{};
 
   static int registerBigModule(RedisModuleCtx *, RedisModuleBigCallbacks *candidate) {
     registeredVersions.push_back(candidate->version);

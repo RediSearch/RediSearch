@@ -226,7 +226,7 @@ static size_t getDiskUsageCallback(void) {
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   if (!RedisModule_BigModuleRegister) return false;
-  RedisModuleBigCallbacksV1 callbacks = {.version = REDISMODULE_BIG_CALLBACKS_VERSION, .getDiskUsage = getDiskUsageCallback};
+  RedisModuleBigCallbacks callbacks = {.version = REDISMODULE_BIG_CALLBACKS_VERSION, .getDiskUsage = getDiskUsageCallback};
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) return false;
   return true;
 }
