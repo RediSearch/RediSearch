@@ -423,8 +423,7 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
 
   // For disk indexes, add storage + in-memory components.
   if (sp->diskSpec) {
-    res += info && SearchDisk_InfoCacheEnabled() ? disk_memory
-                                                 : SearchDisk_CollectIndexMetrics(sp->diskSpec);
+    res += info ? disk_memory : SearchDisk_CollectIndexMetrics(sp->diskSpec);
   }
 
   res += sp->docs.memsize;

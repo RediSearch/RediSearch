@@ -51,7 +51,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
     info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
-    bool cachedDisk = sp->diskSpec && SearchDisk_InfoCacheEnabled();
+    bool cachedDisk = sp->diskSpec != NULL;
     CachedIndexMetrics diskMetrics = {0};
     if (cachedDisk) diskMetrics = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec);
     size_t cur_mem = IndexSpec_TotalMemUsageForInfo(sp, vec_info.memory, diskMetrics.memory);

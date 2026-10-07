@@ -1962,6 +1962,7 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  // Index destructors and background work may still need the disk context until pools drain.
   SearchDisk_Close(ctx);
 
   // Only after every pool whose cycles register in BlockedQueries has stopped

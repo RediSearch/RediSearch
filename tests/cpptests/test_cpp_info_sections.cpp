@@ -245,7 +245,6 @@ TEST_F(InfoSectionsTest, V1CallbackAndModuleCacheUsePublishedMetrics) {
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_EQ(registeredVersions, std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION});
   ASSERT_NE(callbacks.getDiskUsage, nullptr);
-  EXPECT_TRUE(SearchDisk_InfoCacheEnabled());
   EXPECT_EQ(targetRegistrations, 0);
 
   auto info = run({"indexes", "memory", "disk"});
@@ -325,12 +324,11 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   EXPECT_EQ(callbacks.getDiskUsage(), 0u);
 }
 
-TEST_F(InfoSectionsTest, RegistrationFailureDoesNotEnableCache) {
+TEST_F(InfoSectionsTest, RegistrationFailureIsReported) {
   RedisModule_BigModuleRegister = [](RedisModuleCtx *, RedisModuleBigCallbacks *) {
     return REDISMODULE_ERR;
   };
   EXPECT_FALSE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
-  EXPECT_FALSE(SearchDisk_InfoCacheEnabled());
 }
 
 }  // namespace

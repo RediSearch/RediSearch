@@ -30,8 +30,6 @@ struct timespec;
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
-static bool infoCacheEnabled;
-
 static size_t diskMemoryLimitBytes = 0;
 
 static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
@@ -228,9 +226,8 @@ static size_t getDiskUsageCallback(void) {
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   if (!RedisModule_BigModuleRegister) return false;
-  RedisModuleBigCallbacksV1 callbacks = {.version = 1, .getDiskUsage = getDiskUsageCallback};
+  RedisModuleBigCallbacksV1 callbacks = {.version = REDISMODULE_BIG_CALLBACKS_VERSION, .getDiskUsage = getDiskUsageCallback};
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) return false;
-  infoCacheEnabled = true;
   return true;
 }
 
@@ -244,10 +241,10 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
     diskMemoryLimitBytes = 0;
-    infoCacheEnabled = false;
   }
 }
 
+// Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (disk_db && spec && spec->diskSpec) {
     disk->metrics.activateTarget(spec->diskSpec);
@@ -687,10 +684,6 @@ static int VecSim_DisableThrottle(void) {
 
 bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
-}
-
-bool SearchDisk_InfoCacheEnabled(void) {
-  return infoCacheEnabled;
 }
 
 CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
