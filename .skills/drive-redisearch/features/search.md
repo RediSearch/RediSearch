@@ -13,7 +13,7 @@
 - `search-highlight`: `HIGHLIGHT FIELDS n f...` wraps matches in `<b>...</b>`.
 - `search-empty`: no matches gives `(integer) 0` and no error.
 - `search-syntax-error`: malformed query gives a `SEARCH_SYNTAX` error with an offset.
-- `search-dialect`: `DIALECT 2` (default for new behavior, required for `$param` references) vs `DIALECT 1`.
+- `search-dialect`: `DIALECT 1` is the default (`DEFAULT_DIALECT_VERSION` in `src/config.h`, overridable with the `DEFAULT_DIALECT` module arg). `DIALECT 2` is needed for `$param` references and changes how several operators parse.
 
 ## How to get to it (user POV)
 
@@ -26,10 +26,10 @@
 Preconditions:
 
 - Standalone instance, `FLUSHALL`ed, then seeded with:
-  `$R cli FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA title TEXT price NUMERIC SORTABLE tags TAG`,
-  `$R cli HSET doc:1 title "red running shoes" price 30 tags sale,new`,
-  `$R cli HSET doc:2 title "blue shoes" price 80 tags new`,
-  `$R cli HSET doc:3 title "red hat" price 15 tags sale`.
+  `$R rec search-seed FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA title TEXT price NUMERIC SORTABLE tags TAG`,
+  `$R rec search-seed HSET doc:1 title "red running shoes" price 30 tags sale,new`,
+  `$R rec search-seed HSET doc:2 title "blue shoes" price 80 tags new`,
+  `$R rec search-seed HSET doc:3 title "red hat" price 15 tags sale`.
 
 - **Text + sort + project.** Run `$R rec search-text FT.SEARCH idx "@title:shoes" SORTBY price ASC RETURN 2 title price`. The reply is `(integer) 2`, then `doc:1` (price `30`) before `doc:2` (price `80`).
 - **Tag.** Run `$R rec search-tag FT.SEARCH idx "@tags:{sale}" NOCONTENT`. The reply is `(integer) 2` with `doc:1` and `doc:3`.

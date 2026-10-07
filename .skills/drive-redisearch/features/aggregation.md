@@ -22,7 +22,7 @@ Preconditions:
 
 - The same seeded standalone instance as [search.md](./search.md) (`idx` with `doc:1..3`).
 
-- **Group and reduce.** Run `$R rec agg-groupby FT.AGGREGATE idx "*" GROUPBY 1 @tags REDUCE COUNT 0 AS n REDUCE AVG 1 @price AS avgp SORTBY 2 @n DESC`. You get three rows, one per distinct stored `tags` string: `sale,new` (avgp `30`), `new` (avgp `80`), `sale` (avgp `15`). Each has `n` `1`.
+- **Group and reduce.** Run `$R rec agg-groupby FT.AGGREGATE idx "*" GROUPBY 1 @tags REDUCE COUNT 0 AS n REDUCE AVG 1 @price AS avgp SORTBY 2 @n DESC`. You get three rows, one per distinct stored `tags` string: `sale,new` (avgp `30`), `new` (avgp `80`) and `sale` (avgp `15`), each with `n` `1`. Every `n` ties, so the row order is not guaranteed; assert the set of rows, not their order.
 - **Apply and filter.** Run `$R rec agg-apply-filter FT.AGGREGATE idx "*" LOAD 1 @price APPLY "@price*2" AS dbl FILTER "@dbl>50"`. The rows are price `30` with dbl `60`, and price `80` with dbl `160`. Price `15` is filtered out.
 - **Cursor.** Run `$R rec agg-cursor FT.AGGREGATE idx "*" LOAD 1 @title WITHCURSOR COUNT 2`. The reply holds 2 rows and a non-zero cursor id as its last element. Run `$R rec agg-cursor FT.CURSOR READ idx <id>` with that id. It returns the remaining row and cursor id `0`.
 

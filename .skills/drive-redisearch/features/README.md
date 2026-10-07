@@ -13,6 +13,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 ## Driving conventions
 
 - Recipes start from an empty instance unless their preconditions say otherwise. Run `$R cli FLUSHALL` between recipes. In standalone mode it also drops index definitions. In a cluster, `FLUSHALL` with `cli` reaches one node only, so `stop` and `cluster-start` again instead.
+- Setup writes go through `rec` too, so an artifact holds the writes that produced the result next to the read. Recipes whose seed data serves several reads record it in a shared `*-seed` artifact.
 - Every command in the recipes is literal `$R cli ...` / `$R rec <artifact> ...` argv. Keep the quoting: double quotes around queries, single quotes around anything with `$`.
 - Replies are shown in `redis-cli --no-raw` form. `FT.SEARCH` replies start with `1) (integer) <total>`, followed by key/field pairs.
 - Use `RETURN`/`NOCONTENT` to keep replies short and the assertions sharp.

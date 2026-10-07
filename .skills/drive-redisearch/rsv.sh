@@ -38,6 +38,8 @@ ensure_root() {
   [[ -e "$RSV_ROOT" ]] || mkdir -m 700 "$RSV_ROOT" || die "cannot create $RSV_ROOT"
   [[ -d "$RSV_ROOT" && -O "$RSV_ROOT" && ! -L "$RSV_ROOT" && "$(stat -c '%a' "$RSV_ROOT")" == 700 ]] \
     || die "$RSV_ROOT must be a mode-700 directory owned by you; set RSV_ROOT to a dedicated path"
+  # redis-server resolves --pidfile/--logfile after chdir into --dir, so they must be absolute.
+  RSV_ROOT="$(cd -P "$RSV_ROOT" && pwd)"
 }
 
 bin_root() { case "$(uname -m)" in x86_64) echo "$REPO_ROOT/bin/linux-x64" ;; *) echo "$REPO_ROOT/bin/linux-$(uname -m)" ;; esac; }
@@ -57,6 +59,7 @@ default_json() {
 port_free() { [[ -z "$(ss -ltnH "sport = :$1" 2>/dev/null)" ]]; }
 pick_ports() {
   local n="$1" base i ok
+  command -v ss >/dev/null || die "ss (iproute2) is required to find free ports"
   for _ in $(seq 1 50); do
     base=$(( 20000 + RANDOM % 20000 )); ok=1
     # Cluster bus uses port+10000, so check that too.
@@ -84,18 +87,23 @@ start_node() {
   [[ -n "$JSON" ]] && args+=(--loadmodule "$JSON")
   args+=(--loadmodule "$MODULE" "${MODARGS[@]}")
   "$REDIS_SERVER" "${args[@]}" "$@" || die "redis-server failed to start on $port (see $d/redis.log)"
+  # Recorded before readiness so a server that never answers PING can still be stopped.
+  for _ in $(seq 1 50); do [[ -s "$d/redis.pid" ]] && break; sleep 0.1; done
+  record_identity "$port"
 }
 
 # Redis tags warning-level log lines with " # ".
 redis_log_warnings() { grep -E ' # ' "$1" 2>/dev/null | grep -v 'overcommit'; }
 
 wait_ready() {
+  local log pid; log="$(inst_dir)/node-$1/redis.log"; pid="$(cat "$(inst_dir)/node-$1/redis.pid" 2>/dev/null)"
   for _ in $(seq 1 60); do
     [[ "$(bounded_cli 2 -p "$1" PING 2>/dev/null)" == PONG ]] && return 0
+    [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null && break
     sleep 0.5
   done
-  redis_log_warnings "$(inst_dir)/node-$1/redis.log" | tail -3 >&2
-  die "port $1 never answered PING; log: $(inst_dir)/node-$1/redis.log (run 'stop' before retrying)"
+  redis_log_warnings "$log" | tail -3 >&2
+  die "port $1 never answered PING; log: $log (run 'stop' before retrying)"
 }
 
 parse_start_args() {
@@ -124,8 +132,8 @@ parse_start_args() {
 
 cmd_start() {
   parse_start_args "$@"
-  local p; p="$(pick_ports 1)"; echo "$p" > "$(inst_dir)/ports"
-  start_node "$p"; wait_ready "$p"; record_identity "$p"
+  local p; p="$(pick_ports 1)" || { rm -rf "$(inst_dir)"; exit 1; }; echo "$p" > "$(inst_dir)/ports"
+  start_node "$p"; wait_ready "$p"
   echo "rsv: instance '$NAME' up on 127.0.0.1:$p (module $MODULE)"
   cmd_doctor
 }
@@ -138,11 +146,12 @@ cmd_cluster_start() {
   parse_start_args "$@"
   (( SHARDS >= 3 )) || { rm -rf "$(inst_dir)"; die "--shards must be at least 3: redis-cli --cluster create needs three masters"; }
   touch "$(inst_dir)/cluster"
-  local ps p addrs=(); mapfile -t ps < <(pick_ports "$SHARDS"); printf '%s\n' "${ps[@]}" > "$(inst_dir)/ports"
+  local ps p addrs=() picked; picked="$(pick_ports "$SHARDS")" || { rm -rf "$(inst_dir)"; exit 1; }
+  mapfile -t ps <<<"$picked"; printf '%s\n' "${ps[@]}" > "$(inst_dir)/ports"
   for p in "${ps[@]}"; do
     start_node "$p" --cluster-enabled yes --cluster-config-file "$(inst_dir)/node-$p/nodes.conf"
   done
-  for p in "${ps[@]}"; do wait_ready "$p"; record_identity "$p"; addrs+=("127.0.0.1:$p"); done
+  for p in "${ps[@]}"; do wait_ready "$p"; addrs+=("127.0.0.1:$p"); done
   bounded_cli 60 --cluster create "${addrs[@]}" --cluster-replicas 0 --cluster-yes >"$(inst_dir)/cluster-create.log" 2>&1 \
     || die "cluster create failed; see $(inst_dir)/cluster-create.log"
   for p in "${ps[@]}"; do
@@ -210,7 +219,7 @@ cmd_doctor() {
       fi
     fi
   done
-  local newer; newer="$(find "$REPO_ROOT/src" -path '*/target' -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.rs' -o -name '*.rl' -o -name '*.y' \
+  local newer; newer="$(find "$REPO_ROOT/src" "$REPO_ROOT/deps" -path '*/target' -prune -o -path '*/.git' -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.rs' -o -name '*.rl' -o -name '*.y' \
     -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name 'CMakeLists.txt' \) -newer "$module" -print 2>/dev/null | head -3)"
   [[ -n "$newer" ]] && echo "doctor: WARN sources newer than the module build (rebuild?): $(tr '\n' ' ' <<<"$newer")"
   echo "doctor: module file $module ($(stat -c '%y' "$module" | cut -d. -f1)); HEAD $(git -C "$REPO_ROOT" log -1 --format='%h %cd' --date=format:'%F %T')"
@@ -218,7 +227,10 @@ cmd_doctor() {
 }
 
 cmd_cli() {
-  local p a; p="$(first_port)"; [[ -n "$p" ]] || die "no instance '$NAME'"
+  local p a pid; p="$(first_port)"; [[ -n "$p" ]] || die "no instance '$NAME'"
+  # Otherwise a foreign server that took over the port would receive the command.
+  pid="$(cat "$(inst_dir)/node-$p/redis.pid" 2>/dev/null)"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || die "cli: our server on :$p is not running; run doctor"
   for a in "$@"; do
     [[ "$a" == -* ]] || break
     [[ "$a" == -x ]] || die "cli: only -x may precede the command; '$a' could point redis-cli at another server"
@@ -242,7 +254,7 @@ cmd_rec() {
     out="$(cmd_cli "$@" 2>&1)"; rc=$?
   fi
   # redis-cli exits 0 on an error reply, so flag it explicitly.
-  local tag="exit $rc"; grep -q '^(error)' <<<"$out" && tag="$tag, ERROR REPLY"
+  local tag="exit $rc"; grep -qE '^[[:space:]]*([0-9]+\) +)*\(error\)' <<<"$out" && tag="$tag, ERROR REPLY"
   {
     printf '# %s instance=%s ports=%s module=%s (built %s) HEAD=%s\n' \
       "$(date '+%F %T')" "$NAME" "$(ports | tr '\n' ',' | sed 's/,$//')" "$module" \
@@ -258,7 +270,7 @@ cmd_rec() {
 cmd_evidence_dir() { mkdir -p "$RSV_ROOT/evidence/$NAME"; echo "$RSV_ROOT/evidence/$NAME"; }
 
 cmd_stop() {
-  local d p pid orphan=0; d="$(inst_dir)"
+  local d p pid core orphan=0; d="$(inst_dir)"
   [[ -d "$d" ]] || { echo "rsv: no instance '$NAME'"; return 0; }
   mkdir -p "$RSV_ROOT/evidence/$NAME"
   for p in $(ports); do
@@ -274,6 +286,7 @@ cmd_stop() {
       fi
     fi
     [[ -f "$d/node-$p/redis.log" ]] && cp "$d/node-$p/redis.log" "$RSV_ROOT/evidence/$NAME/redis-$p.log"
+    for core in "$d/node-$p"/core*; do [[ -f "$core" ]] && cp "$core" "$RSV_ROOT/evidence/$NAME/$p-$(basename "$core")"; done
   done
   if (( orphan )); then
     echo "rsv: kept $d so the unconfirmed server stays traceable; inspect it, then remove the dir" >&2
@@ -285,7 +298,7 @@ cmd_stop() {
 
 cmd_list() {
   local d
-  for d in "$RSV_ROOT"/inst/*/; do [[ -d "$d" ]] && echo "$(basename "$d") ports: $(tr '\n' ' ' < "$d/ports")"; done
+  for d in "$RSV_ROOT"/inst/*/; do [[ -d "$d" ]] && echo "$(basename "$d") ports: $(tr '\n' ' ' < "$d/ports" 2>/dev/null)"; done
   return 0
 }
 

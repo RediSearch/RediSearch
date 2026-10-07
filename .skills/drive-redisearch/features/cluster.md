@@ -23,7 +23,7 @@ Preconditions:
 - `$C port` gives the node `cli` talks to, and `$C ports` lists every node. `REDIS_CLI` is set in your shell (SKILL.md *Launch*).
 
 - **DDL fan-out.** Run `$C rec coord-ddl-fanout FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA title TEXT price NUMERIC SORTABLE tags TAG`. Reply `OK`. Then `for p in $($C ports); do "$REDIS_CLI" -p $p FT._LIST; done` lists `idx` on every shard.
-- **Spread data.** Run `for i in $(seq 1 30); do $C cli HSET doc:$i title "item $i shoes" price $i tags t$((i%3)) >/dev/null; done`. Then `for p in $($C ports); do "$REDIS_CLI" -p $p DBSIZE; done` shows every shard holding some of the 30 docs. Record it with `rec`, or append it to the evidence file.
+- **Spread data.** Run `for i in $(seq 1 30); do $C rec coord-spread HSET doc:$i title "item $i shoes" price $i tags t$((i%3)) >/dev/null; done`. Then `for p in $($C ports); do "$REDIS_CLI" -p $p DBSIZE; done` shows every shard holding some of the 30 docs. Record it with `rec`, or append it to the evidence file.
 - **Global count.** Run `$C rec coord-search-merge FT.SEARCH idx shoes LIMIT 0 0`. The reply is `(integer) 30`, the sum of the shards.
 - **Global sort and page.** Run `$C rec coord-search-merge FT.SEARCH idx shoes SORTBY price DESC LIMIT 0 2 RETURN 1 price`. The reply is `doc:30` (price `30`) then `doc:29`, which are the global top two even though they live on different shards.
 - **Merged reducers.** Run `$C rec coord-aggregate-merge FT.AGGREGATE idx "*" GROUPBY 1 @tags REDUCE COUNT 0 AS n SORTBY 2 @tags ASC`. You get three rows `t0`, `t1`, `t2`, each with `n` `"10"`, which is not any single shard's partial count.
