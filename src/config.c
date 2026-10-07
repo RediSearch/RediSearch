@@ -2649,6 +2649,11 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-internal-resp-schema", 0, REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,
+      set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.internalRespSchemaEnabled)))
+
   RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-enable-unstable-features", DEFAULT_UNSTABLE_FEATURES_ENABLE,

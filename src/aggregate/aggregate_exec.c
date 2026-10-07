@@ -51,6 +51,7 @@
 #include "VecSim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
 #include "config.h"
+#include "internal_resp_schema.h"
 #include "doc_table.h"
 #include "inverted_index.h"
 #include "query.h"
@@ -158,8 +159,80 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   RedisModule_Reply_PrefixedStringBuffer(reply, '$', s, n);
 }
 
-static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
-                            const cachedVars *cv) {
+typedef struct {
+  arrayof(const RLookupKey *) keys;
+  uint32_t lookupWidth;
+  char *presence;
+} RespSchema;
+
+static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup *lookup) {
+  RLookupIterator iterator = RLookup_Iter(lookup);
+  uint32_t width = iterator.remaining;
+  RS_LOG_ASSERT(width >= schema->lookupWidth, "Internal RESP schema lookup must only append keys");
+  if (schema->keys && schema->lookupWidth == width) return;
+  if (!schema->keys) schema->keys = array_new(const RLookupKey *, width);
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_NOFIELDS)) {
+    uint32_t required = req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0;
+    // Runtime LOAD * only appends lookup keys. Existing positions must stay stable
+    // because rows already emitted in this chunk refer to their schema prefix.
+    if (schema->lookupWidth) iterator.current += schema->lookupWidth;
+    iterator.remaining -= schema->lookupWidth;
+    const RLookupKey *key;
+    while (RLookupIterator_Next(&iterator, &key)) {
+      uint32_t flags = RLookupKey_GetFlags(key);
+      if ((flags & RLOOKUP_F_HIDDEN) || (flags & required) != required) continue;
+      array_append(schema->keys, key);
+    }
+  }
+  schema->lookupWidth = width;
+  schema->presence = rm_realloc(schema->presence, array_len(schema->keys) + 1);
+}
+
+static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                                  const cachedVars *cv, RespSchema *schema) {
+  respSchemaRefresh(schema, req, cv->lastLookup);
+  size_t width = array_len(schema->keys), present = 0, extent = 0;
+  const RLookupRow *row = SearchResult_GetRowData(r);
+  for (size_t i = 0; i < width; ++i) {
+    bool exists = RLookupRow_Get(schema->keys[i], row) != NULL;
+    schema->presence[i] = exists ? '1' : '0';
+    if (exists) {
+      ++present;
+      extent = i + 1;
+    }
+  }
+  RedisModule_Reply_ArrayWithLen(reply, 2);
+  if (present == extent)
+    RedisModule_Reply_Null(reply);
+  else
+    RedisModule_Reply_StringBuffer(reply, schema->presence, extent);
+  RedisModule_Reply_ArrayWithLen(reply, present);
+  SendReplyFlags flags = (AREQ_RequestFlags(req) & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+  flags |= (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+  for (size_t i = 0; i < extent; ++i) {
+    if (schema->presence[i] == '1') {
+      RedisModule_Reply_RowValue(reply, RLookupRow_Get(schema->keys[i], row), flags,
+                                 AREQ_SearchCtx(req)->apiVersion);
+    }
+  }
+}
+
+static void finishRespSchema(AREQ *req, RedisModule_Reply *reply, const cachedVars *cv,
+                             RespSchema *schema) {
+  if (!req->internalRespSchema) return;
+  RedisModule_Reply_ArrayEnd(reply);  // rows
+  respSchemaRefresh(schema, req, cv->lastLookup);
+  RedisModule_Reply_ArrayWithLen(reply, array_len(schema->keys));
+  for (size_t i = 0; i < array_len(schema->keys); ++i) {
+    const RLookupKey *key = schema->keys[i];
+    RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(key), RLookupKey_GetNameLen(key));
+  }
+  array_free(schema->keys);
+  rm_free(schema->presence);
+}
+
+static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                                  const cachedVars *cv) {
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   bool has_map = RedisModule_IsRESP3(reply);
@@ -303,6 +376,14 @@ static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchRes
   }
 }
 
+static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                            const cachedVars *cv, RespSchema *schema) {
+  if (req->internalRespSchema)
+    serializeSchemaResult(req, reply, r, cv, schema);
+  else
+    serializeLegacyResult(req, reply, r, cv);
+}
+
 #ifdef ENABLE_ASSERT
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
 // been marked as timed out by the main-thread timeout callback.
@@ -423,11 +504,11 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, AREQ *req, cachedVars *cv) {
+  SearchResult **results, AREQ *req, cachedVars *cv, RespSchema *schema) {
     // populate the reply with an array containing the serialized results
     int len = array_len(results);
     array_foreach(results, res, {
-      serializeResult(req, reply, res, cv);
+      serializeResult(req, reply, res, cv, schema);
       SearchResult_Destroy(res);
       rm_free(res);
     });
@@ -538,7 +619,8 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
 /**
  * Updates the optimizer and opens the reply wrappers and the results array.
  */
-static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, QueryProcessingCtx *qctx) {
+static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
+                                        QueryProcessingCtx *qctx) {
   if (IsOptimized(req)) {
     QOptimizer_UpdateTotalResults(req);
   }
@@ -551,6 +633,10 @@ static void prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, Que
   }
 
   RedisModule_Reply_Array(reply);
+  if (req->internalRespSchema) {
+    RedisModule_Reply_CString(reply, INTERNAL_RESP_SCHEMA_TAG);
+    RedisModule_Reply_Array(reply);
+  }
   // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_Reply_LongLong(reply,
       QITR_ReportedTotal(qctx));
@@ -651,6 +737,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       return rc;
     }
 
+    RespSchema schema = {0};
     prepareSendChunkReply_Resp2(req, reply, qctx);
 
     // Once we get here, we want to return the results we got from the pipeline (with no error).
@@ -665,24 +752,25 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv);
+      populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
       goto done_2;
     }
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv);
+      serializeResult(req, reply, state->r, cv, &schema);
       SearchResult_Clear(state->r);
     } else {
       goto done_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv);
+      serializeResult(req, reply, state->r, cv, &schema);
       SearchResult_Clear(state->r);
     }
 
 done_2:
+    finishRespSchema(req, reply, cv, &schema);
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
     state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
@@ -825,6 +913,10 @@ static void prepareSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply) {
 
   // <results>
   RedisModule_ReplyKV_Array(reply, "results");
+  if (req->internalRespSchema) {
+    RedisModule_Reply_CString(reply, INTERNAL_RESP_SCHEMA_TAG);
+    RedisModule_Reply_Array(reply);
+  }
 }
 
 /**
@@ -879,6 +971,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
       return rc;
     }
 
+    RespSchema schema = {0};
     prepareSendChunkReply_Resp3(req, reply);
 
     // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
@@ -891,11 +984,11 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv);
+      populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
     } else {
       if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv);
+        serializeResult(req, reply, state->r, cv, &schema);
       }
 
       SearchResult_Clear(state->r);
@@ -904,7 +997,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
       }
 
       while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv);
+        serializeResult(req, reply, state->r, cv, &schema);
         SearchResult_Clear(state->r);
       }
     }
@@ -912,6 +1005,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 done_3:
     state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
+    finishRespSchema(req, reply, cv, &schema);
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
     return rc;

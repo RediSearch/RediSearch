@@ -78,6 +78,7 @@ typedef struct {
   AGGPlan *plan;                    // Aggregation plan
   QEFlags *reqflags;                // Request flags
   RequestConfig *reqConfig;         // Request configuration
+  bool *internalRespSchema;         // Internal aggregate wire format opt-in
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset
   CursorConfig *cursorConfig;       // Cursor configuration
@@ -199,6 +200,8 @@ typedef struct AREQ {
   */
 
   RequestConfig reqConfig;
+  // Finalized by AREQ_Compile and retained across cursor reads.
+  bool internalRespSchema;
 
   /** Cursor configuration */
   CursorConfig cursorConfig;

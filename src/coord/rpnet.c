@@ -32,6 +32,7 @@
 #include "rmutil/rm_assert.h"
 #include "search_result.h"
 #include "util/timeout.h"
+#include "util/dict.h"
 
 
 #define CURSOR_EOF 0
@@ -228,6 +229,148 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   return RS_RESULT_OK;
 }
 
+static int invalidRespSchema(RPNet *nc) {
+  QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_GENERIC,
+                      "Invalid internal RESP field schema chunk");
+  return RS_RESULT_ERROR;
+}
+
+static uint64_t respSchemaNameHash(const void *name) {
+  return dictGenHashFunction(name, strlen(name));
+}
+
+static int respSchemaNameEqual(void *unused, const void *left, const void *right) {
+  return !strcmp(left, right);
+}
+
+// Names are borrowed from sealed lookup keys or the current hiredis reply.
+static dictType respSchemaNames = {
+    .hashFunction = respSchemaNameHash,
+    .keyCompare = respSchemaNameEqual,
+};
+
+static bool validateRespSchemaRow(MRReply *row, size_t columnCount) {
+  if (!row || MRReply_Type(row) != MR_REPLY_ARRAY || MRReply_Length(row) != 2) {
+    return false;
+  }
+
+  MRReply *mask = MRReply_ArrayElement(row, 0);
+  MRReply *values = MRReply_ArrayElement(row, 1);
+  if (!mask || !values || MRReply_Type(values) != MR_REPLY_ARRAY) {
+    return false;
+  }
+
+  if (MRReply_Type(mask) == MR_REPLY_NIL) {
+    return MRReply_Length(values) <= columnCount;
+  }
+  if (MRReply_Type(mask) != MR_REPLY_STRING) {
+    return false;
+  }
+
+  size_t maskLength;
+  const char *bits = MRReply_String(mask, &maskLength);
+  if (maskLength > columnCount) {
+    return false;
+  }
+  size_t presentCount = 0;
+  for (size_t i = 0; i < maskLength; ++i) {
+    if (bits[i] != '0' && bits[i] != '1') {
+      return false;
+    }
+    presentCount += bits[i] == '1';
+  }
+  return presentCount == MRReply_Length(values);
+}
+
+static bool validateRespSchemaRows(MRReply *rows, size_t columnCount, int protocol) {
+  const size_t firstRowIndex = protocol == 3 ? 0 : 1;
+  if (protocol != 3) {
+    if (MRReply_Length(rows) == 0) {
+      return false;
+    }
+    MRReply *count = MRReply_ArrayElement(rows, 0);
+    if (!count || MRReply_Type(count) != MR_REPLY_INTEGER) {
+      return false;
+    }
+  }
+
+  // Validate every record before exposing any row from a malformed chunk.
+  for (size_t i = firstRowIndex; i < MRReply_Length(rows); ++i) {
+    if (!validateRespSchemaRow(MRReply_ArrayElement(rows, i), columnCount)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool mapRespSchemaKeys(RPNet *nc, MRReply *names, uint16_t maxColumns) {
+  size_t width = MRReply_Length(names);
+  arrayof(const RLookupKey *) keys = array_new(const RLookupKey *, width);
+  dict *byName = dictCreate(&respSchemaNames, NULL);
+  dict *seen = dictCreate(&respSchemaNames, NULL);
+  RLookupRow scratch = RLookupRow_New();
+  bool valid = false;
+  RLOOKUP_FOREACH(key, nc->lookup,
+                  { dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key); });
+  for (size_t i = 0; i < width; ++i) {
+    MRReply *name = MRReply_ArrayElement(names, i);
+    if (!name || MRReply_Type(name) != MR_REPLY_STRING) goto cleanup;
+    size_t len;
+    const char *bytes = MRReply_String(name, &len);
+    if (memchr(bytes, '\0', len) || dictAdd(seen, (void *)bytes, NULL) != DICT_OK) goto cleanup;
+    dictEntry *entry = dictFind(byName, bytes);
+    const RLookupKey *key = entry ? dictGetVal(entry) : NULL;
+    if (!key) {
+      size_t previousWidth = RLookup_Iter(nc->lookup).remaining;
+      if (previousWidth >= maxColumns) goto cleanup;
+      // Preserve the legacy indexed by-name append policy and owned-name lifetime.
+      // Retaining one scratch row avoids allocating through every new slot repeatedly.
+      RLookupRow_WriteByNameOwned(nc->lookup, bytes, len, &scratch, RSValue_NullStatic());
+      RLookupIterator iterator = RLookup_Iter(nc->lookup);
+      if (iterator.remaining != previousWidth + 1) goto cleanup;
+      key = iterator.current[previousWidth];
+      dictAdd(byName, (void *)RLookupKey_GetName(key), (void *)key);
+    }
+    array_append(keys, key);
+  }
+  valid = true;
+cleanup:
+  RLookupRow_Reset(&scratch);
+  dictRelease(seen);
+  dictRelease(byName);
+  if (valid)
+    nc->current.schemaKeys = keys;
+  else
+    array_free(keys);
+  return valid;
+}
+
+static bool prepareRespSchemaBounded(RPNet *nc, MRReply *chunk, uint16_t maxColumns) {
+  if (MRReply_Length(chunk) != 3 || nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
+  MRReply *rows = MRReply_ArrayElement(chunk, 1);
+  MRReply *names = MRReply_ArrayElement(chunk, 2);
+  if (!rows || MRReply_Type(rows) != MR_REPLY_ARRAY || !names ||
+      MRReply_Type(names) != MR_REPLY_ARRAY)
+    return false;
+  size_t width = MRReply_Length(names);
+  // Row capacity is also u16, so slot UINT16_MAX cannot hold a value.
+  if (width > maxColumns || RLookup_Iter(nc->lookup).remaining > maxColumns) return false;
+  if (!validateRespSchemaRows(rows, width, nc->cmd.protocol)) return false;
+  if (!mapRespSchemaKeys(nc, names, maxColumns)) return false;
+  nc->current.rows = rows;
+  return true;
+}
+
+static bool prepareRespSchema(RPNet *nc, MRReply *chunk) {
+  return prepareRespSchemaBounded(nc, chunk, UINT16_MAX);
+}
+
+#ifdef ENABLE_ASSERT
+bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns) {
+  return isRespSchemaReply(chunk) && prepareRespSchemaBounded(nc, chunk, maxColumns);
+}
+#endif
+
 int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
@@ -346,6 +489,14 @@ int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
+  if (isRespSchemaReply(rows)) {
+    rs_wall_clock convertStart;
+    if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
+    bool valid = prepareRespSchema(nc, rows);
+    if (nc->profileBreakdown) accumulateSince(&nc->breakdown.convertTime, &convertStart);
+    if (!valid) return invalidRespSchema(nc);
+    rows = nc->current.rows;
+  }
 
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
   RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
@@ -404,6 +555,7 @@ void rpnetFree(ResultProcessor *rp) {
   }
 
   MRReply_Free(nc->current.root);
+  RPNet_resetCurrent(nc);
   MRCommand_Free(&nc->cmd);
 
   rm_free(rp);
@@ -422,6 +574,8 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 }
 
 void RPNet_resetCurrent(RPNet *nc) {
+    array_free(nc->current.schemaKeys);
+    nc->current.schemaKeys = NULL;
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
@@ -588,17 +742,19 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   size_t fields_length = 0;
-  if (resp3) {
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
-    // extract score if it exists, WITHSCORES was specified
-    score = MRReply_MapElement(fields, "score");
-    fields = MRReply_MapElement(fields, "extra_attributes");
-    // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
-    // we do not have keys to return.
-    fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
-  } else {
-    fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
-    RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
+  if (!nc->current.schemaKeys) {
+    if (resp3) {
+      RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
+      // extract score if it exists, WITHSCORES was specified
+      score = MRReply_MapElement(fields, "score");
+      fields = MRReply_MapElement(fields, "extra_attributes");
+      // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
+      // we do not have keys to return.
+      fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
+    } else {
+      fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
+      RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
+    }
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
@@ -627,7 +783,20 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   rs_wall_clock convertStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
-  for (size_t i = 0; i < fields_length; i += 2) {
+  if (nc->current.schemaKeys) {
+    MRReply *mask = MRReply_ArrayElement(fields, 0);
+    MRReply *values = MRReply_ArrayElement(fields, 1);
+    size_t width = MRReply_Length(values), valueIdx = 0;
+    const char *bits = NULL;
+    if (MRReply_Type(mask) != MR_REPLY_NIL) bits = MRReply_String(mask, &width);
+    for (size_t i = 0; i < width; ++i) {
+      if (bits && bits[i] == '0') continue;
+      RSValue *v = MRReply_ToValue(MRReply_TakeArrayElement(values, valueIdx++));
+      RLookup_WriteOwnKey(nc->current.schemaKeys[i], SearchResult_GetRowDataMut(r), v);
+    }
+    fields_length = valueIdx * 2;
+  }
+  for (size_t i = 0; i < fields_length && !nc->current.schemaKeys; i += 2) {
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
