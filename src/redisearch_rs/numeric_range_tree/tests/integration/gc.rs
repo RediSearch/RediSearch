@@ -808,12 +808,13 @@ fn gc_resets_bounds_of_emptied_leaf(#[values(false, true)] compress_floats: bool
 #[rstest]
 fn gc_bounds_include_post_fork_writes(#[values(false, true)] last_block_changes: bool) {
     let mut tree = NumericRangeTree::new(false);
-    // Block 0 holds only deleted documents; block 1 holds the survivors at 50.0,
-    // filled up unless the post-fork writes should append to it.
+    // Block 0 holds only deleted documents; block 1 holds the survivors at 100.0,
+    // filled up unless the post-fork writes should append to it. The post-fork
+    // values lie below the survivors, so dropping either set shows in the bounds.
     let block_1_len = ENTRIES_PER_BLOCK - u64::from(last_block_changes);
     let mut doc_id = 0;
     for value in std::iter::repeat_n(1.0, ENTRIES_PER_BLOCK as usize)
-        .chain(std::iter::repeat_n(50.0, block_1_len as usize))
+        .chain(std::iter::repeat_n(100.0, block_1_len as usize))
     {
         doc_id += 1;
         tree.add(doc_id, value, false, false, 0);
@@ -822,7 +823,7 @@ fn gc_bounds_include_post_fork_writes(#[values(false, true)] last_block_changes:
 
     let delta = scan_node_delta(&tree, tree.root_index(), &|id| id > ENTRIES_PER_BLOCK)
         .expect("block 0 should have GC work");
-    for value in [10.0, 75.0] {
+    for value in [10.0, 20.0] {
         doc_id += 1;
         tree.add(doc_id, value, false, false, 0);
     }
@@ -830,24 +831,25 @@ fn gc_bounds_include_post_fork_writes(#[values(false, true)] last_block_changes:
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert_eq!(result.index_gc_info.ignored_last_block, last_block_changes);
-    assert_eq!(bounds_of(&tree, tree.root_index()), (10.0, 75.0));
+    assert_eq!(bounds_of(&tree, tree.root_index()), (10.0, 100.0));
 }
 
-/// A range retained on an internal node keeps its bounds, so it still covers its
-/// children whichever of them GC reaches first. Leaves are tightened.
+/// A range retained on an internal node is tightened too. Deltas are applied
+/// children first, so the tree invariants (checked after every apply in test
+/// builds) hold throughout: the parent never becomes narrower than a child.
 #[test]
-fn gc_keeps_bounds_of_retained_internal_range() {
+fn gc_tightens_retained_internal_range() {
     let n = SPLIT_TRIGGER * 2;
     let mut tree = build_tree(n, false, 2);
     assert!(
         tree.root().range().is_some(),
         "root should retain its range"
     );
-    let root_bounds = bounds_of(&tree, tree.root_index());
+    assert_eq!(bounds_of(&tree, tree.root_index()), (1.0, n as f64));
 
-    gc_all_ranges(&mut tree, &|doc_id| doc_id > 1);
+    gc_all_ranges(&mut tree, &|doc_id| (2..n).contains(&doc_id));
 
-    assert_eq!(bounds_of(&tree, tree.root_index()), root_bounds);
+    assert_eq!(bounds_of(&tree, tree.root_index()), (2.0, (n - 1) as f64));
     let mut leftmost = tree.root_index();
     while let Some((left, _)) = tree.node(leftmost).child_indices() {
         leftmost = left;

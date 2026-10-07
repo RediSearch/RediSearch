@@ -46,7 +46,7 @@ impl std::hash::Hash for NumericValue {
 /// The smallest and largest of a set of stored values.
 ///
 /// [`Self::EMPTY`] describes the empty set; it is also the bounds of a range that
-/// holds no entries.
+/// has never held an entry or that GC emptied.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ValueBounds {
     /// Smallest value in the set.
@@ -111,10 +111,8 @@ pub struct NumericRange {
     /// The minimum value stored in this range.
     /// Initialized to `f64::INFINITY` so any value will be smaller.
     ///
-    /// A lower bound in [`StoredValue`] form. Adds lower it. GC resets a leaf's
-    /// bounds to its surviving entries, so on a leaf it is the smallest stored value.
-    /// A range retained on an internal node is never tightened, so it keeps covering
-    /// its children whichever of them GC reaches first.
+    /// A lower bound on the stored values, in [`StoredValue`] form. Adds lower it
+    /// and GC resets it to the smallest surviving entry, so it is normally exact.
     min_val: f64,
     /// The maximum value stored in this range.
     /// Initialized to `f64::NEG_INFINITY` so any value will be larger.
@@ -258,9 +256,12 @@ impl NumericRange {
 
     /// Reset the statistics derived from the entries after garbage collection.
     ///
-    /// Takes the HLL registers, and with `bounds` the value bounds, that the GC scan
-    /// computed over the surviving entries, then folds in the entries added since
-    /// the fork. When `bounds` is `None` the current bounds are kept.
+    /// Takes the HLL registers and value bounds that the GC scan computed over the
+    /// surviving entries, then folds in the entries added since the fork.
+    ///
+    /// If those entries cannot all be read back, the current bounds are kept: they
+    /// still cover every stored entry, while the survivor bounds would miss the
+    /// unread ones.
     ///
     /// # Arguments
     ///
@@ -274,45 +275,58 @@ impl NumericRange {
         ignored_last_block: bool,
         blocks_since_fork: usize,
         registers: (&[u8; Hll::size()], &[u8; Hll::size()]),
-        bounds: Option<(ValueBounds, ValueBounds)>,
+        bounds: (ValueBounds, ValueBounds),
     ) {
         let mut blocks_to_rescan = blocks_since_fork;
         let (registers, mut bounds) = if ignored_last_block {
             blocks_to_rescan += 1; // The last block was ignored, so re-add it too
-            (registers.1, bounds.map(|b| b.1))
+            (registers.1, bounds.1)
         } else {
-            (registers.0, bounds.map(|b| b.0))
+            (registers.0, bounds.0)
         };
         self.hll.set_registers(*registers);
 
-        if blocks_to_rescan > 0 {
-            let num_blocks = self.entries.num_blocks();
-            debug_assert!(
-                blocks_to_rescan <= num_blocks,
-                "The number of blocks should never decrease in between two GC runs, \
-                therefore the number of blocks to rescan can never be greater than the current number of blocks"
-            );
-            let start_idx = num_blocks - blocks_to_rescan;
-            if let Some(start_id) = self.entries.block_first_id(start_idx) {
-                // Fold the entries added since the fork into the statistics.
-                let mut reader = self.entries.reader();
-                reader.skip_to(start_id);
-                let mut result = RSIndexResult::build_numeric(0.0).build();
-                while reader.next_record(&mut result).unwrap_or(false) {
-                    // SAFETY: We know the result contains numeric data
-                    let value = unsafe { result.as_numeric_unchecked() };
-                    // Read back out of the index, so already in stored form.
-                    self.hll.add(&StoredValue::from_decoded(value).into());
-                    if let Some(bounds) = bounds.as_mut() {
-                        bounds.include(value);
-                    }
-                }
-            }
+        if blocks_to_rescan > 0 && !self.fold_entries_since_fork(blocks_to_rescan, &mut bounds) {
+            return;
         }
+        self.min_val = bounds.min;
+        self.max_val = bounds.max;
+    }
 
-        if let Some(bounds) = bounds {
-            self.min_val = bounds.min;
-            self.max_val = bounds.max;
+    /// Add the entries of the last `blocks_to_rescan` blocks to the HLL and to
+    /// `bounds`. Returns `false` if they could not all be read.
+    fn fold_entries_since_fork(
+        &mut self,
+        blocks_to_rescan: usize,
+        bounds: &mut ValueBounds,
+    ) -> bool {
+        let num_blocks = self.entries.num_blocks();
+        debug_assert!(
+            blocks_to_rescan <= num_blocks,
+            "The number of blocks should never decrease in between two GC runs, \
+            therefore the number of blocks to rescan can never be greater than the current number of blocks"
+        );
+        let Some(start_id) = num_blocks
+            .checked_sub(blocks_to_rescan)
+            .and_then(|start_idx| self.entries.block_first_id(start_idx))
+        else {
+            return false;
+        };
+
+        let mut reader = self.entries.reader();
+        reader.skip_to(start_id);
+        let mut result = RSIndexResult::build_numeric(0.0).build();
+        loop {
+            match reader.next_record(&mut result) {
+                Ok(true) => {}
+                Ok(false) => return true,
+                Err(_) => return false,
+            }
+            // SAFETY: We know the result contains numeric data
+            let value = unsafe { result.as_numeric_unchecked() };
+            // Read back out of the index, so already in stored form.
+            self.hll.add(&StoredValue::from_decoded(value).into());
+            bounds.include(value);
         }
     }
 }

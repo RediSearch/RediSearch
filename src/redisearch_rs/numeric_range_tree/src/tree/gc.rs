@@ -169,8 +169,6 @@ impl NumericRangeTree {
         // Apply GC delta to the index.
         let info: GcApplyInfo = range.entries_mut().apply_gc(delta.delta);
 
-        // Bounds are only tightened on leaves: a retained internal range must keep
-        // covering both children, and GC may reach it before it reaches them.
         range.reset_stats_after_gc(
             info.ignored_last_block,
             n_new_blocks_since_fork,
@@ -178,10 +176,10 @@ impl NumericRangeTree {
                 &delta.registers_with_last_block,
                 &delta.registers_without_last_block,
             ),
-            is_leaf.then_some((
+            (
                 delta.bounds_with_last_block,
                 delta.bounds_without_last_block,
-            )),
+            ),
         );
 
         // Track empty ranges (only count leaves, and only on transition to empty).

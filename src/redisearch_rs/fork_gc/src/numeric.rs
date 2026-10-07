@@ -262,8 +262,10 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         Frame::data(field_name).encode(writer)?;
         writer.write_all(&u32::from(tree.unique_id()).to_ne_bytes())?;
 
+        // Children before parents: a retained internal range is tightened only after
+        // the ranges it must keep covering.
         for (node_idx, delta) in tree
-            .indexed_iter()
+            .indexed_post_order_iter()
             .filter_map(|(idx, node)| node.scan_gc(&|id| spec.doc_exists(id)).map(|d| (idx, d)))
         {
             NumericNodeDelta {
