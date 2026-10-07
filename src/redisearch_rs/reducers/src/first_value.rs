@@ -18,16 +18,16 @@ use value::{SharedValue, Value};
 use crate::accumulator::Accumulator;
 
 /// `FIRST_VALUE` of a property: its value in the group's first row, or, with a
-/// sort key, in the row whose sort key comes first (see [`SortBy`]). A missing
+/// sort key, in the row whose sort value comes first (see [`SortBy`]). A missing
 /// property reads as null.
 pub struct FirstValue<'a> {
     key: &'a RLookupKey<'a>,
     sort_by: Option<SortBy<'a>>,
 }
 
-/// The sort key of a [`FirstValue`] reducer.
+/// The sort key (the property to sort by) and direction of a [`FirstValue`] reducer.
 ///
-/// A null sort key never wins over a non-null one. Ties keep the earlier row.
+/// A null sort value never wins over a non-null one. Ties keep the earlier row.
 pub struct SortBy<'a> {
     pub key: &'a RLookupKey<'a>,
     pub direction: Direction,
@@ -41,7 +41,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// How a sort key must compare against the current best to replace it.
+    /// How a row's sort value must compare against the current best to replace it.
     const fn winning(self) -> Ordering {
         match self {
             Self::Ascending => Ordering::Less,
@@ -60,10 +60,10 @@ impl<'a> FirstValue<'a> {
 #[derive(Default)]
 pub struct FirstValueState(Option<Kept>);
 
-/// The value kept so far, and the sort key a later row must beat to replace it.
+/// The value kept so far, and the sort value a later row must beat to replace it.
 struct Kept {
     value: SharedValue,
-    /// `None` while no non-null sort key was seen, and always without a sort key.
+    /// `None` while no non-null sort value was seen, and always without a sort key.
     sort_value: Option<SharedValue>,
 }
 
@@ -83,20 +83,20 @@ impl FirstValue<'_> {
     }
 
     fn add_sorted(&self, state: &mut FirstValueState, row: &RLookupRow<'_>, sort_by: &SortBy<'_>) {
-        // Borrowed: most rows do not win, so only a winning sort key is cloned.
+        // Borrowed: most rows do not win, so only a winning sort value is cloned.
         let row_sort_value = row.get(sort_by.key).filter(|value| !is_null(value));
 
         match (&mut state.0, row_sort_value) {
-            // The first row is kept, whatever its sort key.
+            // The first row is kept, whatever its sort value.
             (None, sort_value) => {
                 state.0 = Some(Kept {
                     value: get_or_null(row, self.key),
                     sort_value: sort_value.cloned(),
                 });
             }
-            // A null sort key never wins.
+            // A null sort value never wins.
             (Some(_), None) => {}
-            // Any non-null sort key beats a null best one.
+            // Any non-null sort value beats a null best one.
             (Some(kept), Some(sort_value))
                 if kept.sort_value.as_ref().is_none_or(|best| {
                     compare_with_query_error(sort_value, best, None) == sort_by.direction.winning()

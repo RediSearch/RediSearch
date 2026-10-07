@@ -279,7 +279,7 @@ fn first_value_by(ascending: bool, rows: &[[Option<SharedValue>; 2]]) -> SharedV
 }
 
 #[test]
-fn first_value_by_keeps_the_row_whose_sort_key_comes_first() {
+fn first_value_by_keeps_the_row_whose_sort_value_comes_first() {
     let rows = [
         [string("a"), num(3.0)],
         [string("b"), num(1.0)],
@@ -289,9 +289,9 @@ fn first_value_by_keeps_the_row_whose_sort_key_comes_first() {
     assert_eq!(first_value_by(false, &rows).as_str_bytes(), Some(&b"a"[..]));
 }
 
-/// A missing sort key, or one referring to null, is null.
+/// A missing sort value, or one referring to null, is null.
 #[test]
-fn first_value_by_never_prefers_a_null_sort_key() {
+fn first_value_by_never_prefers_a_null_sort_value() {
     let null_ref = Some(SharedValue::new(Value::Ref(SharedValue::new(Value::Null))));
     for null in [None, null_ref] {
         let rows = [[string("a"), num(1.0)], [string("b"), null.clone()]];
@@ -306,7 +306,7 @@ fn first_value_by_never_prefers_a_null_sort_key() {
     }
 }
 
-/// Equal sort keys keep the earliest row, in both directions.
+/// Equal sort values keep the earliest row, in both directions.
 #[test]
 fn first_value_by_keeps_the_earliest_row_on_a_tie() {
     let rows = [
@@ -320,10 +320,10 @@ fn first_value_by_keeps_the_earliest_row_on_a_tie() {
     }
 }
 
-/// A NaN sort key compares equal to everything, so it never wins and nothing
+/// A NaN sort value compares equal to everything, so it never wins and nothing
 /// beats it.
 #[test]
-fn first_value_by_never_prefers_a_nan_sort_key() {
+fn first_value_by_never_prefers_a_nan_sort_value() {
     for ascending in [true, false] {
         let nan_later = [[string("a"), num(1.0)], [string("b"), num(f64::NAN)]];
         let result = first_value_by(ascending, &nan_later);
@@ -336,7 +336,7 @@ fn first_value_by_never_prefers_a_nan_sort_key() {
 }
 
 #[test]
-fn first_value_by_orders_string_sort_keys_bytewise() {
+fn first_value_by_orders_string_sort_values_bytewise() {
     let rows = [
         [string("a"), string("pear")],
         [string("b"), string("apple")],
