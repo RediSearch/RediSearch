@@ -742,17 +742,19 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   size_t fields_length = 0;
-  if (!nc->current.schemaKeys && resp3) {
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
-    // extract score if it exists, WITHSCORES was specified
-    score = MRReply_MapElement(fields, "score");
-    fields = MRReply_MapElement(fields, "extra_attributes");
-    // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
-    // we do not have keys to return.
-    fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
-  } else if (!nc->current.schemaKeys) {
-    fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
-    RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
+  if (!nc->current.schemaKeys) {
+    if (resp3) {
+      RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
+      // extract score if it exists, WITHSCORES was specified
+      score = MRReply_MapElement(fields, "score");
+      fields = MRReply_MapElement(fields, "extra_attributes");
+      // It could happen if Result_ExpiredDoc is set by the Loader on the shard, that no extra attributes is returned. In that case
+      // we do not have keys to return.
+      fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
+    } else {
+      fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
+      RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
+    }
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
