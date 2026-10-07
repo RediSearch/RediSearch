@@ -27,9 +27,7 @@ pub struct FirstValue<'a> {
 
 /// The sort key of a [`FirstValue`] reducer.
 ///
-/// A null sort key never wins over a non-null one. A group whose first sort key
-/// is null keeps the first row's value, though: the first non-null sort key only
-/// becomes the one later rows must beat. Ties keep the earlier row.
+/// A null sort key never wins over a non-null one. Ties keep the earlier row.
 pub struct SortBy<'a> {
     pub key: &'a RLookupKey<'a>,
     pub direction: Direction,
@@ -98,20 +96,17 @@ impl FirstValue<'_> {
             }
             // A null sort key never wins.
             (Some(_), None) => {}
-            (Some(kept), Some(sort_value)) => match &kept.sort_value {
-                // The best sort key is null: the row's becomes the one to beat, but
-                // the kept value stays.
-                None => kept.sort_value = Some(sort_value.clone()),
-                Some(best)
-                    if compare_with_query_error(sort_value, best, None)
-                        == sort_by.direction.winning() =>
-                {
-                    kept.sort_value = Some(sort_value.clone());
-                    kept.value = get_or_null(row, self.key);
-                }
-                // The row does not beat the best.
-                Some(_) => {}
-            },
+            // Any non-null sort key beats a null best one.
+            (Some(kept), Some(sort_value))
+                if kept.sort_value.as_ref().is_none_or(|best| {
+                    compare_with_query_error(sort_value, best, None) == sort_by.direction.winning()
+                }) =>
+            {
+                kept.sort_value = Some(sort_value.clone());
+                kept.value = get_or_null(row, self.key);
+            }
+            // The row does not beat the best.
+            (Some(_), Some(_)) => {}
         }
     }
 }

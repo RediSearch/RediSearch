@@ -306,27 +306,6 @@ fn first_value_by_never_prefers_a_null_sort_key() {
     }
 }
 
-/// When the first row has no sort key, its value is kept until a later row beats
-/// the first non-null sort key, which does not itself replace the value.
-#[test]
-fn first_value_by_after_a_null_sort_key_needs_a_row_to_beat_the_first_non_null_one() {
-    let not_beaten = [
-        [string("a"), None],
-        [string("b"), num(5.0)],
-        [string("c"), num(7.0)],
-    ];
-    let result = first_value_by(true, &not_beaten);
-    assert_eq!(result.as_str_bytes(), Some(&b"a"[..]));
-
-    let beaten = [
-        [string("a"), None],
-        [string("b"), num(5.0)],
-        [string("c"), num(3.0)],
-    ];
-    let result = first_value_by(true, &beaten);
-    assert_eq!(result.as_str_bytes(), Some(&b"c"[..]));
-}
-
 /// Equal sort keys keep the earliest row, in both directions.
 #[test]
 fn first_value_by_keeps_the_earliest_row_on_a_tie() {
