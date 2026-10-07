@@ -65,27 +65,55 @@ pub struct FirstValueState(Option<Kept>);
 /// The value kept so far, and the sort key a later row must beat to replace it.
 struct Kept {
     value: SharedValue,
-    /// Null without a sort key, which never reads it.
-    sort_value: SharedValue,
-}
-
-impl Kept {
-    fn of_row(
-        row: &RLookupRow<'_>,
-        key: &RLookupKey<'_>,
-        sort_key: Option<&RLookupKey<'_>>,
-    ) -> Self {
-        Self {
-            value: get_or_null(row, key),
-            sort_value: sort_key.map_or_else(SharedValue::null_static, |key| get_or_null(row, key)),
-        }
-    }
+    /// `None` while no non-null sort key was seen, and always without a sort key.
+    sort_value: Option<SharedValue>,
 }
 
 fn get_or_null(row: &RLookupRow<'_>, key: &RLookupKey<'_>) -> SharedValue {
     row.get(key)
         .cloned()
         .unwrap_or_else(SharedValue::null_static)
+}
+
+impl FirstValue<'_> {
+    /// Keeps the first row's value; later rows change nothing.
+    fn add_unsorted(&self, state: &mut FirstValueState, row: &RLookupRow<'_>) {
+        state.0.get_or_insert_with(|| Kept {
+            value: get_or_null(row, self.key),
+            sort_value: None,
+        });
+    }
+
+    fn add_sorted(&self, state: &mut FirstValueState, row: &RLookupRow<'_>, sort_by: &SortBy<'_>) {
+        // Borrowed: most rows do not win, so only a winning sort key is cloned.
+        let row_sort_value = row.get(sort_by.key).filter(|value| !is_null(value));
+
+        match (&mut state.0, row_sort_value) {
+            // The first row is kept, whatever its sort key.
+            (None, sort_value) => {
+                state.0 = Some(Kept {
+                    value: get_or_null(row, self.key),
+                    sort_value: sort_value.cloned(),
+                });
+            }
+            // A null sort key never wins.
+            (Some(_), None) => {}
+            (Some(kept), Some(sort_value)) => match &kept.sort_value {
+                // The best sort key is null: the row's becomes the one to beat, but
+                // the kept value stays.
+                None => kept.sort_value = Some(sort_value.clone()),
+                Some(best)
+                    if compare_with_query_error(sort_value, best, None)
+                        == sort_by.direction.winning() =>
+                {
+                    kept.sort_value = Some(sort_value.clone());
+                    kept.value = get_or_null(row, self.key);
+                }
+                // The row does not beat the best.
+                Some(_) => {}
+            },
+        }
+    }
 }
 
 impl Accumulator for FirstValue<'_> {
@@ -96,27 +124,9 @@ impl Accumulator for FirstValue<'_> {
     }
 
     fn add(&self, state: &mut FirstValueState, row: &RLookupRow<'_>) {
-        let Some(sort_by) = &self.sort_by else {
-            if state.0.is_none() {
-                state.0 = Some(Kept::of_row(row, self.key, None));
-            }
-            return;
-        };
-        // Borrowed: most rows do not win, so only a winning sort key is cloned.
-        let sort_value = row.get(sort_by.key).filter(|value| !is_null(value));
-        let Some(kept) = &mut state.0 else {
-            state.0 = Some(Kept::of_row(row, self.key, Some(sort_by.key)));
-            return;
-        };
-        let Some(sort_value) = sort_value else {
-            return;
-        };
-        if is_null(&kept.sort_value) {
-            kept.sort_value = sort_value.clone();
-        } else if compare_with_query_error(sort_value, &kept.sort_value, None)
-            == sort_by.direction.winning()
-        {
-            *kept = Kept::of_row(row, self.key, Some(sort_by.key));
+        match &self.sort_by {
+            None => self.add_unsorted(state, row),
+            Some(sort_by) => self.add_sorted(state, row, sort_by),
         }
     }
 
