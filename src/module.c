@@ -224,7 +224,7 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 // Validates ACL key-space permissions w.r.t the given index spec for Redis
 // Enterprise environments only.
 static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
-  return !IsEnterprise() || ACLUserMayAccessIndex(ctx, sp);
+  return !RS_IsEnterpriseServer() || ACLUserMayAccessIndex(ctx, sp);
 }
 
 // OOM check with heuristics
@@ -669,7 +669,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
    * On replica of the destination will get the ft.create command from
    * all the src shards and not need to recreate it.
    */
-  RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_CREATE_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
+  RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -692,7 +692,7 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 }
 
 static void DropIndex_ReplicateDropIfExists(RedisModuleCtx *ctx, RedisModuleString *indexName) {
-  const char *cmd = CMD_FOR_ENV(RS_DROP_INDEX_IF_X_CMD);
+  const char *cmd = CMD_FOR_COORDINATOR(RS_DROP_INDEX_IF_X_CMD);
   RedisModule_Replicate(ctx, cmd, "sc", indexName, "_FORCEKEEPDOCS");
 }
 
@@ -816,11 +816,11 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   RedisModuleString *oldCommand = argv[0];
-  if (RMUtil_StringEqualsCaseC(argv[0], CMD_FOR_ENV(RS_DROP_IF_X_CMD))) {
-    const char *dropCmd = CMD_FOR_ENV(RS_DROP_CMD);
+  if (RMUtil_StringEqualsCaseC(argv[0], CMD_FOR_COORDINATOR(RS_DROP_IF_X_CMD))) {
+    const char *dropCmd = CMD_FOR_COORDINATOR(RS_DROP_CMD);
     argv[0] = RedisModule_CreateString(ctx, dropCmd, strlen(dropCmd));
   } else {
-    const char *dropIndexCmd = CMD_FOR_ENV(RS_DROP_INDEX_CMD);
+    const char *dropIndexCmd = CMD_FOR_COORDINATOR(RS_DROP_INDEX_CMD);
     argv[0] = RedisModule_CreateString(ctx, dropIndexCmd, strlen(dropIndexCmd));
   }
   int ret = DropIndexCommand(ctx, argv, argc);
@@ -1016,7 +1016,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     IndexSpec_Unlock(sctx.spec);
 
     if (field_exists) {
-      RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_ALTER_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
+      RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_ALTER_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
       CurrentThread_ClearIndexSpec();
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
@@ -1043,7 +1043,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   RedisModule_Log(ctx, "notice", "Successfully altered index %s",
                   IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
-  RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_ALTER_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
+  RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_ALTER_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 
 }
@@ -1106,7 +1106,7 @@ static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, 
   if (aliasAddCommon(ctx, argv, argc, &e, ifNx) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &e);
   } else {
-    RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_ALIASADD_IF_NX), "v", argv + 1, (size_t)argc - 1);
+    RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_ALIASADD_IF_NX), "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -1149,7 +1149,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_ALIASDEL_IF_X), "v", argv + 1, (size_t)argc - 1);
+    RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_ALIASDEL_IF_X), "v", argv + 1, (size_t)argc - 1);
     CurrentThread_ClearIndexSpec();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -1336,7 +1336,7 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restoreCmd) {
   int rc;
 
-  const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
+  const char *schema_flags = RS_IsEnterpriseServer() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
   rc = RedisModule_CreateSubcommand(restoreCmd, "SCHEMA", RestoreSchema, schema_flags, 0, 0, 0);
   if (rc != REDISMODULE_OK) return rc;
 
@@ -1408,7 +1408,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
 void GetFormattedRedisVersion(char *buf, size_t len) {
     snprintf(buf, len, "%d.%d.%d - %s",
              redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion,
-             IsEnterprise() ? (isCrdt ? "enterprise-crdt" : "enterprise") : "oss");
+             RS_IsEnterpriseServer() ? (isCrdt ? "enterprise-crdt" : "enterprise") : "oss");
 }
 
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len) {
@@ -1425,7 +1425,7 @@ int IsMaster() {
   }
 }
 
-bool IsEnterprise() {
+bool RS_IsEnterpriseServer(void) {
   return isEnterprise;
 }
 
@@ -1518,7 +1518,7 @@ static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char 
     categories = "";
     // We don't want the user running internal commands. For that, we mark the
     // command internal on OSS, or exclude it from the proxy on Enterprise.
-    if (IsEnterprise()) {
+    if (RS_IsEnterpriseServer()) {
         rm_asprintf(&internalFlags, "%s %s", flags, CMD_PROXY_FILTERED);
     } else {
         rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
@@ -1604,7 +1604,7 @@ int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
  * All coordinator handlers must be wrapped in this decorator.
  */
 static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
+  if (RS_IsEnterpriseServer() && clusterConfig.type != ClusterType_RedisLabs) {
     /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
     return DisabledCommandHandler;
   }
@@ -1633,7 +1633,7 @@ static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {
     {.name = "HELP", .fullName = command_ "|HELP", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigHelpInfo, .position = {0, 0, 0}}, \
   }
 
-#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly"
+#define RS_READ_ONLY_FLAGS_DEFAULT RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly"
 static int RegisterConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
   CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand, RS_READ_ONLY_FLAGS_DEFAULT);
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
@@ -1805,7 +1805,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));
   RedisModule_Log(ctx, "notice", "Redis version found by RedisSearch : %s", ver);
-  if (IsEnterprise()) {
+  if (RS_IsEnterpriseServer()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
   }
@@ -1853,7 +1853,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   // Runtime selection of write command names based on enterprise mode
   // Enterprise: uses public "FT" prefix (DMC handles routing)
   // OSS: uses internal "_FT" prefix (coordinator registers public FT commands separately)
-  const bool enterprise = IsEnterprise();
+  const bool enterprise = RS_IsEnterpriseServer();
 
   SearchCommand commands[] = {
     // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
@@ -1867,19 +1867,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DiskDisabledCmd(DeleteCommand),        "write",           NULL, NONE, "write",       enterprise,       indexDocCmdArgs, true),
 
     // write commands (on enterprise we do not define them, the dmc takes care of them)
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_CREATE_CMD),         CreateIndexCommand,            "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_CREATE_IF_NX_CMD),   CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_RESTORE_IF_NX),      NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_SYNUPDATE_CMD),      DiskDisabledCmd(SynUpdateCommand),              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALTER_CMD),          DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALTER_IF_NX_CMD),    DiskDisabledCmd(AlterIndexIfNXCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_DICT_ADD),           DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_DICT_DEL),           DiskDisabledCmd(DictDelCommand),  "write",            SetFtDictdelInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASADD),           AliasAddCommand,               "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASADD_IF_NX),     AliasAddCommandIfNX,           "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_CREATE_CMD),         CreateIndexCommand,            "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD),   CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_RESTORE_IF_NX),      NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_SYNUPDATE_CMD),      DiskDisabledCmd(SynUpdateCommand),              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALTER_CMD),          DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALTER_IF_NX_CMD),    DiskDisabledCmd(AlterIndexIfNXCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DICT_ADD),           DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DICT_DEL),           DiskDisabledCmd(DictDelCommand),  "write",            SetFtDictdelInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASADD),           AliasAddCommand,               "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASADD_IF_NX),     AliasAddCommandIfNX,           "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(RS_ALIASLIST_CMD,                   AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, false),
 
     // Suggestion commands key specs should be 1, 1, 1
@@ -1914,10 +1914,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   }
   // Special cases: Register drop commands which write to arbitrary keys
   SearchCommand arbitraryWriteCommands[] = {
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_DROP_CMD),            DropIndexCommand,         "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_DROP_INDEX_CMD),      DropIndexCommand,         "write", SetFtDropindexInfo,  SET_COMMAND_INFO, "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_DROP_IF_X_CMD),       DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
-    DEFINE_COMMAND(CMD_FOR_ENV(RS_DROP_INDEX_IF_X_CMD), DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_CMD),            DropIndexCommand,         "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_INDEX_CMD),      DropIndexCommand,         "write", SetFtDropindexInfo,  SET_COMMAND_INFO, "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_IF_X_CMD),       DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_COORDINATOR(RS_DROP_INDEX_IF_X_CMD), DropIfExistsIndexCommand, "write", NULL,                NONE,             "write slow dangerous", true, indexOnlyCmdArgs, !enterprise),
   };
 
   if (CreateArbitraryWriteSearchCommands(ctx, arbitraryWriteCommands, sizeof(arbitraryWriteCommands) / sizeof(arbitraryWriteCommands[0])) != REDISMODULE_OK) {
@@ -5094,7 +5094,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // OSS commands (registered via proxy in Enterprise)
-  if (!IsEnterprise()) {
+  if (!RS_IsEnterpriseServer()) {
     SearchCommand writeCommands[] = {
       DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
@@ -5124,9 +5124,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // cluster set commands
   SearchCommand clusterSetCommands[] = {
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     RS_IsEnterpriseServer() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), RS_IsEnterpriseServer() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    RS_IsEnterpriseServer() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, clusterSetCommands, sizeof(clusterSetCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;

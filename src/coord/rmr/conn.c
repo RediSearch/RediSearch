@@ -499,7 +499,7 @@ cleanup:
 static int MRConn_SendAuth(MRConn *conn) {
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  if (!IsEnterprise()) {
+  if (!RS_IsEnterpriseServer()) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     size_t len;
@@ -713,7 +713,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
 
   // Authenticate on OSS always (as an internal connection), or on Enterprise if
   // a password is set to the `default` ACL user.
-  if (!IsEnterprise() || conn->ep.password) {
+  if (!RS_IsEnterpriseServer() || conn->ep.password) {
     MRConn_SwitchState(conn, MRConn_Authenticating);
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);

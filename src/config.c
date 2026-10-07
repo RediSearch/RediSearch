@@ -2171,7 +2171,7 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 size_t GetDefaultWorkerThreads(void) {
-  if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
+  if (RS_IsEnterpriseServer()) return 0;  // Keep default 0 for Redis Enterprise
   long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
   if (nprocs <= 0) {
     RedisModule_Log(RSDummyContext, "warning",
@@ -2473,7 +2473,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_bg-index-oom-pause-time",
-      IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
+      RS_IsEnterpriseServer() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry)

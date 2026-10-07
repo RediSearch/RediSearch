@@ -71,7 +71,7 @@ int RegisterCoordDebugCommands(RedisModuleCommand *debugCommand) {
   for (int i = 0; coordCommands[i].name != NULL; i++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, coordCommands[i].name,
               coordCommands[i].callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
