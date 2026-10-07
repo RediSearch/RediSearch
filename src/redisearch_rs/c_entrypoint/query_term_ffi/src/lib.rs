@@ -9,7 +9,7 @@
 
 //! FFI bridge for [`query_term::RSQueryTerm`].
 //!
-//! Provides C-callable lifecycle functions (`NewQueryTerm`, `Term_Free`) and
+//! Provides the C-callable constructor ([`NewQueryTerm`]) and accessors, and
 //! generates the `query_term_ffi.h` header via cheadergen.
 
 use std::ffi::c_int;
@@ -20,7 +20,6 @@ use query_term::RSQueryTerm;
 ///
 /// The term string is copied into a Rust-owned `NulTerminatedBytes` allocation.
 /// Bytes are stored as-is without any UTF-8 conversion.
-/// The returned pointer must be freed with [`Term_Free`].
 ///
 /// # Safety
 ///
@@ -28,8 +27,8 @@ use query_term::RSQueryTerm;
 /// - `tok->str` may be NULL, in which case the resulting term will have a
 ///   NULL `str` field.
 /// - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
-/// - The returned pointer is heap-allocated and must be freed with
-///   [`Term_Free`].
+/// - The returned pointer is a [`Box`] allocation whose ownership must be
+///   handed to a Rust consumer (e.g. an iterator), which drops it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *mut RSQueryTerm {
     debug_assert!(!tok.is_null(), "tok cannot be NULL");
@@ -48,25 +47,6 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
     // SAFETY: caller guarantees `tok_str` is valid for `tok_len` bytes.
     let slice = unsafe { std::slice::from_raw_parts(tok_str as *const u8, tok_len) };
     Box::into_raw(RSQueryTerm::new_bytes(slice, id, tok_flags))
-}
-
-/// Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
-///
-/// # Safety
-///
-/// - `t` may be NULL (in which case this is a no-op).
-/// - If non-NULL, `t` must have been allocated by [`NewQueryTerm`].
-/// - After this call, `t` is dangling and must not be used.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Term_Free(t: *mut RSQueryTerm) {
-    if t.is_null() {
-        return;
-    }
-
-    // SAFETY: caller guarantees `t` was allocated by `NewQueryTerm`
-    // (i.e. via `Box::into_raw`). The `NulTerminatedBytes` inside is freed
-    // automatically.
-    let _ = unsafe { Box::from_raw(t) };
 }
 
 /// Get the IDF (inverse document frequency) value from a query term.

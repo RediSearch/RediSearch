@@ -10,15 +10,13 @@
 use libc::size_t;
 use query_error::opaque::OpaqueQueryError;
 use query_error::{QueryError, QueryErrorCode};
-use sorting_vector::RSSortingVector;
+use redis_module::raw::RedisModuleIO;
+use sorting_vector::{RS_SORTABLES_MAX, RSSortingVector};
 use std::ffi::{CStr, c_char};
 use std::slice;
 use value::SharedValue;
 use value_ffi::RSValue;
 use value_ffi::util::into_shared_value;
-
-#[cheadergen::config(export)]
-pub const RS_SORTABLES_MAX: usize = 1024;
 
 // Verify that the ThinVec<SharedValue, u32> heap header has no padding before data,
 // so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 16 bytes.
@@ -239,4 +237,28 @@ pub unsafe extern "C" fn RSSortingVector_ClearAndDeAlloc(vec: *mut RSSortingVect
     if let Some(vec) = unsafe { vec.as_mut() } {
         vec.reset();
     }
+}
+
+/// Loads a sorting vector stored in a pre-2.0 doc-table RDB payload; see
+/// [`RSSortingVector::load_legacy_rdb`] for the format.
+///
+/// Returns an empty vector if a read fails. The failure stays recorded on `rdb`,
+/// so the caller must check `RedisModule_IsIOError` before reading further.
+///
+/// # Safety
+///
+/// 1. `rdb` must be a [valid] pointer to the [`RedisModuleIO`] of the RDB load in
+///    progress.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSSortingVector_LegacyRdbLoad(rdb: *mut RedisModuleIO) -> RSSortingVector {
+    debug_assert!(!rdb.is_null(), "rdb must not be null");
+
+    let mut io = redis_module::RedisModuleIO::new(rdb);
+    RSSortingVector::load_legacy_rdb(&mut io).unwrap_or_else(|_| {
+        // The caller learns of the failure only through the error recorded on `rdb`.
+        debug_assert!(redis_module::raw::is_io_error(rdb));
+        RSSortingVector::empty()
+    })
 }

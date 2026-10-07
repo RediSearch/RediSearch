@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "numeric_filter.h"
 #include "query_optimizer.h"
 #include "query_types.h"
 #include "redisearch.h"
@@ -99,11 +100,12 @@ static size_t drain(QueryIterator *it) {
  * `union_arity` above 1 wraps the same ids in a union of that many sorted id
  * lists, so the child costs more per read, skip and rewind than a single list.
  *
- * The numeric filter spans the whole field and is created by the iterator
- * itself, which also sizes the first window from the child's estimate.
+ * The numeric filter spans `min..max`, each bound inclusive or not; the
+ * iterator sizes its first window from the child's estimate.
  */
 size_t bench_c_optimizer(RedisSearchCtx *sctx, const char *field_name, const t_docId *ids,
-                         size_t child_count, size_t union_arity, size_t k, int ascending) {
+                         size_t child_count, size_t union_arity, size_t k, int ascending,
+                         double min, double max, int min_inclusive, int max_inclusive) {
   IteratorsConfig config;
   iteratorsConfig_init(&config);
 
@@ -122,14 +124,19 @@ size_t bench_c_optimizer(RedisSearchCtx *sctx, const char *field_name, const t_d
   opt.asc = (bool)ascending;
   opt.fieldName = field_name;
   opt.field = IndexSpec_GetFieldWithLength(sctx->spec, field_name, strlen(field_name));
+  // A caller-supplied filter stays owned by the caller, so it is freed below.
+  opt.nf = NewNumericFilter(min, max, min_inclusive, max_inclusive, opt.asc, opt.field->index,
+                            NULL);
 
   QueryIterator *it = NewOptimizerIterator(&opt, child, &config);
   if (it == NULL) {
     child->Free(child);
+    NumericFilter_Free(opt.nf);
     return 0;
   }
 
   size_t count = drain(it);
-  it->Free(it);  // also frees the child iterator and the owned numeric filter
+  it->Free(it);  // also frees the child iterator
+  NumericFilter_Free(opt.nf);
   return count;
 }

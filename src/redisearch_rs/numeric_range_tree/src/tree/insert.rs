@@ -306,8 +306,7 @@ impl NumericRangeTree {
     /// all entries would go to the right child, leaving the left empty.
     ///
     /// The adjustment relies on `min_val` matching the smallest value the range
-    /// stores. Adds maintain that; GC does not, so a split can still leave one child
-    /// empty — see the `newly_empty` comment in the body.
+    /// stores, which adds and GC both maintain on leaves.
     ///
     /// # Note
     ///
@@ -378,12 +377,11 @@ impl NumericRangeTree {
         }
         drop(result);
 
-        // A split strands an empty child leaf when every entry falls on the same side
-        // of `split`, which still happens while GC leaves `min_val` stale: the guard
-        // above cannot fire against a bound no surviving entry holds. It must be
-        // counted, or a later add routed to that leaf underflows `empty_leaves` and
-        // aborts the process across the non-unwinding FFI boundary (MOD-16877). The
-        // parent had >= 1 entry, so at most one child can come out empty.
+        // A split strands an empty child leaf if every entry falls on the same side of
+        // `split`, which the guard above and exact leaf bounds should rule out. Count
+        // it anyway: an uncounted empty leaf underflows `empty_leaves` on the next add
+        // routed to it and aborts the process across the non-unwinding FFI boundary
+        // (MOD-16877). The parent had >= 1 entry, so at most one child can be empty.
         let newly_empty = [left_idx, right_idx]
             .into_iter()
             .filter(|&i| nodes[i].range().is_some_and(|r| r.num_docs() == 0))

@@ -27,7 +27,6 @@ extern "C" {
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
-#include "sortable.h"
 #include "sorting_vector_ffi.h"
 #include "value_ffi.h"
 
@@ -1523,7 +1522,7 @@ TEST_F(RdbMockTest, testSortingVectorRdbLoadRejectsEmptyString) {
   RMCK_SaveStringBuffer(io, "abc", 4);
   io->read_pos = 0;
 
-  RSSortingVector vec = SortingVector_RdbLoad(io);
+  RSSortingVector vec = RSSortingVector_LegacyRdbLoad(io);
   ASSERT_EQ(RSSortingVector_Length(&vec), 2);
   EXPECT_TRUE(RSValue_IsNull(RSSortingVector_Get(&vec, 0)));
   // The empty element must not desynchronize the elements that follow it.
@@ -1540,9 +1539,8 @@ TEST_F(RdbMockTest, testSortingVectorRdbLoadTruncatedString) {
   RMCK_SaveUnsigned(io, RSValueType_String);
   io->read_pos = 0;
 
-  RSSortingVector vec = SortingVector_RdbLoad(io);
-  ASSERT_EQ(RSSortingVector_Length(&vec), 1);
-  EXPECT_TRUE(RSValue_IsNull(RSSortingVector_Get(&vec, 0)));
+  RSSortingVector vec = RSSortingVector_LegacyRdbLoad(io);
+  EXPECT_EQ(RSSortingVector_Length(&vec), 0);
   EXPECT_EQ(RMCK_IsIOError(io), 1);
   RSSortingVector_ClearAndDeAlloc(&vec);
   RMCK_FreeRdbIO(io);

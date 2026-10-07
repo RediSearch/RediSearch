@@ -15,7 +15,7 @@ use field_spec::FieldSpecType;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use serde::Serialize as _;
 
-use numeric_range_tree::{Hll, NodeGcDelta, NodeIndex, NumericRangeTree};
+use numeric_range_tree::{Hll, NodeGcDelta, NodeIndex, NumericRangeTree, ValueBounds};
 
 use crate::util::SpecWriteAccess;
 use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
@@ -36,8 +36,12 @@ impl TreeError {
 
 pub type FieldHeader = (Box<[u8]>, u32);
 
+/// Encoded size of one [`ValueBounds`]: its [`min`](ValueBounds::min) then its
+/// [`max`](ValueBounds::max).
+const BOUNDS_LEN: usize = 2 * size_of::<f64>();
+
 /// A single node entry in the numeric GC wire protocol.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct NumericNodeDelta {
     pub position: u32,
     pub generation: u32,
@@ -57,14 +61,23 @@ impl NumericNodeDelta {
             + size_of_val(&self.generation)
             + delta_data.len()
             + size_of_val(&self.delta.registers_with_last_block)
-            + size_of_val(&self.delta.registers_without_last_block);
+            + size_of_val(&self.delta.registers_without_last_block)
+            + BOUNDS_LEN * 2;
 
         writer.write_all(&node_len.to_ne_bytes())?;
         writer.write_all(&self.position.to_ne_bytes())?;
         writer.write_all(&self.generation.to_ne_bytes())?;
         writer.write_all(&delta_data)?;
         writer.write_all(&self.delta.registers_with_last_block)?;
-        writer.write_all(&self.delta.registers_without_last_block)
+        writer.write_all(&self.delta.registers_without_last_block)?;
+        for bounds in [
+            self.delta.bounds_with_last_block,
+            self.delta.bounds_without_last_block,
+        ] {
+            writer.write_all(&bounds.min.to_ne_bytes())?;
+            writer.write_all(&bounds.max.to_ne_bytes())?;
+        }
+        Ok(())
     }
 
     /// Read one node entry from `reader`.
@@ -91,7 +104,8 @@ impl NumericNodeDelta {
             return Ok(None);
         }
 
-        let minimum_node_len = size_of::<u32>() + size_of::<u32>() + Hll::size() * 2;
+        let minimum_node_len =
+            size_of::<u32>() + size_of::<u32>() + Hll::size() * 2 + BOUNDS_LEN * 2;
         let delta_data_len = node_len.checked_sub(minimum_node_len).ok_or_else(|| {
             HandleError::codec(
                 "numeric node length too small",
@@ -109,6 +123,15 @@ impl NumericNodeDelta {
         read_body(reader, &mut registers_with_last_block)?;
         let mut registers_without_last_block = [0u8; Hll::size()];
         read_body(reader, &mut registers_without_last_block)?;
+        let mut bounds_bytes = [0u8; BOUNDS_LEN * 2];
+        read_body(reader, &mut bounds_bytes)?;
+        let [with_min, with_max, without_min, without_max] = std::array::from_fn(|i| {
+            let start = i * size_of::<f64>();
+            let bytes = bounds_bytes[start..start + size_of::<f64>()]
+                .try_into()
+                .expect("slice has the length of an f64");
+            f64::from_ne_bytes(bytes)
+        });
 
         Ok(Some(NumericNodeDelta {
             position: u32::from_ne_bytes(pos_bytes),
@@ -118,6 +141,14 @@ impl NumericNodeDelta {
                     .map_err(|e| HandleError::codec("decoding the numeric node delta", e))?,
                 registers_with_last_block,
                 registers_without_last_block,
+                bounds_with_last_block: ValueBounds {
+                    min: with_min,
+                    max: with_max,
+                },
+                bounds_without_last_block: ValueBounds {
+                    min: without_min,
+                    max: without_max,
+                },
             },
         }))
     }
@@ -231,8 +262,10 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         Frame::data(field_name).encode(writer)?;
         writer.write_all(&u32::from(tree.unique_id()).to_ne_bytes())?;
 
+        // Children before parents: a retained internal range is tightened only after
+        // the ranges it must keep covering.
         for (node_idx, delta) in tree
-            .indexed_iter()
+            .indexed_post_order_iter()
             .filter_map(|(idx, node)| node.scan_gc(&|id| spec.doc_exists(id)).map(|d| (idx, d)))
         {
             NumericNodeDelta {

@@ -147,6 +147,8 @@ as production code.
   [/rust-tests-guidelines](.skills/rust-tests-guidelines/SKILL.md)
 - Use `#[expect(...)]` over `#[allow(...)]` for lint suppressions
 - Use `tracing` macros for logging (debug!, info!, warn!, error!)
+- Encode state in types: an enum, not a `bool`, for a two-way choice (`SumMode`, not
+  `average: bool`); one `Option<Struct>`, not two `Option`s that must be `Some` together
 
 ### Python
 

@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "redismodule.h"
 #include "sorting_vector.h"
 
 /**
@@ -22,7 +23,7 @@ typedef struct QueryError QueryError;
  */
 typedef struct RSValue RSValue;
 
-#define RS_SORTABLES_MAX 1024
+typedef struct RedisModuleIO RedisModuleIO;
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +61,22 @@ RSSortingVector RSSortingVector_Empty(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
+
+/**
+ * Loads a sorting vector stored in a pre-2.0 doc-table RDB payload; see
+ * [`RSSortingVector::load_legacy_rdb`] for the format.
+ *
+ * Returns an empty vector if a read fails. The failure stays recorded on `rdb`,
+ * so the caller must check `RedisModule_IsIOError` before reading further.
+ *
+ * # Safety
+ *
+ * 1. `rdb` must be a [valid] pointer to the [`RedisModuleIO`] of the RDB load in
+ *    progress.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSSortingVector RSSortingVector_LegacyRdbLoad(struct RedisModuleIO *rdb);
 
 /**
  * Creates a new `RSSortingVector` with the given length, returned by value.
