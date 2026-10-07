@@ -14,7 +14,6 @@
 extern "C" {
 #include "info/info_redis/info_redis.h"
 #include "search_disk.h"
-#include "util/disk_metrics.h"
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
