@@ -95,6 +95,13 @@ def test_resp_schema_format_selection():
                 env.assertEqual(rows(env, env.cmd(*command)),
                                 [{'id': '1'}, {'id': '2'}, {'id': '3'}])
 
+        with schema_mode(env, 'yes'):
+            metadata = ['_FT.AGGREGATE', 'idx', '*', 'WITHRAWIDS', 'LOAD', 1, '@id']
+            legacy = shard.execute_command(*metadata)
+            for command in (metadata + ['_RESP_SCHEMA'],
+                            metadata[:3] + ['_RESP_SCHEMA'] + metadata[3:]):
+                env.assertEqual(shard.execute_command(*command), legacy, message=command)
+
 
 @skip(cluster=False)
 def test_resp_schema_wire():
@@ -157,10 +164,6 @@ def test_resp_schema_wire():
                                 row = dict(zip(scored[2], values))
                                 env.assertEqual(row['id'], expected[i]['id'])
                                 env.assertEqual(str(row['__score']), str(expected[i]['__score']))
-            metadata = ['_FT.AGGREGATE', 'idx', '*', 'WITHRAWIDS', 'LOAD', 1, '@id']
-            legacy = shard.execute_command(*metadata)
-            fallback = shard.execute_command(*metadata, '_RESP_SCHEMA')
-            env.assertEqual(fallback, legacy)
 
 
 @skip(cluster=False)

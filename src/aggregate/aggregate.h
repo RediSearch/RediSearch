@@ -200,6 +200,7 @@ typedef struct AREQ {
   */
 
   RequestConfig reqConfig;
+  // Finalized by AREQ_Compile and retained across cursor reads.
   bool internalRespSchema;
 
   /** Cursor configuration */
