@@ -27,6 +27,7 @@ runs:
         if [[ ! -x "${install_dir}/bin/lcov" ]]; then
           mkdir -p "${install_dir}"
           curl --fail --location --silent --show-error --retry 3 \
+            --proto '=https' --proto-redir '=https' \
             --output "${archive}" \
             "https://github.com/linux-test-project/lcov/releases/download/v${LCOV_VERSION}/lcov-${LCOV_VERSION}.tar.gz"
           if command -v sha256sum >/dev/null; then

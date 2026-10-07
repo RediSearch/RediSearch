@@ -3,7 +3,7 @@ set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
-apt_install gcc-12 g++-12 git wget build-essential lcov openssl libssl-dev \
+apt_install gcc-12 g++-12 git wget build-essential openssl libssl-dev \
     unzip rsync curl gdb
 # Only move the active compiler up, never down — another module's bootstrap
 # may have already pinned something newer in this shared build container.

@@ -44,6 +44,7 @@ fi
 
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
+source install_lcov.sh $MODE
 
 # Boost is only useful when the build runs from the same checkout this script
 # populates. The CI image builds from /project but jobs build from a fresh

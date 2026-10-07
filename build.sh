@@ -62,6 +62,8 @@ EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclu
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
+source "$ROOT/.install/min_versions.sh"
+source "$ROOT/.install/version_compare.sh"
 
 LCOV_BRANCH_ARGS=(--branch-coverage)
 LCOV_CAPTURE_ARGS=(--branch-coverage --filter branch,region,branch_region)
@@ -69,15 +71,18 @@ LCOV_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative)
 LCOV_CAPTURE_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative,unused)
 LCOV_REMOVE_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative,unused)
 
-require_lcov_2() {
-  local lcov_version
-  if ! lcov_version=$(lcov --version 2>&1); then
-    echo "[coverage] Error: LCOV 2 or newer is required; lcov is unavailable: ${lcov_version}" >&2
+require_supported_lcov() {
+  local lcov_output lcov_version
+  if ! lcov_output=$(lcov --version 2>&1); then
+    echo "[coverage] Error: LCOV ${LCOV_MIN_VERSION} or newer is required; lcov is unavailable: ${lcov_output}" >&2
     exit 1
   fi
 
-  if [[ ! "${lcov_version}" =~ LCOV\ version\ ([0-9]+)(\.|$) ]] || (( BASH_REMATCH[1] < 2 )); then
-    echo "[coverage] Error: LCOV 2 or newer is required; found: ${lcov_version}" >&2
+  if [[ "${lcov_output}" =~ LCOV\ version\ ([0-9]+([.][0-9]+)*) ]]; then
+    lcov_version="${BASH_REMATCH[1]}"
+  fi
+  if [[ -z "${lcov_version:-}" ]] || ! version_ge "$lcov_version" "$LCOV_MIN_VERSION"; then
+    echo "[coverage] Error: LCOV ${LCOV_MIN_VERSION} or newer is required; found: ${lcov_output}" >&2
     exit 1
   fi
 }
@@ -355,7 +360,7 @@ end_group() {
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
-  require_lcov_2
+  require_supported_lcov
   lcov --zerocounters --directory $BINROOT --base-directory $ROOT \
     "${LCOV_BRANCH_ARGS[@]}"
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
