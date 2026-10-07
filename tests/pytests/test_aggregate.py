@@ -1840,3 +1840,26 @@ def testAggregateWithoutCountSortByThenGroupByFirstValueOrdering(env):
         'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first',
         'REDUCE', 'COUNT', '0', 'AS', 'cnt')
     env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha', 'cnt', '1']])
+
+
+@skip(cluster=True)
+def testFirstValueByPrefersNonNullSortKeyRegardlessOfRowOrder(env):
+    """FIRST_VALUE ... BY keeps the row with the best non-null sort key, however the rows are
+    ordered: a row without the sort property must not win over one that has it."""
+    conn = getConnectionByEnv(env)
+    # Same two cities in both orders: the one without a population is first in `a:`, last in `b:`.
+    for prefix in ['a', 'b']:
+        env.expect('FT.CREATE', f'idx_{prefix}', 'PREFIX', 1, f'{prefix}:',
+                   'SCHEMA', 'city', 'TAG', 'pop', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'a:1', 'city', 'unknown')
+    conn.execute_command('HSET', 'a:2', 'city', 'known', 'pop', 50)
+    conn.execute_command('HSET', 'b:1', 'city', 'known', 'pop', 50)
+    conn.execute_command('HSET', 'b:2', 'city', 'unknown')
+
+    for prefix in ['a', 'b']:
+        for direction in ['ASC', 'DESC']:
+            res = env.cmd('FT.AGGREGATE', f'idx_{prefix}', '*', 'LOAD', 2, '@city', '@pop',
+                          'GROUPBY', 0,
+                          'REDUCE', 'FIRST_VALUE', 4, '@city', 'BY', '@pop', direction,
+                          'AS', 'city')
+            env.assertEqual(res, [1, ['city', 'known']], message=f'{prefix} {direction}')

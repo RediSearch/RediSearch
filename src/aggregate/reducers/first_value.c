@@ -71,8 +71,9 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   } else if (RSValue_IsNull(curSortval)) {
     // If the current value is null, we don't need to do anything
   } else if (RSValue_IsNull(fvx->sortval)) {
-    // If the best value is null, replace it with the current value (which is not null)
+    // If the best value is null, the current row (whose sort value is not null) wins
     RSValue_Replace(&fvx->sortval, curSortval);
+    RSValue_Replace(&fvx->value, val);
   } else {
     // If both values are not null, compare them and replace if necessary
     int rc = RSValue_Cmp(curSortval, fvx->sortval, NULL);
