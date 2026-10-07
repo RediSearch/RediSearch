@@ -3275,3 +3275,69 @@ def test_coord_background_fail_reply_parity_resp2():
 def test_coord_background_fail_reply_parity_resp3():
     """Worker RESP3 replies match RETURN replies, including late errors."""
     _reply_parity(3)
+
+
+def _coord_profile_timeout_before_fanout(protocol):
+    env = _new_env(protocol)
+    point = 'BeforeRPNetStart'
+    encoded = 'AfterCoordBackgroundReplyEncode'
+    command = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', 0]
+    original = env.getConnection().connection_pool
+    pool = ConnectionPool(connection_class=original.connection_class,
+                          **dict(original.connection_kwargs,
+                                 retry=Retry(NoBackoff(), 0), socket_timeout=10))
+    client = Redis(connection_pool=pool, single_connection_client=True)
+    client_id = client.client_id()
+    results, errors = [], []
+
+    def query():
+        try:
+            results.append(client.execute_command(*command))
+        except Exception as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=query, daemon=True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+    try:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', encoded).ok()
+        thread.start()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
+                     {'results': results, 'errors': errors}),
+            'PROFILE did not pause before RPNet iterator creation', timeout=5)
+        # The hook releases on timeout. The worker must finish profiling with
+        # no MR iterator, even though Redis will discard the encoded reply.
+        env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+        thread.join(timeout=5)
+        env.assertFalse(thread.is_alive())
+        env.assertEqual(results, [])
+        env.assertEqual(len(errors), 1, message=errors)
+        env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
+        env.assertContains(TIMEOUT_ERROR, str(errors[0]))
+        # The timeout reply arrives before the worker finishes. Wait past
+        # PROFILE serialization so PING cannot pass before the crashing access.
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', encoded) == 1, {}),
+            'PROFILE worker did not finish encoding after timeout', timeout=5)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encoded)
+        env.assertTrue(client.ping())
+        env.assertEqual(client.client_id(), client_id)
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encoded)
+        thread.join(timeout=10)
+        client.close()
+        pool.disconnect()
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+
+@skip(cluster=False)
+def test_coord_profile_timeout_before_fanout_resp2():
+    """RESP2 PROFILE survives timeout before its RPNet iterator exists."""
+    _coord_profile_timeout_before_fanout(2)
+
+
+@skip(cluster=False)
+def test_coord_profile_timeout_before_fanout_resp3():
+    """RESP3 PROFILE survives timeout before its RPNet iterator exists."""
+    _coord_profile_timeout_before_fanout(3)
