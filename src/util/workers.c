@@ -26,16 +26,18 @@ size_t in_event = 0; // event counter, >0 means we should be in event mode (some
 
 #define DEFERRED_SHRINK_POLL_MS 100
 static bool shrinkDeferred = false;
-// Completed-jobs count at which a deferred shrink is applied (see workersThreadPool_SetNumWorkers).
+// Completed-jobs count at which a deferred shrink is applied (see resizePool).
 static size_t shrinkJobsDoneTarget = 0;
 static bool shrinkTimerArmed = false;
 static RedisModuleTimerID shrinkTimer;
+
+static void resizePool(bool newRequest);
 
 static void deferredShrinkCallback(RedisModuleCtx *ctx, void *data) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(data);
   shrinkTimerArmed = false;
-  workersThreadPool_SetNumWorkers();
+  resizePool(false);
 }
 
 static void yieldCallback(void *yieldCtx) {
@@ -93,6 +95,12 @@ int workersThreadPool_CreatePool(void) {
  * then terminate. No new jobs should be added after setting the number of workers to 0.
  */
 void workersThreadPool_SetNumWorkers() {
+  resizePool(true);
+}
+
+// A new request re-snapshots a deferred shrink's target, so each request drains the work pending
+// at its own time (e.g. an event ending mid-deferral); the poll timer keeps the existing target.
+static void resizePool(bool newRequest) {
   if (_workers_thpool == NULL) return;
 
   size_t worker_count = targetNumWorkers();
@@ -107,7 +115,7 @@ void workersThreadPool_SetNumWorkers() {
   thpool_stats stats = {0};
   if (shrinkToFloor) {
     stats = redisearch_thpool_get_stats(_workers_thpool);
-    if (!shrinkDeferred) {
+    if (newRequest || !shrinkDeferred) {
       size_t queued = stats.low_priority_pending_jobs + stats.high_priority_pending_jobs;
       if (queued) {
         shrinkDeferred = true;
@@ -289,7 +297,7 @@ int workersThreadPool_resume() {
   }
   redisearch_thpool_resume_threads(_workers_thpool);
   // Apply a shrink deferred while paused.
-  workersThreadPool_SetNumWorkers();
+  resizePool(false);
   return REDISMODULE_OK;
 }
 

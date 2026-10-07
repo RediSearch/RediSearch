@@ -614,6 +614,44 @@ def test_shrink_to_floor_not_postponed_by_later_jobs():
     _assert_query_results(env, docs, {})
 
 
+
+@skip(cluster=True)
+def test_shrink_to_floor_rerequested_while_deferred():
+    """A shrink requested again while one is deferred, as when a trim or ASM event ends before an
+    earlier WORKERS N -> 0 backlog drains, also waits for the jobs queued at the new request."""
+    env = Env(moduleArgs='WORKERS 4', enableDebugCommand=True)
+    rng = np.random.default_rng(18989)
+    _create_indexes(env)
+    docs = _load_docs(env, rng)
+    _queue_repairs(env, rng, docs, {}, N_DELETED)
+    later = {f'doc:later{j}': [_vector(rng) for _ in range(N_INDEXES)] for j in range(50)}
+
+    # As in test_shrink_to_floor_not_postponed_by_later_jobs, but a second request follows the later
+    # jobs, so the final resume must keep every thread for them.
+    pipe = getConnectionByEnv(env).pipeline(transaction=True)
+    pipe.execute_command(config_cmd(), 'SET', 'WORKERS', 0)
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'RESUME')
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'DRAIN')
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'PAUSE')
+    for key, vectors in later.items():
+        _hset_doc(pipe, key, vectors)
+    pipe.execute_command(config_cmd(), 'SET', 'WORKERS', 0)
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'STATS')
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'RESUME')
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS')
+    *_, queued, _, after = pipe.execute()
+    docs.update(later)
+    queued = to_dict(queued)
+
+    env.assertGreater(_queued(queued), 0, message=queued)
+    env.assertEqual(after, 4)
+    samples = _sample_until_floor(env)
+    env.assertEqual([s for s in samples if s[2] > 0 and s[0] != 4], [])
+    _assert_ran_exactly_once(env, queued)
+    _wait_for_pool_size(env, 1)
+    _converge(env, len(docs))
+    _assert_query_results(env, docs, {})
+
 def _deferred_shrink_target(env):
     """The jobs-done target of the last deferred shrink and its running jobs, from its log line."""
     with open(_log_path(env)) as f:
