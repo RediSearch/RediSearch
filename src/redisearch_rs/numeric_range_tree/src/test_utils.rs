@@ -15,7 +15,7 @@
 use index_result::RSIndexResult;
 use inverted_index::{Encoder, numeric::Numeric};
 
-use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
+use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree, ValueBounds};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -112,8 +112,8 @@ pub fn build_tree_at_split_edge() -> (NumericRangeTree, u64) {
 
 /// Scan a single node and produce its GC delta, if any.
 ///
-/// Uses zeroed HLL registers. For accurate HLL values, use
-/// [`NumericRangeNode::scan_gc`] directly or [`scan_node_delta_with_hll`].
+/// Uses zeroed HLL registers and accurate value bounds. For accurate HLL values,
+/// use [`NumericRangeNode::scan_gc`] directly or [`scan_node_delta_with_hll`].
 pub fn scan_node_delta(
     tree: &NumericRangeTree,
     node_idx: NodeIndex,
@@ -129,30 +129,30 @@ pub fn scan_node_delta_with_hll(
     doc_exist: &dyn Fn(u64) -> bool,
     hll_fn: impl Fn(&inverted_index::GcScanDelta) -> ([u8; 64], [u8; 64]),
 ) -> Option<NodeGcDelta> {
-    let node = tree.node(node_idx);
-    node.range()
-        .and_then(|range| -> Option<inverted_index::GcScanDelta> {
-            range
-                .entries()
-                .scan_gc(
-                    doc_exist,
-                    None::<
-                        for<'index> fn(
-                            &RSIndexResult<'index>,
-                            &inverted_index::RepairContext<'index>,
-                        ),
-                    >,
-                )
-                .expect("scan_gc should not fail")
-        })
-        .map(|delta| {
-            let (hll_with, hll_without) = hll_fn(&delta);
-            NodeGcDelta {
-                delta,
-                registers_with_last_block: hll_with,
-                registers_without_last_block: hll_without,
-            }
-        })
+    let range = tree.node(node_idx).range()?;
+    let last_block_idx = range.entries().num_blocks().saturating_sub(1);
+    let mut with_last = ValueBounds::EMPTY;
+    let mut without_last = ValueBounds::EMPTY;
+    let track_bounds = |res: &RSIndexResult<'_>, ctx: &inverted_index::RepairContext<'_>| {
+        // SAFETY: entries of a numeric range are numeric results.
+        let value = unsafe { res.as_numeric_unchecked() };
+        with_last.include(value);
+        if ctx.block_idx != last_block_idx {
+            without_last.include(value);
+        }
+    };
+    let delta = range
+        .entries()
+        .scan_gc(doc_exist, Some(track_bounds))
+        .expect("scan_gc should not fail")?;
+    let (hll_with, hll_without) = hll_fn(&delta);
+    Some(NodeGcDelta {
+        delta,
+        registers_with_last_block: hll_with,
+        registers_without_last_block: hll_without,
+        bounds_with_last_block: with_last,
+        bounds_without_last_block: without_last,
+    })
 }
 
 /// Scan all nodes in the tree and collect GC deltas for nodes that have work.

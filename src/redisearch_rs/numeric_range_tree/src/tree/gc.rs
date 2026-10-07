@@ -23,14 +23,17 @@ use inverted_index::{GcApplyInfo, GcScanDelta};
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
-use crate::range::Hll;
+use crate::range::{Hll, ValueBounds};
 
 /// GC delta data for a single node, as computed by the child process.
 ///
-/// Contains the inverted index GC delta plus the HyperLogLog registers
-/// captured during the scan. One `NodeGcDelta` is produced per DFS node
-/// that had GC work.
-#[derive(Debug, PartialEq, Eq)]
+/// Contains the inverted index GC delta plus the HyperLogLog registers and
+/// value bounds of the surviving entries, captured during the scan. One
+/// [`NodeGcDelta`] is produced per DFS node that had GC work.
+///
+/// The registers and bounds come in two versions because the parent drops the
+/// scan's result for the last block if that block changed since the fork.
+#[derive(Debug, PartialEq)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
@@ -38,6 +41,10 @@ pub struct NodeGcDelta {
     pub registers_with_last_block: [u8; Hll::size()],
     /// HLL registers excluding the last scanned block's cardinality.
     pub registers_without_last_block: [u8; Hll::size()],
+    /// Bounds of the surviving entries, including the last scanned block.
+    pub bounds_with_last_block: ValueBounds,
+    /// Bounds of the surviving entries, excluding the last scanned block.
+    pub bounds_without_last_block: ValueBounds,
 }
 
 /// Result of applying GC to a single node.
@@ -92,17 +99,20 @@ impl NumericRangeNode {
         // `last_block_hll` accumulates only the last block.
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
+        let mut majority_bounds = ValueBounds::EMPTY;
+        let mut last_block_bounds = ValueBounds::EMPTY;
 
         let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
             // SAFETY: We know this is a numeric index result. Scanned straight out of
             // the index, so already in stored form.
             let value = StoredValue::from_decoded(unsafe { res.as_numeric_unchecked() });
-            let target = if ctx.block_idx == last_block_idx {
-                &mut last_block_hll
+            let (hll, bounds) = if ctx.block_idx == last_block_idx {
+                (&mut last_block_hll, &mut last_block_bounds)
             } else {
-                &mut majority_hll
+                (&mut majority_hll, &mut majority_bounds)
             };
-            target.add(&value.into());
+            hll.add(&value.into());
+            bounds.include(value.get());
         };
 
         let delta = range
@@ -111,13 +121,16 @@ impl NumericRangeNode {
             .ok()
             .flatten()?;
 
-        // Merge majority into last_block to get "with last block" registers.
+        // Merge majority into last_block to get the "with last block" statistics.
         last_block_hll.merge(&majority_hll);
+        last_block_bounds.merge(majority_bounds);
 
         Some(NodeGcDelta {
             delta,
             registers_with_last_block: *last_block_hll.registers(),
             registers_without_last_block: *majority_hll.registers(),
+            bounds_with_last_block: last_block_bounds,
+            bounds_without_last_block: majority_bounds,
         })
     }
 }
@@ -156,12 +169,19 @@ impl NumericRangeTree {
         // Apply GC delta to the index.
         let info: GcApplyInfo = range.entries_mut().apply_gc(delta.delta);
 
-        // Reset cardinality with proper HLL recalculation.
-        range.reset_cardinality_after_gc(
+        // Bounds are only tightened on leaves: a retained internal range must keep
+        // covering both children, and GC may reach it before it reaches them.
+        range.reset_stats_after_gc(
             info.ignored_last_block,
             n_new_blocks_since_fork,
-            &delta.registers_with_last_block,
-            &delta.registers_without_last_block,
+            (
+                &delta.registers_with_last_block,
+                &delta.registers_without_last_block,
+            ),
+            is_leaf.then_some((
+                delta.bounds_with_last_block,
+                delta.bounds_without_last_block,
+            )),
         );
 
         // Track empty ranges (only count leaves, and only on transition to empty).
