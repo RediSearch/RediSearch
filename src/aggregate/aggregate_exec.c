@@ -176,6 +176,7 @@ static RespSchema respSchemaInit(const AREQ *req) {
 static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup *lookup) {
   RLookupIterator iterator = RLookup_Iter(lookup);
   uint32_t width = iterator.remaining;
+  RS_LOG_ASSERT(width >= schema->lookupWidth, "Internal RESP schema lookup must only append keys");
   if (schema->keys && schema->lookupWidth == width) return;
   if (!schema->keys) schema->keys = array_new(const RLookupKey *, width);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_NOFIELDS)) {
