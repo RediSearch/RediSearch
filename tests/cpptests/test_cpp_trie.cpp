@@ -21,6 +21,8 @@
 #include <memory>
 #include <functional>
 #include <cstdint>
+#include <random>
+#include <set>
 #include <vector>
 
 class TrieTest : public ::testing::Test {};
@@ -505,6 +507,80 @@ TEST_F(TrieTest, testRotateChildIntoPlace) {
     runeBufFree(&buf);
     ASSERT_NE(node, nullptr) << keys[i];
     EXPECT_FLOAT_EQ(node->score, scores[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
+}
+
+static int deleteRaw(TrieNode *root, const std::string &s) {
+  runeBuf buf;
+  size_t len = s.size();
+  rune *runes = runeBufFill(s.c_str(), len, &buf, &len);
+  int rc = TrieNode_Delete(root, runes, len, NULL);
+  runeBufFree(&buf);
+  return rc;
+}
+
+static bool containsRaw(TrieNode *root, const std::string &s) {
+  runeBuf buf;
+  size_t len = s.size();
+  rune *runes = runeBufFill(s.c_str(), len, &buf, &len);
+  TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+  runeBufFree(&buf);
+  // an exact lookup also lands on internal split nodes
+  return node != NULL && TrieNode_IsTerminal(node);
+}
+
+// The shape a delete must leave behind it: below the root no childless
+// tombstones and no non-terminal node with a single child, and every node's
+// children kept in ascending first-rune order.
+static void assertLexCompact(const TrieNode *n, bool isRoot) {
+  if (!isRoot) {
+    ASSERT_FALSE(n->numChildren == 0 && (n->flags & TRIENODE_DELETED)) << "childless tombstone";
+    ASSERT_FALSE(n->numChildren == 1 && !TrieNode_IsTerminal(n)) << "unmerged single child";
+  }
+  for (t_len i = 0; i < n->numChildren; i++) {
+    const TrieNode *child = TrieNode_ChildAt(n, i);
+    if (i > 0) {
+      ASSERT_LT(TrieNode_ChildAt(n, i - 1)->str[0], child->str[0]);
+    }
+    assertLexCompact(child, false);
+  }
+}
+
+// Random inserts and deletes over a tiny alphabet, so keys share prefixes and
+// every delete splits, frees or merges nodes along its path. Exact lookups of
+// the whole key space check the trie against a model set.
+TEST_F(TrieTest, testLexDeleteKeepsTrieCompact) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Lex, 0);
+
+  std::vector<std::string> keySpace;
+  for (size_t len = 1, n = 3; len <= 5; len++, n *= 3) {
+    for (size_t code = 0; code < n; code++) {
+      std::string key;
+      for (size_t c = code, i = 0; i < len; i++, c /= 3) {
+        key.push_back('a' + c % 3);
+      }
+      keySpace.push_back(key);
+    }
+  }
+
+  std::mt19937 rng(42);
+  std::set<std::string> model;
+  for (int op = 0; op < 20000; op++) {
+    const std::string &key = keySpace[rng() % keySpace.size()];
+    if (rng() % 2) {
+      addRaw(&root, key.c_str(), 1.0f, ADD_INCR);
+      model.insert(key);
+    } else {
+      ASSERT_EQ(model.erase(key), deleteRaw(root, key)) << key;
+    }
+    ASSERT_NO_FATAL_FAILURE(assertLexCompact(root, true)) << "after op " << op;
+  }
+
+  for (const std::string &key : keySpace) {
+    EXPECT_EQ(model.count(key) == 1, containsRaw(root, key)) << key;
   }
 
   TrieNode_Free(root, NULL);

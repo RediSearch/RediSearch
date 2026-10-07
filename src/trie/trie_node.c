@@ -579,6 +579,33 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
   return NULL;
 }
 
+/* Remove children[idx], compacting the key cache and the child array in place. The
+ * allocation is not shrunk because TrieNode_Delete holds raw pointers to every node on
+ * its path while unwinding. */
+static void __trieNode_removeChild(TrieNode *n, t_len idx) {
+  TrieNode **nodes = TrieNode_Children(n);
+  t_len tail = n->numChildren - 1 - idx;
+  memmove(__trieNode_MutableChildKey(n, idx), __trieNode_ChildKey(n, idx + 1), tail * sizeof(rune));
+  memmove(&nodes[idx], &nodes[idx + 1], tail * sizeof(TrieNode *));
+  size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
+  n->numChildren--;
+  size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
+  memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
+          sizeof(TrieNode *) * n->numChildren);
+}
+
+/* Fix up children[idx] after a delete beneath it: free it if it became a childless
+ * tombstone, or merge it with its only child. */
+static void __trieNode_optimizeChild(TrieNode *n, t_len idx, TrieFreeCallback freecb) {
+  TrieNode *ch = TrieNode_Children(n)[idx];
+  if (ch->numChildren == 0 && __trieNode_isDeleted(ch)) {
+    TrieNode_Free(ch, freecb);
+    __trieNode_removeChild(n, idx);
+  } else if (ch->numChildren == 1) {
+    TrieNode_Children(n)[idx] = __trieNode_MergeWithSingleChild(ch, freecb);
+  }
+}
+
 /* Optimize the node and its children:
  *   1. If a child should be deleted - delete it and reduce the child count
  *   2. If a child has a single child - merge them
@@ -595,23 +622,11 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
     // if this is a deleted node with no children - remove it
     if (nodes[i]->numChildren == 0 && __trieNode_isDeleted(nodes[i])) {
       TrieNode_Free(nodes[i], freecb);
-
-      nodes[i] = NULL;
-      // just "fill" the hole with the next node up
-      while (i < n->numChildren - 1) {
-        nodes[i] = nodes[i + 1];
-        __trieNode_StoreChildKey(n, i, __trieNode_LoadChildKey(n, i + 1));
-        updateScore(n, nodes[i]->subtreeMaxScore);
-        i++;
-      }
-      // reduce child count. Delete compacts the arrays in-place but does not shrink
-      // the node allocation because callers keep raw TrieNode pointers while unwinding.
-      size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
-      n->numChildren--;
-      size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
-      memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
-              sizeof(TrieNode *) * n->numChildren);
+      __trieNode_removeChild(n, i);
       nodes = TrieNode_Children(n);
+      for (; i < n->numChildren; i++) {
+        updateScore(n, nodes[i]->subtreeMaxScore);
+      }
       rc++;
     } else {
 
@@ -633,10 +648,16 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   return rc;
 }
 
+typedef struct {
+  TrieNode *node;
+  // the child the descent continued into; unset on the deepest frame
+  t_len childIdx;
+} TrieDeleteFrame;
+
 int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
   t_len offset = 0;
-  TrieNode *localStack[TRIE_INITIAL_STRING_LEN];
-  TrieNode **stack = localStack;
+  TrieDeleteFrame localStack[TRIE_INITIAL_STRING_LEN];
+  TrieDeleteFrame *stack = localStack;
   size_t stackCap = TRIE_INITIAL_STRING_LEN;
   size_t stackPos = 0;
   int rc = 0;
@@ -644,7 +665,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
   while (n && offset < len) {
     if (unlikely(stackPos == stackCap)) {
       size_t newStackCap = stackCap * 2;
-      TrieNode **newStack;
+      TrieDeleteFrame *newStack;
       if (likely(stack == localStack)) {
         newStack = rm_malloc(newStackCap * sizeof(*newStack));
         memcpy(newStack, stack, stackPos * sizeof(*stack));
@@ -654,7 +675,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       stack = newStack;
       stackCap = newStackCap;
     }
-    stack[stackPos++] = n;
+    stack[stackPos++] = (TrieDeleteFrame){.node = n};
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
       if (str[offset] != n->str[localOffset]) {
@@ -685,7 +706,8 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       for (; i < n->numChildren; i++) {
         rune ckey = __trieNode_LoadChildKey(n, i);
         if (str[offset] == ckey) {
-          nextChild = TrieNode_Children(n)[i];;
+          nextChild = TrieNode_Children(n)[i];
+          stack[stackPos - 1].childIdx = i;
           break;
         }
       }
@@ -698,11 +720,19 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
     }
   }
 
-end:
-
+end:;
+  // A delete can only leave the child on its own path to be freed or merged, so a lex
+  // node fixes up that one child. Score-sorted nodes rescan every child, since their
+  // bound and child order depend on all siblings.
+  const size_t depth = stackPos;
   while (stackPos) {
     --stackPos;
-    __trieNode_optimizeChildren(stack[stackPos], freecb);
+    TrieNode *node = stack[stackPos].node;
+    if (node->sortMode == Trie_Sort_Score) {
+      __trieNode_optimizeChildren(node, freecb);
+    } else if (stackPos + 1 < depth) {
+      __trieNode_optimizeChild(node, stack[stackPos].childIdx, freecb);
+    }
   }
   if (stack != localStack) {
     rm_free(stack);
