@@ -1837,7 +1837,7 @@ class TestCoordinatorTimeout:
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
-            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec, 'TIMEOUT', 0
         ]
 
         t_query = threading.Thread(
@@ -2589,11 +2589,10 @@ class TestShardTimeout:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_fail_timeout_reply_boundary_impl(self, query_args, before, cmd_name=None):
-        """Pause FAIL around encoding, or around stored results for HYBRID."""
+        """Pause FAIL around worker encoding, including HYBRID."""
         env = self.env
         skipIfNoEnableAssert(env)
         cmd_name = cmd_name or query_args[0]
-        hybrid = query_args[0] == 'FT.HYBRID'
         point = 'BeforeBackgroundReplyEncode' if before else 'AfterBackgroundReplyEncode'
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
@@ -2601,19 +2600,14 @@ class TestShardTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
         base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
-        if hybrid:
-            pause = setPauseBeforeStoreResults if before else setPauseAfterStoreResults
-            pause(env, True, internal=False)
-        else:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         t_query = threading.Thread(target=run_cmd_expect_timeout, args=(env, query_args), daemon=True)
         try:
             t_query.start()
             blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
             wait_for_condition(
-                lambda: (getIsStoreResultsPaused(env) == 1 if hybrid else
-                         env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
                 f'Timeout waiting for {cmd_name} reply boundary')
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
@@ -2624,19 +2618,14 @@ class TestShardTimeout:
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
                             str(base_err_coord + 1),
                             message=f'Expected one timeout error for {cmd_name}')
-            if not hybrid:
-                env.assertEqual(
-                    int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
-                    base_err_reply + 1, message=f'{cmd_name}: timeout must be attributed to REPLY')
+            env.assertEqual(
+                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+                base_err_reply + 1, message=f'{cmd_name}: timeout must be attributed to REPLY')
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
         finally:
-            if hybrid:
-                resetStoreResultsDebug(env)
-            else:
-                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
             t_query.join(timeout=10)
-            if not hybrid:
-                env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def _test_fail_timeout_before_store_impl(self, query_args, cmd_name=None):
@@ -2661,8 +2650,8 @@ class TestShardTimeout:
         """Test timeout occurring after encoding results for FT.AGGREGATE in standalone."""
         self._test_fail_timeout_after_store_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_before_store_hybrid(self):
-        """Test timeout occurring before storing results for FT.HYBRID in standalone."""
+    def test_fail_timeout_before_encode_hybrid(self):
+        """Test timeout occurring before encoding results for FT.HYBRID in standalone."""
         self._test_fail_timeout_before_store_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -2670,8 +2659,8 @@ class TestShardTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def test_fail_timeout_after_store_hybrid(self):
-        """Test timeout occurring after storing results for FT.HYBRID in standalone."""
+    def test_fail_timeout_after_encode_hybrid(self):
+        """Test timeout occurring after encoding results for FT.HYBRID in standalone."""
         self._test_fail_timeout_after_store_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -3423,10 +3412,8 @@ def test_buffered_profile_reply_after_index_dropped_mid_cycle():
 
 
 @skip(cluster=True)
-def test_stored_hybrid_reply_after_index_dropped_mid_cycle():
-    """FT.HYBRID must serialize stored results after the worker releases the
-    last index reference. This covers the hybrid reply and warning paths after
-    the index has been freed."""
+def test_hybrid_reply_after_index_dropped_mid_cycle():
+    """Buffered HYBRID reply survives dropping the index after worker encoding."""
     env = Env(
         protocol=3,
         moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
@@ -3445,7 +3432,8 @@ def test_stored_hybrid_reply_after_index_dropped_mid_cycle():
         'LIMIT', '0', '10000',
     ]
 
-    setPauseAfterStoreResults(env, True, internal=False)
+    point = 'BeforeBackgroundReplyUnblock'
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
     try:
         result = {}
 
@@ -3460,13 +3448,12 @@ def test_stored_hybrid_reply_after_index_dropped_mid_cycle():
 
         wait_for_blocked_query_client(env, 'FT.HYBRID')
         wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1,
-                     {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for the hybrid worker to pause after storing results')
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), {}),
+            'Timeout while waiting for the hybrid worker to pause before unblocking')
 
         env.expect('FT.DROPINDEX', 'hybrid_idx').ok()
     finally:
-        resetStoreResultsDebug(env)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
 
     t.join(timeout=10)
     env.assertFalse(t.is_alive(), message='hybrid query thread should have finished')
@@ -3546,6 +3533,29 @@ def test_background_fail_cursor_dispatch_resp3():
     _background_fail_cursor_dispatch_switches(3)
 
 
+def _background_hybrid_query(query_vec, timeout=0):
+    return ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB', 'KNN', 2, 'K', 100,
+            'COMBINE', 'RRF', 2, 'WINDOW', 100,
+            'LOAD', 1, '@name', 'SORTBY', 2, '@name', 'ASC',
+            'PARAMS', 2, 'BLOB', query_vec, 'TIMEOUT', timeout, 'LIMIT', 0, 100]
+
+
+def _hybrid_reply_without_timing(env, reply, profile=False):
+    if isinstance(reply, dict):
+        reply = dict(reply)
+        if profile:
+            env.assertTrue(bool(reply.pop('Profile')), message=reply)
+        env.assertGreaterEqual(float(reply.pop('execution_time')), 0, message=reply)
+    else:
+        if profile:
+            env.assertTrue(bool(reply[-1]), message=reply)
+            reply = reply[:-1]
+        reply = to_dict(reply)
+        env.assertGreaterEqual(float(reply.pop('execution_time')), 0, message=reply)
+    return reply
+
+
 def _compare_background_fail_replies(protocol):
     env = Env(protocol=protocol, moduleArgs='WORKERS 1 ON_TIMEOUT FAIL DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'n', 'NUMERIC', 'SORTABLE').ok()
@@ -3589,6 +3599,22 @@ def _compare_background_fail_replies(protocol):
                 env.assertEqual(actual[0], expected[0], message=actual)
                 env.assertTrue(bool(actual[1]), message=actual)
             env.assertTrue(env.cmd('PING'))
+
+    query_vec = _setup_hybrid_index(env)
+    with _preserve_config(env, 'search-workers'):
+        for profile in (False, True):
+            command = _background_hybrid_query(query_vec)
+            if profile:
+                command = ['FT.PROFILE', command[1], 'HYBRID', 'QUERY', *command[2:]]
+            env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
+            expected = _hybrid_reply_without_timing(env, env.cmd(*command), profile)
+            env.expect(config_cmd(), 'SET', 'WORKERS', 1).ok()
+            actual = _hybrid_reply_without_timing(env, env.cmd(*command), profile)
+            env.assertEqual(actual, expected)
+            env.assertEqual(actual['total_results'], 100, message=actual)
+            env.assertEqual(actual['warnings'], [], message=actual)
+            env.expect(*command, 'APPLY', '@name + 1', 'AS', 'invalid').error().contains(
+                'SEARCH_NUMERIC_VALUE_INVALID')
 
 
 @skip(cluster=True)
@@ -3685,15 +3711,18 @@ def _wait_for_background_fail_workers(env):
 def _exercise_background_fail_queued_cleanup(drop_index):
     for protocol in (2, 3):
         env = Env(protocol=protocol, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
+        skipIfNoEnableAssert(env)
         # Keep an index for observing global cursor cleanup after idx is dropped.
         env.expect('FT.CREATE', 'observer', 'PREFIX', 1, 'observer:',
                    'SCHEMA', 'name', 'TEXT').ok()
 
-        for kind in ('search', 'cursor_initial', 'cursor_read'):
+        for kind in ('search', 'cursor_initial', 'cursor_read', 'hybrid'):
             env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:',
-                       'SCHEMA', 'name', 'TEXT', 'SORTABLE').ok()
+                       'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'embedding', 'VECTOR', 'FLAT', 6,
+                       'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
             for i in range(4):
-                env.cmd('HSET', f'doc:{i}', 'name', f'hello{i}')
+                env.cmd('HSET', f'doc:{i}', 'name', f'hello{i}', 'embedding',
+                        np.array([float(i), float(i)], dtype=np.float32).tobytes())
             baseline = _background_fail_cursor_total(env, 'observer')
             timeout = 0
             aggregate = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', timeout,
@@ -3701,6 +3730,9 @@ def _exercise_background_fail_queued_cleanup(drop_index):
             cursor_id = None
             if kind == 'search':
                 command = ['FT.SEARCH', 'idx', '*', 'TIMEOUT', timeout]
+            elif kind == 'hybrid':
+                command = _background_hybrid_query(np.zeros(2, dtype=np.float32).tobytes())
+                command[1] = 'idx'
             elif kind == 'cursor_initial':
                 command = aggregate
             else:
@@ -3722,6 +3754,7 @@ def _exercise_background_fail_queued_cleanup(drop_index):
                 except Exception as error:
                     errors.append(error)
 
+            freed = _get_blocked_request_onfree_count(env)
             thread = threading.Thread(target=query, daemon=True)
             env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
             paused = True
@@ -3753,7 +3786,8 @@ def _exercise_background_fail_queued_cleanup(drop_index):
                 def cleaned_up():
                     stats = to_dict(env.cmd(debug_cmd(), 'WORKERS', 'STATS'))
                     return (stats['numJobsInProgress'] == 0 and stats['totalPendingJobs'] == 0
-                            and _background_fail_cursor_total(env, 'observer') == baseline, stats)
+                            and _background_fail_cursor_total(env, 'observer') == baseline
+                            and _get_blocked_request_onfree_count(env) == freed + 1, stats)
 
                 wait_for_condition(cleaned_up, f'{kind}: queued job leaked a cursor', timeout=5)
                 env.assertTrue(client.ping())
@@ -3784,7 +3818,8 @@ def test_background_fail_index_dropped_while_queued():
 
 def _exercise_background_fail_timeout(point, real_timeout=False,
                                      kinds=('search', 'aggregate', 'profile_search',
-                                            'profile_aggregate', 'cursor_initial', 'cursor_read')):
+                                            'profile_aggregate', 'cursor_initial', 'cursor_read',
+                                            'hybrid', 'profile_hybrid')):
     for protocol in (2, 3):
         env = Env(protocol=protocol, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
         skipIfNoEnableAssert(env)
@@ -3792,6 +3827,7 @@ def _exercise_background_fail_timeout(point, real_timeout=False,
         for i in range(8):
             env.cmd('HSET', f'doc:{i}', 'name', f'hello{i}')
 
+        query_vec = _setup_hybrid_index(env)
         for kind in kinds:
             baseline = _background_fail_cursor_total(env)
             # The timer test holds the worker at a known point until Redis expires it.
@@ -3800,6 +3836,8 @@ def _exercise_background_fail_timeout(point, real_timeout=False,
             cursor_id = None
             if kind in ('search', 'profile_search'):
                 command = ['FT.SEARCH', 'idx', '*', 'TIMEOUT', timeout]
+            elif kind in ('hybrid', 'profile_hybrid'):
+                command = _background_hybrid_query(query_vec, timeout)
             elif kind in ('aggregate', 'profile_aggregate'):
                 command = aggregate
             elif kind == 'cursor_initial':
@@ -3809,7 +3847,7 @@ def _exercise_background_fail_timeout(point, real_timeout=False,
                 env.assertNotEqual(cursor_id, 0)
                 command = ['FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', 2]
             if kind.startswith('profile_'):
-                command = ['FT.PROFILE', 'idx', command[0][3:], 'QUERY', *command[2:]]
+                command = ['FT.PROFILE', command[1], command[0][3:], 'QUERY', *command[2:]]
 
             original = env.getConnection().connection_pool
             pool = ConnectionPool(connection_class=original.connection_class,
@@ -3895,14 +3933,14 @@ def test_timeout_after_background_reply():
 def test_timeout_after_cursor_pause_decision():
     """OnFree must override a worker's PAUSE decision when its reply was discarded."""
     _exercise_background_fail_timeout('BeforeBackgroundReplyUnblock',
-                                     kinds=('cursor_initial', 'cursor_read'))
+                                     kinds=('cursor_initial', 'cursor_read', 'hybrid', 'profile_hybrid'))
 
 
 @skip(cluster=True)
 def test_background_reply_real_deadline():
     """Initial and reused cursor cycles retain the Redis timer through encoding."""
     _exercise_background_fail_timeout('DuringBackgroundReplyEncode', real_timeout=True,
-                                     kinds=('cursor_initial', 'cursor_read'))
+                                     kinds=('cursor_initial', 'cursor_read', 'hybrid', 'profile_hybrid'))
 
 
 @skip(cluster=False)
@@ -3915,14 +3953,17 @@ def test_internal_background_fail_serialization(env):
     policies = [c.execute_command('CONFIG', 'GET', 'search-on-timeout') for c in shards]
     workers = [c.execute_command('CONFIG', 'GET', 'search-workers') for c in shards]
     point = 'AfterBackgroundReplyEncode'
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    query_vec = _setup_hybrid_index(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, '{doc}:',
+               'SCHEMA', 'name', 'TEXT').ok()
     getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'name', 'hello')
     try:
         for c in shards:
             c.execute_command('CONFIG', 'SET', 'search-on-timeout', 'fail')
             c.execute_command('CONFIG', 'SET', 'search-workers', 1)
         for command in (['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'TIMEOUT', 0],
-                        ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'TIMEOUT', 0]):
+                        ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'TIMEOUT', 0],
+                        _background_hybrid_query(query_vec)):
             expected = env.cmd(*command)
             results, errors = [], []
 
@@ -3932,10 +3973,17 @@ def test_internal_background_fail_serialization(env):
                 except Exception as error:
                     errors.append(error)
 
-            target.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+            read_point = 'BeforeCursorReadSendChunk' if command[0] == 'FT.HYBRID' else None
+            target.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', read_point or point)
             thread = threading.Thread(target=query, daemon=True)
             try:
                 thread.start()
+                if read_point:
+                    wait_for_condition(
+                        lambda: (target.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', read_point), {}),
+                        'HYBRID did not dispatch its internal cursor read', timeout=5)
+                    target.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+                    target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', read_point)
                 wait_for_condition(
                     lambda: (target.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), {}),
                     'Internal shard command did not serialize on its worker', timeout=5)
@@ -3944,11 +3992,24 @@ def test_internal_background_fail_serialization(env):
                 thread.join(timeout=10)
                 env.assertFalse(thread.is_alive())
                 env.assertEqual(errors, [])
-                env.assertEqual(results, [expected])
+                if command[0] == 'FT.HYBRID':
+                    env.assertEqual(_hybrid_reply_without_timing(env, results[0]),
+                                    _hybrid_reply_without_timing(env, expected))
+                else:
+                    env.assertEqual(results, [expected])
             finally:
+                if read_point:
+                    target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', read_point)
                 target.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
                 thread.join(timeout=10)
                 target.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        # Pipeline construction fails on the worker before a cursor mapping exists.
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+        env.expect('_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+                   'VSIM', '@embedding', '$BLOB', 'PARAMS', 2, 'BLOB', b'x',
+                   'TIMEOUT', 0, 'WITHCURSOR', '_SLOTS_INFO', slots_data,
+                   '_COORD_DISPATCH_TIME', 0).error().contains('query vector blob size (1)')
     finally:
         for c, policy, worker in zip(shards, policies, workers):
             c.execute_command('CONFIG', 'SET', 'search-on-timeout', to_dict(policy)['search-on-timeout'])
