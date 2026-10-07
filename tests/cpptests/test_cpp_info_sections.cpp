@@ -204,26 +204,29 @@ TEST_F(InfoSectionsTest, UnknownSectionDoesNotCollect) {
   EXPECT_EQ(diskOutputs, 0);
 }
 
-TEST_F(InfoSectionsTest, MultipleAggregateSectionsCollectOnce) {
+TEST_F(InfoSectionsTest, MultipleAggregateSectionsReadCacheOnce) {
   auto info = run({"indexes", "memory", "disk"});
   EXPECT_EQ(info.sections, (std::vector<std::string>{"indexes", "memory", "disk"}));
-  EXPECT_EQ(collections, 1);
+  EXPECT_EQ(collections, 0);
+  EXPECT_EQ(cachedCollections, 1);
   EXPECT_EQ(diskOutputs, 1);
-  EXPECT_EQ(info.fields.at("total_inverted_index_blocks"), "7");
+  EXPECT_EQ(info.fields.at("total_inverted_index_blocks"), "9");
   EXPECT_EQ(info.fields.at("disk_usage"), "1234");
 }
 
-TEST_F(InfoSectionsTest, DiskOnlyStillCollectsBeforeOutput) {
+TEST_F(InfoSectionsTest, DiskOnlyReadsCacheBeforeOutput) {
   auto info = run({"disk"});
   EXPECT_EQ(info.sections, std::vector<std::string>{"disk"});
-  EXPECT_EQ(collections, 1);
+  EXPECT_EQ(collections, 0);
+  EXPECT_EQ(cachedCollections, 1);
   EXPECT_EQ(diskOutputs, 1);
   EXPECT_EQ(info.fields.at("disk_usage"), "1234");
 }
 
-TEST_F(InfoSectionsTest, AllSectionsCollectOnce) {
+TEST_F(InfoSectionsTest, AllSectionsReadCacheOnce) {
   auto info = run({});
-  EXPECT_EQ(collections, 1);
+  EXPECT_EQ(collections, 0);
+  EXPECT_EQ(cachedCollections, 1);
   EXPECT_EQ(diskOutputs, 1);
   EXPECT_EQ(info.sections.size(),
             std::set<std::string>(info.sections.begin(), info.sections.end()).size());

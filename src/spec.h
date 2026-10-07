@@ -566,7 +566,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /* Get the count of total blocks*/
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp);
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.

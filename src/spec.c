@@ -1942,7 +1942,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
   return IndexError_ErrorCount(&sp->stats.indexError);
 }
 
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp) {
   return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
