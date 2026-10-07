@@ -157,6 +157,44 @@ class ParseHybridTest : public ::testing::Test {
   ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed"; \
 } while(0)
 
+class FlexHybridCursorTest : public ParseHybridTest {
+ protected:
+  bool previousFlex;
+
+  void SetUp() override {
+    ParseHybridTest::SetUp();
+    previousFlex = RSGlobalConfig.simulateInFlex;
+    RSGlobalConfig.simulateInFlex = true;
+  }
+
+  void TearDown() override {
+    RSGlobalConfig.simulateInFlex = previousFlex;
+    ParseHybridTest::TearDown();
+  }
+};
+
+TEST_F(FlexHybridCursorTest, RejectsUserCursor) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                      "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR");
+  testErrorCode(args, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                "WITHCURSOR is not supported in Redis Flex");
+}
+
+TEST_F(FlexHybridCursorTest, AllowsInternalCursor) {
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                      "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR",
+                      "_COORD_DISPATCH_TIME", "1");
+  recreateHybridRequest(args);
+  QueryError status = QueryError_Default();
+  ArgsCursor ac = {};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args.size());
+  EXPECT_EQ(
+      parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS),
+      REDISMODULE_OK);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK);
+  EXPECT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_IS_CURSOR);
+  QueryError_ClearError(&status);
+}
 
 #define assertLinearScoringCtx(Weight0, Weight1, Window) do { \
   ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \

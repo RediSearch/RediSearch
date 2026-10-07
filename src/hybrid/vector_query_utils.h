@@ -30,7 +30,7 @@ typedef struct {
   bool hasExplicitK;           // Flag to track if K was explicitly set in KNN query
   char *vectorScoreFieldAlias; // Alias for the vector score field (OWNED) - NULL if not explicitly set
   uint32_t queryNodeFlags;     // QueryNode flags to be applied when creating the vector node
-  bool skipFilterIntegration;  // true to make vector node root without filter wrapping (RANGE without explicit FILTER)
+  bool skipFilterIntegration;  // Make the vector node the root without parsing a filter query.
 
   // EXPLAINSCORE snapshot: applyVectorQuery later nulls `query`, so we keep a
   // copy of the fields needed to render the hybrid explain envelope.

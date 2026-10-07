@@ -1736,6 +1736,16 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RSProfileCommandImp(ctx, argv, argc, false);
 }
 
+static bool hybridProfileHasDebugTail(RedisModuleString **argv, int argc) {
+  if (argc < 2) {
+    return false;
+  }
+  size_t len;
+  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &len);
+  return len == sizeof("DEBUG_PARAMS_COUNT") - 1 &&
+         strncasecmp(arg, "DEBUG_PARAMS_COUNT", len) == 0;
+}
+
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
@@ -1782,7 +1792,21 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (cmdType == COMMAND_HYBRID) {
     RedisModuleString *command = argv[0];
     bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
-    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
+    if (isDebug && hybridProfileHasDebugTail(newArgv, newArgc)) {
+      QueryError status = QueryError_Default();
+      HybridDebugParams debugParams = parseHybridDebugParamsCount(newArgv, newArgc, &status);
+      if (!QueryError_HasError(&status) &&
+          parseHybridDebugParams(&debugParams, &status) == REDISMODULE_OK) {
+        newArgc -= (int)debugParams.debug_params_count + 2;
+        debugParams.debug_argv = NULL;
+        debugParams.debug_params_count = 0;
+        hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, &debugParams);
+      } else {
+        QueryError_ReplyAndClear(ctx, &status);
+      }
+    } else {
+      hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
+    }
   } else {
     // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
     execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
@@ -1898,7 +1922,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexDocCmdArgs,  false),
-    DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_HYBRID_CMD,    RSShardedHybridCommand,   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
@@ -4017,10 +4041,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_WrongArity(ctx);
   }
 
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
-    return REDISMODULE_OK;
-  }
-
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
@@ -4812,18 +4832,14 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
-  // For SEARCH and AGGREGATE, pass isDebug through: their debug param format
-  // (TIMEOUT_AFTER_N, INTERNAL_ONLY) matches the profile debug params.
-  // For HYBRID, always pass false: hybrid uses command-specific debug params
-  // (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, TIMEOUT_AFTER_N_TAIL) that
-  // differ from profile debug params. Passing isDebug=true would select
-  // DEBUG_RSExecDistHybrid, which would fail to parse the profile debug params.
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
     return DistSearchCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
     return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("HYBRID", argv, 3, 2)) {
-    return DistHybridCommandInternal(ctx, argv, argc, false, true /* isProfile */);
+    return DistHybridCommandInternal(ctx, argv, argc,
+                                     isDebug && hybridProfileHasDebugTail(argv, argc),
+                                     true /* isProfile */);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
 }
@@ -5078,7 +5094,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DistAggregateCommand),     "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,            SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(DiskDisabledCmd(SpellCheckCommandHandler)), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
-    DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DiskDisabledCmd(DistHybridCommand)), "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DistHybridCommand), "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.CURSOR",     NULL,                              "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, readCommands, sizeof(readCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
