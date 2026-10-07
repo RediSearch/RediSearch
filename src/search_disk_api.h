@@ -36,7 +36,6 @@ typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
-typedef struct RedisSearchDiskMetricsCollector RedisSearchDiskMetricsCollector;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
@@ -1030,13 +1029,10 @@ typedef struct CachedIndexMetrics {
 } CachedIndexMetrics;
 
 typedef struct MetricsDiskAPI {
-  /* Borrowed collector context remains valid until basic.close, which requires
-   * background collection to be drained. It is separate from mutable disk state.
-   * request is process-lifetime code, callable from native threads, and inert after executor stop. */
-  RedisSearchDiskMetricsCollector *(*getCollector)(RedisSearchDisk *disk, void (*request)(void));
-  bool (*collect)(RedisSearchDiskMetricsCollector *collector, bool periodic);
+  /* Stop and join collection before index teardown; idempotent, main thread only. */
+  void (*stopMetrics)(RedisSearchDisk *disk);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
-  uint64_t (*getCachedTotalDiskUsage)(RedisSearchDiskMetricsCollector *collector);
+  uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
   /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
   CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**

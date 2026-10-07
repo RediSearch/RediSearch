@@ -24,7 +24,6 @@
 #include "rmutil/rm_assert.h"
 #include "util/dict/dict.h"
 #include "util/references.h"
-#include "util/disk_metrics.h"
 
 struct timespec;
 
@@ -32,7 +31,6 @@ RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 static bool infoCacheEnabled;
-static RedisSearchDiskMetricsCollector *metricsCollector;
 
 static size_t diskMemoryLimitBytes = 0;
 
@@ -176,10 +174,6 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
-static bool collectMetrics(void *collector, bool periodic) {
-  return disk->metrics.collect(collector, periodic);
-}
-
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
@@ -215,11 +209,6 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
-  metricsCollector = disk->metrics.getCollector(disk_db, DiskMetrics_Request);
-  if (!DiskMetrics_Start(ctx, collectMetrics, metricsCollector)) {
-    SearchDisk_Close(ctx);
-    return false;
-  }
   // Register BigModule callbacks for disk usage reporting
   if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
     RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
@@ -234,32 +223,33 @@ bool SearchDisk_IsInitialized() {
 }
 
 static size_t getDiskUsageCallback(void) {
-  return metricsCollector ? disk->metrics.getCachedTotalDiskUsage(metricsCollector) : 0;
+  return disk_db ? disk->metrics.getCachedTotalDiskUsage(disk_db) : 0;
 }
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   if (!RedisModule_BigModuleRegister) return false;
-  if (!metricsCollector) metricsCollector = disk->metrics.getCollector(disk_db, DiskMetrics_Request);
   RedisModuleBigCallbacksV1 callbacks = {.version = 1, .getDiskUsage = getDiskUsageCallback};
   if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) return false;
   infoCacheEnabled = true;
   return true;
 }
 
+void SearchDisk_StopMetrics(void) {
+  if (disk && disk_db) disk->metrics.stopMetrics(disk_db);
+}
+
 void SearchDisk_Close(RedisModuleCtx *ctx) {
-  if (DiskMetrics_InForkChild()) return;
   if (disk && disk_db) {
-    DiskMetrics_Stop(ctx);
+    SearchDisk_StopMetrics();
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
     diskMemoryLimitBytes = 0;
     infoCacheEnabled = false;
-    metricsCollector = NULL;
   }
 }
 
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
-  if (metricsCollector && spec && spec->diskSpec) {
+  if (disk_db && spec && spec->diskSpec) {
     disk->metrics.activateTarget(spec->diskSpec);
   }
 }

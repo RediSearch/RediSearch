@@ -98,7 +98,6 @@ class InfoSectionsTest : public ::testing::Test {
   static inline int cachedCollections = 0;
   static inline int diskOutputs = 0;
   static inline std::vector<uint64_t> registeredVersions;
-  static inline unsigned backgroundCollections = 0;
   static inline unsigned totalReads = 0;
   static inline unsigned indexUsageReads = 0;
   static inline int targetRegistrations = 0;
@@ -141,15 +140,9 @@ class InfoSectionsTest : public ::testing::Test {
       ++cachedCollections;
       return CachedIndexMetrics{4321, 55, 9};
     };
-    api.metrics.getCollector = [](RedisSearchDisk *context, void (*)(void)) -> RedisSearchDiskMetricsCollector * {
-      return reinterpret_cast<RedisSearchDiskMetricsCollector *>(context);
-    };
-    api.metrics.collect = [](RedisSearchDiskMetricsCollector *, bool) -> bool {
-      ++backgroundCollections;
-      return false;
-    };
+    api.metrics.stopMetrics = [](RedisSearchDisk *) {};
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
-    api.metrics.getCachedTotalDiskUsage = [](RedisSearchDiskMetricsCollector *) -> uint64_t {
+    api.metrics.getCachedTotalDiskUsage = [](RedisSearchDisk *) -> uint64_t {
       ++totalReads;
       return 55;
     };
@@ -169,7 +162,7 @@ class InfoSectionsTest : public ::testing::Test {
     RSGlobalConfig.infoEmitOnZeroIndexes = true;
     collections = cachedCollections = diskOutputs = 0;
     registeredVersions.clear();
-    backgroundCollections = totalReads = indexUsageReads = 0;
+    totalReads = indexUsageReads = 0;
     targetRegistrations = 0;
     callbacks = {};
   }
@@ -254,7 +247,6 @@ TEST_F(InfoSectionsTest, V1CallbackAndModuleCacheUsePublishedMetrics) {
   EXPECT_EQ(registeredVersions, std::vector<uint64_t>{REDISMODULE_BIG_CALLBACKS_VERSION});
   ASSERT_NE(callbacks.getDiskUsage, nullptr);
   EXPECT_TRUE(SearchDisk_InfoCacheEnabled());
-  EXPECT_EQ(backgroundCollections, 0);
   EXPECT_EQ(targetRegistrations, 0);
 
   auto info = run({"indexes", "memory", "disk"});
@@ -289,7 +281,6 @@ TEST_F(InfoSectionsTest, CachedTotalDoesNotReadIndexes) {
   EXPECT_EQ(totalReads, 1);
   EXPECT_EQ(indexUsageReads, 0);
   EXPECT_EQ(collections, 0);
-  EXPECT_EQ(backgroundCollections, 0);
   for (auto index : indexes) {
     static_cast<IndexSpec *>(StrongRef_Get(index))->diskSpec = nullptr;
     Indexes_RemoveSpecFromGlobals(index, false);
@@ -317,7 +308,7 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
     ++targetRegistrations;
     total += 17;
   };
-  api.metrics.getCachedTotalDiskUsage = [](RedisSearchDiskMetricsCollector *) { return total; };
+  api.metrics.getCachedTotalDiskUsage = [](RedisSearchDisk *) { return total; };
   api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
                                         RedisSearchDiskIndexSpec *) { total -= 17; };
   api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
@@ -341,7 +332,6 @@ TEST_F(InfoSectionsTest, RegistrationFailureDoesNotEnableCache) {
   };
   EXPECT_FALSE(SearchDisk_RegisterBigModuleCallbacks(nullptr));
   EXPECT_FALSE(SearchDisk_InfoCacheEnabled());
-  EXPECT_EQ(backgroundCollections, 0);
 }
 
 }  // namespace

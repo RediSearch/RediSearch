@@ -61,6 +61,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
 /**
  * @brief Close the search disk module
  */
+void SearchDisk_StopMetrics(void);
 void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**

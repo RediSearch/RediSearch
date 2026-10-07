@@ -22,67 +22,49 @@ filesystem usage, retained obsolete files, or memtable bytes.
 
 ## Private interface
 
-Five added callbacks connect the repositories: `getCollector` (also registers the executor notification), `collect`,
-`activateTarget`,
-`getCachedTotalDiskUsage` and `readCachedIndexMetrics`. The last returns one
-numeric record containing memory, operational disk usage and block estimates,
-and stages the component snapshot for the existing INFO output callback.
+Four callbacks connect the repositories: `stopMetrics`, `activateTarget`,
+`getCachedTotalDiskUsage` and `readCachedIndexMetrics`. All take existing disk or
+index handles; no worker handle or scheduling callback crosses FFI.
 
-Index retirement and INFO-map cleanup run
-through the existing main-thread close callback, which receives the owning disk
-context. No separate retirement or blocking freshness API crosses FFI.
+`readCachedIndexMetrics` returns memory, operational disk usage and block estimates,
+and stages the component snapshot for the existing INFO output callback.
+Index retirement and INFO-map cleanup use the existing main-thread close callback.
 
 ## Executor and scheduling
 
-RediSearch owns one dedicated single-worker pool using its existing `deps/thpool`
-implementation. One Redis timer requests periodic reconciliation every second.
-There is no 50 ms poll. RSE marks all registered usage entries dirty for that
-periodic request; otherwise it collects only entries with an event request or an
-unfinished pass. Diagnostic snapshots retain their five-second deadline after a
-completed pass and get a batch on every worker invocation, preventing starvation.
-The periodic timer checks that deadline too; it can observe it up to one timer
-interval later, before accounting for other load.
+RSE owns one named Rust thread, `search-metrics`, started by the disk open path.
+The worker owns shared collector state, never a mutable DiskContext or C IndexSpec.
+A condition variable wakes it for native events, layout changes, or activation;
+a monotonic one-second deadline requests full usage reconciliation even under
+continuous events. Deadline overruns coalesce into one reconciliation on the next
+batch, without a backlog of missed ticks.
 
-Native flush/compaction completion marks the affected index dirty and calls the
-thread-safe executor notification registered through `getCollector`. Activation
-and layout changes request work through the same path. The callback calls no Redis
-timer API and does not wait for collection. It is process-lifetime code; its target
-is the static executor gate, not a pointer into a freed collector or index.
+One pending request flag coalesces event notifications. The worker clears it before
+collection, so requests arriving during collection remain pending. Unfinished
+batches continue directly in the loop; there is no job queue or submitted-job flag.
+Every iteration services usage and diagnostic collection. Diagnostic snapshots keep
+their five-second deadline after a completed pass, checked by worker invocations.
+Failed usage reads retain last-good values and keep their minimum one-second retry
+backoff. Each cache retains its approximately 5 ms batch budget; a single native
+read can exceed it. There is no hard freshness bound under overload.
 
 | Owner | Responsibility |
 |---|---|
-| RediSearch | One-second timer, worker pool, coalesced submission, fork barrier, shutdown drain. |
-| RSE | Dirty indexes, incremental collection, retry backoff, five-second diagnostic deadline. |
+| RediSearch | Redis API integration, index visibility, INFO routing, early stop before teardown. |
+| RSE | Worker, wakeups, deadlines, fork exclusion, collection, cache publication, stop/join. |
 
-The executor gate protects `submitted`, `requested`, and `periodicRequested`.
-Requests set the appropriate flags and submit only if no job is outstanding. A job
-consumes these flags before collecting. A request arriving during collection stays
-pending; completion schedules at most one successor for that request or unfinished
-work. A periodic request received during an active pass is preserved as well.
+The worker's scheduling mutex is never held during native reads or while joining.
+Events can therefore notify it while collection is active. Stop marks the worker
+stopped, wakes it, and joins its active batch; later notifications are harmless.
+The explicit stop callback runs before global index cleanup. Disk close also stops
+collection, covering ordinary close and initialization failure, and is idempotent.
 
-RSE clears an index's dirty flag before its native reads. Events after that point
-survive publication, because a flush after a CF was sampled need not be covered by
-the newly published result. Per-index failure state enforces at least a one-second
-backoff; the periodic request retries later. Failed reads keep last-good values.
-No immediate failure retry loop or dedicated retry timer is needed.
-
-Each worker invocation runs an operational batch and a diagnostic batch. Each
-batch checks its approximately 5 ms budget between native reads; a single native
-read can exceed that budget. Unfinished work resubmits immediately. Repeated events
-coalesce, but sustained changes can cause back-to-back passes; there is no hard
-freshness bound. INFO overlays diagnostic SST fields with operational SST values.
-
-Stop disables submissions under the executor gate before draining and destroying
-the worker. Later native notifications are harmless. Fork prepare blocks new
-submissions and drains the current batch. Pending requests during that window are
-serviced by an existing queued job or the next periodic timer in the parent. Child
-notifications are rejected before taking executor locks; Rust also checks its
-creator PID before calling the notification.
-
-This split reuses RediSearch's module lifecycle and pool wiring. Moving the executor
-to RSE remains possible but would still need timer, shutdown, and fork coordination.
-No new INFO fields, commands, configuration options, or synchronous expiry fallback
-are introduced.
+Fork hooks are installed once and refer only to a process-lifetime native barrier.
+Prepare prevents a new batch and drains the active batch. The parent releases the
+barrier and resumes collection. The child never touches inherited Rust scheduler
+locks or joins the absent worker; disk close leaves inherited resources alone and
+cached reads use the existing scalar mirrors. No Redis timer or new Redis API is
+required.
 
 ## Ownership and lifecycle
 
@@ -105,10 +87,8 @@ index. Dynamic CF creation replaces the target and requests refresh.
 Cold DB open/reopen seeds existing SSTs before activation.
 
 The collector only reads native properties, so foreground persistence windows
-do not pause it. Shutdown stops the timer and drains/joins the pool before
-closing DiskContext. Generic `pthread_atfork` hooks prevent new work and drain
-one current batch before fork. The parent resumes; the child submits/joins no
-worker and reads atomic scalar mirrors rather than inherited Rust locks.
+do not pause it. Shutdown drains/joins the worker before closing DiskContext. Fork exclusion and
+child behavior are described above.
 
 ## Cache structure
 
@@ -119,7 +99,7 @@ many properties. Keeping these contracts separate avoids coupling their refresh 
 ```mermaid
 flowchart TD
     Context[DiskContext] --> Collector[RSE Collector]
-    Worker[RediSearch worker] -->|calls| Collector
+    Worker[RSE worker] -->|calls| Collector
     Collector --> Usage[UsageCache]
     Collector --> Diagnostics[AsyncSnapshots]
     Index[Rust IndexSpec] --> UsageEntry[usage_cache::Entry]
@@ -146,7 +126,7 @@ borrows native DB/CF handles only for a property read and never accesses C Index
 | `UsageCache` / `Registry` | Global atomic total for readers; membership and the exact accounting sum change together under the registry lock. |
 | `usage_cache::Entry` / `IndexState` | Per-index published counters plus locked lifecycle/refresh state. A separate native-read lock lets drop debit accounting before draining the read. |
 | `DirtySignal` / `UsageListener` | Minimal event notification state and its native adapter. A callback can request refresh without retaining the index. |
-| `AsyncSnapshots` | Weak scheduling queue; the C executor supplies the single worker. |
+| `AsyncSnapshots` | Weak scheduling queue serviced by the RSE worker. |
 | `async_snapshot::Entry` | One index's pending replacement, active collection, and published result; rejects obsolete results and drains on retirement. |
 | `Collection` | Target, cursor, due time, revision, and working snapshot. Resumes a pass after yielding between native properties. |
 | `Snapshot` | Stable aggregate plus per-CF last-good values, preserved on failed property reads. |
@@ -166,18 +146,16 @@ These ownership and synchronization boundaries are the important part, not the
 number of named types. Small wrappers could be inlined, but that alone would not
 remove the state or locking requirements.
 
-RediSearch owns timer/pool scheduling, the pre-fork barrier, and early shutdown.
-RSE owns native collection, cache ownership, and accounting. Stop rejects new jobs
-and drains before index destruction. Child-process checks do not replace the
-pre-fork drain; there is no general pause/resume API or second collector mutex.
+RediSearch requests early stop before index destruction; RSE owns collection and
+its execution. Child-process checks do not replace the pre-fork drain.
 
 ## Coordinated PRs and qualification
 
-1. **RediSearch:** the pool, fork/shutdown gates, V1 callback, cached INFO
-   reads, visibility hooks, private FFI contract and C/C++ tests.
-2. **RediSearchEnterprise:** the operational ledger, listener ownership, seeding,
-   fair incremental refresh, diagnostic snapshots and scalar mirrors,
-   Rust tests and the matching RediSearch dependency.
+1. **RediSearch:** V1 callback, cached INFO reads, visibility and early-stop hooks,
+   private FFI contract and C/C++ integration tests.
+2. **RediSearchEnterprise:** worker scheduling and fork exclusion, operational ledger,
+   listener ownership, seeding, fair incremental refresh, diagnostic snapshots,
+   scalar mirrors, Rust tests and the matching RediSearch dependency.
 
 Validation must cover successful/error/zero samples, overflow followed by drop,
 native flush events, persisted reopen, layout replacement, retention of last-good
