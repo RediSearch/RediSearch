@@ -174,6 +174,10 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
 }
 
+int MRCtx_GetNumExpected(struct MRCtx *ctx) {
+  return ctx->numExpected;
+}
+
 int MRCtx_GetNumReplied(struct MRCtx *ctx) {
   return ctx->numReplied;
 }
@@ -335,7 +339,12 @@ static void uvSearchFanoutRequest(void *p) {
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so searchFanoutCallback() will never fire.
     IORuntimeCtx_RequestCompleted(mrctx->ioRuntime);
-    unblockFanout(mrctx, !MRCtx_IsAborted(mrctx));
+    if (MRCtx_IsAborted(mrctx)) {
+      unblockFanout(mrctx, false);
+    } else {
+      // SEARCH has no reply callback; its worker must encode the fanout error.
+      mrctx->fn(mrctx, 0, mrctx->replies);
+    }
     MRCtx_DecrRef(mrctx);
   }
 }
@@ -359,6 +368,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd) {
 
 int MR_FanoutSearch(struct MRCtx *mrctx, MRCommand cmd) {
   RS_ASSERT(mrctx->bc);
+  RS_ASSERT(mrctx->fn);
   mrctx->reducer = NULL;
   mrctx->cmd = cmd;
 

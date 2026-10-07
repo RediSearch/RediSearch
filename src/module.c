@@ -34,6 +34,7 @@
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "util/workers.h"
+#include "util/misc.h"
 #include "util/references.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
@@ -2262,8 +2263,7 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
   rm_free(r);
 }
 
-static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
-                               bool fromTimeout);
+static void searchResultReducer(searchRequestCtx *req, int count, MRReply **replies);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
@@ -2616,8 +2616,6 @@ static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc
     return NULL;
   }
 
-  req->base.async.requiresAggregateResultsSync =
-      requestConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
   return req;
 }
 
@@ -3310,6 +3308,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
+#ifdef ENABLE_ASSERT
+    if (req->base.blockedClientCycleActive) SyncPoint_Wait("CoordSearchReplyStarted");
+#endif
+
     // id, the optional sections below, and the trailing "values" placeholder.
     const size_t entries = 2 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
@@ -3357,6 +3359,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   else // RESP2
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
+
+#ifdef ENABLE_ASSERT
+    if (req->base.blockedClientCycleActive) SyncPoint_Wait("CoordSearchReplyStarted");
+#endif
 
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
       searchResult *res = results[pos];
@@ -3459,10 +3465,52 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
     }
 }
 
+static void replySearchResults(searchRequestCtx *req) {
+  RS_ASSERT(!MainThread_Is());
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+    return;
+  }
+
+  searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+  struct MRCtx *mrctx = req->mrctx;
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  QueryError *status = &req->base.reply.err;
+  if (QueryError_HasError(status)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, status);
+  } else if (MRCtx_GetNumReplied(mrctx) == 0) {
+    RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+  } else {
+    RS_ASSERT(req->rctx);
+    RedisModule_Reply reply = RedisModule_NewReply(ctx);
+    if (req->profileArgs > 0) {
+      profileSearchReply(&reply, req->rctx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
+                         &req->profileClock, rs_wall_clock_now_ns());
+    } else {
+      sendSearchResults(&reply, req->rctx);
+    }
+    RedisModule_EndReply(&reply);
+    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, rs_wall_clock_elapsed_ns(&req->initClock));
+  }
+
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("CoordSearchReplySerialized");
+#endif
+  RedisModule_FreeThreadSafeContext(ctx);
+  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+  }
+}
+
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
-  searchResultReducer(req, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
+  // Zero-send fanout keeps its direct error reply without a reducer error code.
+  if (MRCtx_GetNumExpected(mc) != 0) {
+    searchResultReducer(req, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
+  }
+  replySearchResults(req);
   // The worker owns blocked-client completion even when timeout owns the reply.
   RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), &req->base);
   MRCtx_DecrRef(mc);
@@ -3488,27 +3536,15 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
   return true;
 }
 
-static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
-                               bool fromTimeout) {
-  RedisModuleBlockedClient *bc = NULL;
+static void searchResultReducer(searchRequestCtx *req, int count, MRReply **replies) {
   searchReducerCtx *rCtx = NULL;
   int profile = 0;
   size_t num = 0;
 
 #ifdef ENABLE_ASSERT
-  if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
-#endif
-  // If called from timeout callback, we already own reducing (claimed before calling).
-  bool ownsReducing = fromTimeout || QueryRequest_TryClaimResults(&req->base);
-  if (!ownsReducing) {
-    return REDISMODULE_OK;
-  }
-
-#ifdef ENABLE_ASSERT
-  if (!fromTimeout) SyncPoint_Wait("CoordSearchReducerClaimed");
-  // Debug-only hook to pause after claiming reducing but before reducer setup.
-  // This lets tests force the timeout race where the background reducer exits
-  // before initializing req->rctx.
+  SyncPoint_Wait("BeforeCoordReducerClaim");
+  SyncPoint_Wait("CoordSearchReducerClaimed");
+  // Exercise cancellation before reducer state exists.
   if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT) {
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
@@ -3522,16 +3558,13 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 #endif
 
   // No reduction is needed if the timeout callback already replied.
-  if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
     goto cleanup;
   }
 
-  bc = MRCtx_GetBlockedClient(req->mrctx);
-
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
 
-  // Save the reducer state in the request so it is available to the
-  // blocked-client reply callback after the normal unblock path.
+  // Request teardown owns any results abandoned by timeout or an error.
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
@@ -3539,7 +3572,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   profile = req->profileArgs > 0;
 
   // got no replies
-  if (!fromTimeout && (count == 0 || req->limit < 0)) {
+  if (count == 0 || req->limit < 0) {
     QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC,
                         "Could not send query to cluster");
     goto cleanup;
@@ -3597,7 +3630,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3617,7 +3650,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3656,19 +3689,6 @@ cleanup:
     rm_free(rCtx->cachedResult);
     rCtx->cachedResult = NULL;
   }
-
-  // Reduction/post-processing done, about to hand off the reply: advance the marker
-  // so a timeout from here on is attributed to REPLY (frozen once already timed out).
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
-    searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
-  }
-
-  if (bc && !fromTimeout && !QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-  }
-  QueryRequest_SignalResultsComplete(&req->base);
-
-  return REDISMODULE_OK;
 }
 
 static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
@@ -4318,17 +4338,9 @@ void sendRequiredFields(const searchRequestCtx *req, MRCommand *cmd) {
 // before the uv-thread has started fanout.
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
-  // RETURN-STRICT may own reduction on main; only the result owner can publish an error.
-  if (QueryRequest_TryClaimResults(request)) {
-    QueryError_CloneFrom(status, &request->reply.err);
-    QueryRequest_SignalResultsComplete(request);
-  }
-  // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or
-  // leaks
+  QueryError_CloneFrom(status, &request->reply.err);
   QueryError_ClearError(status);
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-  }
+  replySearchResults(QueryRequest_GetSearch(request));
   RedisModule_UnblockClient(bc, request);
 }
 
@@ -4477,54 +4489,6 @@ static void DistSearchCommandHandler(void *pd) {
   MRCtx_DecrRef(mrctx);
 }
 
-// Reply callback for distributed search.
-// Called on the main thread when the client is unblocked.
-// QueryRequest_OnFree ends the blocked-client cycle after this callback.
-static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (request) {
-    searchRequestCtx *req = QueryRequest_GetSearch(request);
-    struct MRCtx *mrctx = req->mrctx;
-
-    // Check if we have an error and return it
-    if (QueryError_HasError(&request->reply.err)) {
-      // Track error in global statistics
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&request->reply.err), 1,
-                                         COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &request->reply.err);
-      return REDISMODULE_OK;
-    }
-
-    if (MRCtx_GetNumReplied(mrctx) == 0) {
-      // Can happen in a topology error, before or after we sent the command to the cluster
-      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
-      return REDISMODULE_OK;
-    }
-
-    searchReducerCtx *rCtx = req->rctx;
-    // If NumReplied > 0 we expect ReducerCtx to be initialized
-    RS_ASSERT(rCtx)
-
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    if (req->profileArgs > 0) {
-      // Profile command
-      profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), &req->profileClock, rs_wall_clock_now_ns());
-    } else {
-      // Non-profile command
-      sendSearchResults(reply, rCtx);
-    }
-
-    RedisModule_EndReply(reply);
-
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
-    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
-  }
-  return REDISMODULE_OK;
-}
-
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 
 // Initialize query timeout from command args or global config.
@@ -4581,86 +4545,24 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 
 }
 
-// Timeout callback for FT.SEARCH in coordinator mode.
-// Called on the main thread when the blocking client times out.
-// Used for RETURN-STRICT policy - returns partial results using the blocked client timeout mechanism instead of error
-static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!request) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
-  }
-
-  searchRequestCtx *req = QueryRequest_GetSearch(request);
-  struct MRCtx *mrctx = req->mrctx;
-
-  // Signal timeout to stop accepting new replies in searchFanoutCallback
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
-
-  recordSearchTimeoutStage(req, /*isError=*/false);
-
-  // Try to claim reducing - if we get it, run reducer on main thread
-  // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
-  if (QueryRequest_TryClaimResults(&req->base)) {
-    // We claimed reducing - run reducer on main thread with current replies
-    searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
-  } else {
-    // Reducer already running or bailout claimed it - wait for completion
-    QueryRequest_WaitForResultsComplete(&req->base);
-
-    // A background reducer may have claimed reducing, observed the timeout,
-    // and exited before initializing req->rctx. In that case adopt the
-    // timeout-owned reduction path now that the competing reducer has finished.
-    if (!QueryError_HasError(&request->reply.err) && req->rctx == NULL) {
-      searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
-    }
-  }
-
-  // Check if bailout set an error (e.g., index dropped before fanout)
-  // In this case, reply with the error instead of partial results
-  if (QueryError_HasError(&request->reply.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&request->reply.err), 1, COORD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, &request->reply.err);
-    return REDISMODULE_OK;
-  }
-
-  // Reply with results from reducer
-  searchReducerCtx *rCtx = req->rctx;
-  // rCtx must be set - either we ran the reducer or waited for it to complete
-  RS_ASSERT(rCtx);
-  req->timedOut = true;
-
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  if (req->profileArgs > 0) {
-    profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), &req->profileClock, rs_wall_clock_now_ns());
-  } else {
-    sendSearchResults(reply, rCtx);
-  }
-  RedisModule_EndReply(reply);
-
-  return REDISMODULE_OK;
-}
-
 // Block client with timeout callback.
 // Returns a blocked client with the appropriate timeout from query args or global config.
 // The timeout callback is selected based on the timeout policy.
 static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx,
                                                                   QueryRequest *request,
                                                                   size_t queryTimeout) {
+  RS_ASSERT(request->timeout.policy == TimeoutPolicy_Fail ||
+            request->timeout.policy == TimeoutPolicy_Return);
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   BlockedClientTimeoutCB timeoutCallback = NULL;
 
   if (request->timeout.policy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailCallback;
-  } else if (request->timeout.policy == TimeoutPolicy_ReturnStrict) {
-    timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
     queryTimeout = 0;
   }
 
-  return BlockQueryClientWithTimeout(ctx, request, DistSearchReplyCallback, timeoutCallback,
-                                     queryTimeout);
+  return BlockQueryClientWithTimeout(ctx, request, NULL, timeoutCallback, queryTimeout);
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -4759,7 +4661,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     parse_argc = argc - (debug_params.debug_params_count + 2);
   }
 
-  // Parse before blocking so partial timeout callbacks can always access the request.
+  // Parse before blocking so the timeout callback can always access the request.
   searchRequestCtx *req = initSearchRequestCtx(argv, argc, parse_argc, queryTimeoutMS, &status);
   if (!req) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
@@ -4772,7 +4674,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryRequestTimeout_BeginCycle(&req->base.timeout, useBlockedClientTimeout
                                                          ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                                          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  req->base.async.requiresAggregateResultsSync = true;
 
   // MRCtx borrows req, which is owned by the blocked-client cycle.
   // NumShards is used as a hint for reply capacity - unsafe read is fine.
