@@ -227,11 +227,11 @@ impl<'index> IndexRef<'index> {
         order: ReplyOrder,
     ) -> Result<Option<QueryReply>, QueryError> {
         // VecSim rejects a negative radius by throwing a C++ exception, which must not unwind
-        // into Rust. This is VecSim's own comparison, so it panics on exactly the radii VecSim
-        // rejects.
-        if radius < 0.0 {
-            panic!("VecSim range query radius must not be negative");
-        }
+        // into Rust. NaN is let through because VecSim's own `radius < 0` check accepts it.
+        assert!(
+            radius.is_nan() || radius >= 0.0,
+            "VecSim range query radius must not be negative"
+        );
         // SAFETY:
         // 1. `self.inner` upholds its invariant.
         // 2. `query_vector`'s blob is sized to the index by the `QueryVector`

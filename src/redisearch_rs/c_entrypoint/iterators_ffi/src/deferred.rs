@@ -110,8 +110,9 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
 }
 
 /// Drains a range-query `reply` into the iterator's ids and, when `yields_metric`, the parallel
-/// distances. A missing reply yields no results.
+/// distances. A missing or empty reply yields no results.
 fn collect_results(reply: Option<QueryReply>, yields_metric: bool) -> ProducedResults {
+    let reply = reply.filter(|reply| !reply.is_empty());
     let len = reply.as_ref().map_or(0, QueryReply::len);
     let mut ids = Vec::with_capacity(len);
     let mut distances = Vec::with_capacity(if yields_metric { len } else { 0 });

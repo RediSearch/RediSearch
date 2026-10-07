@@ -86,13 +86,14 @@ impl QueryReply {
     }
 
     /// Number of results in the reply.
-    #[expect(
-        clippy::len_without_is_empty,
-        reason = "the length only pre-sizes buffers; emptiness shows when iterating the results"
-    )]
     pub fn len(&self) -> usize {
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimQueryReply_Len(self.inner.as_ptr()) }
+    }
+
+    /// Whether the reply has no results.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Consume the reply and produce an iterator over its results.
