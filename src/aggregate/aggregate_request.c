@@ -402,7 +402,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE) &&
              papCtx->internalRespSchema && AC_AdvanceIfMatch(ac, "_RESP_SCHEMA")) {
-    *papCtx->internalRespSchema = papCtx->reqConfig->internalRespSchemaEnabled;
+    *papCtx->internalRespSchema = true;
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {

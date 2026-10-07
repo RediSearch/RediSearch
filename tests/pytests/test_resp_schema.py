@@ -69,6 +69,34 @@ def load_sparse(env, count, key_pattern):
 
 
 @skip(cluster=False)
+def test_resp_schema_format_selection():
+    """Verify internal opt-in and coordinator authority across flag settings in both protocols."""
+    for protocol in (2, 3):
+        env = Env(protocol=protocol)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC', 'SORTABLE').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(1, 4):
+            conn.execute_command('HSET', f'{{docs}}:{i}', 'id', i)
+        shard = next(c for c in env.getOSSMasterNodesConnectionList()
+                     if c.execute_command('DBSIZE'))
+        shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        command = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'TIMEOUT', 0]
+        for mode in ('no', 'yes'):
+            with schema_mode(env, mode):
+                for opt_in in ([], ['_RESP_SCHEMA']):
+                    raw = payload(env, shard.execute_command(*command, *opt_in))
+                    env.assertEqual(raw[0] == TAG, bool(opt_in), message=raw)
+        # The coordinator chooses the format even when every other shard differs.
+        command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'TIMEOUT', 0]
+        coordinator = env.getConnection()
+        for shard_mode, coordinator_mode in (('no', 'yes'), ('yes', 'no')):
+            with schema_mode(env, shard_mode):
+                coordinator.execute_command('CONFIG', 'SET', CONFIG, coordinator_mode)
+                env.assertEqual(rows(env, env.cmd(*command)),
+                                [{'id': '1'}, {'id': '2'}, {'id': '3'}])
+
+
+@skip(cluster=False)
 def test_resp_schema_wire():
     """Exercise dense/sparse schema replies and late LOAD * fields in both protocols."""
     for protocol in (2, 3):
