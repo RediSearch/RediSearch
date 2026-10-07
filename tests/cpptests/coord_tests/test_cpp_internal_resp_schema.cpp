@@ -13,6 +13,7 @@ extern "C" {
 #include "rpnet.h"
 #include "aggregate/internal_resp_schema.h"
 #include "rlookup_ffi.h"
+#include "rmr/io_runtime_ctx.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
 
@@ -120,6 +121,48 @@ TEST(InternalRespSchema, MalformedWidthsMasksAndNames) {
   check(arr({str(INTERNAL_RESP_SCHEMA_TAG), arr({}), arr({})}), 2, false);
   check(arr({str(INTERNAL_RESP_SCHEMA_TAG), arr({str("count")}), arr({})}), 2, false);
   check(arr({str("not-a-schema"), arr({}), arr({})}), 3, false);
+}
+
+TEST(InternalRespSchema, MalformedChunkReportsErrorThroughGetNextReply) {
+  for (int protocol : {2, 3}) {
+    for (const auto &envelope :
+         {chunk(protocol, {arr({str("11"), arr({str("value")})})}, {str("field")}),
+          chunk(protocol, {arr({nil, arr({str("value")})})}, {str("field"), ":1\r\n"})}) {
+      Decoder decoder(protocol);
+      AREQ req = {};
+      req.base.reply.err = QueryError_Default();
+      req.pipeline.qctx.err = &req.base.reply.err;
+      decoder.nc.areq = &req;
+      decoder.nc.drainOnly = true;
+      IORuntimeCtx runtime = {};
+      runtime.queue = RQ_New(1, 0);
+      IORuntimeCtx_RequestStarted(&runtime);
+      MRIteratorConfig config = {};
+      config.successCB = [](MRIteratorCallbackCtx *, MRReply *) {};
+      config.ioRuntime = &runtime;
+      decoder.nc.it = MR_CreateIterator(&decoder.nc.cmd, &config);
+      const auto data = protocol == 3 ? "%1\r\n" + str("results") + envelope : envelope;
+      MRReply *root = parse(arr({data, ":0\r\n"}));
+      // Inject one terminal shard reply without scheduling network work.
+      MRIterator_PushReply(decoder.nc.it, root);
+      MRIterator_ResolveShard(decoder.nc.it, 0, 0);
+      EXPECT_EQ(getNextReply(&decoder.nc), RS_RESULT_ERROR);
+      EXPECT_EQ(QueryError_GetCode(&req.base.reply.err), QUERY_ERROR_CODE_GENERIC);
+      EXPECT_STREQ(QueryError_GetUserError(&req.base.reply.err),
+                   "SEARCH_GENERIC Invalid internal RESP field schema chunk");
+      EXPECT_EQ(decoder.nc.current.root, root);
+      EXPECT_EQ(decoder.nc.current.schemaKeys, nullptr);
+      MRReply_Free(decoder.nc.current.root);
+      RPNet_resetCurrent(&decoder.nc);
+      EXPECT_EQ(decoder.nc.current.root, nullptr);
+      EXPECT_EQ(decoder.nc.current.rows, nullptr);
+      EXPECT_EQ(decoder.nc.current.meta, nullptr);
+      EXPECT_EQ(getNextReply(&decoder.nc), RS_RESULT_EOF);
+      MRIterator_Release(decoder.nc.it);
+      RQ_Free(runtime.queue);
+      QueryError_ClearError(&req.base.reply.err);
+    }
+  }
 }
 
 TEST(InternalRespSchema, WideSealedLookupRetainsKeysAcrossChunks) {
