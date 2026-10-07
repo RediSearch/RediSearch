@@ -20,7 +20,7 @@ use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIteratorError,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{BatchStrategy, ScoreSource};
+use top_k::{BatchStrategy, ScoreBatch, ScoreSource};
 
 use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
@@ -394,6 +394,24 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         self.num_batches
     }
 
+    /// Whether `doc_id`, scored `score`, may reach the top-k heap.
+    fn admits(&mut self, doc_id: DocId, score: f64) -> bool {
+        if !self.ranges.first_emission(doc_id) {
+            return false;
+        }
+        // Drop stale entries pre-heap so they never displace a live document from
+        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
+        // and field-level TTL, the two the range tree only sheds at GC time. Each
+        // gate keeps the common no-filtering case free of its per-record check.
+        if self.validity.may_filter() && !self.validity.is_valid(doc_id) {
+            return false;
+        }
+        !(self.expiration.has_expiration()
+            && self
+                .expiration
+                .is_expired(&RSIndexResult::build_numeric(score).doc_id(doc_id).build()))
+    }
+
     /// Hit ratio of the window just consumed: results collected from it over the
     /// window's limit. Returns `0.0` when the limit is `0`, guarding the
     /// division.
@@ -455,40 +473,13 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
 impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSource
     for NumericScoreSource<'index, V, E, T>
 {
-    type Batch = NumericScoreBatch;
+    type Batch = NumericScoreBatch<'index>;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        // `ranges` and `timeout` are disjoint fields; the split borrow lets the
-        // materialization loop poll the deadline once per record.
-        let Some(batch) = self
-            .ranges
-            .next_n(self.range_batch_size, &mut self.timeout)?
-        else {
+        let Some(batch) = self.ranges.next_n(self.range_batch_size) else {
             return Ok(None);
         };
         self.num_batches += 1;
-        // Drop stale entries pre-heap so they never displace a live document from
-        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
-        // and field-level TTL, the two the range tree only sheds at GC time. Each
-        // gate keeps the common no-filtering case free of its per-record check.
-        let filter_validity = self.validity.may_filter();
-        let filter_expiration = self.expiration.has_expiration();
-        if !filter_validity && !filter_expiration {
-            return Ok(Some(batch));
-        }
-        let batch = batch.retain(|doc_id, score| {
-            self.timeout.check_timeout()?;
-            if filter_validity && !self.validity.is_valid(doc_id) {
-                return Ok(false);
-            }
-            if filter_expiration {
-                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
-                if self.expiration.is_expired(&record) {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        })?;
         Ok(Some(batch))
     }
 
@@ -547,7 +538,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // Yielding-phase hook. Collection self-checks per record via `next_batch`,
+        // Yielding-phase hook. Collection self-checks per record read from a batch,
         // because the surrounding `TopKIterator` collects eagerly and only polls
         // this during yielding.
         self.timeout.check_timeout()
@@ -581,4 +572,32 @@ fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
     }
     let ratio = estimate as f64 / num_docs as f64;
     (limit as f64 / ratio) as usize + 1
+}
+
+impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
+    ScoreBatch<NumericScoreSource<'index, V, E, T>> for NumericScoreBatch<'index>
+{
+    #[inline(always)]
+    fn next(
+        &mut self,
+        source: &mut NumericScoreSource<'index, V, E, T>,
+    ) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        self.skip_to(source, 0)
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        source: &mut NumericScoreSource<'index, V, E, T>,
+        mut target: DocId,
+    ) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        while let Some((doc_id, score)) = self.read(target)? {
+            source.timeout.check_timeout()?;
+            if source.admits(doc_id, score) {
+                return Ok(Some((doc_id, score)));
+            }
+            target = doc_id + 1;
+        }
+        Ok(None)
+    }
 }

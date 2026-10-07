@@ -120,9 +120,10 @@ fn full_range() -> NumericFilter {
     }
 }
 
-/// Drain a batch into a `Vec`.
-fn drain<B: ScoreBatch>(mut batch: B) -> Vec<(DocId, f64)> {
-    iter::from_fn(|| batch.next()).collect()
+/// Drain the next batch into a `Vec`.
+fn drain<S: ScoreSource>(source: &mut S) -> Option<Vec<(DocId, f64)>> {
+    let mut batch = source.next_batch().unwrap()?;
+    Some(iter::from_fn(|| batch.next(source).unwrap()).collect())
 }
 
 /// Drive an unfiltered top-k iterator to exhaustion, collecting the yielded
@@ -234,6 +235,75 @@ fn filtered_top_k_finds_high_score_among_matches() {
     assert_eq!(got, vec![(4, 100.0)]);
 }
 
+/// The best `k` of `pairs` for the sort direction, best first.
+fn top_k_by_score(mut pairs: Vec<(DocId, f64)>, k: usize, ascending: bool) -> Vec<(DocId, f64)> {
+    pairs.sort_by(|a, b| a.1.total_cmp(&b.1));
+    if !ascending {
+        pairs.reverse();
+    }
+    pairs.truncate(k);
+    pairs
+}
+
+#[test]
+fn filtered_top_k_over_interleaved_ranges_matches_brute_force() {
+    // Odd ids take high values and even ids low ones, so ranges interleave.
+    let pairs: Vec<(u64, f64)> = (1..=40)
+        .map(|id| (id, (id % 2 * 100 + id) as f64))
+        .collect();
+    assert!(tree_from(&pairs).find(&full_range()).len() >= 2);
+    let child_ids: Vec<DocId> = (1..=50).filter(|id| id % 3 == 0).collect();
+    for ascending in [true, false] {
+        let matching = pairs
+            .iter()
+            .copied()
+            .filter(|(id, _)| child_ids.contains(id));
+        let expected = top_k_by_score(matching.collect(), 5, ascending);
+        assert_eq!(
+            run_filtered(&pairs, child_ids.clone(), 8, 5, ascending),
+            expected
+        );
+    }
+}
+
+#[test]
+fn filtered_top_k_on_a_multivalue_field_matches_brute_force() {
+    // Each doc's two values sit in different ranges.
+    let mut tree = NumericRangeTree::new(false);
+    for id in 1..=60 {
+        tree.add(id, id as f64, false, true, 0);
+        tree.add(id, 200.0 - id as f64, false, true, 0);
+    }
+    assert!(tree.find(&full_range()).len() >= 2);
+    let child_ids: Vec<DocId> = (1..=70).filter(|id| id % 3 == 0).collect();
+    for range_batch_size in [1, 8] {
+        for ascending in [true, false] {
+            let best = |id: DocId| {
+                let (a, b) = (id as f64, 200.0 - id as f64);
+                if ascending { a.min(b) } else { a.max(b) }
+            };
+            let matching = child_ids
+                .iter()
+                .filter(|&&id| id <= 60)
+                .map(|&id| (id, best(id)));
+            let expected = top_k_by_score(matching.collect(), 5, ascending);
+            let source = NumericScoreSource::filtered(
+                &tree,
+                full_range(),
+                RangeWindow::UNBOUNDED,
+                ascending,
+                range_batch_size,
+                60,
+                child_ids.len(),
+            );
+            let k = NonZeroUsize::new(5).unwrap();
+            let mut it =
+                new_numeric_top_k_filtered(source, IdList::<true>::new(child_ids.clone()), k);
+            assert_eq!(drain_top_k(&mut it), expected);
+        }
+    }
+}
+
 #[test]
 fn next_batch_yields_ranges_best_score_first_descending() {
     // 20 distinct values produce a multi-leaf tree; doc_id == value == i.
@@ -243,8 +313,8 @@ fn next_batch_yields_ranges_best_score_first_descending() {
     // One range per batch, descending: each batch's scores must all be >= the
     // next batch's, and be doc-id-sorted within the batch.
     let mut source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
-    let b1 = drain(source.next_batch().unwrap().expect("first batch"));
-    let b2 = drain(source.next_batch().unwrap().expect("second batch"));
+    let b1 = drain(&mut source).expect("first batch");
+    let b2 = drain(&mut source).expect("second batch");
 
     let min1 = b1.iter().map(|&(_, s)| s).fold(f64::MAX, f64::min);
     let max2 = b2.iter().map(|&(_, s)| s).fold(f64::MIN, f64::max);
@@ -333,8 +403,8 @@ fn rewind_restarts_iteration() {
 
     let drain_all = |source: &mut NumericScoreSource| {
         let mut all = Vec::new();
-        while let Some(batch) = source.next_batch().unwrap() {
-            all.extend(drain(batch));
+        while let Some(batch) = drain(source) {
+            all.extend(batch);
         }
         all
     };
@@ -650,14 +720,19 @@ impl TimeoutContext for CountingTimeout {
 
 #[test]
 fn collection_times_out_during_materialization() {
-    // Multi-leaf tree so `next_batch` reads several ranges' records; the first
+    // Multi-leaf tree so the batch reads several ranges' records; the first
     // per-record poll crosses the already-elapsed deadline.
     let tree = build_tree(20, false, 0);
     let mut source =
         NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(expired_clock());
+    let mut batch = source.next_batch().unwrap().expect("a batch");
 
     assert!(matches!(
-        source.next_batch(),
+        batch.next(&mut source),
+        Err(RQEIteratorError::TimedOut)
+    ));
+    assert!(matches!(
+        batch.skip_to(&mut source, 5),
         Err(RQEIteratorError::TimedOut)
     ));
 }
@@ -676,30 +751,17 @@ fn iterator_read_propagates_timeout() {
 
 #[test]
 fn filtering_scan_is_timeout_aware() {
-    // Single-leaf tree of four records, materialized into one batch. Materialization
-    // polls once per record and once before the sort; the stale-record filtering
-    // scan then adds one poll per record. A deadline primed to survive
-    // materialization must therefore surface inside that scan.
+    // Stale records are skipped inside one batch read, and each must poll.
     let pairs = [(1u64, 4.0), (2, 3.0), (3, 2.0), (4, 1.0)];
     let tree = tree_from(&pairs);
-    // Pin the number of polls materialization performs, so the filtered case can
-    // prime a one-shot timeout that fires only once the filtering scan begins.
     let counter = CountingTimeout::default();
-    let mut unfiltered =
-        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(counter.clone());
-    assert!(unfiltered.next_batch().unwrap().is_some());
-    let materialization_polls = counter.calls();
-    assert_eq!(materialization_polls, pairs.len() as u32 + 1);
+    let mut source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+        .with_validity(DeletedDocs::from_iter([1, 2, 3]))
+        .with_timeout(counter.clone());
+    let mut batch = source.next_batch().unwrap().expect("a batch");
 
-    // A one-shot timeout that survives materialization fires on the filtering
-    // scan's first poll, proving the scan honors the deadline.
-    let mut filtered = NumericScoreSource::unfiltered(&tree, full_range(), false)
-        .with_validity(DeletedDocs::from_iter([2]))
-        .with_timeout(TimeoutOnce::new(materialization_polls));
-    assert!(matches!(
-        filtered.next_batch(),
-        Err(RQEIteratorError::TimedOut)
-    ));
+    assert_eq!(batch.next(&mut source).unwrap(), Some((4, 1.0)));
+    assert_eq!(counter.calls(), pairs.len() as u32);
 }
 
 #[test]
@@ -711,7 +773,7 @@ fn amortized_check_does_not_probe_below_granularity() {
     let mut source =
         NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(never_probes);
 
-    assert!(source.next_batch().unwrap().is_some());
+    assert!(drain(&mut source).is_some());
 }
 
 #[test]

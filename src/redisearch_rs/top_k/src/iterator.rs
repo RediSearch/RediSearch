@@ -293,17 +293,31 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 intersect_batch_with_child(
                     child,
                     &mut batch,
+                    &mut self.source,
                     &mut self.heap,
                     can_trim_deep_results,
                 )?;
             } else {
                 // No filter child: every source batch record is a candidate, so feed
                 // the whole batch through the heap, which retains the top k.
-                while let Some((doc_id, score)) = batch.next() {
-                    self.heap.push(doc_id, score);
+                let mut chunk = [(0, 0.0); 64];
+                loop {
+                    let mut len = 0;
+                    while len < chunk.len()
+                        && let Some(pair) = batch.next(&mut self.source)?
+                    {
+                        chunk[len] = pair;
+                        len += 1;
+                    }
+                    for &(doc_id, score) in &chunk[..len] {
+                        self.heap.push(doc_id, score);
+                    }
+                    if len < chunk.len() {
+                        break;
+                    }
                 }
             }
-            // Batch consumption is unpolled; check once at the boundary.
+            // A batch need not poll as it is read; check once at the boundary.
             self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -433,7 +447,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
-            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+            let item = match self.direct_batch.as_mut() {
+                Some(batch) => batch.next(&mut self.source)?,
+                None => None,
+            };
 
             // Poll once per step, after classifying the entry and before yielding
             // it — gates valid results, EOF, and expired skips alike.
@@ -698,16 +715,17 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
 /// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs.
 ///
 /// The child is **rewound** at the start of each call.
-fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
+fn intersect_batch_with_child<'index, C: RQEIterator<'index>, S, O: ScoreOrdering>(
     child: &mut C,
-    batch: &mut impl ScoreBatch,
+    batch: &mut impl ScoreBatch<S>,
+    source: &mut S,
     heap: &mut TopKHeap<'index, O>,
     can_trim_deep_results: bool,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
     // Prime both iterators.
-    let Some((mut batch_doc, mut batch_score)) = batch.next() else {
+    let Some((mut batch_doc, mut batch_score)) = batch.next(source)? else {
         return Ok(());
     };
     let Some(first) = child.read()? else {
@@ -736,7 +754,9 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
                 // batch doc remains. Reading the child past an exhausted batch
                 // is needless work that inflates its profile counters and could
                 // turn a completed batch into a spurious TimedOut.
-                let Some((d, s)) = batch.next() else { break };
+                let Some((d, s)) = batch.next(source)? else {
+                    break;
+                };
                 batch_doc = d;
                 batch_score = s;
                 match child.read()?.map(|r| r.doc_id) {
@@ -746,7 +766,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
             }
             Ordering::Less => {
                 // batch is behind child — skip batch forward to child_doc.
-                match batch.skip_to(child_doc) {
+                match batch.skip_to(source, child_doc)? {
                     Some((d, s)) => {
                         batch_doc = d;
                         batch_score = s;
