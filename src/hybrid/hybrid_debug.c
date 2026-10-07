@@ -264,7 +264,7 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Get index name and create search context (same pattern as regular hybridCommandHandler)
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxCEx(ctx, indexname, true, INDEXSPEC_LOAD_QUERY);
+  RedisSearchCtx *sctx = NewSearchCtxCEx(ctx, indexname, true, INDEXSPEC_LOAD_NOCOUNTERINC);
   if (!sctx) {
     QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
@@ -285,6 +285,8 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     debugParams.debug_params_count = 0;
     return hybridCommandHandler(ctx, argv, hybridArgc, false, EXEC_NO_FLAGS, &debugParams);
   }
+
+  IndexSpec_IncrQueryCounter(sctx->spec);
 
   // Create debug hybrid request using the same sctx
   HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, sctx, indexname, &status);

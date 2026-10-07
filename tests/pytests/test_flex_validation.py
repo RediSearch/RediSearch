@@ -632,12 +632,12 @@ def test_disk_vector_query_validation(env: Env):
     env.assertEqual(count, 2, message=response)
     env.assertEqual(set(results), {'doc:1', 'doc:2'}, message=response)
     env.expect('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:]).noError()
-    for command in [('FT.HYBRID', *hybrid_args),
-                    ('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:])]:
-        env.expect(debug_cmd(), *command, 'TIMEOUT_AFTER_N_SEARCH', 100,
-                   'DEBUG_PARAMS_COUNT', 2).noError()
-    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:],
-               'TIMEOUT_AFTER_N_SEARCH', 100, 'dEbUg_PaRaMs_CoUnT', 2).noError()
+    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:]).noError()
+    before_uses = int(to_dict(env.cmd('FT.INFO', 'idx'))['number_of_uses'])
+    env.expect(debug_cmd(), 'FT.HYBRID', *hybrid_args, 'TIMEOUT_AFTER_N_SEARCH', 100,
+               'DEBUG_PARAMS_COUNT', 2).noError()
+    after_uses = int(to_dict(env.cmd('FT.INFO', 'idx'))['number_of_uses'])
+    env.assertEqual(after_uses, before_uses + 1)
 
     env.expect('FT.HYBRID', *hybrid_args, 'WITHCURSOR') \
         .error().contains('WITHCURSOR is not supported in Redis Flex')

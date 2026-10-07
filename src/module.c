@@ -1736,16 +1736,6 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RSProfileCommandImp(ctx, argv, argc, false);
 }
 
-static bool hybridProfileHasDebugTail(RedisModuleString **argv, int argc) {
-  if (argc < 2) {
-    return false;
-  }
-  size_t len;
-  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &len);
-  return len == sizeof("DEBUG_PARAMS_COUNT") - 1 &&
-         strncasecmp(arg, "DEBUG_PARAMS_COUNT", len) == 0;
-}
-
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
@@ -1792,21 +1782,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (cmdType == COMMAND_HYBRID) {
     RedisModuleString *command = argv[0];
     bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
-    if (isDebug && hybridProfileHasDebugTail(newArgv, newArgc)) {
-      QueryError status = QueryError_Default();
-      HybridDebugParams debugParams = parseHybridDebugParamsCount(newArgv, newArgc, &status);
-      if (!QueryError_HasError(&status) &&
-          parseHybridDebugParams(&debugParams, &status) == REDISMODULE_OK) {
-        newArgc -= (int)debugParams.debug_params_count + 2;
-        debugParams.debug_argv = NULL;
-        debugParams.debug_params_count = 0;
-        hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, &debugParams);
-      } else {
-        QueryError_ReplyAndClear(ctx, &status);
-      }
-    } else {
-      hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
-    }
+    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
   } else {
     // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
     execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
@@ -4832,14 +4808,18 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
+  // For SEARCH and AGGREGATE, pass isDebug through: their debug param format
+  // (TIMEOUT_AFTER_N, INTERNAL_ONLY) matches the profile debug params.
+  // For HYBRID, always pass false: hybrid uses command-specific debug params
+  // (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, TIMEOUT_AFTER_N_TAIL) that
+  // differ from profile debug params. Passing isDebug=true would select
+  // DEBUG_RSExecDistHybrid, which would fail to parse the profile debug params.
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
     return DistSearchCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
     return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("HYBRID", argv, 3, 2)) {
-    return DistHybridCommandInternal(ctx, argv, argc,
-                                     isDebug && hybridProfileHasDebugTail(argv, argc),
-                                     true /* isProfile */);
+    return DistHybridCommandInternal(ctx, argv, argc, false, true /* isProfile */);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
 }
