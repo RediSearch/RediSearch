@@ -122,18 +122,18 @@ flowchart TD
     Worker[RediSearch worker] -->|calls| Collector
     Collector --> Usage[UsageCache]
     Collector --> Diagnostics[AsyncSnapshots]
-    Index[Rust IndexSpec] --> UE[usage_cache::Entry]
+    Index[Rust IndexSpec] --> UsageEntry[usage_cache::Entry]
     Index --> DE[async_snapshot::Entry]
-    Usage -. weak registry .-> UE
+    Usage -. weak registry .-> UsageEntry
     Diagnostics -. weak queue .-> DE
-    UE --> State[IndexState and CF byte counts]
-    UE --> Counters[Published atomic counters]
+    UsageEntry --> State[IndexState and CF byte counts]
+    UsageEntry --> Counters[Published atomic counters]
     DE --> Pending[Pending Collection]
     DE --> Working[Working Collection]
     DE --> Published[Published immutable Snapshot]
     Working -->|publishes| Published
     Listener[Native UsageListener] -. marks .-> Signal[DirtySignal]
-    UE --> Signal
+    UsageEntry --> Signal
 ```
 
 The index owns its entries; the registries never keep an index alive. The worker
