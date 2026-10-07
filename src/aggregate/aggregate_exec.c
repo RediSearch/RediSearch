@@ -235,12 +235,8 @@ static void finishRespSchema(AREQ *req, RedisModule_Reply *reply, const cachedVa
   rm_free(schema->presence);
 }
 
-static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
-                            const cachedVars *cv, RespSchema *schema) {
-  if (schema->enabled) {
-    serializeSchemaResult(req, reply, r, cv, schema);
-    return;
-  }
+static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                                  const cachedVars *cv) {
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   bool has_map = RedisModule_IsRESP3(reply);
@@ -382,6 +378,14 @@ static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchRes
     RedisModule_Reply_SimpleString(reply, "values");
     RedisModule_Reply_EmptyArray(reply);
   }
+}
+
+static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                            const cachedVars *cv, RespSchema *schema) {
+  if (schema->enabled)
+    serializeSchemaResult(req, reply, r, cv, schema);
+  else
+    serializeLegacyResult(req, reply, r, cv);
 }
 
 #ifdef ENABLE_ASSERT
