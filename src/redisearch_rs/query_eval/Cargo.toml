@@ -16,13 +16,16 @@ build_utils.workspace = true
 [dependencies]
 c_trie.workspace = true
 dict.workspace = true
+fat_array.workspace = true
 ffi.workspace = true
 field.workspace = true
 hidden_string.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
+lending-iterator.workspace = true
 query.workspace = true
 query_error.workspace = true
+query_flags.workspace = true
 query_term.workspace = true
 query_types.workspace = true
 redis-module.workspace = true
@@ -32,6 +35,7 @@ rs_token.workspace = true
 search_disk.workspace = true
 string_utils.workspace = true
 thiserror.workspace = true
+trie_rs.workspace = true
 vector_score_source.workspace = true
 workspace_hack.workspace = true
 

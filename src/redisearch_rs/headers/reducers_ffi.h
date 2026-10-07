@@ -174,6 +174,19 @@ Reducer *CountReducer_Create(void);
 Reducer *MinMaxReducer_Create(const RLookupKey *srckey, bool max);
 
 /**
+ * Creates a `STDDEV` reducer of `srckey` and returns its base [`ffi::Reducer`],
+ * which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *StdDevReducer_Create(const RLookupKey *srckey);
+
+/**
  * Creates a `SUM` reducer of `srckey`, or an `AVG` one if `average`, and returns
  * its base [`ffi::Reducer`], which the caller frees through its `Free` callback.
  *

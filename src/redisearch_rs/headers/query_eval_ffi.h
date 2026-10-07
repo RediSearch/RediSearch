@@ -41,10 +41,11 @@ extern "C" {
  * # Safety
  *
  * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
- *    a valid [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
- *    must stay valid and exclusively borrowed for the duration of the call. The
- *    root's subtree must meet the token-buffer requirement of
- *    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
+ *    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
+ *    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
+ *    for the duration of the call. The root's subtree must also satisfy
+ *    invariants (4) and (5) of [`QueryNodeMut::new`], since evaluation
+ *    rewrites tokens in place.
  * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
@@ -59,28 +60,6 @@ extern "C" {
  * the lifetime of the returned iterator.
  */
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
-
-/**
- * Evaluate a single query AST node, producing the corresponding
- * [`QueryIterator`].
- *
- * Returns a null pointer when the node produces no results (e.g. a
- * missing-field node for a field that has no missing values).
- *
- * # Safety
- *
- * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
- *    all the invariants documented on [`QueryEvalContext::new`] and remains
- *    valid for the lifetime of the returned iterator.
- * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`] whose subtree
- *    also satisfies invariants (4) and (5) of [`QueryNodeMut::new`], since
- *    evaluation rewrites tokens in place.
- * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
- *    pointing to a valid [`Config`] that stays valid for the duration of the
- *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
- *    dispatcher.
- */
-QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConfig *eval_config);
 
 /**
  * Whether a query node needs term offset data.
