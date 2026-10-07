@@ -39,6 +39,15 @@ a monotonic one-second deadline requests full usage reconciliation even under
 continuous events. Deadline overruns coalesce into one reconciliation on the next
 batch, without a backlog of missed ticks.
 
+Dirty marking, an execution request, and reconciliation are distinct operations:
+`mark_dirty()` only makes an entry eligible; `request()` still marks it dirty and
+wakes the worker. Reconciliation marks **all operational entries** dirty, including
+clean entries, without an individual wakeup per index. Today it is requested every
+second: native events have not replaced full periodic refreshes. This is a scheduling
+cadence, not a guarantee that all reads finish within one second. Direct native SST
+ingestion currently lacks a Rust listener notification, so reconciliation also repairs
+changes missed by event callbacks.
+
 One pending request flag coalesces event notifications. The worker clears it before
 collection, so requests arriving during collection remain pending. Unfinished
 batches continue directly in the loop; there is no job queue or submitted-job flag.
