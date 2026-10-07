@@ -249,7 +249,7 @@ static dictType respSchemaNames = {
     .keyCompare = respSchemaNameEqual,
 };
 
-static bool prepareRespSchema(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
+static bool prepareRespSchemaBounded(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
   if (MRReply_Length(envelope) != 3 || nc->hybridSubquery != RPNET_HYBRID_NONE) return false;
   MRReply *rows = MRReply_ArrayElement(envelope, 1);
   MRReply *names = MRReply_ArrayElement(envelope, 2);
@@ -323,9 +323,13 @@ cleanup:
   return valid;
 }
 
+static bool prepareRespSchema(RPNet *nc, MRReply *envelope) {
+  return prepareRespSchemaBounded(nc, envelope, UINT16_MAX);
+}
+
 #ifdef ENABLE_ASSERT
 bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *envelope, uint16_t maxColumns) {
-  return isRespSchemaReply(envelope) && prepareRespSchema(nc, envelope, maxColumns);
+  return isRespSchemaReply(envelope) && prepareRespSchemaBounded(nc, envelope, maxColumns);
 }
 #endif
 
@@ -450,7 +454,7 @@ int getNextReply(RPNet *nc) {
   if (isRespSchemaReply(rows)) {
     rs_wall_clock convertStart;
     if (nc->profileBreakdown) rs_wall_clock_init(&convertStart);
-    bool valid = prepareRespSchema(nc, rows, UINT16_MAX);
+    bool valid = prepareRespSchema(nc, rows);
     if (nc->profileBreakdown) accumulateSince(&nc->breakdown.convertTime, &convertStart);
     if (!valid) return invalidRespSchema(nc);
     rows = nc->current.rows;
