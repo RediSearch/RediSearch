@@ -268,7 +268,7 @@ fn first_value_by(ascending: bool, rows: &[[Option<SharedValue>; 2]]) -> SharedV
         Direction::Descending
     };
     let sort_by = SortBy {
-        key: &sort_key,
+        sort_key: &sort_key,
         direction,
     };
     reduce_rows(
@@ -384,7 +384,7 @@ fn interleaved_groups_are_kept_apart() {
     let expected = [2.0_f64.sqrt(), 50.0_f64.sqrt()];
     assert_eq!(reduce_interleaved(std_dev, &key, rows), expected);
     let sort_by = SortBy {
-        key: &key,
+        sort_key: &key,
         direction: Direction::Descending,
     };
     let first = FirstValue::new(&key, Some(sort_by));

@@ -8,6 +8,9 @@
 */
 
 //! The `FIRST_VALUE` reducer.
+//!
+//! Terms: the *return key* reads the *return value* a group keeps and returns;
+//! the *sort key* reads the *sort value* that rows are compared on.
 
 use std::cmp::Ordering;
 
@@ -17,23 +20,23 @@ use value::{SharedValue, Value};
 
 use crate::accumulator::Accumulator;
 
-/// `FIRST_VALUE` of a property: its value in the group's first row, or, with a
-/// sort key, in the row whose sort value comes first (see [`SortBy`]). A missing
-/// property reads as null.
+/// `FIRST_VALUE` of a property: the return value of the group's first row, or,
+/// with a sort key, of the row whose sort value comes first (see [`SortBy`]). A
+/// missing return value reads as null.
 pub struct FirstValue<'a> {
-    key: &'a RLookupKey<'a>,
+    ret_key: &'a RLookupKey<'a>,
     sort_by: Option<SortBy<'a>>,
 }
 
-/// The sort key (the property to sort by) and direction of a [`FirstValue`] reducer.
+/// The sort key and direction of a [`FirstValue`] reducer.
 ///
 /// A null sort value never wins over a non-null one. Ties keep the earlier row.
 pub struct SortBy<'a> {
-    pub key: &'a RLookupKey<'a>,
+    pub sort_key: &'a RLookupKey<'a>,
     pub direction: Direction,
 }
 
-/// Which end of the sort order a [`FirstValue`] reducer takes its value from.
+/// Which end of the sort order a [`FirstValue`] reducer takes its return value from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Ascending,
@@ -51,8 +54,8 @@ impl Direction {
 }
 
 impl<'a> FirstValue<'a> {
-    pub const fn new(key: &'a RLookupKey<'a>, sort_by: Option<SortBy<'a>>) -> Self {
-        Self { key, sort_by }
+    pub const fn new(ret_key: &'a RLookupKey<'a>, sort_by: Option<SortBy<'a>>) -> Self {
+        Self { ret_key, sort_by }
     }
 }
 
@@ -60,9 +63,9 @@ impl<'a> FirstValue<'a> {
 #[derive(Default)]
 pub struct FirstValueState(Option<Kept>);
 
-/// The value kept so far, and the sort value a later row must beat to replace it.
+/// The return value kept so far, and the sort value a later row must beat to replace it.
 struct Kept {
-    value: SharedValue,
+    ret_value: SharedValue,
     /// `None` while no non-null sort value was seen, and always without a sort key.
     sort_value: Option<SharedValue>,
 }
@@ -74,23 +77,23 @@ fn get_or_null(row: &RLookupRow<'_>, key: &RLookupKey<'_>) -> SharedValue {
 }
 
 impl FirstValue<'_> {
-    /// Keeps the first row's value; later rows change nothing.
+    /// Keeps the first row's return value; later rows change nothing.
     fn add_unsorted(&self, state: &mut FirstValueState, row: &RLookupRow<'_>) {
         state.0.get_or_insert_with(|| Kept {
-            value: get_or_null(row, self.key),
+            ret_value: get_or_null(row, self.ret_key),
             sort_value: None,
         });
     }
 
     fn add_sorted(&self, state: &mut FirstValueState, row: &RLookupRow<'_>, sort_by: &SortBy<'_>) {
         // Borrowed: most rows do not win, so only a winning sort value is cloned.
-        let row_sort_value = row.get(sort_by.key).filter(|value| !is_null(value));
+        let row_sort_value = row.get(sort_by.sort_key).filter(|value| !is_null(value));
 
         match (&mut state.0, row_sort_value) {
             // The first row is kept, whatever its sort value.
             (None, sort_value) => {
                 state.0 = Some(Kept {
-                    value: get_or_null(row, self.key),
+                    ret_value: get_or_null(row, self.ret_key),
                     sort_value: sort_value.cloned(),
                 });
             }
@@ -103,7 +106,7 @@ impl FirstValue<'_> {
                 }) =>
             {
                 kept.sort_value = Some(sort_value.clone());
-                kept.value = get_or_null(row, self.key);
+                kept.ret_value = get_or_null(row, self.ret_key);
             }
             // The row does not beat the best.
             (Some(_), Some(_)) => {}
@@ -129,7 +132,7 @@ impl Accumulator for FirstValue<'_> {
         state
             .0
             .as_ref()
-            .map_or_else(SharedValue::null_static, |kept| kept.value.clone())
+            .map_or_else(SharedValue::null_static, |kept| kept.ret_value.clone())
     }
 }
 

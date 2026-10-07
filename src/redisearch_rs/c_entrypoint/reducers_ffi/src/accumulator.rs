@@ -109,7 +109,7 @@ pub unsafe extern "C" fn FirstValueReducer_Create(
     ascending: bool,
 ) -> *mut ffi::Reducer {
     // SAFETY: ensured by caller (1.)
-    let key = unsafe { retkey.cast::<RLookupKey>().as_ref() }.expect("retkey must not be null");
+    let ret_key = unsafe { retkey.cast::<RLookupKey>().as_ref() }.expect("retkey must not be null");
     // SAFETY: ensured by caller (1.)
     let sort_key = unsafe { sortkey.cast::<RLookupKey>().as_ref() };
     let direction = if ascending {
@@ -117,8 +117,11 @@ pub unsafe extern "C" fn FirstValueReducer_Create(
     } else {
         Direction::Descending
     };
-    let sort_by = sort_key.map(|key| SortBy { key, direction });
-    into_c_reducer(FirstValue::new(key, sort_by))
+    let sort_by = sort_key.map(|sort_key| SortBy {
+        sort_key,
+        direction,
+    });
+    into_c_reducer(FirstValue::new(ret_key, sort_by))
 }
 
 /// Boxes an [`AccumulatorReducer`] running `accumulator` and wires its vtable.
