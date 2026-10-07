@@ -49,8 +49,6 @@ on:
           - mariner:2
           - azurelinux:3
           - alpine:3.22
-          - macos-15
-          - macos-26
           - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
@@ -109,7 +107,7 @@ jobs:
       include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
       separate-coordinator-job: ${{ inputs.separate-coordinator-job }}
 
-  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
+  # Unified test matrix - includes Linux platforms, plus optional coverage, sanitize, and intel
   test-matrix:
     name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs: [generate-matrix]

@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos-15, macos-26, sanitizer, coverage)'
+        description: 'Platform name (e.g., ubuntu:noble, sanitizer, coverage)'
         type: string
         required: true
       architecture:
@@ -105,18 +105,6 @@ jobs:
 
           # Platform configurations
           platform_configs = {
-              "macos-15": {
-                  "aarch64": {
-                      'env': 'macos-15',
-                      'name': 'macOS 15 ARM64'
-                  }
-              },
-              "macos-26": {
-                  "aarch64": {
-                      'env': 'macos-26',
-                      'name': 'macOS 26 ARM64'
-                  }
-              },
               "intel": {
                   "x86_64": {
                       'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
