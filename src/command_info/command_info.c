@@ -2544,6 +2544,13 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {
+                    .name = "rerank",
+                    .token = "RERANK",
+                    .summary = "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
                     .name = "shard_k_ratio",
                     .token = "SHARD_K_RATIO",
                     .since = "8.6.1",
@@ -2581,6 +2588,13 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .name = "epsilon",
                     .token = "EPSILON",
                     .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "rerank",
+                    .token = "RERANK",
+                    .summary = "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {
