@@ -955,6 +955,9 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     // transferring strong_ref ownership here, so only release the strong ref.
     StrongRef_Release(indexSpecRef);
 
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_UNBLOCK);
+#endif
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     void *privdata = RedisModule_BlockClientGetPrivateData(bc);
     RedisModule_UnblockClient(bc, privdata);
@@ -1347,7 +1350,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   return REDISMODULE_OK;
 }
 
-// Reply callback for Coordinator HybridRequest execution (FAIL policy).
+// Reply callback for Coordinator HybridRequest execution (RETURN_STRICT policy).
 // Called on the main thread when the background thread calls UnblockClient.
 // The background thread stored results in hreq->base.reply, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).

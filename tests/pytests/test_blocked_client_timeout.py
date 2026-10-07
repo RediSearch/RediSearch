@@ -1416,7 +1416,6 @@ class TestCoordinatorTimeout:
         skipIfNoEnableAssert(env)
 
         cmd_name = query_args[0]
-        hybrid = cmd_name == 'FT.HYBRID'
         point = 'BeforeCoordBackgroundReplyEncode'
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
@@ -1428,11 +1427,7 @@ class TestCoordinatorTimeout:
         # The pipeline finished before this reply boundary.
         base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
-        # HYBRID still stores results; AGGREGATE encodes on the coordinator worker.
-        if hybrid:
-            setPauseBeforeStoreResults(env, True, internal=False)
-        else:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         jobs_done = getCoordThpoolStats(env)['totalJobsDone']
         t_query = threading.Thread(
@@ -1446,8 +1441,7 @@ class TestCoordinatorTimeout:
             blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
 
             wait_for_condition(
-                lambda: ((getIsStoreResultsPaused(env) if hybrid else
-                          env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point)) == 1, {}),
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
                 'Timeout while waiting for query to pause before reply production'
             )
 
@@ -1470,11 +1464,8 @@ class TestCoordinatorTimeout:
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         finally:
-            if hybrid:
-                resetStoreResultsDebug(env)
-            else:
-                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
-                _wait_for_coord_background_workers(env, jobs_done)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            _wait_for_coord_background_workers(env, jobs_done)
             t_query.join(timeout=10)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1486,7 +1477,6 @@ class TestCoordinatorTimeout:
         skipIfNoEnableAssert(env)
 
         cmd_name = query_args[0]
-        hybrid = cmd_name == 'FT.HYBRID'
         point = 'AfterCoordBackgroundReplyEncode'
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
@@ -1498,11 +1488,7 @@ class TestCoordinatorTimeout:
         # Still in the REPLY phase (the phase advanced to REPLY before the store).
         base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
 
-        # HYBRID still stores results; AGGREGATE encodes on the coordinator worker.
-        if hybrid:
-            setPauseAfterStoreResults(env, True, internal=False)
-        else:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         jobs_done = getCoordThpoolStats(env)['totalJobsDone']
         t_query = threading.Thread(
@@ -1516,8 +1502,7 @@ class TestCoordinatorTimeout:
             blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
 
             wait_for_condition(
-                lambda: ((getIsStoreResultsPaused(env) if hybrid else
-                          env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point)) == 1, {}),
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
                 'Timeout while waiting for query to pause after reply production'
             )
 
@@ -1540,11 +1525,8 @@ class TestCoordinatorTimeout:
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         finally:
-            if hybrid:
-                resetStoreResultsDebug(env)
-            else:
-                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
-                _wait_for_coord_background_workers(env, jobs_done)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            _wait_for_coord_background_workers(env, jobs_done)
             t_query.join(timeout=10)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1556,7 +1538,7 @@ class TestCoordinatorTimeout:
         """Timeout after coordinator background encoding of FT.AGGREGATE."""
         self._test_fail_timeout_after_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_before_coord_store_hybrid(self):
+    def test_fail_timeout_before_coord_encode_hybrid(self):
         """Test timeout occurring before coordinator stores results for FT.HYBRID."""
         self._test_fail_timeout_before_coord_store_impl([
             'FT.HYBRID', 'hybrid_idx',
@@ -1565,7 +1547,7 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def test_fail_timeout_after_coord_store_hybrid(self):
+    def test_fail_timeout_after_coord_encode_hybrid(self):
         """Test timeout occurring after coordinator stores results for FT.HYBRID."""
         self._test_fail_timeout_after_coord_store_impl([
             'FT.HYBRID', 'hybrid_idx',
@@ -4022,7 +4004,7 @@ def _new_coord_background_fail_env(protocol):
               moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL DEFAULT_DIALECT 2 NOGC')
     for shard in range(1, env.shardsCount + 1):
         verify_shard_init(env.getConnection(shard))
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, '{doc}:', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     for n in range(8):
         conn.execute_command('HSET', f'{{doc}}:{n}', 'n', n,
@@ -4047,18 +4029,23 @@ def _wait_for_coord_background_workers(env, jobs_done):
 def _exercise_coord_background_timeout(protocol, real_timeout=False):
     env = _new_coord_background_fail_env(protocol)
     skipIfNoEnableAssert(env)
+    query_vec = _setup_hybrid_index(env)
     points = (['DuringCoordBackgroundReplyEncode'] if real_timeout else
               ['BeforeCoordBackgroundReplyEncode', 'DuringCoordBackgroundReplyEncode',
                'AfterCoordBackgroundReplyEncode', 'BeforeCoordBackgroundReplyUnblock'])
     for point in points:
         for kind in ('aggregate', 'profile', 'withcount', 'cursor_initial', 'cursor_read',
-                     'withcount_cursor_initial', 'withcount_cursor_read'):
+                     'withcount_cursor_initial', 'withcount_cursor_read', 'hybrid', 'profile_hybrid'):
             # The deadline case pins encoding until the real Redis timer expires.
             timeout = 5000 if real_timeout else 0
             command = _coord_background_aggregate(timeout, withcount=kind.startswith('withcount'))
             baseline = _background_fail_cursor_total(env)
             cursor_id = None
-            if kind == 'profile':
+            if kind in ('hybrid', 'profile_hybrid'):
+                command = _background_hybrid_query(query_vec, timeout)
+                if kind == 'profile_hybrid':
+                    command = ['FT.PROFILE', command[1], 'HYBRID', 'QUERY', *command[2:]]
+            elif kind == 'profile':
                 command = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', *command[2:]]
             elif kind.endswith('cursor_initial'):
                 command += ['WITHCURSOR', 'COUNT', 2]
@@ -4215,6 +4202,26 @@ def _compare_coord_background_fail_replies(protocol):
         env.expect('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 'invalid').error().contains('Bad value for COUNT')
         env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
         env.assertTrue(env.cmd('PING'))
+
+    query_vec = _setup_hybrid_index(env)
+    with _preserve_config(env, 'search-on-timeout'):
+        for profile in (False, True):
+            command = _background_hybrid_query(query_vec)
+            if profile:
+                command = ['FT.PROFILE', command[1], 'HYBRID', 'QUERY', *command[2:]]
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+            expected = _hybrid_reply_without_timing(env, env.cmd(*command), profile)
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+            actual = _hybrid_reply_without_timing(env, env.cmd(*command), profile)
+            env.assertEqual(actual, expected)
+            env.assertEqual(actual['total_results'], 100, message=actual)
+            env.assertEqual(actual['warnings'], [], message=actual)
+            env.expect(*command, 'APPLY', '@name + 1', 'AS', 'invalid').error().contains(
+                'SEARCH_NUMERIC_VALUE_INVALID')
+
+        # Parsing now replies directly from the coordinator worker too.
+        env.expect(*_background_hybrid_query(query_vec), 'UNKNOWN_OPTION').error().contains(
+            'Unknown')
 
 
 @skip(cluster=False)

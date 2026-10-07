@@ -4132,7 +4132,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
-  hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -4143,13 +4142,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   handlerCtx.bcCtx.request = &hreq->base;
 
-  if (policy != TimeoutPolicy_Return) {
-    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistHybridTimeoutFailCallback
-        : DistHybridTimeoutReturnStrictCallback;
+  handlerCtx.bcCtx.reply_callback = NULL;
+  if (policy == TimeoutPolicy_Fail) {
+    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    QueryRequest_SetUseReplyCallback(&hreq->base, true);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

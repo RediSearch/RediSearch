@@ -172,7 +172,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
 #ifdef ENABLE_ASSERT
 static bool isBackgroundFailReply(const HybridRequest *hreq) {
-  return (hreq->reqflags & QEXEC_F_RUN_IN_BACKGROUND) &&
+  return hreq->base.blockedClientCycleActive &&
          hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
          !QueryRequest_UsesReplyCallback(&hreq->base);
 }
@@ -339,7 +339,9 @@ static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *
                                         const QueryError *err, int rc) {
 #ifdef ENABLE_ASSERT
   if (isBackgroundFailReply(hreq)) {
-    SyncPoint_Wait(SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(hreq->requests[SEARCH_INDEX])
+                       ? SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE
+                       : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
   }
 #endif
   // Redis discards the worker reply when the timeout callback already replied.
@@ -374,7 +376,9 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
   RedisModule_ReplyKV_Array(reply, "results"); // >results
 #ifdef ENABLE_ASSERT
   if (isBackgroundFailReply(hreq)) {
-    SyncPoint_Wait(SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(hreq->requests[SEARCH_INDEX])
+                       ? SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE
+                       : SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
   }
 #endif
 }
@@ -651,7 +655,9 @@ done_err:
                        countQuery);
 #ifdef ENABLE_ASSERT
   if (isBackgroundFailReply(hreq)) {
-    SyncPoint_Wait(SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
+    SyncPoint_Wait(IsCoordinator(hreq->requests[SEARCH_INDEX])
+                       ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
+                       : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
   }
 #endif
 }
