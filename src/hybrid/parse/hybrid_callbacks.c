@@ -234,10 +234,11 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
 
     int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
-        const char *param = AC_GetStringNC(paramsArgs, NULL);
+        size_t param_len;
+        const char *param = AC_GetStringNC(paramsArgs, &param_len);
         RedisModuleString *value;
         AC_GetRString(paramsArgs, &value, 0);
-        if (DICT_ERR == Param_DictAdd(params, param, value, status)) {
+        if (DICT_ERR == Param_DictAdd(params, param, param_len, value, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
         }
