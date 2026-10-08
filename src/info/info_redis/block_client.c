@@ -19,6 +19,7 @@
 
 static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
   BlockedQueryNode *queryNode = node;
+  ProfileTimeout_Stop(ctx, &queryNode->profileTimeout);
   // Call the callback to free privdata if provided
   if (queryNode->freePrivData && queryNode->privdata) {
     queryNode->freePrivData(queryNode->privdata);
@@ -29,6 +30,7 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
 
 static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   BlockedCursorNode *cursorNode = node;
+  ProfileTimeout_Stop(ctx, &cursorNode->profileTimeout);
   if (cursorNode->freePrivData && cursorNode->privdata) {
     cursorNode->freePrivData(cursorNode->privdata);
   }
@@ -53,8 +55,14 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback, blockClientCtx->timeoutCallback, FreeQueryNode, blockClientCtx->timeoutMS);
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(
+      ctx, blockClientCtx->replyCallback, blockClientCtx->timeoutCallback, FreeQueryNode,
+      blockClientCtx->profileTimeoutSignal ? 0 : blockClientCtx->timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  if (blockClientCtx->profileTimeoutSignal) {
+    ProfileTimeout_Start(ctx, &node->profileTimeout, blockClientCtx->timeoutMS,
+                         blockClientCtx->profileTimeoutSignal, blockClientCtx->privdata);
+  }
   if (blockClientCtx->disconnectCallback) {
     RedisModule_SetDisconnectCallback(blockedClient, blockClientCtx->disconnectCallback);
   }
@@ -83,9 +91,14 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback,
-      blockClientCtx->timeoutCallback, FreeCursorNode, blockClientCtx->timeoutMS);
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(
+      ctx, blockClientCtx->replyCallback, blockClientCtx->timeoutCallback, FreeCursorNode,
+      blockClientCtx->profileTimeoutSignal ? 0 : blockClientCtx->timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  if (blockClientCtx->profileTimeoutSignal) {
+    ProfileTimeout_Start(ctx, &node->profileTimeout, blockClientCtx->timeoutMS,
+                         blockClientCtx->profileTimeoutSignal, blockClientCtx->privdata);
+  }
   if (blockClientCtx->disconnectCallback) {
     RedisModule_SetDisconnectCallback(blockedClient, blockClientCtx->disconnectCallback);
   }

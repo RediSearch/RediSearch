@@ -21,6 +21,7 @@
 #include "profile/options.h"
 
 #include "util/stringify.h"
+#include "util/profile_timeout.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -126,6 +127,9 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  bool profileExecutionTimedOut;  // Accessed atomically.
+  bool profileFail;
+  ProfileTimeout profileTimeout;
   // Captured before dispatch so CONFIG SET cannot change serialization placement.
   bool serializeInReplyCallback;
 
