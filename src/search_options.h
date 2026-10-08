@@ -35,12 +35,14 @@ typedef enum {
 typedef struct {
   uint32_t contextLen;
   uint16_t numFrags;
-  char *separator;
+  // Borrowed: a static default or the request's held argv
+  const char *separator;
 } SummarizeSettings;
 
+// Tags are borrowed: static defaults or the request's held argv
 typedef struct {
-  char *openTag;
-  char *closeTag;
+  const char *openTag;
+  const char *closeTag;
 } HighlightSettings;
 
 typedef struct {
