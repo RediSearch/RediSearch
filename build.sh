@@ -323,7 +323,7 @@ prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    --ignore-errors inconsistent,corrupt,mismatch,unused \
     --exclude '*/_deps/*'
   end_group
 }
@@ -345,7 +345,7 @@ capture_coverage() {
   # coverage post-processing doesn't flake the job. 'mismatch' is kept as well to
   # cover lcov versions that classify the same disagreement under that name.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    --ignore-errors inconsistent,corrupt,mismatch,unused \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
