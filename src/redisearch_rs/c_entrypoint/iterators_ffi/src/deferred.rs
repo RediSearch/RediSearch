@@ -68,6 +68,9 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
     // SAFETY: 1 keeps the index valid for the iterator's lifetime, and the producer closure
     // that holds this reference is owned by the iterator, so it cannot outlive the index.
     let index = unsafe { IndexRef::<'static>::from_raw(index) };
+    // TODO: borrow the blob instead of copying it. It lives in the PARAMS dict, which `AREQ_Free`
+    // releases after the pipeline that owns this iterator, but that ordering is not expressible
+    // across the FFI; a checked borrow needs the dict (or the request) owned from Rust.
     // SAFETY: guaranteed by 2.
     let blob =
         unsafe { std::slice::from_raw_parts(query_vector.cast::<u8>(), vector_byte_len) }.to_vec();
