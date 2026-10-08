@@ -75,7 +75,6 @@
 #include <assert.h>
 
 #include "../parse.h"
-#include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -532,19 +531,23 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
 
 text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   // Quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer; it still
-  // precedes the token in the query text.
-  RS_ASSERT(B.s[-1] == '$');
-  A = NewTokenNode(ctx, rm_normalize(B.s - 1, B.len + 1), -1);
+  // Also need to add the leading '$' which was consumed by the lexer
+  char *s = rm_malloc(B.len + 1);
+  *s = '$';
+  memcpy(s + 1, B.s, B.len);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
+  rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
 text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
   // Single quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer; it still
-  // precedes the token in the query text.
-  RS_ASSERT(B.s[-1] == '$');
-  A = NewTokenNode(ctx, rm_normalize(B.s - 1, B.len + 1), -1);
+  // Also need to add the leading '$' which was consumed by the lexer
+  char *s = rm_malloc(B.len + 1);
+  *s = '$';
+  memcpy(s + 1, B.s, B.len);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
+  rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
