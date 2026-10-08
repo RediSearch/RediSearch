@@ -271,6 +271,10 @@ void RPProfile_IncrementCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
 
+// Close suspended cumulative intervals under ownership, after resume work or before
+// recovery. Never called by a worker that lost admission; recovery freezes its time.
+void Profile_ResumeRPs(QueryProcessingCtx *qctx);
+
 /*******************************************************************************************************************
  *  Normalizer Result Processor
  *

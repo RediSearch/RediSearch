@@ -12,6 +12,8 @@
 #include "search_result_ffi.h"
 #include "value_ffi.h"
 #include "query.h"
+#include "query_request.h"
+#include "pipeline_execution.h"
 
 #include <vector>
 
@@ -21,12 +23,21 @@ struct OwnedBufferSource : ResultProcessor {
   unsigned nextCalls = 0, drainCalls = 0;
   int terminal = RS_RESULT_TIMEDOUT;
   const RLookupKey *key = nullptr;
+  void (*afterWait)(OwnedBufferSource *) = nullptr;
 
   OwnedBufferSource() {
     *static_cast<ResultProcessor *>(this) = {};
     Next = [](ResultProcessor *base, SearchResult *row) -> int {
       auto *self = static_cast<OwnedBufferSource *>(base);
       ++self->nextCalls;
+      if (self->cursor == self->scores.size() && self->afterWait) {
+        auto complete = self->afterWait;
+        self->afterWait = nullptr;
+        auto *access = static_cast<PipelineAccess *>(self->parent->executionAccess);
+        PipelineAccess_ReleaseForWait(access);
+        if (!PipelineAccess_ResumeAfterWait(access)) return RS_RESULT_TIMEDOUT;
+        complete(self);
+      }
       if (self->cursor == self->scores.size()) return self->terminal;
       const double score = self->scores[self->cursor++];
       SearchResult_SetDocId(row, self->cursor);
@@ -54,6 +65,7 @@ class OwnedBufferDrainTest : public ::testing::Test {
 
   void SetUp() override {
     source.key = key;
+    source.parent = &qctx;
     qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
     qctx.resultLimit = 10;
     qctx.err = &error;
@@ -72,6 +84,29 @@ class OwnedBufferDrainTest : public ::testing::Test {
     rp->upstream = &source;
     qctx.rootProc = &source;
     qctx.endProc = rp;
+  }
+
+  // Exercise wait/readmission inside an accumulator's single Next invocation.
+  int nextOwned() {
+    QueryRequestTimeout timeout = {};
+    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    auto *execution = PipelineExecution_New(&timeout);
+    struct Work {
+      OwnedBufferDrainTest *test;
+      int result = RS_RESULT_ERROR;
+    } work{this};
+    EXPECT_TRUE(PipelineExecution_RunNext(
+        execution,
+        [](PipelineAccess *access, void *data) {
+          auto *work = static_cast<Work *>(data);
+          auto *test = work->test;
+          PipelineAccess_Publish(access, &test->qctx);
+          work->result = test->qctx.endProc->Next(test->qctx.endProc, &test->row);
+        },
+        &work));
+    PipelineExecution_Free(execution);
+    return work.result;
   }
 
   std::vector<double> drain() {
@@ -161,4 +196,56 @@ TEST_F(OwnedBufferDrainTest, DepleterKeepsBufferedRowsWhenExecutionTimesOut) {
   attach(RPDepleter_New());
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rp->Next(rp, &row));
   EXPECT_EQ((std::vector<double>{1, 4, 2, 3}), drain());
+}
+
+TEST_F(OwnedBufferDrainTest, DepleterContinuesAccumulationAfterScopedWait) {
+  source.scores = {1, 4};
+  source.afterWait = [](OwnedBufferSource *source) {
+    source->scores.insert(source->scores.end(), {2, 3});
+  };
+  source.terminal = RS_RESULT_EOF;
+  attach(RPDepleter_New());
+  ASSERT_EQ(RS_RESULT_OK, nextOwned());
+  EXPECT_EQ(1, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ((std::vector<double>{4, 2, 3}), drain());
+  EXPECT_EQ(5, source.nextCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, DepleterProfileClosesScopedCallExactlyOnce) {
+  source.terminal = RS_RESULT_EOF;
+  source.afterWait = [](OwnedBufferSource *) {};
+  attach(RPDepleter_New());
+  auto *profile = RPProfile_New(rp, &qctx);
+  qctx.endProc = profile;
+  EXPECT_EQ(RS_RESULT_OK, nextOwned());
+  const auto before = RPProfile_GetTime(profile);
+  Profile_ResumeRPs(&qctx);
+  EXPECT_EQ(before, RPProfile_GetTime(profile));
+  EXPECT_EQ(1, RPProfile_GetCount(profile));
+  profile->Free(profile);
+}
+
+TEST_F(OwnedBufferDrainTest, SorterRetainsHeapAcrossScopedWaitAndRestoresBudget) {
+  source.afterWait = [](OwnedBufferSource *source) { source->scores.push_back(9); };
+  source.terminal = RS_RESULT_EOF;
+  attach(RPSorter_NewByScore(3, nullptr));
+  ASSERT_EQ(RS_RESULT_OK, nextOwned());
+  EXPECT_EQ(9, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ((std::vector<double>{4, 3}), drain());
+  EXPECT_EQ(10, qctx.resultLimit);
+  EXPECT_EQ(6, source.nextCalls);
+}
+
+TEST_F(OwnedBufferDrainTest, NormalizerResumesAccumulationBeforeChoosingFinalMaximum) {
+  source.afterWait = [](OwnedBufferSource *source) { source->scores.push_back(8); };
+  source.terminal = RS_RESULT_EOF;
+  attach(RPMaxScoreNormalizer_New(key));
+  ASSERT_EQ(RS_RESULT_OK, nextOwned());
+  EXPECT_EQ(1, SearchResult_GetScore(&row));
+  SearchResult_Clear(&row);
+  EXPECT_EQ((std::vector<double>{0.375, 0.25, 0.5, 0.125}), drain());
+  EXPECT_EQ(10, qctx.resultLimit);
+  EXPECT_EQ(6, source.nextCalls);
 }

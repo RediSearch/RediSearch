@@ -20,6 +20,7 @@
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
+#include "pipeline_execution.h"
 #include "extension.h"
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
@@ -260,9 +261,9 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
 }
 
 typedef enum {
-  REVALIDATE_CONTINUE,         // Proceed with a normal read
-  REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
-  REVALIDATE_TIMEDOUT,         // The deadline expired mid-revalidation: report a timeout
+  REVALIDATE_CONTINUE,          // Proceed with a normal read
+  REVALIDATE_VALIDATE_CURRENT,  // The iterator moved: use its current result before reading again
+  REVALIDATE_TIMEDOUT,          // The deadline expired mid-revalidation: report a timeout
 } RevalidateOutcome;
 
 /**
@@ -297,7 +298,20 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
     return REVALIDATE_CONTINUE;
   }
 
-  IndexSpec_LockRead(sctx->spec);
+  PipelineAccess *access = self->base.parent->executionAccess;
+  if (access) {
+    if (IndexSpec_TryLockRead(sctx->spec) != REDISMODULE_OK) {
+      IndexSpec *spec = sctx->spec;
+      PipelineAccess_ReleaseForWait(access);
+      IndexSpec_LockRead(spec);
+      if (!PipelineAccess_ResumeAfterWait(access)) {
+        IndexSpec_Unlock(spec);
+        return REVALIDATE_TIMEDOUT;
+      }
+    }
+  } else {
+    IndexSpec_LockRead(sctx->spec);
+  }
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
@@ -305,6 +319,7 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
     self->iterator->Free(self->iterator);
     self->iterator = NewEmptyIterator();
     if (rc == VALIDATE_TIMEOUT) {
+      IndexSpec_Unlock(sctx->spec);
       return REVALIDATE_TIMEDOUT;
     }
   } else if (rc == VALIDATE_MOVED && !it->atEOF) {
@@ -324,7 +339,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   // Handle spec lock and revalidation
   RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    return RS_RESULT_TIMEDOUT;
   }
   bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
@@ -389,8 +404,9 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // return before revalidating at all. A moved iterator would need no special handling here anyway,
   // but the timeout is answered defensively, so that a disk spec which one day does revalidate
   // reports the timeout instead of reading past it as end-of-results.
-  if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  RevalidateOutcome outcome = handleSpecLockAndRevalidate(self);
+  if (outcome == REVALIDATE_TIMEDOUT) {
+    return RS_RESULT_TIMEDOUT;
   }
 
   // Always update it after revalidation as iterator may have been replaced
@@ -781,11 +797,12 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
-static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAccess *access) {
   RPSorter *self = (RPSorter *)rp;
 
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
@@ -852,12 +869,14 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 }
 
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
+  PipelineAccess *access = rp->parent->executionAccess;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
-  while ((rc = rpsortNext_innerLoop(rp, r)) == RESULT_QUEUED) {
+  while ((rc = rpsortNext_innerLoop(rp, r, access)) == RESULT_QUEUED) {
     // Do nothing.
   }
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
@@ -967,6 +986,7 @@ static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
 
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
+  PipelineAccess *access = base->parent->executionAccess;
 
   // Currently a pager is never called more than offset+limit times.
   // We limit the entire pipeline to offset+limit (upstream and downstream).
@@ -979,6 +999,7 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
     if (rc != RS_RESULT_OK) {
+      if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
       base->parent->resultLimit = downstreamLimit;
       return rc;
     }
@@ -1388,6 +1409,12 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
 }
 
 static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
+#ifdef ENABLE_ASSERT
+  if (PipelineAccess_DebugPause(rp->parent->executionAccess,
+                                SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+#endif
   RPSafeLoader *self = (RPSafeLoader *)rp;
   SearchResult *curr_res;
 
@@ -1421,20 +1448,41 @@ static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result
   return RP_DRAIN_EOF;
 }
 
+static void rpSafeLoader_CommitLoadedBatch(RPSafeLoader *self, rs_wall_clock *start) {
+  rpSafeLoader_Load(self);
+  self->loaded = true;
+  ResultProcessor *rp = &self->base_loader.base;
+  if (rp->parent->isProfile) {
+    rs_wall_clock_ns_t elapsed = rs_wall_clock_elapsed_ns(start) + 1;
+    rp->parent->queryGILTime += elapsed;
+    rp->rpGILTime += elapsed;
+  }
+  rp->Next = rpSafeLoaderNext_Yield;
+}
+
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
+  PipelineAccess *access = rp->parent->executionAccess;
 
   // Keep fetching results from the upstream result processor until EOF is reached
   RedisSearchCtx *sctx = self->sctx;
-  int result_status;
+  int result_status = RS_RESULT_OK;
   uint32_t bufferLimit = rp->parent->resultLimit;
+  // An upstream suspension preserves the batch, but the temporary budget belongs
+  // to this invocation. Resume at its unfilled suffix, not at a fresh batch limit.
+  rp->parent->resultLimit =
+      bufferLimit > self->buffer_results_count ? bufferLimit - self->buffer_results_count : 0;
   SearchResult resToBuffer = SearchResult_New();
-  SearchResult *currBlock = NULL;
+  SearchResult *currBlock =
+      self->buffer_results_count
+          ? self->BufferBlocks[(self->buffer_results_count - 1) / DEFAULT_BUFFER_BLOCK_SIZE]
+          : NULL;
   // Get the next result and save it in the buffer
-  while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+  while (rp->parent->resultLimit &&
+         ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
     rp->parent->resultLimit--;
     // Buffered SearchResults outlive the source iterator's `it->current` slot;
@@ -1446,12 +1494,17 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
     resToBuffer = SearchResult_New();
   }
-  rp->parent->resultLimit = bufferLimit; // Restore the result limit
   SearchResult_Destroy(&resToBuffer);
+  if (result_status == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) {
+    return result_status;
+  }
+  rp->parent->resultLimit = bufferLimit;  // Restore the result limit
 
-  // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
+  // If we exit the loop because we got an error, or we have zero result, return without locking
+  // Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+       !(result_status == RS_RESULT_TIMEDOUT &&
+         rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
@@ -1468,11 +1521,38 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
 
+  if (access) {
+    bool forceWait = false;
+#ifdef ENABLE_ASSERT
+    forceWait = SyncPoint_IsArmed(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK) ||
+                SyncPoint_IsArmed(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+#endif
+    if (!forceWait && RedisModule_ThreadSafeContextTryLock(sctx->redisCtx) == REDISMODULE_OK) {
+      rpSafeLoader_CommitLoadedBatch(self, &rpStartTime);
+      RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+      return rp->Next(rp, res);
+    }
+    RedisModuleCtx *redisCtx = sctx->redisCtx;
+    PipelineAccess_ReleaseForWait(access);
+#ifdef ENABLE_ASSERT
+    // Recovery must finish without waking this parked frame.
+    SyncPoint_Wait(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK);
+    SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+#endif
+    RedisModule_ThreadSafeContextLock(redisCtx);
+    if (!PipelineAccess_ResumeAfterWait(access)) {
+      RedisModule_ThreadSafeContextUnlock(redisCtx);
+      return RS_RESULT_TIMEDOUT;
+    }
+    rpSafeLoader_CommitLoadedBatch(self, &rpStartTime);
+    RedisModule_ThreadSafeContextUnlock(redisCtx);
+    return rp->Next(rp, res);
+  }
+
 #ifdef ENABLE_ASSERT
   // Sync point: pause after buffering, before taking the GIL.
   // Interruptible so a fired timeout callback can release the worker.
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, blockedClientTimedOut,
-                      sctx->timeout);
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, blockedClientTimedOut, sctx->timeout);
 #endif
 
   // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
@@ -1798,15 +1878,27 @@ typedef struct {
   ResultProcessor base;
   rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
+  rs_wall_clock suspendedAt;
+  rs_wall_clock_ns_t suspendedTime;
+  bool suspended;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
+  PipelineAccess *access = base->parent->executionAccess;
 
   rs_wall_clock start;
   rs_wall_clock_init(&start);
+  // Recovery may close this interval while the upstream C frame is parked.
+  // A losing return must leave that published profile unchanged.
+  self->suspendedAt = start;
+  self->suspended = true;
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += rs_wall_clock_elapsed_ns(&start);
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
+  rs_wall_clock end;
+  rs_wall_clock_init(&end);
+  self->profileTime += rs_wall_clock_diff_ns(&start, &end);
+  self->suspended = false;
   self->profileCount++;
   return rc;
 }
@@ -1844,7 +1936,7 @@ rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp) {
   if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
     return RPSafeDepleter_GetDepletionTime(rp->upstream);
   } else if (rp->upstream && rp->upstream->type == RP_DEPLETER) {
-    return RPDepleter_GetDepletionTime(rp->upstream);
+    return RPDepleter_GetDepletionTime(rp->upstream) + ((RPProfile *)rp)->suspendedTime;
   } else {
     return ((RPProfile *)rp)->profileTime;
   }
@@ -1858,6 +1950,22 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
 void RPProfile_IncrementCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   self->profileCount++;
+}
+
+void Profile_ResumeRPs(QueryProcessingCtx *qctx) {
+  rs_wall_clock now;
+  rs_wall_clock_init(&now);
+  for (ResultProcessor *rp = qctx->endProc; rp; rp = rp->upstream) {
+    if (rp->type != RP_PROFILE) continue;
+    RPProfile *profile = (RPProfile *)rp;
+    if (!profile->suspended) continue;
+    // Close each parked wrapper's active interval once, before recovery starts.
+    // The losing worker cannot later overwrite the published profile.
+    rs_wall_clock_ns_t elapsed = rs_wall_clock_diff_ns(&profile->suspendedAt, &now);
+    profile->profileTime += elapsed;
+    profile->suspendedTime += elapsed;
+    profile->suspended = false;
+  }
 }
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
@@ -1927,33 +2035,35 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   return RS_RESULT_OK;
  }
 
-static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
-  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
-  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
-  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
-  // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF) {
-    rp->Next = RPMaxScoreNormalizer_Yield;
-    return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
-    rp->Next = RPMaxScoreNormalizer_Yield;
-    return rp->Next(rp, r);
-  } else if (rc != RS_RESULT_OK) {
-    return rc;
-  }
+ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r,
+                                               PipelineAccess *access) {
+   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
+   // if our upstream has finished - just change the state to not accumulating, and yield
+   if (rc == RS_RESULT_EOF) {
+     rp->Next = RPMaxScoreNormalizer_Yield;
+     return rp->Next(rp, r);
+   } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+     self->timedOut = true;
+     rp->Next = RPMaxScoreNormalizer_Yield;
+     return rp->Next(rp, r);
+   } else if (rc != RS_RESULT_OK) {
+     return rc;
+   }
 
-  self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
-  // The pooled result outlives the upstream iterator's `it->current` slot;
-  // preserve or drop the borrowed RSIndexResult before storing in the pool.
-  SearchResult_BufferIndexResult(rp, self->pooledResult);
-  array_ensure_append_1(self->pool, self->pooledResult);
+   self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
+   // The pooled result outlives the upstream iterator's `it->current` slot;
+   // preserve or drop the borrowed RSIndexResult before storing in the pool.
+   SearchResult_BufferIndexResult(rp, self->pooledResult);
+   array_ensure_append_1(self->pool, self->pooledResult);
 
-  // we need to allocate a new result for the next iteration
-  self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-  *self->pooledResult = SearchResult_New();
-  return RESULT_QUEUED;
-}
+   // we need to allocate a new result for the next iteration
+   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+   *self->pooledResult = SearchResult_New();
+   return RESULT_QUEUED;
+ }
 
 static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
@@ -1967,10 +2077,13 @@ static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResul
 
 static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  PipelineAccess *access = rp->parent->executionAccess;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
-  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {};
+  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r, access)) == RESULT_QUEUED) {
+  };
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
@@ -3286,7 +3399,8 @@ typedef struct {
  * Synchronous depletion function: consumes all results from upstream and stores
  * them in the results array.
  */
-static void RPDepleter_Deplete(RPDepleter *self) {
+static bool RPDepleter_Deplete(RPDepleter *self) {
+  PipelineAccess *access = self->base.parent->executionAccess;
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
@@ -3306,12 +3420,12 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     self->depleted_results++;
   }
 
-  // Record depletion time
-  self->depletionTime = rs_wall_clock_elapsed_ns(&start);
-
   SearchResult_Destroy(r);
   rm_free(r);
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return false;
+  self->depletionTime += rs_wall_clock_elapsed_ns(&start);
   self->last_rc = rc;
+  return true;
 }
 
 /**
@@ -3354,13 +3468,12 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
 
   // Call the sync depletion function directly
-  RPDepleter_Deplete(self);
+  if (!RPDepleter_Deplete(self)) return RS_RESULT_TIMEDOUT;
 
   // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT &&
-      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_TIMEDOUT && base->parent->timeoutPolicy != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_TIMEDOUT;
   }
@@ -3396,7 +3509,7 @@ void RPDepleter_StartDepletion(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
 
   // Deplete all results from upstream
-  RPDepleter_Deplete(self);
+  if (!RPDepleter_Deplete(self)) return;
 
   // Switch to yield mode so subsequent Next() calls return buffered results
   self->base.Next = RPDepleter_Next_Yield;

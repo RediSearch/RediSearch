@@ -16,6 +16,8 @@
 
 #include "value_ffi.h"
 #include "rpnet.h"
+#include "pipeline_execution.h"
+#include "rmr/chan.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "coord/dist_utils.h"
@@ -115,51 +117,46 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
   return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
 }
 
-// Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
-// Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
-//
-// Shard warnings are always recorded on the AREQ / QueryError so the reply
-// emitter can surface them. A shard's TIMEDOUT warning additionally controls
-// whether the coord pipeline should keep draining:
-//   - TimeoutPolicy_ReturnStrict: keep draining the remaining shards. The
-//     warning flag is forwarded via QEXEC_S_SHARD_TIMED_OUT_WARNING; the
-//     coord's own deadline (handled by the strict timeout callback) is the
-//     authoritative stop signal.
-//   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
-//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
-static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
+// Record RESP3 batch warnings for serialization; report whether timeout was present.
+static bool recordReplyWarnings(RPNet *nc) {
   bool shard_timed_out = false;
-  // Check for warnings (resp3 only)
-  if (is_resp3) {
-    RS_ASSERT(nc->current.meta);
-    MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
-    size_t num_warnings = MRReply_Length(warning);
-    // Iterate over all warnings in the array
-    for (size_t i = 0; i < num_warnings; i++) {
-      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
-      // Set an error to be later picked up and sent as a warning
-      if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
-        RS_ASSERT(nc->areq);
-        shard_timed_out = true;
-        nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
-      } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-      } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
-        QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-      } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
-        RS_ASSERT(nc->areq);
-        AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
-      } else if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
-        RS_ASSERT(nc->areq);
-        nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
-      }
+  RS_ASSERT(nc->current.meta);
+  MRReply *warning = MRReply_MapElement(nc->current.meta, "warning");
+  size_t num_warnings = MRReply_Length(warning);
+  // Iterate over all warnings in the array
+  for (size_t i = 0; i < num_warnings; i++) {
+    const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
+    // Set an error to be later picked up and sent as a warning
+    if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
+      RS_ASSERT(nc->areq);
+      shard_timed_out = true;
+      nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+    } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
+      QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+    } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
+      QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+    } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+      RS_ASSERT(nc->areq);
+      AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
+    } else if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
+      RS_ASSERT(nc->areq);
+      nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
     }
   }
+  return shard_timed_out;
+}
 
+static int processWarningsAndCleanup(RPNet *nc, bool is_resp3, bool draining) {
+  // STRICT records warnings on admission: the output budget can stop Next
+  // before it revisits this batch for cleanup. Other policies still decide
+  // whether to terminate only after yielding the batch.
+  bool shard_timed_out = is_resp3 &&
+                         nc->areq->base.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict &&
+                         recordReplyWarnings(nc);
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (shard_timed_out && nc->areq->base.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+  if (shard_timed_out && !draining) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -220,14 +217,16 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   return RS_RESULT_OK;
 }
 
-int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
+static int getNextReplyMode(RPNet *nc, bool draining) {
+  if (!nc->it) return RS_RESULT_EOF;
+  if (!draining && nc->cmd.forCursor) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       RPNet_resetCurrent(nc);
       return RS_RESULT_EOF;
     }
   }
-  // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
+  PipelineAccess *access = nc->base.parent->executionAccess;
+  // Legacy pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
   // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
   // beyond the deadline for in-flight shard replies), while hybrid streams get
@@ -237,26 +236,46 @@ int getNextReply(RPNet *nc) {
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
   // fully drained downstream.
-  SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+  if (!draining && !access) {
+    SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+  }
 #endif
   RS_ASSERT(nc->areq);
   QueryRequestTimeout *timeout = &nc->areq->base.timeout;
   const struct timespec *deadline = getAbsTimeout(nc);
-  RS_Atomic(bool) *abortFlag =
-      timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-          ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
-          : NULL;
+  RS_Atomic(bool) *abortFlag = timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                   ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
+                                   : NULL;
   bool popTimedOut = false;
-  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+  MRReply *root = draining || access ? MRIterator_TryNext(nc->it)
                   : deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
                       : MRIterator_Next(nc->it);
+
+  if (!root && access && !draining && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+#ifdef ENABLE_ASSERT
+    SyncPoint_WaitUntil(SYNC_POINT_RPNET_EMPTY_OWNED_POP, areq_timed_out, nc->areq);
+#endif
+    if (MRIterator_GetPending(nc->it)) {
+      MRChannel *channel = MRIterator_GetChannel(nc->it);
+      PipelineAccess_ReleaseForWait(access);
+#ifdef ENABLE_ASSERT
+      // Main must be able to finish recovery without releasing this wait.
+      SyncPoint_Wait(SYNC_POINT_RPNET_WAITING_FOR_REPLY);
+#endif
+      MRChannel_WaitReadable(channel, abortFlag);
+      if (!PipelineAccess_ResumeAfterWait(access)) return RS_RESULT_TIMEDOUT;
+    }
+    // Completion is published after the final enqueue. The first pop may have
+    // preceded that enqueue, so only a pop after completion can establish EOF.
+    root = MRIterator_TryNext(nc->it);
+  }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
     // Drain-only: empty channel means end of queued replies, not a timeout —
     // main-thread serialization only consumes what the I/O threads have pushed.
-    if (nc->drainOnly) {
+    if (draining) {
       return RS_RESULT_EOF;
     }
     if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
@@ -322,22 +341,27 @@ int getNextReply(RPNet *nc) {
   if (nc->cmd.protocol == 3) { // RESP3
     meta = MRReply_ArrayElement(root, 0);
     if (nc->cmd.forProfiling) {
-      meta = MRReply_MapElement(meta, "results"); // profile has an extra level
+      meta = MRReply_MapElement(meta, "results");  // profile has an extra level
     }
     rows = MRReply_MapElement(meta, "results");
-  } else { // RESP2
+  } else {  // RESP2
     rows = MRReply_ArrayElement(root, 0);
   }
 
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
+  if (meta && nc->areq->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    recordReplyWarnings(nc);
+  }
 
-  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
+  const size_t empty_rows_len =
+      nc->cmd.protocol == 3 ? 0 : 1;  // RESP2 has the first element as the number of results.
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY,
+                rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3, draining);
 
     if (ret == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
@@ -346,6 +370,12 @@ int getNextReply(RPNet *nc) {
 
   return RS_RESULT_OK;
 }
+
+int getNextReply(RPNet *nc) {
+  return getNextReplyMode(nc, nc->drainOnly);
+}
+
+static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r);
 
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
@@ -389,7 +419,7 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Drain = RPDrain_EOF;
+  nc->base.Drain = rpnetDrain;
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
@@ -401,19 +431,20 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.meta = NULL;
 }
 
-int rpnetNext(ResultProcessor *self, SearchResult *r) {
+static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
   RPNet *nc = (RPNet *)self;
+  PipelineAccess *access = self->parent->executionAccess;
   AREQ *areq = nc->areq;
   RS_ASSERT(areq);
 
 #ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
+  if (!draining) SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+  if (QueryRequest_UsesReplyCallback(&areq->base) && !draining &&
       QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
@@ -440,7 +471,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
+      if (processWarningsAndCleanup(nc, resp3, draining) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
 
@@ -454,20 +485,21 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   while (!root) {
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
-    if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+    if (!draining && areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
         QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
-    } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+    } else if (!draining && nc->it && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
       // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    int ret = getNextReply(nc);
+    int ret = getNextReplyMode(nc, draining);
+    if (ret == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return ret;
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
     } else if (ret == RS_RESULT_TIMEDOUT) {
@@ -536,7 +568,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 #ifdef ENABLE_ASSERT
     // Sync point (debug): park BG after a shard reply has been admitted into the
     // pipeline (popped from the channel, about to emit its rows).
-    SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
+    if (!draining) {
+      SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
+    }
 #endif
     if (resp3) { // RESP3
       nc->curIdx = 0;
@@ -608,6 +642,23 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   return RS_RESULT_OK;
+}
+
+int rpnetNext(ResultProcessor *self, SearchResult *r) {
+  return rpnetRead(self, r, ((RPNet *)self)->drainOnly);
+}
+
+static RPDrainStatus rpnetDrain(ResultProcessor *self, SearchResult *r) {
+  int rc = rpnetRead(self, r, true);
+  switch (rc) {
+    case RS_RESULT_OK:
+      return RP_DRAIN_OK;
+    case RS_RESULT_EOF:
+      return RP_DRAIN_EOF;
+    default:
+      RS_ASSERT(rc == RS_RESULT_ERROR);
+      return RP_DRAIN_ERROR;
+  }
 }
 
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r) {

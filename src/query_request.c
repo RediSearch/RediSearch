@@ -15,6 +15,7 @@
 #include "coord/rmr/chan.h"
 #include "hybrid/hybrid_request.h"
 #include "module.h"
+#include "pipeline_execution.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
@@ -251,6 +252,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const Reque
   QueryRequestTimeout_Init(&request->timeout, timeoutConfig);
   QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
+  request->execution = NULL;
   QueryRequest_SetEndProcRef(request, NULL);
   if (argv) {
     QueryRequest_HoldArgs(&request->args, argv, argc);
@@ -270,6 +272,7 @@ void QueryRequest_Destroy(QueryRequest *request) {
   RS_ASSERT(!RegistryInfo_IsLinked(&request->registryInfo));
   QueryRequest_ResetReply(request);
   QueryRequestAsyncState_Destroy(&request->async);
+  PipelineExecution_Free(request->execution);
   QueryRequest_SetEndProcRef(request, NULL);
   if (request->args.argv) {
     if (MainThread_Is()) {
