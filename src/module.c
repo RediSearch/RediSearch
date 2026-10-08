@@ -2177,6 +2177,26 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   rm_free(ctx);
 }
 
+static MRReply *profileField(MRReply *profile, const char *key) {
+  if (!profile) return NULL;
+  if (MRReply_Type(profile) == MR_REPLY_MAP) return MRReply_MapElement(profile, key);
+  for (size_t i = 0; i + 1 < MRReply_Length(profile); i += 2) {
+    if (MRReply_StringEquals(MRReply_ArrayElement(profile, i), key, false)) {
+      return MRReply_ArrayElement(profile, i + 1);
+    }
+  }
+  return NULL;
+}
+
+static bool searchProfileExecutionTimedOut(const searchRequestCtx *req) {
+  return req->profileFail && RS_AtomicBoolLoadRelaxed(&req->profileExecutionTimedOut);
+}
+
+static void searchProfileTimeout(void *data) {
+  searchRequestCtx *req = data;
+  RS_AtomicBoolStoreRelaxed(&req->profileExecutionTimedOut, true);
+}
+
 static searchRequestCtx* searchRequestCtx_New(void) {
   return rm_calloc(1, sizeof(searchRequestCtx));
 }
@@ -2895,6 +2915,7 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
     for (int j = 0; j < len; ++j) {
+      if (searchProfileExecutionTimedOut(req)) break;
       res = newResult_resp3(rCtx->cachedResult, results, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores, reduceSpecialCaseCtxSortBy);
       if (res && res->id) {
         rCtx->cachedResult = NULL;
@@ -2924,6 +2945,7 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
     int step = rCtx->offsets.step;
     int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
     for (int j = 1; j < len; j += step) {
+      if (searchProfileExecutionTimedOut(req)) break;
       if (j + step > len) {
         RedisModule_Log(
             ctx, "warning",
@@ -2964,7 +2986,7 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
     while (CoordReduceDebugCtx_IsPaused()) {
       // Check if timed out - break to avoid deadlock with timeout callback
       // (timeout callback waits for reducer to complete, but we're paused)
-      if (MRCtx_IsTimedOut(rCtx->mc)) {
+      if (MRCtx_IsTimedOut(rCtx->mc) || searchProfileExecutionTimedOut(rCtx->searchCtx)) {
         CoordReduceDebugCtx_SetPause(false);
         break;
       }
@@ -3058,6 +3080,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
     bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
+      if (searchProfileExecutionTimedOut(req)) break;
       searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
       processSearchReplyResult(res, rCtx, ctx);
     }
@@ -3073,6 +3096,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     int step = rCtx->offsets.step;
 
     for (int j = 1; j < len; j += step) {
+      if (searchProfileExecutionTimedOut(req)) break;
       if (j + step > len) {
         RedisModule_Log(ctx, "warning",
           "got a bad reply from redisearch, reply contains less parameters then expected");
@@ -3304,6 +3328,7 @@ struct PrintCoordProfile_ctx {
   rs_wall_clock *totalTime;
   rs_wall_clock_ns_t postProcessTime;
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
+  bool timedOut;
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
@@ -3311,12 +3336,23 @@ static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
   RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
   RedisModule_ReplyKV_Double(reply, "Coordinator queue time", rs_wall_clock_convert_ns_to_ms_d(pCtx->coordQueueTime));
+  if (pCtx->timedOut) {
+    RedisModule_ReplyKV_Array(reply, "Warning");
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    RedisModule_Reply_ArrayEnd(reply);
+  }
   RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
+  const bool profileTimedOut = searchProfileExecutionTimedOut(rCtx->searchCtx);
+  if (profileTimedOut) {
+    rCtx->searchCtx->timedOut = true;
+    while (heap_count(rCtx->pq)) rm_free(heap_poll(rCtx->pq));
+    rCtx->totalReplies = 0;
+  }
   bool has_map = RedisModule_IsRESP3(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
@@ -3335,6 +3371,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
         .totalTime = totalTime,
         .postProcessTime = postProcessTime,
         .coordQueueTime = rCtx->searchCtx->coordQueueTime,
+        .timedOut = profileTimedOut,
     };
     Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
 
@@ -3441,7 +3478,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT) {
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
-      if (MRCtx_IsTimedOut(mc)) {
+      if (MRCtx_IsTimedOut(mc) || searchProfileExecutionTimedOut(req)) {
         CoordReduceDebugCtx_SetPause(false);
         break;
       }
@@ -3486,7 +3523,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
       rCtx->lastError = curr_rep;
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
-      if (should_return_error(errCode)) {
+      if (req->profileFail && errCode == QUERY_ERROR_CODE_TIMED_OUT) {
+        searchProfileTimeout(req);
+      }
+      if (should_return_error(errCode) &&
+          !(req->profileFail && errCode == QUERY_ERROR_CODE_TIMED_OUT)) {
         // Shard reply already contains the prefixed error string — set directly.
         QueryError_SetCode(MRCtx_GetStatus(mc), errCode);
         QueryError_SetDetail(MRCtx_GetStatus(mc), errStr);
@@ -3548,7 +3589,22 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
       } else {
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
-      rCtx->processReply(mr_reply, rCtx, ctx);
+      if (req->profileFail) {
+        MRReply *shardProfile =
+            resp3 ? MRReply_MapElement(replies[i], "Profile") : MRReply_ArrayElement(replies[i], 1);
+        MRReply *shards = profileField(shardProfile, "Shards");
+        if (shards && MRReply_Length(shards)) {
+          MRReply *warnings = profileField(MRReply_ArrayElement(shards, 0), "Warning");
+          for (size_t w = 0; warnings && w < MRReply_Length(warnings); ++w) {
+            const char *warning = MRReply_String(MRReply_ArrayElement(warnings, w), NULL);
+            if (warning &&
+                QueryWarningCode_GetCodeFromMessage(warning) == QUERY_WARNING_CODE_TIMED_OUT) {
+              searchProfileTimeout(req);
+            }
+          }
+        }
+      }
+      if (!searchProfileExecutionTimedOut(req)) rCtx->processReply(mr_reply, rCtx, ctx);
       if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
           goto cleanup;
       }
@@ -3561,7 +3617,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
       // Check if timed out - break to avoid deadlock with timeout callback
-      if (MRCtx_IsTimedOut(mc)) {
+      if (MRCtx_IsTimedOut(mc) || searchProfileExecutionTimedOut(req)) {
         CoordReduceDebugCtx_SetPause(false);
         break;
       }
@@ -3800,6 +3856,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   CoordRequestCtx *reqCtx = privdata;
+  ProfileTimeout_Stop(ctx, &reqCtx->profileTimeout);
   if (reqCtx->type == COMMAND_AGGREGATE && reqCtx->timeoutPolicy == TimeoutPolicy_Fail &&
       RedisModule_BlockedClientDisconnected(ctx)) {
     // A discarded reply must not leave its pending cursor idle.
@@ -3915,6 +3972,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    if (isProfile && policy == TimeoutPolicy_Fail) {
+      handlerCtx.bcCtx.timeoutMS = 0;
+      ProfileTimeout_Start(ctx, &reqCtx->profileTimeout, queryTimeoutMS,
+                           CoordRequestCtx_ProfileTimeout, reqCtx);
+    }
     CoordRequestCtx_SetUseReplyCallback(reqCtx, useReplyCallback);
   }
 
@@ -4486,6 +4548,8 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 #endif
   if (privdata) {
     struct MRCtx *mrctx = privdata;
+    searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+    ProfileTimeout_Stop(ctx, &req->profileTimeout);
     MRCtx_DecrRef(mrctx);
   }
 }
@@ -4604,7 +4668,9 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
 // Block client with timeout callback.
 // Returns a blocked client with the appropriate timeout from query args or global config.
 // The timeout callback is selected based on the timeout policy.
-static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, size_t queryTimeout) {
+static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx,
+                                                                  size_t queryTimeout,
+                                                                  searchRequestCtx *req) {
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   // DistSearchFreePrivData will be called to free the MRCtx after reply/timeout callback completes
 
@@ -4613,6 +4679,10 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailCallback;
+    if (req->profileArgs > 0) {
+      ProfileTimeout_Start(ctx, &req->profileTimeout, queryTimeout, searchProfileTimeout, req);
+      queryTimeout = 0;
+    }
   } else if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
@@ -4722,6 +4792,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  req->profileFail = req->profileArgs > 0 &&
+                     RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+
   // Create MRCtx on main thread with searchRequestCtx as privdata.
   // NumShards is used as a hint for reply capacity - unsafe read is fine.
   struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
@@ -4730,7 +4803,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
-  RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
+  RedisModuleBlockedClient *bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS, req);
 
   // Set the blocked client in MRCtx
   MRCtx_SetBlockedClient(mrctx, bc);
