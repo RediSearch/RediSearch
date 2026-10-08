@@ -40,11 +40,11 @@ dict *Param_DictCreate() {
   return dictCreate(&dictTypeBorrowedParams, NULL);
 }
 
-int Param_DictAdd(dict *d, const char *name, RedisModuleString *value, QueryError *status) {
-  CharBuf key = {.buf = (char *)name, .len = strlen(name)};
+int Param_DictAdd(dict *d, const char *name, size_t name_len, RedisModuleString *value, QueryError *status) {
+  CharBuf key = {.buf = (char *)name, .len = name_len};
   int res = dictAdd(d, &key, value);
   if (res == DICT_ERR) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Duplicate parameter", " `%s`", name);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Duplicate parameter", " `%.*s`", (int)name_len, name);
   }
   return res;
 }
