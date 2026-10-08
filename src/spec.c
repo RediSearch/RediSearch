@@ -1995,6 +1995,9 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
+    // The live field owns its compiled path for indexing and keeps it across snapshot rebuilds.
+    // Query loaders own their compiled paths, so this snapshot needs no indexing handle.
+    field->compiledPath = NULL;
     field->fieldName = HiddenString_Duplicate(fs->fieldName);
     // if name & path are pointing to the same string, copy only pointer
     if (fs->fieldName != fs->fieldPath) {

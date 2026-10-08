@@ -298,7 +298,8 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
+    jsonIter = JSON_GetWithCachedPath(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL),
+                                      &field->compiledPath);
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
       continue;
@@ -365,18 +366,16 @@ static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
 // JSON half of Document_ProbeFieldsPresent. Mirrors the per-field resolution in
 // Document_LoadSchemaFieldJson's field loop: a NULL iterator, or a zero-length result (as can
 // happen after JSON.DEL), means the field is absent.
-static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
-                                                        const FieldSpec *fields, t_fieldIndex start,
-                                                        t_fieldIndex end) {
+static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key, FieldSpec *fields,
+                                                        t_fieldIndex start, t_fieldIndex end) {
   RedisJSON jsonRoot = JSON_GetJsonFromHandleCompat(key);
   if (!jsonRoot) {
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }
   for (t_fieldIndex i = start; i < end; ++i) {
-    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations,
-    // and reuse parsed field paths to avoid parsing the same path for every JSON key.
-    JSONResultsIterator iter =
-        japi->get(jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL));
+    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations.
+    JSONResultsIterator iter = JSON_GetWithCachedPath(
+        jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL), &fields[i].compiledPath);
     if (!iter) {
       continue;
     }
