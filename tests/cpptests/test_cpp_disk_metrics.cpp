@@ -43,9 +43,9 @@ TEST(DiskMetricsLifecycle, CleanupStopsCollectionBeforeIndexesAndClosesAfterOthe
         };
         disk = &api;
         disk_db = reinterpret_cast<RedisSearchDisk*>(&state);
-        ConcurrentSearch_CreatePool(1);
+        const int pool = ConcurrentSearch_CreatePool(1);
         ConcurrentSearch_ThreadPoolRun([](void*) { active->otherWorkerFinished.store(true); },
-                                       nullptr);
+                                       nullptr, pool);
         RMCK::ArgvList args(RSDummyContext, "FT.CREATE", "cleanup_metrics", "SCHEMA", "t", "TEXT");
         QueryError error = QueryError_Default();
         if (!Indexes_CreateNewSpec(RSDummyContext, args, args.size(), &error)) _exit(1);
