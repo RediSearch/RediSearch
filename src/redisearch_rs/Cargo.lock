@@ -2250,6 +2250,7 @@ dependencies = [
  "reducers",
  "rlookup",
  "rqe_core",
+ "rustc-hash",
  "tracing",
  "tracing_assert",
  "value",

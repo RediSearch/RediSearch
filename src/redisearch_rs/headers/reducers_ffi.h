@@ -155,6 +155,19 @@ bool CollectReducer_IsLoadAll(const Reducer *r);
 bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 
 /**
+ * Creates an exact `COUNT_DISTINCT` reducer of `srckey` and returns its base
+ * [`ffi::Reducer`], which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CountDistinctReducer_Create(const RLookupKey *srckey);
+
+/**
  * Creates a `COUNT` reducer and returns its base [`ffi::Reducer`], which the
  * caller frees through its `Free` callback.
  */
