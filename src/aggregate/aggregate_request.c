@@ -1052,6 +1052,10 @@ static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool is
     return REDISMODULE_ERR;
   }
 
+  if (PLNLoadStep_ValidateArgs(&loadfields, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
