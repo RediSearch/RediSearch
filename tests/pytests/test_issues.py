@@ -1099,6 +1099,7 @@ def test_mod_4375(env):
 def test_mod_6557(env: Env):
   # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
   env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
   # Set topology to an invalid one (assuming port 9 is not open)
   env.expect('SEARCH.CLUSTERSET',
              'MYID',
@@ -1930,6 +1931,7 @@ def test_mod_14112(env: Env):
   env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
   # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
   env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
   # Set topology to an invalid one (assuming port 9 is not open)
   env.expect('SEARCH.CLUSTERSET',
              'MYID',

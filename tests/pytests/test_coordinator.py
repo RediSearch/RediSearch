@@ -392,6 +392,7 @@ def test_single_shard_optimization():
 
 def _set_all_shards_unreachable(env: Env):
     """Set topology so all shards point to unreachable addresses (port 9)."""
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     env.expect('SEARCH.CLUSTERSET',
                'MYID', '1',
                'RANGES', '2',
@@ -415,6 +416,7 @@ def _set_one_shard_unreachable(env: Env):
     real_port = cluster_info[5][0][7]
     real_host = cluster_info[5][0][5]
 
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     env.expect('SEARCH.CLUSTERSET',
                'MYID', '1',
                'RANGES', '2',
@@ -540,3 +542,31 @@ def test_validation_preserves_connection_round_robin():
                       for c in clients if c['cmd'].lower() == internal_command
                       and int(c['tot-cmds']) > baseline.get(c['id'], 0)]
             env.assertEqual(sorted(deltas), [2, 2, 2, 2], message=clients)
+
+@skip(cluster=True)
+def test_clusterset_on_standalone_server(env):
+    """Without cluster mode Redis has no internal secret for the coordinator's
+    shard connections to authenticate with; the server must stay up."""
+    if RS_TEST_ENTERPRISE:
+        env.skip()
+    # Don't wait for the topology below to be validated
+    env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 1)
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    port = env.cmd('CONFIG', 'GET', 'port')[1]
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '16383',
+               'ADDR', f'127.0.0.1:{port}', 'MASTER').ok()
+    try:
+        # Runs on the coordinator I/O thread, which then opens the shard connections
+        env.cmd('SEARCH.CLUSTERINFO')
+        # Several reconnect rounds
+        time.sleep(1)
+        # env.cmd, unlike env.expect, raises when the server is gone
+        env.assertTrue(env.cmd('PING'))
+    except redis.ConnectionError:
+        env.assertTrue(False, message='Server went down after SEARCH.CLUSTERSET on a standalone server')
+        return
+
+    # Drop the unusable topology before the following tests
+    env.stop()
+    env.start()
