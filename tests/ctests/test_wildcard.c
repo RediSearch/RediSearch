@@ -17,39 +17,37 @@
 #include <stddef.h>
 
 
-int _testStarBreak(char *str, int slen, char **resArray, int reslen) {
-  size_t tokenIdx[8];
-  size_t tokenLen[8];
+int _testStarBreak(char *str, int slen, const char *expected, int expectedOrdinal) {
+  size_t tokenIdx;
+  size_t tokenLen;
 
-  int len = Suffix_ChooseToken(str, slen, tokenIdx, tokenLen);
-  ASSERT_EQUAL(len, reslen);
-  for (int i = 0; i < reslen; ++i) {
-    // printf("%s %ld\n", &str[tokenIdx[i]], tokenLen[i]);
-    ASSERT(!strncmp(resArray[i], &str[tokenIdx[i]], tokenLen[i]));
+  int ordinal = Suffix_ChooseToken(str, slen, &tokenIdx, &tokenLen);
+  ASSERT_EQUAL(ordinal, expectedOrdinal);
+  if (expected) {
+    ASSERT_EQUAL(tokenLen, strlen(expected));
+    ASSERT(!strncmp(expected, &str[tokenIdx], tokenLen));
   }
   return 0;
 }
 
 int test_StarBreak() {
   char *str = "foo*bar";
-  char *results1[8] = {"foo", "bar"};
-  _testStarBreak(str, strlen(str), results1, 1);
+  ASSERT_EQUAL(_testStarBreak(str, strlen(str), "bar", 1), 0);
 
   str = "*foo*bar";
-  _testStarBreak(str, strlen(str), results1, 1);
+  ASSERT_EQUAL(_testStarBreak(str, strlen(str), "bar", 1), 0);
 
   str = "foo*bar*";
-  _testStarBreak(str, strlen(str), results1, 1);
+  ASSERT_EQUAL(_testStarBreak(str, strlen(str), "bar", 1), 0);
 
   str = "foo*bar*red??*l*bs?";
-  char *results2[] = {"foo", "bar", "red??", "l", "bs?"};
-  _testStarBreak(str, strlen(str), results2, 4);
+  ASSERT_EQUAL(_testStarBreak(str, strlen(str), "bs?", 4), 0);
 
   str = "******";
-  _testStarBreak(str, strlen(str), NULL, -1);
+  ASSERT_EQUAL(_testStarBreak(str, strlen(str), NULL, -1), 0);
 
   str = "foobar";
-  _testStarBreak(str, strlen(str), &str, 0);
+  ASSERT_EQUAL(_testStarBreak(str, strlen(str), "foobar", 0), 0);
 
   return 0;
 }

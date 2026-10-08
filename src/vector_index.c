@@ -149,116 +149,6 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool cre
   return fieldSpec->vectorOpts.vecSimIndex;
 }
 
-// Drains `reply` into freshly `rm_malloc`'d arrays of doc ids and (when `yields_metric`)
-// metric values, and frees `reply`. On return, `*docIdsList` / `*metricList` own the arrays
-// (metric list is NULL when `!yields_metric`), and the result is the number of entries. When
-// there are no results both output pointers are set to NULL and 0 is returned.
-static size_t drainVectorQueryReply(VecSimQueryReply *reply, bool yields_metric,
-                                    t_docId **docIdsList, double **metricList) {
-  size_t res_num = VecSimQueryReply_Len(reply);
-  if (res_num == 0) {
-    VecSimQueryReply_Free(reply);
-    *docIdsList = NULL;
-    *metricList = NULL;
-    return 0;
-  }
-  t_docId *ids = rm_malloc(sizeof(*ids) * res_num);
-  double *metrics = yields_metric ? rm_malloc(sizeof(*metrics) * res_num) : NULL;
-
-  // Collect the results' id and distance and set it in the arrays.
-  VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
-  for (size_t i = 0; i < res_num; i++) {
-    VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
-    ids[i] = VecSimQueryResult_GetId(res);
-    if (yields_metric) {
-      metrics[i] = VecSimQueryResult_GetScore(res);
-    }
-  }
-  VecSimQueryReply_IteratorFree(iter);
-  VecSimQueryReply_Free(reply);
-
-  *docIdsList = ids;
-  *metricList = metrics;
-  return res_num;
-}
-
-// Context for a deferred vector range query. Captured at iterator-build time (under the spec
-// lock) but the actual VecSim query runs lazily on the first read (after the lock is released),
-// so writes can proceed concurrently with range queries. See MOD-16437.
-typedef struct {
-  VecSimIndex *vecsim;          // borrowed; valid for the iterator's lifetime
-  const void *vector;           // borrowed from the query AST (not owned, not freed)
-  double radius;
-  // Resolved at build time and copied by value. Its timeoutCtx borrows the request timeout,
-  // which must outlive the lazy iterator and any reply retained while it is drained.
-  VecSimQueryParams qParams;
-  VecSimQueryReply_Order order;
-} VectorRangeProducerCtx;
-
-// Runs the deferred vector range query. On timeout, frees the reply, marks `out` and returns NULL;
-// otherwise returns the reply for the caller to drain. Invoked by the lazy iterator on its first
-// read/skip_to (see `NewLazyVectorRangeIterator`). Newly-added vectors are not filtered here:
-// documents whose id exceeds the query's snapshot are dropped downstream when their (missing)
-// metadata is looked up in the doc table.
-static VecSimQueryReply *runVectorRangeQuery(VectorRangeProducerCtx *ctx, VectorRangeResults *out) {
-  VecSimQueryReply *reply =
-      VecSimIndex_RangeQuery(ctx->vecsim, ctx->vector, ctx->radius, &ctx->qParams, ctx->order);
-  if (VecSimQueryReply_GetCode(reply) == VecSim_QueryReply_TimedOut) {
-    VecSimQueryReply_Free(reply);
-    out->timed_out = true;
-    return NULL;
-  }
-  return reply;
-}
-
-// Producer for range queries that do not yield a distance metric (plain ID-list iterator).
-static VectorRangeResults vectorRangeProduceIdList(void *ctxp) {
-  VectorRangeResults out = {0};
-  VecSimQueryReply *reply = runVectorRangeQuery(ctxp, &out);
-  if (reply) {
-    out.num = drainVectorQueryReply(reply, /*yields_metric=*/false, &out.ids, &out.metrics);
-  }
-  return out;
-}
-
-// Producer for range queries that yield a distance metric (metric iterator).
-static VectorRangeResults vectorRangeProduceMetric(void *ctxp) {
-  VectorRangeResults out = {0};
-  VecSimQueryReply *reply = runVectorRangeQuery(ctxp, &out);
-  if (reply) {
-    out.num = drainVectorQueryReply(reply, /*yields_metric=*/true, &out.ids, &out.metrics);
-  }
-  return out;
-}
-
-static void vectorRangeFreeCtx(void *ctxp) {
-  rm_free(ctxp);
-}
-
-// Builds a lazily-evaluated vector range iterator from already-resolved query parameters. Shared
-// by NewVectorIterator's range branch and by unit tests, so both drive the same deferred path
-// (the query runs on the iterator's first read, after the spec lock is released; see MOD-16437).
-// `vector` and `timeout` are borrowed and must outlive the iterator. Ownership of the
-// freshly-allocated context transfers to the returned iterator.
-QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
-                                                    double radius, VecSimQueryParams qParams,
-                                                    VecSimQueryReply_Order order, bool yields_metric,
-                                                    QueryRequestTimeout *timeout) {
-  RS_ASSERT(timeout);
-  VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
-  *ctx = (VectorRangeProducerCtx){
-      .vecsim = vecsim,
-      .vector = vector,
-      .radius = radius,
-      .qParams = qParams,
-      .order = order,
-  };
-  ctx->qParams.timeoutCtx = timeout;
-  ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
-  return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,
-                                    order == BY_ID, VecSimIndex_IndexSize(vecsim), VECTOR_DISTANCE);
-}
-
 static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, size_t param_name_len) {
   for (size_t i = 0; i < array_len(vq->params.params); ++i) {
     const VecSimRawParam *param = &vq->params.params[i];
@@ -353,13 +243,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
+      RS_ASSERT(q->sctx->timeout);
       // Defer the actual range query to the first read, so it runs after the spec lock is
-      // released and writes can proceed concurrently (see MOD-16437). The query vector is
-      // borrowed from the AST (which outlives the iterator), matching the KNN path.
-      return NewLazyVectorRangeIteratorFromParams(vecsim, vq->range.vector, vq->range.radius,
-                                                  qParams, vq->range.order,
-                                                  /*yields_metric=*/vq->scoreField != NULL,
-                                                  q->sctx->timeout);
+      // released and writes can proceed concurrently.
+      return NewLazyVectorRangeIteratorFromParams(
+          vecsim, vq->range.vector, vq->range.vecLen, vq->range.radius, qParams, vq->range.order,
+          /*yields_metric=*/vq->scoreField != NULL, q->sctx->timeout);
     }
   }
   return NULL;

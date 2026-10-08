@@ -1936,6 +1936,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   }
   invoked = 1;
 
+  SearchDisk_StopMetrics();
+
   // First free all indexes
   Indexes_Free(ctx, specDict_g, false);
   dictRelease(specDict_g);
@@ -1960,6 +1962,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  // Index destructors and background work may still need the disk context until pools drain.
+  SearchDisk_Close(ctx);
 
   // Only after every pool whose cycles register in BlockedQueries has stopped
   // (the workers pool above and the coordinator pool just now): no new cycle

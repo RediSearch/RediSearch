@@ -17,9 +17,9 @@ use crate::Reducer;
 
 /// The logic of a reducer whose per-group state is one [`Accumulator::State`].
 pub trait Accumulator {
-    /// The per-group state. It must not need dropping: the states live in an arena
-    /// that never runs their destructors, and [`AccumulatorReducer::new`] rejects a
-    /// state that has one at compile time.
+    /// The per-group state. It lives in an arena that frees its memory with the
+    /// reducer but runs no destructors, so a state that needs dropping must be
+    /// dropped once its group is done (see [`AccumulatorReducer::drop_state`]).
     type State;
 
     /// The state of a group before any of its rows.
@@ -48,12 +48,6 @@ const _: () = assert!(core::mem::offset_of!(AccumulatorReducer<crate::count::Cou
 
 impl<A: Accumulator> AccumulatorReducer<A> {
     pub fn new(accumulator: A) -> Self {
-        const {
-            assert!(
-                !std::mem::needs_drop::<A::State>(),
-                "accumulator states must not need dropping"
-            );
-        }
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
@@ -70,7 +64,41 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     }
 
     /// Allocates the state of a new group.
-    pub fn new_state(&self) -> &mut A::State {
-        self.arena.alloc(self.accumulator.init())
+    pub fn new_state(&self) -> &mut Option<A::State> {
+        self.arena.alloc(Some(self.accumulator.init()))
     }
+
+    /// Folds one of the group's rows into `state`.
+    ///
+    /// # Panics
+    ///
+    /// If `state` was already dropped by [`Self::drop_state`].
+    pub fn add(&self, state: &mut Option<A::State>, row: &RLookupRow<'_>) {
+        self.accumulator.add(live(state), row);
+    }
+
+    /// The group's result.
+    ///
+    /// # Panics
+    ///
+    /// If `state` was already dropped by [`Self::drop_state`].
+    pub fn finalize(&self, state: &Option<A::State>) -> SharedValue {
+        self.accumulator.finalize(
+            state
+                .as_ref()
+                .expect("group state used after being dropped"),
+        )
+    }
+
+    /// Drops the state of a group that is done, leaving `None` behind; dropping
+    /// it again is a no-op.
+    pub fn drop_state(&self, state: &mut Option<A::State>) {
+        *state = None;
+    }
+}
+
+const fn live<S>(state: &mut Option<S>) -> &mut S {
+    state
+        .as_mut()
+        .expect("group state used after being dropped")
 }

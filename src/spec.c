@@ -417,13 +417,13 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
-  size_t vector_overhead) {
+static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                                     size_t vector_overhead, bool info, size_t disk_memory) {
   size_t res = 0;
 
   // For disk indexes, add storage + in-memory components.
   if (sp->diskSpec) {
-    res += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+    res += info ? disk_memory : SearchDisk_CollectIndexMetrics(sp->diskSpec);
   }
 
   res += sp->docs.memsize;
@@ -436,6 +436,15 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
   res += sp->stats.termsSize;
   res += vector_overhead;
   return res;
+}
+
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                               size_t vector_overhead) {
+  return indexSpecTotalMemUsage(sp, tags_overhead, text_overhead, vector_overhead, false, 0);
+}
+
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory) {
+  return indexSpecTotalMemUsage(sp, 0, 0, vector_overhead, true, disk_memory);
 }
 
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
@@ -1933,7 +1942,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
   return IndexError_ErrorCount(&sp->stats.indexError);
 }
 
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp) {
   return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
