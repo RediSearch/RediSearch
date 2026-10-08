@@ -58,12 +58,16 @@ static JSONResultsIterator getWithCompiledPath(RedisJSON root, const char *path,
 }
 
 // Resolve compatibility once instead of branching for each indexed field.
-static JSONResultsIterator (*getWithCachedPath)(RedisJSON, const char *,
-                                                JSONPath *) = getWithStringPath;
+static struct {
+  JSONResultsIterator (*getWithCachedPath)(RedisJSON root, const char *path,
+                                           JSONPath *compiledPath);
+} json_api_compat = {
+    .getWithCachedPath = getWithStringPath,
+};
 
 JSONResultsIterator JSON_GetWithCachedPath(RedisJSON root, const char *path,
                                            JSONPath *compiledPath) {
-  return getWithCachedPath(root, path, compiledPath);
+  return json_api_compat.getWithCachedPath(root, path, compiledPath);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -90,7 +94,8 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
         japi_ver = i;
-        getWithCachedPath = i >= 9 && japi->getWithPath ? getWithCompiledPath : getWithStringPath;
+        json_api_compat.getWithCachedPath =
+            i >= 9 && japi->getWithPath ? getWithCompiledPath : getWithStringPath;
         RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V%d API", i);
         return 1;
       }
