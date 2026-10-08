@@ -445,8 +445,12 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
       // the split node just became terminal with `score`; fold it into the bound
       updateScore(n, n->score);
     } else {
-      // a node after a split has a single child, created with the full `score`
-      int idx = str[offset] > __trieNode_LoadChildKey(n, 0) ? 1 : 0;
+      // a node after a split has a single child, created with the full `score`;
+      // in score mode a tie keeps the existing child first, as
+      // __trieNode_rotateChildIntoPlace does
+      int idx = (n->sortMode == Trie_Sort_Lex)
+                    ? (str[offset] > __trieNode_LoadChildKey(n, 0) ? 1 : 0)
+                    : (score > TrieNode_Children(n)[0]->subtreeMaxScore ? 0 : 1);
       n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
       updateScore(n, score);
     }

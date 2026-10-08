@@ -21,6 +21,7 @@
 #include <memory>
 #include <functional>
 #include <cstdint>
+#include <algorithm>
 #include <vector>
 
 class TrieTest : public ::testing::Test {};
@@ -508,6 +509,52 @@ TEST_F(TrieTest, testRotateChildIntoPlace) {
   }
 
   TrieNode_Free(root, NULL);
+}
+
+static TrieNode *getRaw(TrieNode *root, const char *s) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *n = TrieNode_Get(root, runes, len, true, NULL);
+  runeBufFree(&buf);
+  return n;
+}
+
+// Splitting "bcbab" at "bc" leaves "bc" with the old suffix as its only child;
+// the new suffix must be placed by score, not by rune.
+TEST_F(TrieTest, testSplitPlacesNewChildByScore) {
+  struct Case {
+    const char *newKey;
+    float newScore;
+    const char *order;
+  };
+  // Higher score goes first; a tie or lower score keeps the existing child first.
+  // Each new key's rune is on the opposite side of the existing one from where
+  // its score puts it, so rune placement would get every case wrong.
+  const Case cases[] = {{"bcca", 3.0f, "cb"}, {"bcaa", 2.0f, "ba"}, {"bcaa", 1.0f, "ba"}};
+  for (const Case &c : cases) {
+    SCOPED_TRACE(testing::Message() << c.newKey << ":" << c.newScore);
+    rune emptyRoot[1] = {0};
+    TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+    addRaw(&root, "bcbab", 2.0f, ADD_REPLACE);
+    addRaw(&root, c.newKey, c.newScore, ADD_REPLACE);
+
+    TrieNode *split = getRaw(root, "bc");
+    ASSERT_NE(split, nullptr);
+    assertChildOrder(split, c.order);
+    assertChildrenScoreOrdered(root);
+    EXPECT_FLOAT_EQ(split->subtreeMaxScore, std::max(2.0f, c.newScore));
+
+    // exact lookups go through the split node's child-key cache
+    TrieNode *old = getRaw(root, "bcbab");
+    TrieNode *added = getRaw(root, c.newKey);
+    ASSERT_NE(old, nullptr);
+    ASSERT_NE(added, nullptr);
+    EXPECT_FLOAT_EQ(old->score, 2.0f);
+    EXPECT_FLOAT_EQ(added->score, c.newScore);
+
+    TrieNode_Free(root, NULL);
+  }
 }
 
 /* leave for future benchmarks if needed
