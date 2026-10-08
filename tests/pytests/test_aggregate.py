@@ -1871,7 +1871,7 @@ def testFirstValueByPrefersNonNullSortKeyRegardlessOfRowOrder(env):
 
 
 def test_generated_reducer_alias_case(env):
-    # Generated aliases drop the '@' and lower-case the function and every argument.
+    # Generated aliases drop the '@' and lower-case ASCII letters in the function and every argument.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'Price', 'NUMERIC', 'Ünï', 'NUMERIC').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc1', 'Price', '10', 'Ünï', '7')
@@ -1880,4 +1880,4 @@ def test_generated_reducer_alias_case(env):
                   'REDUCE', 'MAX', '1', '@Ünï')
     env.assertEqual(to_dict(res[1]), {'__generated_aliasmaxprice': '10',
                                       '__generated_aliasquantileprice,0.5': '10',
-                                      '__generated_aliasmaxünï': '7'})
+                                      '__generated_aliasmaxÜnï': '7'})
