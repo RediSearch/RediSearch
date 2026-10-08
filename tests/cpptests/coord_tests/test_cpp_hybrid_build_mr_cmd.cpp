@@ -135,7 +135,7 @@ struct TestParamsDict {
     QueryError status = QueryError_Default();
     for (size_t i = 0; i + 1 < kv.size(); i += 2) {
       values.push_back(RedisModule_CreateString(NULL, kv[i + 1].data(), kv[i + 1].size()));
-      Param_DictAdd(d, kv[i].c_str(), values.back(), &status);
+      Param_DictAdd(d, kv[i].c_str(), kv[i].size(), values.back(), &status);
       expectedPairs.emplace_back(kv[i], kv[i + 1]);
     }
   }
