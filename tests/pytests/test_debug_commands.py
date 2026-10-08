@@ -235,6 +235,15 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
         self.env.expect(debug_cmd(), 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
 
+    def testDumpPhoneticHashWithoutPhoneticCode(self):
+        # Digits have no phonetic code, so neither the primary nor the secondary one is produced.
+        try:
+            res = self.env.cmd(debug_cmd(), 'DUMP_PHONETIC_HASH', '04')
+        except Exception as e:
+            self.env.assertTrue(False, message=f'DUMP_PHONETIC_HASH failed on a term without a phonetic code: {e}')
+            return
+        self.env.assertEqual(res, [None, None])
+
     def testDumpPhoneticHashWrongArity(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash').error()
 
@@ -1433,7 +1442,14 @@ def test_query_controller_set_cursor_read_size():
     # restoring it works.
     prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
     env.assertGreater(int(prev), 0)
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
+    try:
+        previous = 7
+        for value in [(1 << 32) - 1, 1 << 32, (1 << 63) - 1]:
+            env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', value).equal(previous)
+            previous = min(value, (1 << 32) - 1)
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1 << 63).error()
+    finally:
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(previous)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():

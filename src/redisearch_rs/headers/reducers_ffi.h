@@ -155,6 +155,79 @@ bool CollectReducer_IsLoadAll(const Reducer *r);
 bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 
 /**
+ * Creates an exact `COUNT_DISTINCT` reducer of `srckey` and returns its base
+ * [`ffi::Reducer`], which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CountDistinctReducer_Create(const RLookupKey *srckey);
+
+/**
+ * Creates a `COUNT` reducer and returns its base [`ffi::Reducer`], which the
+ * caller frees through its `Free` callback.
+ */
+Reducer *CountReducer_Create(void);
+
+/**
+ * Creates a `FIRST_VALUE` reducer of `retkey`, sorted by `sortkey` in ascending
+ * order if `ascending`, or unsorted if `sortkey` is null, and returns its base
+ * [`ffi::Reducer`], which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `retkey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey], and
+ *    `sortkey` either null or such a pointer. Both must remain valid, and not be
+ *    mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *FirstValueReducer_Create(const RLookupKey *retkey, const RLookupKey *sortkey, bool ascending);
+
+/**
+ * Creates a `MIN` reducer of `srckey`, or a `MAX` one if `max`, and returns its
+ * base [`ffi::Reducer`], which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *MinMaxReducer_Create(const RLookupKey *srckey, bool max);
+
+/**
+ * Creates a `STDDEV` reducer of `srckey` and returns its base [`ffi::Reducer`],
+ * which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *StdDevReducer_Create(const RLookupKey *srckey);
+
+/**
+ * Creates a `SUM` reducer of `srckey`, or an `AVG` one if `average`, and returns
+ * its base [`ffi::Reducer`], which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *SumReducer_Create(const RLookupKey *srckey, bool average);
+
+/**
  * # Safety
  *
  * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.

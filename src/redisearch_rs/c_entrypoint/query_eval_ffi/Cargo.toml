@@ -17,6 +17,5 @@ bench = false
 ffi.workspace = true
 global_config.workspace = true
 query_eval.workspace = true
-query_types.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true

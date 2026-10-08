@@ -22,6 +22,7 @@ priority-queue = "2.7.0"
 query_error.workspace = true
 rlookup.workspace = true
 rqe_core.workspace = true
+rustc-hash.workspace = true
 tracing.workspace = true
 tracing_assert.workspace = true
 value.workspace = true

@@ -637,7 +637,7 @@ numericConfigs = [
     # configName, ftConfigName, defaultValue, minValue, maxValue, immutable, clusterConfig
     ('search-_numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False, False),
     ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True, False),
-    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False, False),
+    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, UINT32_MAX, False, False),
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
     ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
@@ -681,6 +681,7 @@ numericConfigs = [
 # Configs whose backing type narrowed from long long to uint32_t. Values above
 # UINT32_MAX are accepted but clamped (for backwards compatibility with persisted settings).
 CLAMPED_CONFIGS = {
+    'search-cursor-max-idle': UINT32_MAX,
     'search-max-prefix-expansions': UINT32_MAX,
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
@@ -698,6 +699,26 @@ SENTINEL_TRANSLATED_CONFIGS = {
     'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
     'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_cursor_max_idle_clamping(env):
+    """Both config interfaces saturate large inputs without changing adjacent cursor defaults."""
+    name = 'search-cursor-max-idle'
+    original = env.cmd('CONFIG', 'GET', name)[1]
+    read_size = env.cmd('INFO', 'MODULES')['search_cursor_read_size']
+    try:
+        for command in [('CONFIG', 'SET', name), (config_cmd(), 'SET', 'CURSOR_MAX_IDLE')]:
+            for value in [1, UINT32_MAX, UINT32_MAX + 1, LLONG_MAX]:
+                env.expect(*command, value).ok()
+                expected = str(min(value, UINT32_MAX))
+                env.expect('CONFIG', 'GET', name).equal([name, expected])
+                env.expect(config_cmd(), 'GET', 'CURSOR_MAX_IDLE').equal([['CURSOR_MAX_IDLE', expected]])
+                env.assertEqual(env.cmd('INFO', 'MODULES')['search_cursor_read_size'], read_size)
+            for value in [0, -1, LLONG_MAX + 1, 'invalid']:
+                env.expect(*command, value).error()
+                env.expect('CONFIG', 'GET', name).equal([name, str(UINT32_MAX)])
+    finally:
+        env.expect('CONFIG', 'SET', name, original).ok()
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -2402,19 +2423,19 @@ def test_flex_disk_resource_config_startup_boundaries():
             'search-disk-memory-limit-percentage': '1',
             'search-disk-write-buffer-min-percentage': '1',
             'search-disk-write-buffer-per-index-mb': '1',
-            'search-disk-max-open-files': '20',
+            'search-disk-max-open-files': '138',
         },
         {
             'search-disk-memory-limit-percentage': '60',
             'search-disk-write-buffer-min-percentage': '20',
             'search-disk-write-buffer-per-index-mb': '2',
-            'search-disk-max-open-files': '21',
+            'search-disk-max-open-files': '139',
         },
         {
             'search-disk-memory-limit-percentage': '99',
             'search-disk-write-buffer-min-percentage': '99',
             'search-disk-write-buffer-per-index-mb': '3',
-            'search-disk-max-open-files': '22',
+            'search-disk-max-open-files': '140',
         },
         {
             'search-disk-memory-limit-percentage': '100',
@@ -2502,8 +2523,8 @@ def test_flex_disk_resource_config_startup_rejections():
             'search-disk-write-buffer-per-index-mb',
         ),
         (
-            (('search-disk-max-open-files', '19'),),
-            f'argument must be between 20 and {INT_MAX} inclusive',
+            (('search-disk-max-open-files', '137'),),
+            f'argument must be between 138 and {INT_MAX} inclusive',
             'search-disk-max-open-files',
         ),
         (

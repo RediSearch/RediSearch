@@ -264,6 +264,10 @@ runs `cargo llvm-cov`. Use it only when you own the build; if you were told to s
 read-only, or another agent may be building concurrently, do not run it — reason from the
 diff and report unmeasured coverage as unmeasured rather than guessing either way.
 
+Code that does arithmetic or compares values must be tested on the inputs that break
+naive implementations: NaN (alone and mixed, in both orders), ±infinity, overflow
+(including intermediate), numeric strings, mixed types, and ties.
+
 Violations:
 - New or changed behavior with no test exercising it.
 - Rust code paths that are uncovered by any test.
@@ -271,6 +275,20 @@ Violations:
   Both layouts in the guidelines' *Code organization* section are valid; do not report a
   crate for using the one it has always used.
 - A test that deviates from the guidelines in any other way.
+
+#### 3h. Unsafe — necessity
+
+Documenting `unsafe` is the floor; removing it is better. For each `unsafe fn` or block,
+ask whether a safe design exists: a newtype that carries the invariant from construction
+(one `unsafe` at the trust boundary instead of one per use), an `Option` that makes a
+double drop or use-after-free impossible to express, or a safe method on the owning type.
+Tests should drive the safe Rust API; at most one test should go through the `extern "C"`
+vtable, to check the C boundary itself.
+
+Violations (report as suggestions):
+- An `unsafe fn` whose preconditions a type could enforce instead.
+- A test calling `*_ffi` constructors or vtable callbacks where the crate's safe API
+  covers the same path.
 
 ### 4. Porting-mode checks (only when porting mode = true)
 
@@ -283,7 +301,12 @@ Compare the new Rust implementation against the original C code and verify:
 - Numeric types and casts preserve the original semantics (watch for sign / width changes).
 - Side effects (global state mutations, logging, metric updates) are preserved.
 
-Violations: any semantic divergence that could change observable behavior.
+A C quirk kept on purpose — behavior that looks like a bug but is what callers observe
+today — is not a divergence, but it must be named in the item's docs and pinned by a test,
+so that a later cleanup is a decision rather than an accident.
+
+Violations: any semantic divergence that could change observable behavior, or a kept
+quirk that is neither documented nor tested.
 
 #### 4b. Test parity with the C implementation
 
@@ -294,6 +317,15 @@ exists covering the same scenario.
 
 Violations:
 - A C/C++ test scenario that has no corresponding Rust test.
+
+#### 4c. Wiring
+
+A faithful port that is never called proves nothing. Verify that the C call sites
+(dispatchers, factory tables, vtables) now reach the Rust entry point, and that the
+replaced C implementation is deleted rather than left beside it — duplicate symbols only
+surface at link time, and dead C code misleads every later port.
+
+Violations: the Rust path is unreachable, or the replaced C code is still present.
 
 ### 5. Emit the report
 
@@ -315,11 +347,11 @@ At the end, provide a short summary:
 - Total suggestions
 - Whether the change is **ready to merge** or **needs revision**
 
-Blocking violations: any issue in 3a, 3b, 4a, or 4b, plus any 3e issue that
+Blocking violations: any issue in 3a, 3b, 4a, 4b, or 4c, plus any 3e issue that
 can cause memory unsoundness, crashes, data exposure, unauthorized access, or
 denial of service, plus the first two 3g violations (behavior with no test, and
 uncovered code paths).
 Suggestions: issues in 3c (debug-assert pre-conditions), 3d (intra-doc links),
 3f (reaching Rust-native types/functions through `ffi` instead of their owning
-crate), low-risk robustness improvements in 3e, and tests that exist but are
-misplaced or otherwise deviate from the guidelines (3g).
+crate), 3h (avoidable `unsafe`), low-risk robustness improvements in 3e, and tests
+that exist but are misplaced or otherwise deviate from the guidelines (3g).

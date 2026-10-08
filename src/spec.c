@@ -2870,7 +2870,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     if (encver >= INDEX_GEOMETRY_VERSION) {
-      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+      uint64_t coords = LoadUnsigned_IOError(rdb, goto fail);
+      if (coords >= GEOMETRY_COORDS__NUM) {
+        RedisModule_LogIOError(rdb, "warning", "Invalid geometry coordinate system %llu",
+                               (unsigned long long)coords);
+        goto fail;
+      }
+      f->geometryOpts.geometryCoords = (GEOMETRY_COORDS)coords;
     } else {
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
       f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
@@ -3483,6 +3489,24 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
 }
 
 
+// The legacy upgrade deletes each spec's key by the name it was saved under, INDEX_SPEC_KEY_FMT in
+// db 0. A spec loaded from any other key would stay in the keyspace after the upgrade, holding a
+// value that the type's save callback cannot write.
+static bool legacySpecKeyIsExpected(RedisModuleIO *rdb, const char *specName) {
+  const RedisModuleString *key = RedisModule_GetKeyNameFromIO(rdb);
+  if (!key) {
+    // Not loaded into the keyspace, so nothing is left behind.
+    return true;
+  }
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
+  const size_t prefixLen = strlen(INDEX_SPEC_KEY_PREFIX);
+  const size_t nameLen = strlen(specName);
+  return RedisModule_GetDbIdFromIO(rdb) == 0 && keyLen == prefixLen + nameLen &&
+         !memcmp(keyStr, INDEX_SPEC_KEY_PREFIX, prefixLen) &&
+         !memcmp(keyStr + prefixLen, specName, nameLen);
+}
+
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
@@ -3498,6 +3522,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
+  if (!legacySpecKeyIsExpected(rdb, legacyName)) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "Refusing a legacy index that is not stored under its index key in db 0");
+    RedisModule_Free(legacyName);
+    return NULL;
+  }
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
@@ -3820,29 +3850,38 @@ int CompareVersions(Version v1, Version v2) {
 
 
 /**
- * Mark each VECTOR field whose value this update may not have touched, so the
- * indexer moves its existing entry onto the new doc-id instead of deleting and
- * re-adding the blob.
+ * Mark each VECTOR or GEOSHAPE field whose value this update may not have touched, so the
+ * indexer moves its existing entry onto the new doc-id instead of deleting and re-adding it.
+ * GEOSHAPE fields are marked only on an FT.ALTER backfill. `alterAddedFieldsStart` is
+ * `RS_INVALID_FIELD_INDEX` except for `IndexSpec_UpdateDocForAlter`.
  */
 static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
-                                           RedisModuleString **changedFields,
-                                           size_t numChangedFields) {
+                                          RedisModuleString **changedFields,
+                                          size_t numChangedFields,
+                                          t_fieldIndex alterAddedFieldsStart) {
   if (!RSGlobalConfig.optimizePartialUpdate) {
     return;
   }
-  if (!(spec->flags & Index_HasVecSim)) {
+  if (!(spec->flags & (Index_HasVecSim | Index_HasGeometry))) {
     return;
   }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
+    const FieldType as = doc->fields[ii].indexAs;
+    const bool alterGeometry =
+        (as & INDEXFLD_T_GEOMETRY) && alterAddedFieldsStart != RS_INVALID_FIELD_INDEX;
     if (!fs->fieldName || !FieldSpec_IsIndexable(fs) ||
-        !(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) {
+        !((as & INDEXFLD_T_VECTOR) || alterGeometry)) {
       continue;
     }
     ChangedFieldInd mark = ChangedFieldInd_Unverified;
-    if (changedFields) {
+    if (alterAddedFieldsStart != RS_INVALID_FIELD_INDEX && fs->index >= alterAddedFieldsStart) {
+      // Added by the ALTER, so the old doc-id normally holds no entry to compare or move: insert
+      // directly. A write during the scan may have left one there; it is deleted and re-added.
+      mark = ChangedFieldInd_VerifiedYes;
+    } else if (changedFields) {
       mark = FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)
                  ? ChangedFieldInd_VerifiedYes  // named in the change set: the value was written
                  : ChangedFieldInd_VerifiedNo;
@@ -3857,9 +3896,10 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
   }
 }
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey,
-                        RedisModuleString **changedFields, size_t numChangedFields) {
+static int indexSpecUpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                              DocumentType type, RedisModuleKey *openKey,
+                              RedisModuleString **changedFields, size_t numChangedFields,
+                              t_fieldIndex alterAddedFieldsStart) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3919,7 +3959,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   // Reuse the caller's open key handle for the DocIdMeta update, if provided.
   aCtx->disk.openKey = openKey;
-  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields);
+  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields, alterAddedFieldsStart);
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
@@ -3928,6 +3968,19 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(sctx.spec);
   return REDISMODULE_OK;
+}
+
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields) {
+  return indexSpecUpdateDoc(spec, ctx, key, type, openKey, changedFields, numChangedFields,
+                            RS_INVALID_FIELD_INDEX);
+}
+
+int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                DocumentType type, t_fieldIndex addedFieldsStart) {
+  RS_LOG_ASSERT(addedFieldsStart < spec->numFields, "an ALTER adds at least one field");
+  return indexSpecUpdateDoc(spec, ctx, key, type, NULL, NULL, 0, addedFieldsStart);
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.

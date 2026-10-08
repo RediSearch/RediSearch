@@ -227,12 +227,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &[
-            "Query_EvalNode",
-            "QueryIterator_IsBlockedClientTimedOut",
-            "tag_strtolower",
-        ],
-        types: &["QueryAST", "QueryEvalCtx"],
+        fns: &["QueryIterator_IsBlockedClientTimedOut"],
+        types: &["QueryAST"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query_ctx.h",
+        fns: &[],
+        types: &["QueryEvalCtx"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -387,8 +389,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TagIndex_Commit",
             "TagIndex_Ensure",
             "TagIndex_Free",
+            "TagIndex_GetSuffixMatches",
+            "TagIndex_GetSuffixWildcardMatches",
+            "TagIndex_HasSuffix",
             "TagIndex_Index",
             "TagIndex_OpenIndex",
+            "TagIndex_OpenReader",
         ],
         types: &[],
         vars: &[],
@@ -442,7 +448,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "array_len_func",
             "array_new_sz",
         ],
-        types: &[],
+        types: &["array_hdr_t"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -471,7 +477,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/strconv.h",
-        fns: &["unicode_tolower_fn"],
+        fns: &["nu_utf8_read_fn", "nu_utf8_write_fn", "unicode_tolower_fn"],
         types: &[],
         vars: &[],
     },

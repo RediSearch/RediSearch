@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "op_block_client.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -1031,9 +1032,18 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 
   PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
 
+  // A term with no phonetic code (digits, for one) leaves the code NULL.
   RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
-  RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  if (primary) {
+    RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
+  if (secondary) {
+    RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
 
   rm_free(primary);
   rm_free(secondary);
@@ -1331,8 +1341,7 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, GCForceInvokeReply);
   GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
 }
@@ -3486,7 +3495,7 @@ DEBUG_COMMAND(ioRuntimePendingRequests) {
 
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
- * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * Override RSGlobalConfig.cursorConfigParams.chunkSize at runtime. Returns the previous
  * value so the caller can restore it. N must be >= 1.
  */
 DEBUG_COMMAND(setCursorReadSize) {
@@ -3501,8 +3510,8 @@ DEBUG_COMMAND(setCursorReadSize) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
   }
 
-  long long previous = RSGlobalConfig.cursorReadSize;
-  RSGlobalConfig.cursorReadSize = n;
+  long long previous = RSGlobalConfig.cursorConfigParams.chunkSize;
+  RSGlobalConfig.cursorConfigParams.chunkSize = n > UINT32_MAX ? UINT32_MAX : (uint32_t)n;
   return RedisModule_ReplyWithLongLong(ctx, previous);
 }
 #endif

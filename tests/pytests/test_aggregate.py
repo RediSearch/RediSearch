@@ -1037,6 +1037,26 @@ def testStartsWith(env):
                                                                 ['t', 'aaa', 'prefix', '1'], \
                                                                 ['t', 'ab', 'prefix', '0']]))
 
+def testFunctionManyArgs(env):
+    """Function calls with more arguments than the evaluator keeps on the stack"""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'u', 'TEXT', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 't', 'a')
+
+    def fmt(*args):
+        return f'format("{"%s" * len(args)}", {", ".join(args)})'
+
+    many = ['@t'] * 12
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', fmt(*many), 'AS', 'x')
+    env.assertEqual(res, [1, ['t', 'a', 'x', 'a' * 12]])
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', fmt(fmt(*many), *many), 'AS', 'x')
+    env.assertEqual(res, [1, ['t', 'a', 'x', 'a' * 24]])
+
+    # A failing argument after the inline capacity must still release the heap array.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', fmt(*many, '@u'), 'AS', 'x') \
+        .error().contains('SEARCH_VALUE_NOT_FOUND')
+
 def testContains(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
@@ -1710,6 +1730,11 @@ def testAggregateBadLoadArgs(env):
         .contains("Bad arguments for LOAD: Expected number of fields or `*`")
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
         .contains("Bad arguments for LOAD: Expected an argument, but none provided")
+    # A dangling `AS` has to be rejected while the command is parsed: on a
+    # coordinator the LOAD arguments are walked to plan the shard queries
+    # before the pipeline gets a chance to validate them.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@title', 'AS').error() \
+        .contains("LOAD path AS name - must be accompanied with NAME")
 
 def testeAggregateBadApplyFunction(env):
     """Tests that we get a proper error message when passing a bad function to APPLY"""
@@ -1820,3 +1845,26 @@ def testAggregateWithoutCountSortByThenGroupByFirstValueOrdering(env):
         'REDUCE', 'FIRST_VALUE', '1', '@title', 'AS', 'first',
         'REDUCE', 'COUNT', '0', 'AS', 'cnt')
     env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha', 'cnt', '1']])
+
+
+@skip(cluster=True)
+def testFirstValueByPrefersNonNullSortKeyRegardlessOfRowOrder(env):
+    """FIRST_VALUE ... BY keeps the row with the best non-null sort key, however the rows are
+    ordered: a row without the sort property must not win over one that has it."""
+    conn = getConnectionByEnv(env)
+    # Same two cities in both orders: the one without a population is first in `a:`, last in `b:`.
+    for prefix in ['a', 'b']:
+        env.expect('FT.CREATE', f'idx_{prefix}', 'PREFIX', 1, f'{prefix}:',
+                   'SCHEMA', 'city', 'TAG', 'pop', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'a:1', 'city', 'unknown')
+    conn.execute_command('HSET', 'a:2', 'city', 'known', 'pop', 50)
+    conn.execute_command('HSET', 'b:1', 'city', 'known', 'pop', 50)
+    conn.execute_command('HSET', 'b:2', 'city', 'unknown')
+
+    for prefix in ['a', 'b']:
+        for direction in ['ASC', 'DESC']:
+            res = env.cmd('FT.AGGREGATE', f'idx_{prefix}', '*', 'LOAD', 2, '@city', '@pop',
+                          'GROUPBY', 0,
+                          'REDUCE', 'FIRST_VALUE', 4, '@city', 'BY', '@pop', direction,
+                          'AS', 'city')
+            env.assertEqual(res, [1, ['city', 'known']], message=f'{prefix} {direction}')

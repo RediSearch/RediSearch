@@ -65,7 +65,8 @@ extern struct IndexesScanner *global_spec_scanner;
 
 // Half-open [start, end) range of fields added by the ALTER that scheduled this scan.
 // Immutable for the scan's lifetime. An empty range means a full scan without the
-// per-document presence shortcut.
+// per-document presence shortcut. A non-empty range also makes each reindexed document go
+// through IndexSpec_UpdateDocForAlter (see spec.h).
 typedef struct {
   t_fieldIndex start;
   t_fieldIndex end;

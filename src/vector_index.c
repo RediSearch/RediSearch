@@ -93,8 +93,22 @@ static const char *relabelCodeName(VecSimRelabelCode rc) {
              : "unknown";
 }
 
+// Test seam, in assert-enabled builds only (ENABLE_ASSERT); see VectorIndex_SetRelabelFnForTests.
+#ifdef ENABLE_ASSERT
+static VectorIndex_RelabelFn relabelFnForTests = NULL;
+void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn) {
+  relabelFnForTests = fn;
+}
+#endif
+
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
+#ifdef ENABLE_ASSERT
+  const VecSimRelabelCode rc = relabelFnForTests
+                                   ? relabelFnForTests(vecsim, oldDocId, newDocId)
+                                   : VecSimIndex_RelabelVector(vecsim, oldDocId, newDocId);
+#else
   const VecSimRelabelCode rc = VecSimIndex_RelabelVector(vecsim, oldDocId, newDocId);
+#endif
   // `SameLabel` is a success for this caller, not a refusal. Memory mode never hits it
   // (doc-ids are monotonic), but a doc-table that reuses the id on replace would.
   if (rc == VecSimRelabel_OK || rc == VecSimRelabel_SameLabel) {

@@ -72,6 +72,10 @@ extern RedisModuleCtx *RSDummyContext;
 // and the actual event string. Each gets its own enum value so individual
 // commands can be handled differently in the future.
 //
+// Every write event RedisJSON emits must be listed here: one that is missing
+// maps to _null_cmd and is dropped, so every index over the key keeps serving
+// the document's previous value.
+//
 // These events are NOT pointer-cached like the core events: RedisJSON emits
 // them through redismodule-rs, which builds a fresh temporary CString per call
 // and frees it once the notification returns (see notify_keyspace_event in
@@ -89,7 +93,9 @@ extern RedisModuleCtx *RSDummyContext;
   X(json_arrinsert, "json.arrinsert")         \
   X(json_arrpop,    "json.arrpop")            \
   X(json_arrtrim,   "json.arrtrim")           \
-  X(json_toggle,    "json.toggle")
+  X(json_toggle,    "json.toggle")            \
+  X(json_clear,     "json.clear")             \
+  X(json_numpowby,  "json.numpowby")
 
 // Define an enum value for each event.
 #define DECLARE_EVENT_ENUM(E) E##_cmd,
@@ -334,12 +340,14 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
     case json_del_cmd:
     case json_numincrby_cmd:
     case json_nummultby_cmd:
+    case json_numpowby_cmd:
     case json_strappend_cmd:
     case json_arrappend_cmd:
     case json_arrinsert_cmd:
     case json_arrpop_cmd:
     case json_arrtrim_cmd:
     case json_toggle_cmd:
+    case json_clear_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, changedFields, numChangedFields);
       break;
 

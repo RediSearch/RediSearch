@@ -23,7 +23,14 @@ fi
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 
-_run brew update
+# Homebrew builds no bottles for Intel macOS 26 (Tier 3), so after an update every
+# new formula version compiles from source (coreutils, openssl, wget: ~13 min).
+# The runner image's formula index still maps to existing bottles.
+if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname -m)" == x86_64 ]]; then
+    echo "Skipping brew update: no Intel bottles for updated formulae"
+else
+    _run brew update
+fi
 brew_install coreutils
 brew_install make
 # Pin the major version: the unversioned `openssl` formula now resolves to

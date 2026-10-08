@@ -172,15 +172,21 @@ static void IndexScanner_ScanKeyForSpec(RedisModuleCtx *ctx, const IndexesScanne
   // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
   // confirmed absent, so this backfill does not force a full replacement of documents
   // the ALTER cannot affect. A probe failure falls through to the full-reindex path.
+  bool selective = scanner->addedFields.start != scanner->addedFields.end;
   bool skipUnchanged =
-      shouldIndex && scanner->addedFields.start != scanner->addedFields.end &&
+      shouldIndex && selective &&
       Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
                                   scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
-  // IndexSpec_UpdateDoc can update key metadata and must retain its own key-opening behavior,
-  // so the read-only handle is closed rather than passed through.
+  // The reindex (IndexSpec_UpdateDoc or IndexSpec_UpdateDocForAlter) can update key metadata
+  // and must retain its own key-opening behavior, so the read-only handle is closed rather than
+  // passed through.
   RedisModule_CloseKey(key);
   if (shouldIndex && !skipUnchanged) {
-    IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL, NULL, 0);
+    if (selective) {
+      IndexSpec_UpdateDocForAlter(sp, ctx, keyname, type, scanner->addedFields.start);
+    } else {
+      IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL, NULL, 0);
+    }
   }
 }
 

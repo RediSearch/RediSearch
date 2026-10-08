@@ -99,10 +99,6 @@ typedef struct {
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;
-  // The maximal amount of time a single query can take before timing out, in milliseconds.
-  // 0 means unlimited
-  long long queryTimeoutMS;
-  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
@@ -110,6 +106,19 @@ typedef struct {
   // OOM policy
   RSOomPolicy oomPolicy;
 } RequestConfig;
+
+typedef struct {
+  // The maximal amount of time a single query can take before timing out, in milliseconds.
+  // 0 means unlimited
+  long long queryTimeoutMS;
+  RSTimeoutPolicy timeoutPolicy;
+} TimeoutConfig;
+
+// Configuration parameters for cursor behavior
+typedef struct {
+  uint32_t maxIdle;    // Maximum idle time for the cursor (from MAXIDLE parameter)
+  uint32_t chunkSize;  // Number of results per cursor read (from COUNT parameter)
+} CursorConfig;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
@@ -126,13 +135,9 @@ typedef struct {
   IteratorsConfig iteratorsConfigParams;
 
   RequestConfig requestConfigParams;
+  TimeoutConfig timeoutConfigParams;
 
-  // Number of rows to read from a cursor if not specified
-  long long cursorReadSize;
-
-  // Maximum idle time for a cursor. Users can use shorter lifespans, but never
-  // longer ones
-  long long cursorMaxIdle;
+  CursorConfig cursorConfigParams;
 
   size_t maxDocTableSize;
   size_t maxSearchResults;
@@ -436,9 +441,11 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 3
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
 #define DEFAULT_DISK_MAX_OPEN_FILES 200
-// Smallest accepted positive cap. SpeedB's SanitizeOptions already clamps below this to 20, so reject it directly here
-// instead of letting the requested and effective caps diverge.
-#define DISK_MAX_OPEN_FILES_MIN 20
+// Smallest accepted positive cap. Admission reserves the cap per index, but SpeedB keeps more open: its table cache
+// (cap - 10 readers) is split into 64 shards that each round up to whole readers, so caps 20-74 keep up to 64 SSTs open
+// and caps 75-138 up to 128, plus fixed files and a directory handle per column family. 138 is the top of a rounding
+// step, where the reservation is closest to what an index can hold.
+#define DISK_MAX_OPEN_FILES_MIN 138
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
@@ -456,11 +463,11 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
-    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
+    .timeoutConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
+    .timeoutConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
     .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
-    .cursorReadSize = 1000,                                                    \
-    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
+    .cursorConfigParams.chunkSize = 1000,                                      \
+    .cursorConfigParams.maxIdle = DEFAULT_MAX_CURSOR_IDLE,                     \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
     .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \

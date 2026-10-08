@@ -202,8 +202,8 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
-        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
+    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorConfigParams.maxIdle) {
+        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorConfigParams.maxIdle;
     }
 }
 
@@ -396,6 +396,10 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
             QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
             return;
         }
+    }
+
+    if (PLNLoadStep_ValidateArgs(&loadfields, status) != REDISMODULE_OK) {
+        return;
     }
 
     PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));

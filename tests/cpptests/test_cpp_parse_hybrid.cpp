@@ -142,8 +142,9 @@ class ParseHybridTest : public ::testing::Test {
     result.vector = hybridRequest->requests[1];
     result.tailPlan = &hybridRequest->tailPipeline->ap;
     result.hybridParams = &hybridParams;
-    result.reqConfig = &hybridRequest->reqConfig;
-    result.cursorConfig = &hybridRequest->cursorConfig;
+    result.reqConfig = &hybridRequest->base.reqConfig;
+    result.timeoutConfig = &hybridRequest->base.timeout.config;
+    result.cursorConfig = &hybridRequest->base.cursorConfig;
     result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
 
@@ -183,12 +184,12 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithParams) {
@@ -203,12 +204,12 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
@@ -221,12 +222,12 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 240);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, 240);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, 240);
 
   // Verify dialect is set correctly
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
@@ -237,8 +238,8 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Fail);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
@@ -249,8 +250,8 @@ TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Return);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
@@ -261,36 +262,53 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
   recreateHybridRequest(args);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Ignore);
 }
 
 TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
   // Absent TIMEOUT/DIALECT must default to the request's construction-time
   // snapshot, not to RSGlobalConfig at parse time — parsing may run on a
   // background thread after the request was dispatched with its snapshot.
-  long long savedTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  long long savedTimeout = RSGlobalConfig.timeoutConfigParams.queryTimeoutMS;
   unsigned int savedDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
-  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 1234;
+  RSGlobalConfig.timeoutConfigParams.queryTimeoutMS = 1234;
   RSGlobalConfig.requestConfigParams.dialectVersion = 4;
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
                       "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   recreateHybridRequest(args);
   // Simulate FT.CONFIG SET landing between dispatch and the background parse.
-  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 5678;
+  RSGlobalConfig.timeoutConfigParams.queryTimeoutMS = 5678;
   RSGlobalConfig.requestConfigParams.dialectVersion = 2;
 
   parseCommand(args);
 
-  ASSERT_EQ(result.reqConfig->queryTimeoutMS, 1234);
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 1234);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 1234);
+  EXPECT_NE(result.timeoutConfig, &result.search->base.timeout.config);
+  EXPECT_NE(result.timeoutConfig, &result.vector->base.timeout.config);
+  ASSERT_EQ(result.timeoutConfig->queryTimeoutMS, 1234);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, 1234);
   ASSERT_EQ(result.reqConfig->dialectVersion, 4);
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 4);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 4);
 
-  RSGlobalConfig.requestConfigParams.queryTimeoutMS = savedTimeout;
+  RSGlobalConfig.timeoutConfigParams.queryTimeoutMS = savedTimeout;
   RSGlobalConfig.requestConfigParams.dialectVersion = savedDialect;
+}
+
+TEST_F(ParseHybridTest, testCursorSettingsOwnedByEachSubquery) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                     "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "42", "MAXIDLE", "1000");
+  parseCommand(args);
+
+  EXPECT_EQ(hybridRequest->base.cursorConfig.chunkSize, 42);
+  EXPECT_EQ(hybridRequest->base.cursorConfig.maxIdle, 1000);
+  hybridRequest->base.cursorConfig = {2000, 84};
+  for (const AREQ *subquery : {result.search, result.vector}) {
+    EXPECT_TRUE(subquery->reqflags & QEXEC_F_IS_CURSOR);
+    EXPECT_EQ(subquery->base.cursorConfig.chunkSize, 42);
+    EXPECT_EQ(subquery->base.cursorConfig.maxIdle, 1000);
+  }
 }
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
@@ -1371,7 +1389,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
 // The validation happens during query execution in the flow:
-// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// QAST_Iterate() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
 
 TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
@@ -1621,6 +1639,13 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "3", "@title");
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
+}
+
+TEST_F(ParseHybridTest, testLoadMissingAsArgument) {
+  // The sliced LOAD arguments end with a dangling `AS`. The distributed planner
+  // walks this slice before the pipeline validates it, so parsing must reject it.
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "2", "@title", "AS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LOAD path AS name - must be accompanied with NAME");
 }
 
 // ============================================================================

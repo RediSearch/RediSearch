@@ -37,6 +37,7 @@
 #include "query_error_ffi.h"
 #include "result_processor.h"
 #include "rmalloc.h"
+#include "op_block_client.h"
 #include "rmr/command.h"
 #include "rmr/conn.h"
 #include "rmr/node.h"
@@ -565,14 +566,12 @@ static void uvReplyClusterInfo(void *p) {
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   IORuntimeCtx_RequestCompleted(ioRuntime);
   RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
+  OpBlockClient_Unblock(bc);
   rm_free(replyClusterInfoCtx);
 }
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, NULL);
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
   replyClusterInfoCtx->bc = bc;

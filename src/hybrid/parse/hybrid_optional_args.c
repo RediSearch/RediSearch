@@ -93,9 +93,9 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // (the construction-time snapshot), not from RSGlobalConfig: parsing may
     // run on a background thread, after the snapshot was taken.
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
-                      &ctx->reqConfig->queryTimeoutMS,
+                      &ctx->timeoutConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, ctx->reqConfig->queryTimeoutMS,
+                      ARG_OPT_DEFAULT_INT, ctx->timeoutConfig->queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
 

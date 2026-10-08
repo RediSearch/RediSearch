@@ -120,7 +120,7 @@
 #include "vector_index.h"
 #include "version.h"
 
-struct ConcurrentCmdCtx;
+#include "coord/query_dispatch.h"
 struct MRCtx;
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // for usleep in coordinator reduce pause
@@ -159,8 +159,6 @@ arrayof(int*) asm_sanitizer_allocs;
 // Dedicated pool for RPSafeDepleter jobs, so they never contend with the
 // `_workers_thpool` queue — e.g. submitting a job after `WORKERS` was set to 0.
 redisearch_thpool_t *depleterPool = NULL;
-
-int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
@@ -2608,9 +2606,9 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
 static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc, int parseArgc,
                                               size_t queryTimeoutMS, QueryError *status) {
   searchRequestCtx *req = searchRequestCtx_New();
-  RequestConfig requestConfig = RSGlobalConfig.requestConfigParams;
-  requestConfig.queryTimeoutMS = (long long)MIN(queryTimeoutMS, (size_t)LLONG_MAX);
-  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_COORD_SEARCH, &requestConfig, argv, argc);
+  TimeoutConfig timeoutConfig = RSGlobalConfig.timeoutConfigParams;
+  timeoutConfig.queryTimeoutMS = (long long)MIN(queryTimeoutMS, (size_t)LLONG_MAX);
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_COORD_SEARCH, &RSGlobalConfig.requestConfigParams, &timeoutConfig, argv, argc);
   req->base.args.parseArgc = parseArgc;
 
   if (rscParseRequest(req, argv, parseArgc, status) != REDISMODULE_OK) {
@@ -2618,8 +2616,7 @@ static searchRequestCtx *initSearchRequestCtx(RedisModuleString **argv, int argc
     return NULL;
   }
 
-  req->base.async.requiresAggregateResultsSync =
-      requestConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
+  req->base.async.requiresAggregateResultsSync = timeoutConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
   return req;
 }
 
@@ -3472,14 +3469,14 @@ static void searchResultReducer_wrapper(void *mc_v) {
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
   MRCtx_IncrRef(mc);
-  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc);
   return REDISMODULE_OK;
 }
 
 static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
-    return req->base.timeout.policy == TimeoutPolicy_Fail;
+    return req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
@@ -3852,8 +3849,7 @@ static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
   return MastersFanoutCommandHandler(ctx, argv, argc, -1);
 }
 
-void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx);
+void RSExecDistAggregate(void *arg);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -3865,15 +3861,14 @@ static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString 
                             QueryError *status);
 
 static const char *coordinatorDebugPolicyError(bool isDebug) {
-  if (isDebug && RSGlobalConfig.requestConfigParams.timeoutPolicy != TimeoutPolicy_Return) {
+  if (isDebug && RSGlobalConfig.timeoutConfigParams.timeoutPolicy != TimeoutPolicy_Return) {
     return "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN";
   }
   return NULL;
 }
 
 /** Debug */
-void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx);
+void DEBUG_RSExecDistAggregate(void *arg);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return DistAggregateCommandImp(ctx, argv, argc, false);
@@ -3913,7 +3908,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   // Coord callback
-  ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
+  void (*dist_callback)(void *) = RSExecDistAggregate;
 
   if (isDebug) {
     dist_callback = DEBUG_RSExecDistAggregate;
@@ -3973,44 +3968,44 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   } else {
     r = AREQ_New(argv, argc);
   }
-  // Either path took the argv holds here, on the main thread; the BG parse
-  // borrows from them (the job's own argv copies die with the job).
+  // BG parsing borrows the arguments held by the request.
 
   // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
   // initQueryTimeout already resolved the command override and foreground cap.
-  r->reqConfig.queryTimeoutMS = (long long)queryTimeoutMS;
+  r->base.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
     r->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
-  QueryRequestTimeout_UpdateConfig(&r->base.timeout, r->reqConfig.timeoutPolicy,
-                                   r->reqConfig.queryTimeoutMS);
-  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+  if (r->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
     QueryRequestTimeout_BeginCycle(&r->base.timeout,
                                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+  RedisModuleCmdFunc reply_cb = NULL, timeout_cb = NULL;
+  rs_wall_clock_ms_t timeout_ms = 0;
 
-  handlerCtx.coordStartTime = coordInitialTime;
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
+  r->profileClocks.coordStartTime = coordInitialTime;
 
-  RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
-  handlerCtx.bcCtx.request = &r->base;
+  RSTimeoutPolicy policy = r->base.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistAggregateTimeoutFailCallback
-        : DistAggregateTimeoutReturnStrictCallback;
-    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    reply_cb = DistAggregateReplyCallback;
+    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistAggregateTimeoutFailCallback
+                                                : DistAggregateTimeoutReturnStrictCallback;
+    timeout_ms = queryTimeoutMS;
     if (policy == TimeoutPolicy_ReturnStrict) {
       r->base.async.requiresAggregateResultsSync = true;
     }
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);
+  *dispatch = (DistQueryDispatchCtx){
+      .request = &r->base,
+      .spec_ref = StrongRef_Demote(spec_ref),
+      .numShards = NumShards,
+      .bc = BlockQueryClientWithTimeout(ctx, &r->base, reply_cb, timeout_cb, timeout_ms),
+  };
+  ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch);
+  return REDISMODULE_OK;
 }
 
 int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -4046,7 +4041,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   // Coord callback
-  ConcurrentCmdHandler dist_callback = RSExecDistHybrid;
+  void (*dist_callback)(void *) = RSExecDistHybrid;
   if (isDebug) {
     dist_callback = DEBUG_RSExecDistHybrid;
   }
@@ -4091,25 +4086,19 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // thread.
   RedisSearchCtx *sctx = NewSearchCtxCEx(ctx, idx, true, INDEXSPEC_LOAD_NOCOUNTERINC);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
-  // Construction takes the argv holds here, on the main thread; the BG parse
-  // borrows from them (the job's own argv copies die with the job).
+  // Construction holds the arguments on the main thread for BG parsing.
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
   // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
   // initQueryTimeout already resolved the command override and foreground cap.
-  hreq->reqConfig.queryTimeoutMS = (long long)queryTimeoutMS;
+  hreq->base.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
     hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
-  QueryRequestTimeout_UpdateConfig(&hreq->base.timeout, hreq->reqConfig.timeoutPolicy,
-                                   hreq->reqConfig.queryTimeoutMS);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
-    subquery->reqConfig.queryTimeoutMS = hreq->reqConfig.queryTimeoutMS;
-    QueryRequestTimeout_UpdateConfig(&subquery->base.timeout,
-                                     subquery->reqConfig.timeoutPolicy,
-                                     subquery->reqConfig.queryTimeoutMS);
+    subquery->base.timeout.config.queryTimeoutMS = hreq->base.timeout.config.queryTimeoutMS;
   }
-  if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+  if (hreq->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
     HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
   // The tail and sub sctxs aliased this handler's ctx, which dies when the
@@ -4120,28 +4109,30 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     AREQ_SearchCtx(hreq->requests[i])->redisCtx = NULL;
   }
 
-  RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
+  RSTimeoutPolicy policy = hreq->base.timeout.config.timeoutPolicy;
   hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+  RedisModuleCmdFunc reply_cb = NULL, timeout_cb = NULL;
+  rs_wall_clock_ms_t timeout_ms = 0;
 
-  handlerCtx.coordStartTime = coordInitialTime;
-  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
-  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
-
-  handlerCtx.bcCtx.request = &hreq->base;
+  hreq->profileClocks.coordStartTime = coordInitialTime;
 
   if (policy != TimeoutPolicy_Return) {
-    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistHybridTimeoutFailCallback
-        : DistHybridTimeoutReturnStrictCallback;
-    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    reply_cb = DistHybridReplyCallback;
+    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistHybridTimeoutFailCallback
+                                                : DistHybridTimeoutReturnStrictCallback;
+    timeout_ms = queryTimeoutMS;
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);
+  *dispatch = (DistQueryDispatchCtx){
+      .request = &hreq->base,
+      .spec_ref = StrongRef_Demote(spec_ref),
+      .numShards = NumShards,
+      .bc = BlockQueryClientWithTimeout(ctx, &hreq->base, reply_cb, timeout_cb, timeout_ms),
+  };
+  ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch);
+  return REDISMODULE_OK;
 }
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -4536,7 +4527,7 @@ static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString 
                             QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
-  *timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  *timeout = RSGlobalConfig.timeoutConfigParams.queryTimeoutMS;
   if (wasCapped) {
     *wasCapped = false;
   }
@@ -4651,9 +4642,9 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   BlockedClientTimeoutCB timeoutCallback = NULL;
 
-  if (request->timeout.policy == TimeoutPolicy_Fail) {
+  if (request->timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailCallback;
-  } else if (request->timeout.policy == TimeoutPolicy_ReturnStrict) {
+  } else if (request->timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
     queryTimeout = 0;
@@ -4768,7 +4759,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   req->spec_ref = StrongRef_Demote(spec_ref);
   req->coordStartTime = coordInitialTime;
-  const bool useBlockedClientTimeout = req->base.timeout.policy != TimeoutPolicy_Return;
+  const bool useBlockedClientTimeout = req->base.timeout.config.timeoutPolicy != TimeoutPolicy_Return;
   QueryRequestTimeout_BeginCycle(&req->base.timeout, useBlockedClientTimeout
                                                          ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                                          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
@@ -4791,7 +4782,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetBlockedClient(mrctx, bc);
 
   MRCtx_IncrRef(mrctx);
-  ConcurrentSearch_ThreadPoolRun(dist_callback, req, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(dist_callback, req);
 
   return REDISMODULE_OK;
 }
@@ -5067,7 +5058,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
+  ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

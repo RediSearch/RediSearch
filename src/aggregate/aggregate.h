@@ -58,12 +58,6 @@ struct QOptimizer;
  * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
 
-// Configuration parameters for cursor behavior
-typedef struct {
-  uint32_t maxIdle;     // Maximum idle time for the cursor (from MAXIDLE parameter)
-  uint32_t chunkSize;   // Number of results per cursor read (from COUNT parameter)
-} CursorConfig;
-
 // A field the coordinator requires in each reply row (`_REQUIRED_FIELDS`), paired with its
 // reply-time key. `name` is borrowed from the request arguments; `key` points into the plan's
 // last lookup and is resolved lazily during serialization — NULL until the name resolves, and
@@ -78,6 +72,7 @@ typedef struct {
   AGGPlan *plan;                    // Aggregation plan
   QEFlags *reqflags;                // Request flags
   RequestConfig *reqConfig;         // Request configuration
+  TimeoutConfig *timeoutConfig;
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset
   CursorConfig *cursorConfig;       // Cursor configuration
@@ -186,22 +181,6 @@ typedef struct AREQ {
   uint32_t stateflags;
 
   int protocol; // RESP2/3
-
-  /*
-  // Dialect version used on this request
-  unsigned int dialectVersion;
-  // Query timeout in milliseconds
-  long long reqTimeout;
-  RSTimeoutPolicy timeoutPolicy;
-  // reply with time on profile
-  int printProfileClock;
-  uint64_t BM25STD_TanhFactor;
-  */
-
-  RequestConfig reqConfig;
-
-  /** Cursor configuration */
-  CursorConfig cursorConfig;
 
   /** Profile variables */
   ProfileClocks profileClocks;
@@ -560,26 +539,26 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
  * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
-static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
+static inline bool TimeoutConfig_ApplyCoordinatorElapsedTime(TimeoutConfig *timeoutConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {
   // Only adjust the timeout for 'fail' and 'return-strict' policies.
   // 'return' policy keeps the original timeout for backwards compatibility.
-  if (reqConfig->timeoutPolicy == TimeoutPolicy_Return) {
+  if (timeoutConfig->timeoutPolicy == TimeoutPolicy_Return) {
     return false;
   }
 
-  if (reqConfig->queryTimeoutMS == 0) {
+  if (timeoutConfig->queryTimeoutMS == 0) {
     return false;
   }
 
   const rs_wall_clock_ms_t elapsedMS = rs_wall_clock_convert_ns_to_ms(coordinatorElapsedTime);
 
-  if (elapsedMS >= (rs_wall_clock_ms_t)reqConfig->queryTimeoutMS) {
-    reqConfig->queryTimeoutMS = 1; // Avoid underflow, and reserved 0 for "no timeout"
+  if (elapsedMS >= (rs_wall_clock_ms_t)timeoutConfig->queryTimeoutMS) {
+    timeoutConfig->queryTimeoutMS = 1; // Avoid underflow, and reserved 0 for "no timeout"
     return true;
   }
 
-  reqConfig->queryTimeoutMS -= (long long)elapsedMS;
+  timeoutConfig->queryTimeoutMS -= (long long)elapsedMS;
   return false;
 }
 

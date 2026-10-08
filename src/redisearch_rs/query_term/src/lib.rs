@@ -10,9 +10,8 @@
 //! A query term being evaluated at query time.
 //!
 //! This crate defines [`RSQueryTerm`], an opaque struct shared
-//! between C and Rust across the FFI boundary. The C-callable lifecycle
-//! functions (`NewQueryTerm`, `Term_Free`) are provided by the `query_term_ffi`
-//! crate.
+//! between C and Rust across the FFI boundary. The C-callable constructor
+//! (`NewQueryTerm`) is provided by the `query_term_ffi` crate.
 
 use nul_terminated_bytes::NulTerminatedBytes;
 

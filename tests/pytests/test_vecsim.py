@@ -9,6 +9,8 @@ import math
 import random
 import time
 
+import numpy as np
+
 from RLTest import Env
 from common import *
 from includes import *
@@ -346,7 +348,7 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
-        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024, 'SHARED_MEMORY', dummy_val]
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024, 'TIERED_HNSW_DEFRAG_RUNS', 0, 'TIERED_HNSW_DEFRAG_TIME_NS', 0, 'SHARED_MEMORY', dummy_val]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'SHARED_MEMORY', dummy_val]
 
         # SVS-VAMANA only supports FLOAT32 and FLOAT16 data types
@@ -365,6 +367,7 @@ def test_create():
                                                       'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'LAST_RESERVED_NUM_THREADS', 1,
                                                       'NUMBER_OF_MARKED_DELETED', 0, 'SEARCH_WINDOW_SIZE', 10, 'SEARCH_BUFFER_CAPACITY', 10, 'LEANVEC_DIMENSION', 0, 'EPSILON', 0.01],
                                                       'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000,
+                                                      'TIERED_SVS_DEFRAG_RUNS', 0, 'TIERED_SVS_DEFRAG_TIME_NS', 0,
                                                       'SHARED_MEMORY', dummy_val]
 
         for _ in env.reloadingIterator():
@@ -905,7 +908,8 @@ def test_memory_info():
 # This test doesn't cover medium and large index scenarios to avoid extensive CI running time.
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
-def test_hybrid_query_with_text_vamana():
+def test_hybrid_query_with_text_vamana_adhoc_bf():
+    """Validate the automatic ADHOC_BF choices for SVS-VAMANA hybrid queries."""
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
@@ -961,14 +965,79 @@ def test_hybrid_query_with_text_vamana():
     expected_res[0] = k
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
 
-    # Test explicit BATCHES policy with batch size
-    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]', query_data, 't', hybrid_mode='HYBRID_BATCHES', limit = k).equal(expected_res[:k*2+1])
+
+def check_vamana_batches(env, text_filter, k, query_data, dim, data_type, expected_res, doc_vector=None):
+    """Run the explicit BATCHES hybrid query and assert its result. On a mismatch, first log whether
+    the missing docs are reachable some other way."""
+    query = f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]'
+    actual_res = env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', '__v_score',
+                         'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                         'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
+    if actual_res != expected_res:
+        log_unreachable_results(env, text_filter, k, query_data, dim, data_type, expected_res, actual_res,
+                                doc_vector=doc_vector)
+    execute_hybrid_query(env, query, query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k).equal(expected_res)
+
+
+def test_hybrid_query_with_text_vamana_batches():
+    """Validate explicit SVS-VAMANA BATCHES queries over a text filter, before and after some
+    documents change their text.
+
+    The vectors are random. Points on a single line (e.g. [i, i]) are a degenerate input for a
+    Vamana graph: it can end up with regions the search cannot reach from its entry point, and then
+    even a query with a doc's own vector does not return it. The expected results are the exact
+    (ADHOC_BF) ones."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    index_size = 1500 * 2 * env.shardsCount  # enough docs to initialize SVS on all shards
+    data_type = 'FLOAT32'
+    create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA',
+                        additional_schema_args=['t', 'TEXT'])
+
+    vectors = np.random.default_rng(1234).random((index_size, dim), dtype=np.float32)
+    pipe = conn.pipeline(transaction=False)
+    for doc_id, vector in enumerate(vectors, start=1):
+        pipe.execute_command('HSET', doc_id, DEFAULT_FIELD_NAME, vector.tobytes(), 't', 'text value')
+    pipe.execute()
+    start_time = time.time()
+    # Wait for every vector to reach the SVS backend before querying, not only for training to end.
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                 backend_index_size=index_size)
+    env.debugPrint("wait_for_background_indexing took {} seconds".format(
+        time.time() - start_time), force=True)
+
+    k = 12
+    query_data = np.array([0.5] * dim, dtype=np.float32)
+
+    def doc_vector(doc_id):
+        return vectors[int(doc_id) - 1]
+
+    def exact(text_filter):
+        return env.cmd('FT.SEARCH', 'idx', f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
+                       'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                       'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
+
+    # Query the initial corpus before any document has been updated.
+    check_vamana_batches(env, '@t:(text value)', k, query_data, dim, data_type, exact('@t:(text value)'),
+                         doc_vector=doc_vector)
+
+    # Move every 10th document to another text.
+    for i in range(1, int(index_size / 10) + 1):
+        conn.execute_command('HSET', 10 * i, 't', 'other')
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+
+    check_vamana_batches(env, 'other', k, query_data, dim, data_type, exact('other'),
+                         doc_vector=doc_vector)
 
     # Expect empty score for the intersection (disjoint sets of results)
     # The hybrid policy changes to ad hoc after the first batch
     # This one crashed before MOD-12063 is fixed
-    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
-                            hybrid_mode='HYBRID_BATCHES').equal([0])
+    execute_hybrid_query(
+        env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]',
+        query_data, 't', hybrid_mode='HYBRID_BATCHES',
+    ).equal([0])
+
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)

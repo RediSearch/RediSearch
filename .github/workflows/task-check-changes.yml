@@ -35,10 +35,10 @@ jobs:
   change-checks:
     runs-on: ubuntu-slim
     outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
-      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      CODE_CHANGED: ${{ steps.check-code.outputs.changed == 'true' || steps.check-cmake.outputs.changed == 'true' || steps.check-workflows.outputs.changed == 'true' }}
+      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.changed == 'true' || steps.check-cmake.outputs.changed == 'true' || steps.check-benchmarks.outputs.changed == 'true' || steps.check-workflows.outputs.changed == 'true' }}
+      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.changed == 'true' || steps.check-rust-cmake.outputs.changed == 'true' || steps.check-workflows.outputs.changed == 'true' }}
+      TESTS_CHANGED: ${{ steps.check-tests.outputs.changed == 'true' || steps.check-workflows.outputs.changed == 'true' }}
       # "Only this category changed" is deliberately conservative: it requires the rest of the
       # tree (code, workflows, and every other test directory -- ctests/ (shared fixtures),
       # qa/, memcheck/, deps/, an unrecognized new tests/ subdir) to be untouched. Anything
@@ -46,38 +46,38 @@ jobs:
       # never as "run nothing".
       ONLY_CPP_TESTS_CHANGED: >-
         ${{
-          steps.check-cpp-tests.outputs.any_modified == 'true' &&
-          steps.check-py-tests.outputs.any_modified != 'true' &&
-          steps.check-other-tests.outputs.any_modified != 'true' &&
-          steps.check-code.outputs.any_modified != 'true' &&
-          steps.check-cmake.outputs.any_modified != 'true' &&
-          steps.check-workflows.outputs.any_modified != 'true'
+          steps.check-cpp-tests.outputs.changed == 'true' &&
+          steps.check-py-tests.outputs.changed != 'true' &&
+          steps.check-other-tests.outputs.changed != 'true' &&
+          steps.check-code.outputs.changed != 'true' &&
+          steps.check-cmake.outputs.changed != 'true' &&
+          steps.check-workflows.outputs.changed != 'true'
         }}
       ONLY_PY_TESTS_CHANGED: >-
         ${{
-          steps.check-py-tests.outputs.any_modified == 'true' &&
-          steps.check-cpp-tests.outputs.any_modified != 'true' &&
-          steps.check-other-tests.outputs.any_modified != 'true' &&
-          steps.check-code.outputs.any_modified != 'true' &&
-          steps.check-cmake.outputs.any_modified != 'true' &&
-          steps.check-workflows.outputs.any_modified != 'true'
+          steps.check-py-tests.outputs.changed == 'true' &&
+          steps.check-cpp-tests.outputs.changed != 'true' &&
+          steps.check-other-tests.outputs.changed != 'true' &&
+          steps.check-code.outputs.changed != 'true' &&
+          steps.check-cmake.outputs.changed != 'true' &&
+          steps.check-workflows.outputs.changed != 'true'
         }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          fetch-depth: 0 # required for changed-files action to work
+          fetch-depth: 0 # required by changed-paths
 
       - name: Check if any workflows were changed
         id: check-workflows
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with: # Only run on changes to these paths (workflows)
           files: |
                 .github/workflows/**
                 .github/actions/**
       - name: Check if code was changed
         id: check-code
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with:
           files: |
                 *
@@ -117,32 +117,29 @@ jobs:
                 **/*.webp
                 **/*.ico
                 **/*.pdf
-          fetch_additional_submodule_history: true
       - name: Check if CMake files were changed
         id: check-cmake
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with:
           files: |
                 **/CMakeLists.txt
       - name: Check if benchmark files were changed
         id: check-benchmarks
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with:
           files: |
                 tests/benchmarks/**
                 .github/workflows/benchmark-*.yml
-          fetch_additional_submodule_history: true
       - name: Check if tests were changed
         id: check-tests
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with: # Only run on changes to these paths (tests related changes)
           files: |
                 tests/**
                 .github/workflows/*test*.yml
-          fetch_additional_submodule_history: true
       - name: Check if C/C++ unit test files were changed
         id: check-cpp-tests
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with: # Deliberately NOT tests/ctests/**: it holds fixtures (genesis.txt,
               # cn_sample.txt, ext-example/) that Python flow tests load too, e.g.
               # test_summarize.py/test_cn.py/test_ext.py -- a change confined to
@@ -152,13 +149,13 @@ jobs:
                 tests/cpptests/**
       - name: Check if Python flow test files were changed
         id: check-py-tests
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with:
           files: |
                 tests/pytests/**
       - name: Check if any other test files were changed
         id: check-other-tests
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with: # Anything under tests/** not already classified above -- forces a full run.
               # Includes tests/ctests/**, on purpose (see check-cpp-tests above).
           files: |
@@ -167,10 +164,9 @@ jobs:
                 tests/cpptests/**
                 tests/pytests/**
                 tests/benchmarks/**
-          fetch_additional_submodule_history: true
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with: # Only run on changes to these paths (redisearch_rs)
           files: |
               src/redisearch_rs/**
@@ -195,7 +191,7 @@ jobs:
               **/*.pdf
       - name: Check if Rust CMake files were changed
         id: check-rust-cmake
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
         with:
           files: |
               src/redisearch_rs/CMakeLists.txt
