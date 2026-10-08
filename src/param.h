@@ -54,7 +54,7 @@ typedef struct Param {
 /* The params dict borrows its names and values; both must outlive the dict and anything that
  * resolved a parameter from it. Query requests satisfy this with their held argv. */
 dict *Param_DictCreate();
-int Param_DictAdd(dict *d, const char *name, RedisModuleString *value, QueryError *status);
+int Param_DictAdd(dict *d, const char *name, size_t name_len, RedisModuleString *value, QueryError *status);
 const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *value_len, QueryError *status);
 void Param_DictFree(dict *);
 dict *Param_DictClone(dict *source);
