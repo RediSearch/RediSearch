@@ -291,3 +291,19 @@ TEST_F(OwnedRPNetTest, DrainReportsFatalShardErrorThroughExistingDiagnostic) {
   EXPECT_EQ(RP_DRAIN_ERROR, net->base.Drain(&net->base, &row));
   EXPECT_TRUE(QueryError_HasError(AREQ_QueryProcessingCtx(request)->err));
 }
+
+TEST_F(OwnedRPNetTest, StrictNextRecordsWarningBeforeOutputBudgetCanStopIteration) {
+  attachIterator();
+  net->cmd.protocol = 3;
+  const std::string warning = QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
+  const std::string wire =
+      "*2\r\n%3\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n"
+      "%1\r\n+field\r\n+one\r\n+format\r\n+STRING\r\n+warning\r\n"
+      "*1\r\n+" +
+      warning + "\r\n:0\r\n";
+  push(wire.c_str());
+  ASSERT_EQ(RS_RESULT_OK, net->base.Next(&net->base, &row));
+  expectValue("one");
+  // No subsequent Next/EOF call is guaranteed after the last requested row.
+  EXPECT_TRUE(request->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
+}

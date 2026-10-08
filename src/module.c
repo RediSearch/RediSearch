@@ -37,6 +37,7 @@
 #include "util/references.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
+#include "pipeline_execution.h"
 #include "rmalloc.h"
 #include "cursor.h"
 #include "debug_commands.h"
@@ -3991,7 +3992,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                                                 : DistAggregateTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
     if (policy == TimeoutPolicy_ReturnStrict) {
-      r->base.async.requiresAggregateResultsSync = true;
+      if (!SearchDisk_IsEnabled()) {
+        r->base.execution = PipelineExecution_New(&r->base.timeout);
+      } else {
+        r->base.async.requiresAggregateResultsSync = true;
+      }
     }
   }
 

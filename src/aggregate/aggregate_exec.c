@@ -973,6 +973,12 @@ static void executeOwnedChunk(PipelineAccess *access, void *data) {
     work->initialized = true;
   }
 
+#ifdef ENABLE_ASSERT
+  if ((AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) &&
+      PipelineAccess_DebugPause(access, SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK)) {
+    return;
+  }
+#endif
   int rc = RS_RESULT_EOF;
   AggregateResultsContinue(qctx->endProc, req, &rc, &req->base.reply.results);
   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return;
@@ -1528,15 +1534,21 @@ typedef struct {
   RedisModuleString **argv;
   int argc;
   bool cursorRead;
+  bool coordinator;
 } OwnedTimeoutReply;
 
 static void drainAndReplyOwned(PipelineAccess *access, void *data) {
   OwnedTimeoutReply *reply = data;
   QueryProcessingCtx *qctx = PipelineAccess_Context(access);
   if (!qctx) {
-    if (reply->cursorRead) {
+    if (reply->coordinator && reply->cursorRead) {
+      coord_cursor_read_empty_reply_timeout(reply->ctx, 0);
+    } else if (reply->cursorRead) {
       bool internal = RedisModule_StringPtrLen(reply->request->base.args.argv[0], NULL)[0] == '_';
       cursor_read_empty_reply_timeout(reply->ctx, 0, internal);
+    } else if (reply->coordinator) {
+      coord_aggregate_query_reply_empty(reply->ctx, reply->argv, reply->argc,
+                                        QUERY_ERROR_CODE_TIMED_OUT);
     } else {
       single_shard_common_query_reply_empty(reply->ctx, reply->argv, reply->argc, 0,
                                             QUERY_ERROR_CODE_TIMED_OUT);
@@ -1573,6 +1585,17 @@ static void drainAndReplyOwned(PipelineAccess *access, void *data) {
   AREQ_ReplyWithStoredResults(reply->ctx, req);
 }
 
+void AREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, AREQ *req, RedisModuleString **argv, int argc,
+                            bool coordinator, bool cursorRead) {
+  OwnedTimeoutReply reply = {.request = req,
+                             .ctx = ctx,
+                             .argv = argv,
+                             .argc = argc,
+                             .cursorRead = cursorRead,
+                             .coordinator = coordinator};
+  PipelineExecution_RunDrain(req->base.execution, drainAndReplyOwned, &reply);
+}
+
 // Timeout callback for AREQ execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (RETURN-STRICT
 // policy only). Owned execution acquires the published pipeline after setting
@@ -1583,7 +1606,8 @@ static void drainAndReplyOwned(PipelineAccess *access, void *data) {
 //     bails in startPipeline). In that case we own the reply and emit empty.
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
 //     then drain anything still buffered (RPSorter heap) and reply.
-static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                            int argc) {
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
@@ -1596,15 +1620,14 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (req->base.execution) {
-    OwnedTimeoutReply reply = {.request = req, .ctx = ctx, .argv = argv, .argc = argc};
-    PipelineExecution_RunDrain(req->base.execution, drainAndReplyOwned, &reply);
+    AREQ_ReplyOwnedTimeout(ctx, req, argv, argc, false, false);
     return REDISMODULE_OK;
   }
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
-    // Reply with empty results
+    // That means that the background thread didn't reach the aggregation phase
+    // (startPipelineCommon) yet. Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
@@ -1748,8 +1771,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (req->base.execution) {
-    OwnedTimeoutReply reply = {.request = req, .ctx = ctx, .cursorRead = true};
-    PipelineExecution_RunDrain(req->base.execution, drainAndReplyOwned, &reply);
+    AREQ_ReplyOwnedTimeout(ctx, req, argv, argc, false, true);
     return REDISMODULE_OK;
   }
 
@@ -2144,8 +2166,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // blocked-client timeout (FAIL) or the coord-side blocked-client timeout
   // (RETURN/RETURN_STRICT, where the shard never sets AREQ timedOut itself
   // and the test signals the sync point to release the worker).
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
-                      areq_timed_out, req);
+  if (!req->base.execution) {
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK, areq_timed_out, req);
+  }
 #endif
 
   sendChunk(req, reply, num);
@@ -2299,7 +2322,7 @@ static void coordCursorRead_ctx(void *p) {
     // a cursor-shaped reply, signal a waiting timeout callback, and park/free
     // the cursor.
     cursorRead(ctx, cursor, cr_ctx->count, false);
-  } else {
+  } else if (!req->base.execution) {
     AREQ_CursorEndOfCycle(req, cursor, true);
   }
   RedisModule_FreeThreadSafeContext(ctx);
@@ -2480,9 +2503,14 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           : DistCursorReadTimeoutReturnStrictCallback;
       timeoutMS = (rs_wall_clock_ms_t)capped;
     }
-    QueryRequestTimeout_BeginCycle(
-        &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-                                          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, replyCallback
+                                                           ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                                                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    if (cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict && !SearchDisk_IsEnabled()) {
+      RS_ASSERT(!req->base.execution);
+      req->base.async.requiresAggregateResultsSync = false;
+      req->base.execution = PipelineExecution_New(&req->base.timeout);
+    }
     // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
     // reset it to QUEUE after selecting the new cycle's source; the BG job
     // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read

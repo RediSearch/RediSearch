@@ -559,6 +559,10 @@ static inline bool TimeoutConfig_ApplyCoordinatorElapsedTime(TimeoutConfig *time
 
 void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
+// Timeout is already marked. Recover under execution ownership; reply flavor is
+// supplied by the callback so unpublished construction state need not be read.
+void AREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, AREQ *req, RedisModuleString **argv, int argc,
+                            bool coordinator, bool cursorRead);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 

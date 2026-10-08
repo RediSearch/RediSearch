@@ -1076,6 +1076,11 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
 
+  if (req->base.execution) {
+    AREQ_ReplyOwnedTimeout(ctx, req, argv, argc, true, false);
+    return REDISMODULE_OK;
+  }
+
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
@@ -1160,6 +1165,11 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // Record the per-stage breakdown at the stage the deadline caught the request
   // (QUEUE while BG has not dequeued the read yet).
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
+
+  if (req->base.execution) {
+    AREQ_ReplyOwnedTimeout(ctx, req, argv, argc, true, true);
+    return REDISMODULE_OK;
+  }
 
   if (QueryRequest_TryOwnStrictRead(request, QUERY_REQUEST_READ_OWNER_TIMEOUT)) {
     // The BG worker has not dequeued the read job yet. Waiting here would

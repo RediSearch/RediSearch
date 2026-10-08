@@ -238,6 +238,8 @@ static int getNextReplyMode(RPNet *nc, bool draining) {
   // fully drained downstream.
   if (!draining && !access) {
     SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+  } else if (!draining && PipelineAccess_DebugPause(access, SYNC_POINT_RPNET_WAITING_FOR_REPLY)) {
+    return RS_RESULT_TIMEDOUT;
   }
 #endif
   RS_ASSERT(nc->areq);
@@ -259,10 +261,6 @@ static int getNextReplyMode(RPNet *nc, bool draining) {
     if (MRIterator_GetPending(nc->it)) {
       MRChannel *channel = MRIterator_GetChannel(nc->it);
       PipelineAccess_ReleaseForWait(access);
-#ifdef ENABLE_ASSERT
-      // Main must be able to finish recovery without releasing this wait.
-      SyncPoint_Wait(SYNC_POINT_RPNET_WAITING_FOR_REPLY);
-#endif
       MRChannel_WaitReadable(channel, abortFlag);
       if (!PipelineAccess_ResumeAfterWait(access)) return RS_RESULT_TIMEDOUT;
     }
