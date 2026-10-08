@@ -26,10 +26,12 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub mod range_iterator;
+pub mod reducer;
 pub mod score_batch;
 pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
+pub use reducer::{NewNumericTopK, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
 pub use source::{AllValid, DocValidity, NumericScoreSource};
 
@@ -52,6 +54,9 @@ use top_k::{RuntimeOrder, TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile
 /// `I` is the filter child iterator type, defaulting to the production
 /// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
 /// An unfiltered iterator carries no child, so `I` is then an unused phantom.
+///
+/// The sort direction is a query parameter, so the heap's ordering is
+/// [`RuntimeOrder`].
 pub type NumericTopKIterator<
     'index,
     V = AllValid,
@@ -94,17 +99,17 @@ pub fn new_numeric_top_k_unfiltered<
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
 /// child filter, and the heap keeps the top `k` by numeric value. The sort
 /// direction is taken from the `source` (`SORTBY field ASC`/`DESC`).
-pub fn new_numeric_top_k_filtered<'index, V, E, T, C>(
-    source: NumericScoreSource<'index, V, E, T>,
-    child: C,
-    k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E, T, C>
-where
+pub fn new_numeric_top_k_filtered<
+    'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
     C: RQEIterator<'index> + 'index,
-{
+>(
+    source: NumericScoreSource<'index, V, E, T>,
+    child: C,
+    k: NonZeroUsize,
+) -> NumericTopKIterator<'index, V, E, T, C> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(source, Some(child), k, cmp, TopKMode::Batches)
 }
