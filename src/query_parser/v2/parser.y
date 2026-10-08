@@ -76,6 +76,7 @@
 
 #include "../parse.h"
 #include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -651,7 +652,13 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-  B.len = unescapen((char*)B.s, B.len);
+  // Unescape into a copy: the query text belongs to the caller.
+  if (memchr(B.s, '\\', B.len)) {
+    char *unescaped = rm_strndup(B.s, B.len);
+    B.len = unescapen(unescaped, B.len);
+    B.s = unescaped;
+    array_ensure_append_1(ctx->unescapedNames, unescaped);
+  }
   A.tok = B;
   if (ctx->sctx->spec) {
     A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
