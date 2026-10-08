@@ -879,3 +879,10 @@ def test_escaped_field_names(env):
                   'LOAD', '1', '@__key')
     env.assertEqual(res[0], 1, message=res)
     env.assertEqual(to_dict(res[1]), {'__key': '{doc}:1', '__v-ec_score': '0'})
+@skip(cluster=True)
+def test_quoted_param_and_exact_tokens(env):
+    # A quoted `$name` is a verbatim term that keeps its `$`; exact phrases split on separators.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.EXPLAIN', 'idx', '"$Val1"').equal('EXACT {\n  $val1\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', "'$Val1'").equal('EXACT {\n  $val1\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', '"Hello, wOrld foo"').equal('EXACT {\n  hello\n  world\n  foo\n}\n')
