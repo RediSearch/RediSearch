@@ -11,15 +11,14 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'EOF'
-Start a Redis OSS Cluster, split evenly across two remote hosts.
+Start a replicated Redis OSS Cluster across three remote hosts.
 
 Usage:
-  start-redis-oss-cluster.sh [options] HOST1_IP HOST2_IP SHARDS REDIS_VERSION
+  start-redis-oss-cluster.sh [options] HOST1_IP HOST2_IP HOST3_IP REDIS_VERSION
 
 Arguments:
-  HOST1_IP, HOST2_IP  IPv4 addresses used for SSH and advertised by Redis.
-  SHARDS              Number of primary shards (at least 3). No replicas are created.
-  REDIS_VERSION       Exact Redis version expected on both hosts (for example: 8.2.1).
+  HOST1_IP..HOST3_IP  IPv4 addresses used for SSH and advertised by Redis.
+  REDIS_VERSION       Exact Redis version expected on all hosts (for example: 8.2.1).
 
 Options:
   --ssh-user USER         SSH user (default: current local user)
@@ -30,6 +29,8 @@ Options:
   --redis-cli PATH        Remote redis-cli command or path (default: redis-cli)
   --json-module PATH      Remote absolute path to rejson.so (required)
   --search-module PATH    Remote absolute path to redisearch.so (required)
+  --shards COUNT          Number of primary shards (default: 20)
+  --db-memory-gb GB       Logical primary capacity in GiB (default: 400)
   --startup-timeout SEC   Seconds to wait for startup and cluster health (default: 60)
   --keep-on-failure       Do not stop Redis processes if setup fails
   --dry-run               Validate arguments and print the allocation only
@@ -40,11 +41,13 @@ Example:
     --identity-file ~/.ssh/test.pem \
     --json-module /opt/redis/lib/rejson.so \
     --search-module /opt/redis/lib/redisearch.so \
-    10.0.1.10 10.0.2.10 40 8.2.1
+    10.0.1.10 10.0.2.10 10.0.3.10 8.2.1
 
-The two hosts must be able to reach each other at the supplied IPs. Their security
+The three hosts must be able to reach each other at the supplied IPs. Their security
 groups must allow the Redis ports and the corresponding cluster-bus ports (port +
-10000) between the hosts. Keep these ports off the public internet.
+10000) between the hosts. Keep these ports off the public internet. Logical database
+capacity is divided evenly across primary shards; replicas have the same maxmemory,
+so replication doubles the physical memory capacity required by Redis.
 EOF
 }
 
@@ -83,6 +86,8 @@ redis_server=redis-server
 redis_cli=redis-cli
 json_module=
 search_module=
+shards=20
+db_memory_gb=400
 startup_timeout=60
 keep_on_failure=0
 dry_run=0
@@ -129,6 +134,16 @@ while (($# > 0)); do
       search_module=$2
       shift 2
       ;;
+    --shards)
+      (($# >= 2)) || die "--shards requires a value"
+      shards=$2
+      shift 2
+      ;;
+    --db-memory-gb)
+      (($# >= 2)) || die "--db-memory-gb requires a value"
+      db_memory_gb=$2
+      shift 2
+      ;;
     --startup-timeout)
       (($# >= 2)) || die "--startup-timeout requires a value"
       startup_timeout=$2
@@ -166,14 +181,16 @@ done
 
 host1=$1
 host2=$2
-shards=$3
+host3=$3
 redis_version=$4
 
 is_ipv4 "$host1" || die "HOST1_IP is not a valid IPv4 address: $host1"
 is_ipv4 "$host2" || die "HOST2_IP is not a valid IPv4 address: $host2"
-[[ "$host1" != "$host2" ]] || die "the two host IPs must be different"
+is_ipv4 "$host3" || die "HOST3_IP is not a valid IPv4 address: $host3"
+[[ "$host1" != "$host2" && "$host1" != "$host3" && "$host2" != "$host3" ]] ||
+  die "the three host IPs must be different"
 if ! is_uint "$shards" || ((shards < 3)); then
-  die "SHARDS must be an integer of at least 3"
+  die "--shards must be an integer of at least 3"
 fi
 if ! is_uint "$base_port" || ((base_port < 1 || base_port > 55535)); then
   die "--base-port must be between 1 and 55535"
@@ -181,6 +198,11 @@ fi
 if ! is_uint "$startup_timeout" || ((startup_timeout < 1)); then
   die "--startup-timeout must be a positive integer"
 fi
+if ! is_uint "$db_memory_gb" || ((db_memory_gb < 1)); then
+  die "--db-memory-gb must be a positive integer"
+fi
+((db_memory_gb % shards == 0)) ||
+  die "--db-memory-gb must be evenly divisible by --shards"
 [[ "$ssh_user" =~ ^[a-zA-Z0-9_.-]+$ ]] || die "invalid SSH user: $ssh_user"
 is_safe_remote_value "$redis_server" || die "unsafe --redis-server value: $redis_server"
 is_safe_remote_value "$redis_cli" || die "unsafe --redis-cli value: $redis_cli"
@@ -193,9 +215,19 @@ is_safe_remote_value "$search_module" || die "unsafe --search-module value: $sea
 [[ "$redis_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?([.-][a-zA-Z0-9]+)*$ ]] ||
   die "REDIS_VERSION is invalid: $redis_version"
 
-host1_shards=$(((shards + 1) / 2))
-host2_shards=$((shards / 2))
-highest_port=$((base_port + host1_shards - 1))
+host1_primaries=$(((shards + 2) / 3))
+host2_primaries=$(((shards + 1) / 3))
+host3_primaries=$((shards / 3))
+host1_nodes=$((host1_primaries + host3_primaries))
+host2_nodes=$((host2_primaries + host1_primaries))
+host3_nodes=$((host3_primaries + host2_primaries))
+total_nodes=$((shards * 2))
+memory_per_node_gb=$((db_memory_gb / shards))
+physical_memory_gb=$((memory_per_node_gb * total_nodes))
+max_nodes_per_host=$host1_nodes
+((host2_nodes > max_nodes_per_host)) && max_nodes_per_host=$host2_nodes
+((host3_nodes > max_nodes_per_host)) && max_nodes_per_host=$host3_nodes
+highest_port=$((base_port + max_nodes_per_host - 1))
 ((highest_port + 10000 <= 65535)) ||
   die "shard and cluster-bus ports exceed 65535; choose a lower --base-port"
 
@@ -209,20 +241,40 @@ if [[ -n "$identity_file" && ! -f "$identity_file" ]]; then
   die "identity file does not exist: $identity_file"
 fi
 
-declare -a endpoints=()
-for ((i = 0; i < host1_shards; i++)); do
-  endpoints+=("$host1:$((base_port + i))")
+declare -a primary_endpoints=()
+declare -a replica_endpoints=()
+for ((i = 0; i < host1_primaries; i++)); do
+  primary_endpoints+=("$host1:$((base_port + i))")
 done
-for ((i = 0; i < host2_shards; i++)); do
-  endpoints+=("$host2:$((base_port + i))")
+for ((i = 0; i < host2_primaries; i++)); do
+  primary_endpoints+=("$host2:$((base_port + i))")
 done
+for ((i = 0; i < host3_primaries; i++)); do
+  primary_endpoints+=("$host3:$((base_port + i))")
+done
+for ((i = 0; i < host1_primaries; i++)); do
+  replica_endpoints+=("$host2:$((base_port + host2_primaries + i))")
+done
+for ((i = 0; i < host2_primaries; i++)); do
+  replica_endpoints+=("$host3:$((base_port + host3_primaries + i))")
+done
+for ((i = 0; i < host3_primaries; i++)); do
+  replica_endpoints+=("$host1:$((base_port + host1_primaries + i))")
+done
+declare -a endpoints=("${primary_endpoints[@]}" "${replica_endpoints[@]}")
 
-echo "Redis Cluster allocation ($shards primary shards, 0 replicas):"
+echo "Redis Cluster allocation ($shards primary shards, $shards replicas, $total_nodes nodes):"
+echo "  Logical database memory: ${db_memory_gb} GiB"
+echo "  Maxmemory per primary/replica: ${memory_per_node_gb} GiB"
+echo "  Physical Redis capacity including replicas: ${physical_memory_gb} GiB"
 echo "  Redis version: $redis_version"
 echo "  RedisJSON module: $json_module"
 echo "  RediSearch module: $search_module"
-echo "  $host1: $host1_shards shards, ports $base_port-$((base_port + host1_shards - 1))"
-echo "  $host2: $host2_shards shards, ports $base_port-$((base_port + host2_shards - 1))"
+echo "  $host1: $host1_nodes nodes, ports $base_port-$((base_port + host1_nodes - 1))"
+echo "  $host2: $host2_nodes nodes, ports $base_port-$((base_port + host2_nodes - 1))"
+echo "  $host3: $host3_nodes nodes, ports $base_port-$((base_port + host3_nodes - 1))"
+echo "  Planned primaries: $host1_primaries on $host1, $host2_primaries on $host2," \
+  "$host3_primaries on $host3"
 echo "  Remote state: $remote_dir"
 echo "  Cluster-bus ports: $((base_port + 10000))-$((highest_port + 10000))"
 echo >&2
@@ -230,7 +282,10 @@ echo "WARNING: Restrict Redis and cluster-bus ports to trusted security groups;"
 echo "         Redis Cluster bus traffic is not authenticated or encrypted." >&2
 
 if ((dry_run)); then
-  printf '%s\n' "${endpoints[@]}"
+  echo "Primary endpoints:"
+  printf '%s\n' "${primary_endpoints[@]}"
+  echo "Replica endpoints:"
+  printf '%s\n' "${replica_endpoints[@]}"
   exit 0
 fi
 
@@ -243,6 +298,7 @@ fi
 
 host1_destination="$ssh_user@$host1"
 host2_destination="$ssh_user@$host2"
+host3_destination="$ssh_user@$host3"
 declare -a started_destinations=()
 
 cleanup() {
@@ -278,7 +334,7 @@ preflight_host() {
   echo "Preflight: $destination"
   ssh "${ssh_options[@]}" "$destination" bash -s -- \
     "$base_port" "$count" "$remote_dir" "$redis_server" "$redis_cli" "$redis_version" \
-    "$json_module" "$search_module" <<'REMOTE_PREFLIGHT'
+    "$json_module" "$search_module" "$memory_per_node_gb" <<'REMOTE_PREFLIGHT'
 set -euo pipefail
 base_port=$1
 count=$2
@@ -288,6 +344,7 @@ redis_cli=$5
 expected_redis_version=$6
 json_module=$7
 search_module=$8
+memory_per_node_gb=$9
 
 resolve_command() {
   if [[ "$1" == */* ]]; then
@@ -318,6 +375,16 @@ installed_redis_version=$(sed -n 's/.* v=\([^ ]*\).*/\1/p' <<<"$version_output")
   echo "Redis version mismatch: expected $expected_redis_version, found $installed_redis_version" >&2
   exit 1
 }
+
+if [[ -r /proc/meminfo ]]; then
+  total_memory_kib=$(awk '$1 == "MemTotal:" { print $2 }' /proc/meminfo)
+  required_memory_kib=$((count * memory_per_node_gb * 1024 * 1024))
+  ((total_memory_kib >= required_memory_kib)) || {
+    echo "insufficient RAM: $count nodes at ${memory_per_node_gb} GiB each require at least" \
+      "$((required_memory_kib / 1024 / 1024)) GiB, host has $((total_memory_kib / 1024 / 1024)) GiB" >&2
+    exit 1
+  }
+fi
 [[ ! -e "$remote_dir" ]] || {
   echo "remote directory already exists: $remote_dir (choose another --remote-dir)" >&2
   exit 1
@@ -346,7 +413,7 @@ start_host() {
   echo "Starting $count shards on $destination"
   ssh "${ssh_options[@]}" "$destination" bash -s -- \
     "$announce_ip" "$base_port" "$count" "$remote_dir" "$redis_server" "$redis_cli" \
-    "$startup_timeout" "$json_module" "$search_module" <<'REMOTE_START'
+    "$startup_timeout" "$json_module" "$search_module" "$memory_per_node_gb" <<'REMOTE_START'
 set -euo pipefail
 announce_ip=$1
 base_port=$2
@@ -357,6 +424,7 @@ redis_cli=$6
 startup_timeout=$7
 json_module=$8
 search_module=$9
+memory_per_node_gb=${10}
 
 mkdir -p -m 700 "$remote_dir"
 for ((i = 0; i < count; i++)); do
@@ -371,6 +439,8 @@ for ((i = 0; i < count; i++)); do
     --dir "$node_dir" \
     --dbfilename dump.rdb \
     --appendonly no \
+    --maxmemory "${memory_per_node_gb}gb" \
+    --maxmemory-policy noeviction \
     --cluster-enabled yes \
     --cluster-config-file nodes.conf \
     --cluster-node-timeout 5000 \
@@ -406,17 +476,27 @@ for ((i = 0; i < count; i++)); do
     echo "shard on port $port did not load RediSearch" >&2
     exit 1
   fi
+  configured_maxmemory=$("$redis_cli" -h 127.0.0.1 -p "$port" --raw CONFIG GET maxmemory |
+    tail -1)
+  expected_maxmemory=$((memory_per_node_gb * 1024 * 1024 * 1024))
+  if [[ "$configured_maxmemory" != "$expected_maxmemory" ]]; then
+    echo "shard on port $port has maxmemory $configured_maxmemory, expected $expected_maxmemory" >&2
+    exit 1
+  fi
 done
 REMOTE_START
 }
 
-preflight_host "$host1_destination" "$host1_shards"
-preflight_host "$host2_destination" "$host2_shards"
+preflight_host "$host1_destination" "$host1_nodes"
+preflight_host "$host2_destination" "$host2_nodes"
+preflight_host "$host3_destination" "$host3_nodes"
 
 started_destinations+=("$host1_destination")
-start_host "$host1_destination" "$host1" "$host1_shards"
+start_host "$host1_destination" "$host1" "$host1_nodes"
 started_destinations+=("$host2_destination")
-start_host "$host2_destination" "$host2" "$host2_shards"
+start_host "$host2_destination" "$host2" "$host2_nodes"
+started_destinations+=("$host3_destination")
+start_host "$host3_destination" "$host3" "$host3_nodes"
 
 echo "Creating cluster and assigning all 16384 slots..."
 ssh "${ssh_options[@]}" "$host1_destination" bash -s -- \
@@ -424,17 +504,18 @@ ssh "${ssh_options[@]}" "$host1_destination" bash -s -- \
 set -euo pipefail
 redis_cli=$1
 shift
-"$redis_cli" --cluster create "$@" --cluster-replicas 0 --cluster-yes
+"$redis_cli" --cluster create "$@" --cluster-replicas 1 --cluster-yes
 REMOTE_CREATE
 
 echo "Waiting for cluster health..."
 ssh "${ssh_options[@]}" "$host1_destination" bash -s -- \
-  "$redis_cli" "$shards" "$startup_timeout" "${endpoints[@]}" <<'REMOTE_VERIFY'
+  "$redis_cli" "$shards" "$total_nodes" "$startup_timeout" "${endpoints[@]}" <<'REMOTE_VERIFY'
 set -euo pipefail
 redis_cli=$1
 expected_shards=$2
-startup_timeout=$3
-shift 3
+expected_nodes=$3
+startup_timeout=$4
+shift 4
 endpoints=("$@")
 first_host=${endpoints[0]%:*}
 first_port=${endpoints[0]##*:}
@@ -459,11 +540,36 @@ while ((SECONDS < deadline)); do
   known_nodes=$(awk -F: '$1 == "cluster_known_nodes" { print $2 }' <<<"$info")
 
   if ((all_ping)) && [[ "$state" == ok && "$assigned" == 16384 && "$slots_ok" == 16384 &&
-    "$known_nodes" == "$expected_shards" ]]; then
+    "$known_nodes" == "$expected_nodes" ]]; then
     nodes=$("$redis_cli" -h "$first_host" -p "$first_port" --raw CLUSTER NODES | tr -d '\r')
-    connected_masters=$(awk '$3 ~ /(^|,)master(,|$)/ && $3 !~ /fail/ && $8 == "connected" { count++ }
-      END { print count + 0 }' <<<"$nodes")
-    if [[ "$connected_masters" == "$expected_shards" ]]; then
+    if awk -v expected="$expected_shards" '
+      function node_ip(address, bus, parts) {
+        split(address, bus, "@");
+        split(bus[1], parts, ":");
+        return parts[1];
+      }
+      {
+        ips[$1] = node_ip($2);
+        healthy = $3 !~ /(^|,)(fail|fail\?)(,|$)/ && $8 == "connected";
+        if (healthy && $3 ~ /(^|,)master(,|$)/) {
+          masters[$1] = 1;
+          master_count++;
+        } else if (healthy && $3 ~ /(^|,)(slave|replica)(,|$)/) {
+          replica_master[$1] = $4;
+          replica_count++;
+        }
+      }
+      END {
+        if (master_count != expected || replica_count != expected) exit 1;
+        for (replica in replica_master) {
+          master = replica_master[replica];
+          if (!(master in masters) || ips[replica] == ips[master]) exit 1;
+          replicas_per_master[master]++;
+        }
+        for (master in masters) {
+          if (replicas_per_master[master] != 1) exit 1;
+        }
+      }' <<<"$nodes"; then
       exit 0
     fi
   fi
@@ -479,5 +585,5 @@ REMOTE_VERIFY
 trap - ERR INT TERM
 
 echo
-echo "Cluster is healthy. Shard endpoints:"
+echo "Cluster is healthy. All primary and replica node endpoints:"
 printf '%s\n' "${endpoints[@]}"
