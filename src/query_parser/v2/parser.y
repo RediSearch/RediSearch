@@ -75,6 +75,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "rmutil/rm_assert.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -201,18 +202,18 @@ static const char ToksepParserMap_g[256] = {
 
 /**
  * Copy of toksep.h function to use a different map
- * Function reads string pointed to by `s` and indicates the length of the next
- * token in `tokLen`. `s` is set to NULL if this is the last token.
+ * Function reads string pointed to by `s`, up to `end` or a NUL, and indicates the
+ * length of the next token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep2(char **s, size_t *tokLen) {
-  uint8_t *pos = (uint8_t *)*s;
-  char *orig = *s;
+static inline const char *toksep2(const char **s, const char *end, size_t *tokLen) {
+  const uint8_t *pos = (const uint8_t *)*s;
+  const char *orig = *s;
   int escaped = 0;
-  for (; *pos; ++pos) {
+  for (; (const char *)pos < end && *pos; ++pos) {
     if (ToksepParserMap_g[*pos] && !escaped) {
-      *s = (char *)++pos;
-      *tokLen = ((char *)pos - orig) - 1;
-      if (!*pos) {
+      *s = (const char *)++pos;
+      *tokLen = ((const char *)pos - orig) - 1;
+      if ((const char *)pos == end || !*pos) {
         *s = NULL;
       }
       return orig;
@@ -222,7 +223,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
   // Didn't find a terminating token. Use a simpler length calculation
   *s = NULL;
-  *tokLen = (char *)pos - orig;
+  *tokLen = (const char *)pos - orig;
   return orig;
 };
 
@@ -509,45 +510,40 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 /////////////////////////////////////////////////////////////////
 
 text_expr(A) ::= EXACT(B) . [TERMLIST] {
-  char *str = rm_strndup(B.s, B.len);
-  char *s = str;
+  const char *str = B.s;
+  const char *end = B.s + B.len;
 
   A = NewPhraseNode(0);
 
   while (str != NULL) {
     // get the next token
     size_t tokLen = 0;
-    char *tok = toksep2(&str, &tokLen);
+    const char *tok = toksep2(&str, end, &tokLen);
     if(tokLen > 0) {
       QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }
 
-  rm_free(s);
   A->pn.exact = 1;
   A->opts.flags |= QueryNode_Verbatim;
 }
 
 text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   // Quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  char *s = rm_malloc(B.len + 1);
-  *s = '$';
-  memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
-  rm_free(s);
+  // Also need to add the leading '$' which was consumed by the lexer; it still
+  // precedes the token in the query text.
+  RS_ASSERT(B.s[-1] == '$');
+  A = NewTokenNode(ctx, rm_normalize(B.s - 1, B.len + 1), -1);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
 text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
   // Single quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  char *s = rm_malloc(B.len + 1);
-  *s = '$';
-  memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
-  rm_free(s);
+  // Also need to add the leading '$' which was consumed by the lexer; it still
+  // precedes the token in the query text.
+  RS_ASSERT(B.s[-1] == '$');
+  A = NewTokenNode(ctx, rm_normalize(B.s - 1, B.len + 1), -1);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
