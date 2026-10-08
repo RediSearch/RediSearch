@@ -25,7 +25,7 @@ these files are instructions, not an implemented harness.
 | Repository/subdirectory instructions | Paths at the starting SHA |
 | Migration readiness skill | [.skills/migration-readiness/SKILL.md](../../.skills/migration-readiness/SKILL.md) |
 | Rust migration skill | [.skills/port-c-module/SKILL.md](../../.skills/port-c-module/SKILL.md) |
-| Batch findings skill and format | [.skills/batch-findings/SKILL.md](../../.skills/batch-findings/SKILL.md), format v1 |
+| Batch findings skill and format | [.skills/batch-findings/SKILL.md](../../.skills/batch-findings/SKILL.md), format v2 |
 | Prompt | [prompt.txt](prompt.txt); substitute scope, repository, SHA, and manifest path |
 | Permitted reference ports/decisions | Allowlist of source examples at the starting SHA or permitted ancestors |
 | Output directory | `runs/<run-id>/author/`: readiness, plan, patch, report, logs, resource snapshots |

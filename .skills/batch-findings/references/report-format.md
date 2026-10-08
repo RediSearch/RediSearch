@@ -1,4 +1,4 @@
-# Batch report v1
+# Batch report v2
 
 Required field names and allowed values below form the format contract. Store a
 human-readable Markdown report for the POC; machine validation can be added after
@@ -9,7 +9,7 @@ for an intentionally empty set. Do not silently omit required fields.
 
 | Field | Value |
 | --- | --- |
-| format_version | `1` |
+| format_version | `2` |
 | run_id | Stable run identifier |
 | starting_sha | Full C baseline commit |
 | candidate | Commit, or base SHA plus full patch digest including new files |
@@ -36,7 +36,9 @@ later comparisons; redact secrets and avoid logging credentials.
 | summary | The question or defect |
 | evidence | Reproducer, source, or check result; separate observations from assumptions |
 | impact | Affected users, inputs, outputs, observable behavior, relevant CPU/memory/latency/throughput impact, and uncertainty |
-| affected_tasks | Tasks/checkpoints affected; explicitly name what is blocked |
+| affected_tasks | Tasks/checkpoints affected |
+| blocks | Exact tasks/checkpoints that cannot advance, or `none`; an acceptance blocker does not stop its repair |
+| next_actor | `migration-agent`, `environment-setup`, `human-decision`, or `none` |
 | requested_action | `Advice`, `Investigation`, `Change request`, `Option approval`, `Dismissal`, `Deferral`, or `none` for awareness only |
 | options / recommendation | Available options with compatibility/cost tradeoffs; state when none is known rather than inventing alternatives |
 | resolution | Decision, authority, scope, reason, and verification; `pending` while unresolved |
@@ -53,3 +55,8 @@ affected findings rather than applying incompatible replies mechanically.
 Example: `F-003`, revision `2`, `Option approval`, option `preserve-bytes`:
 "Keep accepting byte strings; UTF-8 rejection is outside this migration."
 The agent records the decision and verifies invalid-byte tests before resolution.
+
+Version 2 adds `blocks` and `next_actor`. Keep completed v1 reports unchanged;
+use v2 for new runs. A blocking finding stays `in-progress` while its owner
+repairs it. Escalate only a concrete missing permission/resource, unresolved
+decision, or reached run limit; state what is needed to resume.

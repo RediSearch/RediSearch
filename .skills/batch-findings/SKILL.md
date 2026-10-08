@@ -5,7 +5,7 @@ description: Maintain migration batch findings and apply item-specific feedback,
 
 # Batch findings and feedback
 
-Use [report format v1](references/report-format.md) for runs configured with this
+Use [report format v2](references/report-format.md) for runs configured with this
 version. Keep it stable during a run; version future changes deliberately. Text
 explanations are free-form. The defined identifiers and values support later
 automation; this draft does not implement a report parser or budget controller.
@@ -24,6 +24,12 @@ action describes the help needed. An investigation can be Informational or Block
 An open TODO is not automatically a blocker. Requirements may be ambiguous,
 incomplete, contradictory, or omit variants. Design/code-quality blockers can be
 repaired by the agent; a blocker does not always require a human reply.
+
+For each finding, name `blocks` and `next_actor`. Blocking acceptance does not
+block investigation or repair. Continue authorized agent/setup repairs within run
+limits, revalidate, and update the finding. Do not hand repairable failures to a
+human merely because they are Blocking. Escalate only a concrete missing resource
+or permission, unresolved consequential decision, or reached limit.
 
 Pause only work that depends on the unresolved decision. Continue tasks that
 remain useful regardless of the answer, such as inspecting callers, characterizing

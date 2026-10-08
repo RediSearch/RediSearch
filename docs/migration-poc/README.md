@@ -24,7 +24,7 @@ Migration and POC evaluation are separate workflows. See the
 | [Validation guidance](../../.skills/port-c-module/references/validation.md) | Choose concrete checks and interpret failures at each checkpoint |
 | [Migration readiness](../../.skills/migration-readiness/SKILL.md) | Requirements completeness and conditional design review |
 | [Batch findings](../../.skills/batch-findings/SKILL.md) | Findings, scoped blockers, feedback, and resource reporting |
-| [Report format](../../.skills/batch-findings/references/report-format.md) | Stable v1 fields/values with free-text explanations |
+| [Report format](../../.skills/batch-findings/references/report-format.md) | Stable v2 fields/values with free-text explanations |
 | [Run template](../migration/run-template.md) | Pin source/guidance and configure environment, validation, budgets, and handoff |
 
 There is one Rust migration skill. Readiness and batch feedback are supporting

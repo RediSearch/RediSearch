@@ -92,6 +92,12 @@ Detect and handle behavioral differences:
 Decide when to continue or pause:
 - Resolve routine choices using requirements, repository guidance, and
   approved examples. Record consequential assumptions.
+- Record what each finding blocks and its next actor: migration-agent,
+  environment-setup, human-decision, or none. A blocked acceptance checkpoint
+  does not stop its repair. Continue authorized investigation, setup, and repairs
+  within run limits; revalidate and update the finding. Do not stop just because
+  a finding is Blocking or one repair failed. Escalate only a concrete missing
+  permission/resource, unresolved consequential decision, or reached limit.
 - Classify findings as Informational, Consultation, or Blocking.
   A finding does not automatically block progress.
 - Block dependent work when an unresolved requirement, design choice,
