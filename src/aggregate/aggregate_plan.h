@@ -179,6 +179,16 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
  */
 PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original);
 
+/**
+* Validate that the LOAD arguments are syntactically correct
+ *
+ * @param args the sliced LOAD arguments; the cursor itself is not advanced
+ * @param status receives the client-facing error when the slice is rejected;
+ *               must not be NULL
+ * @return `REDISMODULE_OK` when every `AS` is followed by an alias
+ */
+int PLNLoadStep_ValidateArgs(const ArgsCursor *args, QueryError *status);
+
 #ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
 #else
