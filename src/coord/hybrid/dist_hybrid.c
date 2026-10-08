@@ -459,8 +459,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
 }
 
-// UPDATED: Set RPNet types when creating them
-// NOTE: Caller should clone the dispatcher_ref before calling this function
 // The RPNet takes over `cmd`'s allocations; `*cmd` is left empty.
 static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *cmd,
                           RLookup *lookup,
