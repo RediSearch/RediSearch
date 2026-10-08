@@ -276,11 +276,12 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
 
   dict *params = Param_DictCreate();
   while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
+    size_t param_len;
+    const char *param = AC_GetStringNC(&paramsArgs, &param_len);
     RedisModuleString *value;
     AC_GetRString(&paramsArgs, &value, 0);
     // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == Param_DictAdd(params, param, value, status)) {
+    if (DICT_ERR == Param_DictAdd(params, param, param_len, value, status)) {
       Param_DictFree(params);
       return REDISMODULE_ERR;
     }
