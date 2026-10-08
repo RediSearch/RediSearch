@@ -1873,7 +1873,8 @@ def testFirstValueByPrefersNonNullSortKeyRegardlessOfRowOrder(env):
 @skip(cluster=True)
 def testRandomSampleOfAGroupThatFitsReturnsEveryValue(env):
     """RANDOM_SAMPLE returns every value of a group no larger than the sample size, skips
-    documents without the property, and honors a sample size of 0."""
+    documents without the property, honors a sample size of 0, and rejects a sample size
+    that is too large or not a number."""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'g', 'TAG').ok()
     for i, n in enumerate([3, 1, 2]):
@@ -1888,3 +1889,10 @@ def testRandomSampleOfAGroupThatFitsReturnsEveryValue(env):
     env.assertEqual(sorted(sample(3), key=float), ['1', '2', '3'])
     env.assertEqual(sorted(sample(10), key=float), ['1', '2', '3'])
     env.assertEqual(sample(0), [])
+
+    def aggregate_with_size(size):
+        return env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'GROUPBY', 0,
+                          'REDUCE', 'RANDOM_SAMPLE', 2, '@n', size, 'AS', 'sample')
+
+    aggregate_with_size(1001).error().contains('Sample size too large')
+    aggregate_with_size('abc').error().contains('Bad arguments for <sample size>')

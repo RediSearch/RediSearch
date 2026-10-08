@@ -9,12 +9,10 @@
 #include <aggregate/reducer.h>
 #include <stdint.h>
 
-#include "value_ffi.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "reducers_ffi.h"
 #include "rlookup.h"
-#include "rlookup_ffi.h"
 #include "rmutil/args.h"
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {

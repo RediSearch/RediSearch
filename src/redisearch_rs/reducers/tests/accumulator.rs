@@ -395,28 +395,55 @@ fn random_sample_keeps_every_value_of_a_group_that_fits() {
     assert_eq!(sample(10, &[]), [] as [f64; 0]);
 }
 
-/// Rows where the property is missing are neither sampled nor counted.
+/// Rows where the property is missing are not sampled.
 #[test]
 fn random_sample_skips_missing_values() {
     assert_eq!(sample(5, &[None, num(1.0), None, num(2.0)]), [1.0, 2.0]);
 }
 
+/// Once the sample is full, each value replaces the slot `rand() % (seen + 1)` if
+/// that is within the sample, where `seen` counts only rows with the property. The
+/// reducer is checked against that rule fed the same `rand` sequence.
+///
+/// Every test that draws from `rand` is here: it is one process-wide generator, so
+/// a test drawing from it concurrently would shift the sequence under this one.
 #[test]
-fn random_sample_of_size_zero_is_empty() {
-    let values = [num(1.0), num(2.0)];
-    assert_eq!(sample(0, &values), [] as [f64; 0]);
-}
+#[cfg_attr(miri, ignore = "calls libc::rand, which miri cannot run")]
+fn random_sample_of_a_larger_group_replaces_values_as_the_reservoir_draws() {
+    const SEED: u32 = 7;
+    const SIZE: usize = 3;
+    // Every fifth row lacks the property.
+    let values: Vec<_> = (0..40)
+        .map(|n| (n % 5 != 4).then(|| SharedValue::new_num(f64::from(n))))
+        .collect();
 
-/// A larger group is cut to the sample size, and every sampled value comes from it.
-#[test]
-fn random_sample_of_a_larger_group_has_the_sample_size_and_only_its_values() {
-    let values: Vec<_> = (0..100).map(|n| num(f64::from(n))).collect();
-    let mut sampled = sample(10, &values);
-    assert_eq!(sampled.len(), 10);
-    sampled.sort_by(f64::total_cmp);
-    sampled.dedup();
-    assert_eq!(sampled.len(), 10, "values are each sampled at most once");
-    assert!(sampled.iter().all(|n| (0.0..100.0).contains(n)));
+    // SAFETY: `srand` has no preconditions.
+    unsafe { libc::srand(SEED) };
+    let sampled = sample(SIZE, &values);
+
+    // SAFETY: as above.
+    unsafe { libc::srand(SEED) };
+    let mut expected = Vec::new();
+    for (seen, n) in values.iter().flatten().map(number).enumerate() {
+        if expected.len() < SIZE {
+            expected.push(n);
+            continue;
+        }
+        // SAFETY: `rand` has no preconditions.
+        let slot = unsafe { libc::rand() } as usize % (seen + 1);
+        if let Some(sample) = expected.get_mut(slot) {
+            *sample = n;
+        }
+    }
+    assert_eq!(sampled, expected);
+    assert_ne!(
+        expected,
+        [0.0, 1.0, 2.0],
+        "the seed must exercise a replacement"
+    );
+
+    // A sample of size 0 still draws for every row, and stays empty.
+    assert_eq!(sample(0, &values), [] as [f64; 0]);
 }
 
 /// Runs `accumulator` over two groups the way the grouper does: a state per
@@ -470,8 +497,8 @@ fn interleaved_groups_are_kept_apart() {
 #[test]
 fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
-        CountDistinctReducer_Create, FirstValueReducer_Create, StdDevReducer_Create,
-        SumReducer_Create,
+        CountDistinctReducer_Create, FirstValueReducer_Create, RandomSampleReducer_Create,
+        StdDevReducer_Create, SumReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -498,4 +525,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let distinct = unsafe { CountDistinctReducer_Create(key_ptr) };
     assert!(frees_states(distinct));
+    // SAFETY: as above.
+    let random_sample = unsafe { RandomSampleReducer_Create(key_ptr, 10) };
+    assert!(frees_states(random_sample));
 }

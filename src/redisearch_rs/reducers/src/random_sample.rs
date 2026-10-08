@@ -14,9 +14,9 @@ use value::SharedValue;
 
 use crate::accumulator::Accumulator;
 
-/// `RANDOM_SAMPLE` of a property: up to `size` of its values in the group, each
-/// equally likely to be kept (reservoir sampling). Rows where the property is
-/// missing are skipped and not counted.
+/// `RANDOM_SAMPLE` of a property: up to `size` of its values in the group, chosen
+/// at random by reservoir sampling over the C library's `rand` (so with its small
+/// modulo bias). Rows where the property is missing are skipped and not counted.
 pub struct RandomSample<'a> {
     key: &'a RLookupKey<'a>,
     size: usize,
@@ -33,7 +33,8 @@ impl<'a> RandomSample<'a> {
 pub struct RandomSampleState {
     /// The number of values seen, kept or not.
     seen: usize,
-    /// The sample: the first `size` values seen, then replaced at random.
+    /// The sample: the first values seen, up to the size given to
+    /// [`RandomSample::new`], then replaced at random.
     samples: Vec<SharedValue>,
 }
 
@@ -68,7 +69,9 @@ impl Accumulator for RandomSample<'_> {
 /// A pseudo-random number in `0..bound`, from the C library's generator, which
 /// the C reducer used.
 fn random_below(bound: usize) -> usize {
-    // SAFETY: `rand` has no preconditions.
+    // SAFETY: `rand` has no preconditions. It is not required to be thread-safe:
+    // glibc and macOS lock around its seed, while on a libc that does not, concurrent
+    // queries race on it, as they did with the C reducer this replaces.
     let random = unsafe { libc::rand() };
     // `rand` returns a non-negative `int`.
     random as usize % bound
