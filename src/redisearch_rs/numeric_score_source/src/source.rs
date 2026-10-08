@@ -26,15 +26,13 @@ use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
 
 /// Reports whether a doc id still resolves to a live result document — one that
-/// has not been deleted and whose whole-document TTL has not lapsed.
+/// has not been deleted.
 ///
-/// This is the document-level check (deletion + whole-doc expiry); *field*-level
-/// TTL is a separate concern carried by an [`ExpirationChecker`]. The numeric
-/// index keeps entries for stale documents until GC reclaims them, so the source
-/// drops them before they reach the top-k heap. This mirrors the result
-/// processor's per-document validity check: the numeric optimizer's bounded heap
-/// must hold `k` *valid* survivors, and a downstream drop cannot retroactively
-/// admit the live document a stale entry displaced.
+/// Deletion only; TTL expiry is a separate concern carried by an
+/// [`ExpirationChecker`]. The numeric index keeps entries for deleted documents
+/// until GC reclaims them, so the source drops them before they reach the top-k
+/// heap: the bounded heap must hold `k` *valid* survivors, and a downstream drop
+/// cannot retroactively admit the live document a stale entry displaced.
 pub trait DocValidity {
     /// Returns `true` if `doc_id` still resolves to a valid result document.
     fn is_valid(&self, doc_id: DocId) -> bool;
@@ -468,9 +466,9 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         };
         self.num_batches += 1;
         // Drop stale entries pre-heap so they never displace a live document from
-        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
-        // and field-level TTL, the two the range tree only sheds at GC time. Each
-        // gate keeps the common no-filtering case free of its per-record check.
+        // the bounded top-k: document deletion and field-level TTL, the two the
+        // range tree only sheds at GC time. Each gate keeps the common
+        // no-filtering case free of its per-record check.
         let filter_validity = self.validity.may_filter();
         let filter_expiration = self.expiration.has_expiration();
         if !filter_validity && !filter_expiration {
