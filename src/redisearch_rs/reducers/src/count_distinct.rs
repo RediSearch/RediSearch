@@ -15,6 +15,8 @@ use value::SharedValue;
 
 use crate::accumulator::Accumulator;
 
+const INITIAL_HASH: u64 = 0;
+
 /// `COUNT_DISTINCT` of a property: the number of distinct [hashes][value::hash::hash]
 /// of its values, skipping rows where it is missing or the static null.
 pub struct CountDistinct<'a> {
@@ -38,7 +40,7 @@ impl Accumulator for CountDistinct<'_> {
 
     fn add(&self, seen: &mut FxHashSet<u64>, row: &RLookupRow<'_>) {
         if let Some(value) = row.get(self.key).filter(|value| !value.is_null_static()) {
-            seen.insert(value::hash::hash(value, 0));
+            seen.insert(value::hash::hash(value, INITIAL_HASH));
         }
     }
 
