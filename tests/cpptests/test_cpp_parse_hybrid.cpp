@@ -136,6 +136,10 @@ class ParseHybridTest : public ::testing::Test {
     if (hybridRequest) {
       HybridRequest_Free(hybridRequest);
     }
+    if (hybridParams.scoringCtx) {
+      HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
+    hybridParams = {};
     hybridRequest =
         MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true), args, args.size());
     result.search = hybridRequest->requests[0];
@@ -856,6 +860,99 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
     }
   }
   ASSERT_TRUE(foundEfRuntime);
+}
+
+TEST_F(ParseHybridTest, testVsimRerankForwarding) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    for (const char* value : {"TRUE", "FALSE", "true", "fAlSe", "MAYBE", ""}) {
+      SCOPED_TRACE(std::string(clause) + " RERANK " + value);
+      const bool isKnn = strcmp(clause, "KNN") == 0;
+      RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                          "@vector", "$BLOB", clause, "4", isKnn ? "K" : "RADIUS", "1", "rErAnK",
+                          value, "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+      recreateHybridRequest(args);
+      parseCommand(args);
+
+      QueryNode* vn = result.vector->ast.root;
+      ASSERT_NE(vn, nullptr);
+      ASSERT_EQ(vn->type, QN_VECTOR);
+      VectorQuery* vq = vn->vn.vq;
+      ASSERT_EQ(vq->type, isKnn ? VECSIM_QT_KNN : VECSIM_QT_RANGE);
+      ASSERT_EQ(array_len(vq->params.params), 1);
+      const auto& param = vq->params.params[0];
+      ASSERT_STREQ(param.name, "RERANK");
+      ASSERT_EQ(param.nameLen, sizeof("RERANK") - 1);
+      ASSERT_STREQ(param.value, value);
+      ASSERT_EQ(param.valLen, strlen(value));
+    }
+  }
+}
+
+TEST_F(ParseHybridTest, testVsimRerankWithRuntimeOptionAndFilter) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    const bool isKnn = strcmp(clause, "KNN") == 0;
+    RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                        "$BLOB", clause, "6", "RERANK", "FALSE", isKnn ? "EF_RUNTIME" : "EPSILON",
+                        isKnn ? "80" : "0.01", isKnn ? "K" : "RADIUS", "1", "FILTER", "1",
+                        "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+    recreateHybridRequest(args);
+    parseCommand(args);
+
+    QueryNode* vn = result.vector->ast.root;
+    ASSERT_NE(vn, nullptr);
+    if (vn->type == QN_PHRASE) {
+      vn = findVectorNodeChild(vn);
+    }
+    ASSERT_NE(vn, nullptr);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    VectorQuery* vq = vn->vn.vq;
+    ASSERT_EQ(array_len(vq->params.params), 2);
+    ASSERT_STREQ(vq->params.params[0].name, "RERANK");
+    ASSERT_STREQ(vq->params.params[0].value, "FALSE");
+    ASSERT_STREQ(vq->params.params[1].name, isKnn ? "EF_RUNTIME" : "EPSILON");
+    ASSERT_STREQ(vq->params.params[1].value, isKnn ? "80" : "0.01");
+  }
+}
+
+TEST_F(ParseHybridTest, testVsimRerankOmitted) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    const bool isKnn = strcmp(clause, "KNN") == 0;
+    RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                        "$BLOB", clause, "2", isKnn ? "K" : "RADIUS", "1", "PARAMS", "2", "BLOB",
+                        TEST_BLOB_DATA);
+    recreateHybridRequest(args);
+    parseCommand(args);
+
+    QueryNode* vn = result.vector->ast.root;
+    ASSERT_NE(vn, nullptr);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    ASSERT_EQ(array_len(vn->vn.vq->params.params), 0);
+  }
+}
+
+TEST_F(ParseHybridTest, testVsimRerankStructuralErrors) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    const bool isKnn = strcmp(clause, "KNN") == 0;
+    RMCK::ArgvList duplicate(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                             "@vector", "$BLOB", clause, "6", isKnn ? "K" : "RADIUS", "1", "RERANK",
+                             "TRUE", "rerank", "FALSE", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+    testErrorCode(duplicate, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+
+    RMCK::ArgvList missing(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                           "@vector", "$BLOB", clause, "4", isKnn ? "K" : "RADIUS", "1", "RERANK");
+    testErrorCode(missing, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for RERANK");
+
+    RMCK::ArgvList oddCount(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                            "@vector", "$BLOB", clause, "3", isKnn ? "K" : "RADIUS", "1", "RERANK",
+                            "TRUE");
+    testErrorCode(oddCount, QUERY_ERROR_CODE_SYNTAX,
+                  "Invalid argument count: 3 (must be a positive even number for key/value pairs)");
+
+    RMCK::ArgvList truncated(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                             "@vector", "$BLOB", clause, "6", isKnn ? "K" : "RADIUS", "1", "RERANK",
+                             "TRUE");
+    testErrorCode(truncated, QUERY_ERROR_CODE_SYNTAX, "Expected arguments 6, but 4 were provided");
+  }
 }
 
 TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {

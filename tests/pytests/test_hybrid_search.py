@@ -127,6 +127,34 @@ def test_invalid_ef_runtime():
             'PARAMS', '2', 'BLOB',  b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
         ).error().contains('Invalid EF_RUNTIME value')
 
+@skip(cluster=True)
+def test_hybrid_rerank_rejected_on_ram_indexes(env):
+    """RAM indexes reject RERANK with the same error as FT.SEARCH, even for invalid values."""
+    setup_basic_index_hnsw(env)
+    env.expect(
+        'FT.CREATE', 'idx_flat', 'PREFIX', 1, 'flat:', 'SCHEMA', 'description', 'TEXT',
+        'embedding', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+        'DISTANCE_METRIC', 'L2').ok()
+    conn = env.getConnection()
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    conn.execute_command('HSET', 'flat:1', 'description', 'shoes', 'embedding', blob)
+    error = 'SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)'
+
+    for index, field in [('idx_hnsw', 'embedding_hnsw'), ('idx_flat', 'embedding')]:
+        for value in ['TRUE', 'FALSE', 'true', 'fAlSe', 'MAYBE']:
+            for clause, argument in [('KNN', 'K'), ('RANGE', 'RADIUS')]:
+                env.expect(
+                    'FT.HYBRID', index, 'SEARCH', 'shoes', 'VSIM', f'@{field}', '$BLOB',
+                    clause, 4, argument, 1, 'rErAnK', value,
+                    'PARAMS', 2, 'BLOB', blob).error().contains(error)
+                query = (f'*=>[KNN 1 @{field} $BLOB]=>{{$RERANK: {value};}}'
+                         if clause == 'KNN' else
+                         f'@{field}:[VECTOR_RANGE 1 $BLOB]=>{{$RERANK: {value};}}')
+                env.expect(
+                    'FT.SEARCH', index, query, 'PARAMS', 2,
+                    'BLOB', blob, 'DIALECT', 2).error().contains(error)
+
+
 def test_invalid_epsilon():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index_hnsw(env)

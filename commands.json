@@ -2327,6 +2327,13 @@
                     "optional": true
                   },
                   {
+                    "name": "rerank",
+                    "type": "string",
+                    "token": "RERANK",
+                    "summary": "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    "optional": true
+                  },
+                  {
                     "name": "shard_k_ratio",
                     "type": "double",
                     "token": "SHARD_K_RATIO",
@@ -2363,6 +2370,13 @@
                     "name": "epsilon",
                     "type": "double",
                     "token": "EPSILON",
+                    "optional": true
+                  },
+                  {
+                    "name": "rerank",
+                    "type": "string",
+                    "token": "RERANK",
+                    "summary": "Whether to rerank disk vector candidates (TRUE or FALSE)",
                     "optional": true
                   },
                   {
