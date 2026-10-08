@@ -16,6 +16,8 @@ extern "C" {
 #include "hybrid/hybrid_exec.h"
 #include "module.h"
 #include "redismock/util.h"
+#include <atomic>
+#include <thread>
 
 class HybridRequestBasicTest : public ::testing::Test {};
 
@@ -53,7 +55,8 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     auto *producer = RPSafeDepleter_New(DepleterSync_New(1, false), sctx, depleterPool);
     QITR_PushRP(&hidden->pipeline.qctx, producer);
     request->reqflags |= QEXEC_F_PROFILE;
-    request->reqConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    request->base.timeout.config.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    request->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
     static bool profileCalled;
     profileCalled = false;
     request->profile = [](RedisModule_Reply *reply, HybridRequest *request, const bool *published) {
@@ -69,6 +72,18 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     bool published[] = {false, true};
     auto *ctx = RedisModule_GetThreadSafeContext(nullptr);
     auto reply = RedisModule_NewReply(ctx);
+    std::atomic<bool> stop{false};
+    std::atomic<bool> started{false};
+    std::thread producerStateWriter([&] {
+      hidden->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+      started.store(true);
+      while (!stop.load()) {
+        hidden->stateflags ^= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+      }
+    });
+    while (!started.load()) {
+      std::this_thread::yield();
+    }
 
     if (automatic) {
       serializeStoredResults_hybrid(request, &reply);
@@ -76,8 +91,11 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
       serializePublishedResults_hybrid(request, &reply, published);
     }
     RedisModule_EndReply(&reply);
+    stop.store(true);
+    producerStateWriter.join();
 
     EXPECT_TRUE(profileCalled);
+    EXPECT_TRUE(request->replyflags & QUERY_REPLY_F_TIMEOUT_CAPPED);
     EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&hidden->base.reply.err));
     EXPECT_FALSE(request->base.reply.hasStoredResults);
     EXPECT_EQ(nullptr, request->base.reply.results);

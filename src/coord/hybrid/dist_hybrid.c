@@ -998,15 +998,16 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
-    const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        ResultProcessor *depleter = findSafeDepleter(hreq, i);
-        if (timedOut) {
-            RPSafeDepleter_MarkTimedOut(depleter);
-        } else {
-            RPSafeDepleter_StartDepletion(depleter);
-        }
+  if (hreq->base.execution) HREQ_EnableProducerOwnership(hreq);
+  const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    ResultProcessor *depleter = findSafeDepleter(hreq, i);
+    if (timedOut) {
+      RPSafeDepleter_MarkTimedOut(depleter);
+    } else {
+      RPSafeDepleter_StartDepletion(depleter);
     }
+  }
 }
 
 // Block until every depleter scheduled by scheduleDepleters has signaled
@@ -1317,6 +1318,16 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/false);
+
+  if (hreq->base.execution) {
+    if (!HREQ_ReplyOwnedTimeout(ctx, hreq)) {
+      coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    }
+    // Recovery does not need producer progress, but teardown must not depend on
+    // another shard reply waking a producer already asleep in its channel.
+    HybridRequest_WakeAbortChannels(hreq);
+    return REDISMODULE_OK;
+  }
 
   HybridRequest_WakeAbortChannels(hreq);
 

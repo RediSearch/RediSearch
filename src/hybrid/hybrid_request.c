@@ -189,10 +189,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
         ResultProcessor *end = areq->pipeline.qctx.endProc;
         ResultProcessor *depleter = end->type == RP_PROFILE ? end->upstream : end;
         if (depleter->type == RP_SAFE_DEPLETER) {
-            // The mailbox consumer belongs to the tail. The independent producer
-            // continues to use its upstream processor's processing context.
-            depleter->parent = &req->tailPipeline->qctx;
-            end->parent = &req->tailPipeline->qctx;
+          // The mailbox consumer belongs to the tail. The independent producer
+          // continues to use its upstream processor's processing context.
+          depleter->parent = &req->tailPipeline->qctx;
+          end->parent = &req->tailPipeline->qctx;
         }
         // In non-profile mode, the end processor is either RP_SAFE_DEPLETER (background)
         // or RP_DEPLETER (foreground). Both implement the same Next interface.
