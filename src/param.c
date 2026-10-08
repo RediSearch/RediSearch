@@ -13,14 +13,26 @@
 #include "query_error_ffi.h"
 #include "rmalloc.h"
 #include "redismodule.h"
+#include "spec.h"
 
-// Keys and values are borrowed from the request's held argv, so the dict owns neither.
+// The dict owns only the CharBuf of each key; its bytes are borrowed like the values.
+static void *borrowedKeyDup(void *privdata, const void *key) {
+  CharBuf *cb = rm_malloc(sizeof(*cb));
+  *cb = *(const CharBuf *)key;
+  return cb;
+}
+
+static void borrowedKeyDestructor(void *privdata, void *key) {
+  rm_free(key);
+}
+
+// CharBuf keys let lookups use names that point into the query, which are not NUL-terminated.
 static dictType dictTypeBorrowedParams = {
-  .hashFunction = stringsHashFunction,
-  .keyDup = NULL,
+  .hashFunction = CharBuf_HashFunction,
+  .keyDup = borrowedKeyDup,
   .valDup = NULL,
-  .keyCompare = stringsKeyCompare,
-  .keyDestructor = NULL,
+  .keyCompare = CharBuf_KeyCompare,
+  .keyDestructor = borrowedKeyDestructor,
   .valDestructor = NULL,
 };
 
@@ -29,7 +41,8 @@ dict *Param_DictCreate() {
 }
 
 int Param_DictAdd(dict *d, const char *name, RedisModuleString *value, QueryError *status) {
-  int res = dictAdd(d, (void*)name, value);
+  CharBuf key = {.buf = (char *)name, .len = strlen(name)};
+  int res = dictAdd(d, &key, value);
   if (res == DICT_ERR) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Duplicate parameter", " `%s`", name);
   }
@@ -37,18 +50,8 @@ int Param_DictAdd(dict *d, const char *name, RedisModuleString *value, QueryErro
 }
 
 const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *value_len, QueryError *status) {
-  RedisModuleString *rms_val = NULL;
-  if (d) {
-    // Dict keys are NUL-terminated, while names usually point into the middle of the query.
-    char stackKey[64];
-    char *key = name_len < sizeof(stackKey) ? stackKey : rm_malloc(name_len + 1);
-    memcpy(key, name, name_len);
-    key[name_len] = '\0';
-    rms_val = dictFetchValue(d, key);
-    if (key != stackKey) {
-      rm_free(key);
-    }
-  }
+  CharBuf key = {.buf = (char *)name, .len = name_len};
+  RedisModuleString *rms_val = d ? dictFetchValue(d, &key) : NULL;
   if (!rms_val) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found", " `%.*s`", (int)name_len, name);
     return NULL;
