@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <ctype.h>
 #include <cursor.h>
 #include <query.h>
 #include <result_processor.h>
@@ -819,34 +820,56 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   return REDISMODULE_OK;
 }
 
-static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
+// Next reducer argument, without the leading '@'s, which may not appear in an alias.
+static const char *reducerAliasArg(ArgsCursor *ac, size_t *len) {
+  const char *s = AC_GetStringNC(ac, len);
+  while (*s == '@') {
+    ++s;
+    --*len;
+  }
+  return s;
+}
 
-  sds out = sdsnew("__generated_alias");
-  out = sdscat(out, func);
-  // only put parentheses if we actually have args
-  char buf[255];
+static char *getReducerAlias(const char *func, const ArgsCursor *args) {
+  static const char prefix[] = "__generated_alias";
+  const size_t prefixLen = sizeof(prefix) - 1;
+  const size_t funcLen = strlen(func);
+
+  // The arguments are comma-separated: count one byte per argument, the last one for the NUL.
+  size_t total = prefixLen + funcLen + 1;
   ArgsCursor tmp = *args;
   while (!AC_IsAtEnd(&tmp)) {
     size_t l;
-    const char *s = AC_GetStringNC(&tmp, &l);
-    while (*s == '@') {
-      // Don't allow the leading '@' to be included as an alias!
-      ++s;
-      --l;
-    }
-    out = sdscatlen(out, s, l);
-    if (!AC_IsAtEnd(&tmp)) {
-      out = sdscat(out, ",");
-    }
+    reducerAliasArg(&tmp, &l);
+    total += l + 1;
+  }
+  if (!AC_IsAtEnd(args)) {
+    --total;
   }
 
-  // only put parentheses if we actually have args
-  sdstolower(out);
+  char *out = rm_malloc(total);
+  char *pos = out;
+  memcpy(pos, prefix, prefixLen);
+  pos += prefixLen;
+  memcpy(pos, func, funcLen);
+  pos += funcLen;
+  tmp = *args;
+  while (!AC_IsAtEnd(&tmp)) {
+    size_t l;
+    const char *s = reducerAliasArg(&tmp, &l);
+    memcpy(pos, s, l);
+    pos += l;
+    if (!AC_IsAtEnd(&tmp)) {
+      *pos++ = ',';
+    }
+  }
+  *pos = '\0';
+  RS_ASSERT(pos == out + total - 1);
 
-  // duplicate everything. yeah this is lame but this function is not in a tight loop
-  char *dup = rm_strndup(out, sdslen(out));
-  sdsfree(out);
-  return dup;
+  for (pos = out; *pos; ++pos) {
+    *pos = (char)tolower((unsigned char)*pos);
+  }
+  return out;
 }
 
 static void groupStepFree(PLN_BaseStep *base) {
@@ -855,7 +878,9 @@ static void groupStepFree(PLN_BaseStep *base) {
     size_t nreducers = array_len(g->reducers);
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
-      rm_free(gr->alias);
+      if (gr->ownsAlias) {
+        rm_free((void *)gr->alias);
+      }
       rm_free(gr->inputAlias);
     }
     array_free(g->reducers);
@@ -909,9 +934,11 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     }
   }
   if (alias == NULL) {
-    gr->alias = getReducerAlias(gstp, name, &gr->args);
+    gr->alias = getReducerAlias(name, &gr->args);
+    gr->ownsAlias = true;
   } else {
-    gr->alias = rm_strdup(alias);
+    gr->alias = alias;
+    gr->ownsAlias = false;
   }
   gr->isHidden = 0; // By default, reducers are not hidden
   gr->isLocal = false;

@@ -134,7 +134,8 @@ typedef struct {
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
     const char *name;  // Name of function
-    char *alias;       // Output key
+    const char *alias; // Output key
+    bool ownsAlias;    // Whether `alias` is a heap copy rather than borrowed
     char *inputAlias;  // Optional input key
     bool isHidden;     // If the output key is hidden. Used by the coordinator
     bool isLocal;      // Whether this reducer runs locally (on the coordinator side)
