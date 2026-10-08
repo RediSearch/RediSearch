@@ -8,16 +8,11 @@
 */
 #include "param.h"
 
+#include <string.h>
+
 #include "query_error_ffi.h"
 #include "rmalloc.h"
 #include "redismodule.h"
-
-void Param_FreeInternal(Param *param) {
-  if (param->name) {
-    rm_free((void *)param->name);
-    param->name = NULL;
-  }
-}
 
 // Keys and values are borrowed from the request's held argv, so the dict owns neither.
 static dictType dictTypeBorrowedParams = {
@@ -41,10 +36,21 @@ int Param_DictAdd(dict *d, const char *name, RedisModuleString *value, QueryErro
   return res;
 }
 
-const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status) {
-  RedisModuleString *rms_val = d ? dictFetchValue(d, name) : NULL;
+const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *value_len, QueryError *status) {
+  RedisModuleString *rms_val = NULL;
+  if (d) {
+    // Dict keys are NUL-terminated, while names usually point into the middle of the query.
+    char stackKey[64];
+    char *key = name_len < sizeof(stackKey) ? stackKey : rm_malloc(name_len + 1);
+    memcpy(key, name, name_len);
+    key[name_len] = '\0';
+    rms_val = dictFetchValue(d, key);
+    if (key != stackKey) {
+      rm_free(key);
+    }
+  }
   if (!rms_val) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found", " `%s`", name);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found", " `%.*s`", (int)name_len, name);
     return NULL;
   }
   const char *val = RedisModule_StringPtrLen(rms_val, value_len);

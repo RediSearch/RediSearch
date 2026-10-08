@@ -1158,3 +1158,34 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   Param_DictFree(params);
   RedisModule_FreeString(NULL, rvalue);
 }
+
+// Lookups take the name by length: query tokens are not NUL-terminated, and
+// long names must resolve too.
+TEST_F(QueryTest, testParamDictGetByLength) {
+  QueryError err = QueryError_Default();
+  dict *params = Param_DictCreate();
+  const std::string longName(100, 'n');
+  RedisModuleString *shortValue = RedisModule_CreateString(NULL, "v1", 2);
+  RedisModuleString *longValue = RedisModule_CreateString(NULL, "v2", 2);
+  ASSERT_EQ(DICT_OK, Param_DictAdd(params, "p", shortValue, &err));
+  ASSERT_EQ(DICT_OK, Param_DictAdd(params, longName.c_str(), longValue, &err));
+
+  size_t len = 0;
+  const char *query = "$p)";
+  const char *val = Param_DictGet(params, query + 1, 1, &len, &err);
+  ASSERT_NE(nullptr, val) << QueryError_GetUserError(&err);
+  ASSERT_EQ(std::string("v1"), std::string(val, len));
+
+  const std::string longQuery = "$" + longName + ")";
+  val = Param_DictGet(params, longQuery.c_str() + 1, longName.size(), &len, &err);
+  ASSERT_NE(nullptr, val) << QueryError_GetUserError(&err);
+  ASSERT_EQ(std::string("v2"), std::string(val, len));
+
+  ASSERT_EQ(nullptr, Param_DictGet(params, query + 1, 2, &len, &err));
+  ASSERT_EQ(QUERY_ERROR_CODE_NO_PARAM, QueryError_GetCode(&err));
+  QueryError_ClearError(&err);
+
+  Param_DictFree(params);
+  RedisModule_FreeString(NULL, shortValue);
+  RedisModule_FreeString(NULL, longValue);
+}
