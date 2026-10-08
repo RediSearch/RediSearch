@@ -35,7 +35,6 @@
 #include "coord/rmr/chan.h"
 #include "coord/rpnet.h"
 #include "json.h"
-#include "util/strconv.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -830,6 +829,15 @@ static const char *reducerAliasArg(ArgsCursor *ac, size_t *len) {
   return s;
 }
 
+// ASCII-only on purpose: generated aliases are client-visible names and have always kept non-ASCII
+// bytes as they are.
+static void lowerAscii(char *s, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    unsigned char c = (unsigned char)s[i];
+    s[i] = (unsigned char)(c - 'A') < 26 ? (char)(c | 0x20) : (char)c;
+  }
+}
+
 static char *getReducerAlias(const char *func, const ArgsCursor *args) {
   static const char prefix[] = "__generated_alias";
   const size_t prefixLen = sizeof(prefix) - 1;
@@ -866,13 +874,7 @@ static char *getReducerAlias(const char *func, const ArgsCursor *args) {
   *pos = '\0';
   RS_ASSERT(pos == out + total - 1);
 
-  size_t len = total - 1;
-  char *longer = unicode_tolower(out, &len);
-  if (longer) {
-    rm_free(out);
-    return longer;
-  }
-  out[len] = '\0';
+  lowerAscii(out, total - 1);
   return out;
 }
 
