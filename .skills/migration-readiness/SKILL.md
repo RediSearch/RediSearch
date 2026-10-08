@@ -61,7 +61,8 @@ waive those rules or introduce a universal extra human approval gate.
 
 ## Report readiness by task
 
-Use [batch-findings](../batch-findings/SKILL.md) for decisions and blockers.
+Use [batch-findings](../batch-findings/SKILL.md) for external awareness or decisions.
+Keep routine readiness tasks and repairable blockers in the work plan.
 Missing detail blocks only the tasks that need it. Clear repairable code/test
 failures can return to the agent; final acceptance still requires passing checks.
 Continue work that remains useful under all plausible answers. Pause the run
@@ -71,7 +72,8 @@ Return:
 
 - Requirement → evidence → acceptance check, including uncovered variants.
 - Scope/dependency map and consequential design choices.
-- Ready tasks, blocked tasks, and finding IDs with options and recommendations.
+- Ready/blocked tasks in the work plan; link finding IDs only where external
+  awareness or decisions are needed, with options and recommendations.
 - Unverified assumptions and the next check that could resolve each.
 
 Double-check the record against callers, variants, and test selection. Use an

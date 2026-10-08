@@ -4,7 +4,7 @@ Required outcome:
 Produce maintainable, idiomatic Rust that follows repository constraints,
 preserves required behavior, passes existing and added tests, and meets agreed
 performance and memory criteria. Include sound ownership and unsafe-code handling,
-appropriate interfaces, and no unresolved blocking quality findings. Do not weaken
+appropriate interfaces, and no unresolved blocking quality issues. Do not weaken
 tests or benchmarks to obtain a pass. Report incomplete when required checks fail
 or cannot run; passing tests alone does not establish code quality.
 
@@ -147,8 +147,9 @@ Implement and validate:
   commands, environment, results, and evidence. The candidate is the
   starting revision plus the migration and test changes.
 - Rerun affected checks after subsequent changes.
-- Log failures, repairs, and verification; summarize noteworthy repairs
-  in the batch report. Distinguish migration mistakes from product bugs.
+- Log failures, repairs, and verification in the work history and validation
+  evidence. Distinguish migration mistakes from product bugs. Routine repairs
+  and outstanding tests do not need batch findings.
 - Preserve existing behavioral coverage and add tests for migration risks and
   uncovered cases. Do not delete, skip, or weaken tests to make the migration pass.
   If an implementation-specific test becomes obsolete, explain why and provide
@@ -171,6 +172,17 @@ Execution and access:
 - Report missing access; do not bypass restrictions.
 
 Maintain batch findings and handle replies:
+- Batch findings are for external awareness or input, not an agent task queue.
+  Keep routine setup, investigations, repairs, and retries in the work plan, and
+  checks/results/acceptance gaps in validation evidence. Blocked acceptance alone
+  does not require a finding or human intervention.
+- Raise findings for consequential unresolved requirements, proposed compatibility
+  changes, legacy defects worth triage, unavailable resources/permissions, or
+  tradeoffs needing a decision. Escalate routine repair only when authorized
+  resources/limits are exhausted or remaining impact needs attention at handoff.
+  Informational findings must explain why external awareness is useful.
+- When a reply assigns agent work, track it in the plan and link the result back
+  to the finding; do not expand the report into a task queue.
 - Use the configured report version; do not redesign it during the run.
 - Use stable finding IDs and revisions. Include severity, category,
   affected tasks, evidence, requested action, and resolution.
@@ -211,8 +223,8 @@ Deliver:
 - Candidate revision and patch; do not merge.
 - Short design rationale and old-to-new behavior mapping.
 - Requirement coverage, validation evidence, and explained baseline differences.
-- Batch report with remaining findings, decisions needed, limitations,
-  noteworthy repairs, and release-note candidates.
+- Batch report with externally relevant findings, decisions, limitations,
+  and release-note candidates; link the work plan and validation/repair history.
 - Spending, token usage, runtime, retries, and remaining-work estimates.
 
 Save the final candidate and evidence, then end this attempt as ready for review

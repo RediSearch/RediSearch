@@ -27,6 +27,13 @@ later comparisons; redact secrets and avoid logging credentials.
 
 ## Finding record
 
+Create entries only for external awareness or input, as defined in the
+[batch-findings skill](../SKILL.md). Routine repairs and pending checks belong in
+the work plan and validation evidence, even when they block acceptance. Run-level
+`remaining_work` is a short summary/link to that plan, not a list of finding IDs
+for every task. `next_actor` identifies follow-up ownership for a qualifying
+finding; it is not a reason to turn agent work into findings.
+
 | Field | Value |
 | --- | --- |
 | id / revision | Stable ID such as `F-001`; increasing integer revision |

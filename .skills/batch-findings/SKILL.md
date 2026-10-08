@@ -12,12 +12,21 @@ automation; this draft does not implement a report parser or budget controller.
 
 ## Record findings as work proceeds
 
-Add an entry when investigation, generation, testing, or review reveals a material
-uncertainty, constraint violation, behavior difference, or product defect. Include
-evidence, impact, alternatives, recommendation, and exactly which tasks/checkpoints
-depend on resolution. Deduplicate repeated symptoms and revise the existing entry.
-Log ordinary repair attempts in the run history; summarize noteworthy repairs as
-Informational findings instead of asking for a decision on every failed attempt.
+Batch findings are for external awareness or input, not the agent's task queue.
+Keep routine setup, investigations, repairs, and retries in the work plan; keep
+check results and unmet acceptance gates in validation evidence. An acceptance
+blocker does not automatically need a finding.
+
+Add a finding for unresolved consequential requirements, proposed compatibility
+changes, legacy defects worth triage, unavailable resources/permissions, or
+tradeoffs needing a decision. Escalate an ordinary repair only when it cannot be
+resolved within authorized resources/limits, or its remaining impact needs attention
+at handoff. Informational findings still need a concrete reason for external awareness.
+
+Include evidence, impact, options, recommendation, and affected checkpoints.
+Deduplicate symptoms. Log repairs and verification without creating a finding for
+every failure or completed task. A reply may assign work to the agent; track that
+work in the plan and link its outcome back to the finding.
 
 Severity describes whether work can advance; category describes the issue; requested
 action describes the help needed. An investigation can be Informational or Blocking.
