@@ -447,6 +447,12 @@ bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskInd
   return disk->index.initializeMissingStorage(ctx, index);
 }
 
+bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                           const SearchDiskFieldOpen *fields, size_t numFields) {
+  RS_ASSERT(disk);
+  return disk->index.openFields(ctx, index, fields, numFields);
+}
+
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                                    SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
                                    size_t numFields, t_docId docId) {

@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "field_spec.h"
 #include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
@@ -143,6 +144,15 @@ typedef struct SearchDiskResourceConfig {
   size_t wbmBudgetPerIndexMB;
   int maxOpenFiles;
 } SearchDiskResourceConfig;
+
+/** A field passed to IndexDiskAPI.openFields. */
+typedef struct SearchDiskFieldOpen {
+  t_fieldIndex fieldIndex;
+  FieldType types;
+  /** Approximate bytes per stored value for this field, 0 if unknown. Lets a disk backend size
+   * per-field resources. */
+  size_t docSizeHint;
+} SearchDiskFieldOpen;
 
 typedef struct BasicDiskAPI {
   /**
@@ -709,9 +719,29 @@ typedef struct IndexDiskAPI {
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
   /** Initialize the shared missing CF after schema validation, before ingestion or queries.
-   * Returns false if storage needs to be created and creation fails; true otherwise.
+   * Called whenever openFields is about to receive an INDEXMISSING field, so it must be a no-op
+   * once the storage exists. Returns false if storage needs to be created and creation fails;
+   * true otherwise; the failure rules of openFields apply.
    * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  /**
+   * Declare `numFields` fields before any document is indexed into them: every field once the
+   * index is opened (on create and on load), and the fields FT.ALTER adds. `fields` is borrowed
+   * for the call only. The backend may create or resize storage for these fields. On a load
+   * from received index storage, that storage may already exist and hold data, which must be
+   * kept. Main thread only.
+   *
+   * FT.ALTER can call this while a consistency window (openConsistencyWindow) is open on the
+   * index, so storage created or resized here must honour the window as existing storage does.
+   *
+   * All-or-nothing: on false, no field from this call may stay open, and the caller fails the
+   * command. Do not fail for a transient or recoverable reason: a replica replays FT.CREATE and
+   * FT.ALTER, so it would diverge from a primary where the call succeeded; and when loading ends
+   * after a replica received the index storage itself, false aborts the server, as a failed
+   * vector storage bind does there.
+   */
+  bool (*openFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                     const SearchDiskFieldOpen *fields, size_t numFields);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
