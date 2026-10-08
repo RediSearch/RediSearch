@@ -6,7 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <ctype.h>
 #include <cursor.h>
 #include <query.h>
 #include <result_processor.h>
@@ -36,6 +35,7 @@
 #include "coord/rmr/chan.h"
 #include "coord/rpnet.h"
 #include "json.h"
+#include "util/strconv.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -866,9 +866,13 @@ static char *getReducerAlias(const char *func, const ArgsCursor *args) {
   *pos = '\0';
   RS_ASSERT(pos == out + total - 1);
 
-  for (pos = out; *pos; ++pos) {
-    *pos = (char)tolower((unsigned char)*pos);
+  size_t len = total - 1;
+  char *longer = unicode_tolower(out, &len);
+  if (longer) {
+    rm_free(out);
+    return longer;
   }
+  out[len] = '\0';
   return out;
 }
 
