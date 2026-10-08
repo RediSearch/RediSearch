@@ -97,6 +97,23 @@ FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA
 > `QUERY_numeric.csv` workload (and the numeric queries inside
 > `QUERY_all.csv`) is only meaningful against a regenerated dataset.
 
+### Missing fields (`--missing-fields`)
+
+`--missing-fields` adds three TAG fields for `INDEXMISSING` benchmarks, and
+names the dataset `…-msmarco-missing-documents`. Each document gets each field
+(value `y`) independently, by a hash of the document ID:
+
+| Field | Present in | `ismissing()` matches |
+|-------|------------|-----------------------|
+| `m01` | 99% | ~1% |
+| `m50` | 50% | ~50% |
+| `m99` | 1% | ~99% |
+
+Declare them as `m01 TAG INDEXMISSING m50 TAG INDEXMISSING m99 TAG INDEXMISSING`.
+The flag also writes `QUERY_missing-{low,mid,high}.csv`, one `ismissing()`
+query each. Each row ends in `DIALECT 2`, because only the v2 parser knows
+`ismissing()`. These queries are not part of `QUERY_all.csv`.
+
 > **Note**: Benchmark queries use `NOCONTENT` flag to avoid loading field values from keyspace,
 > enabling fair comparison with disk-based implementations (RoR vs RoF) that don't use a loader.
 
