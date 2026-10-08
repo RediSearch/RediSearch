@@ -1,6 +1,6 @@
 ---
 name: build
-description: Compile the project to verify changes build successfully. Use this to verify your changes build properly together with the complete project and dependencies, and make sure to use it before running end to end tests.
+description: Build and validate RediSearch after code, dependency, bootstrap, toolchain, or build-system changes. Use before end-to-end tests and whenever build or test prerequisites change.
 ---
 
 # Build Skill
@@ -8,7 +8,7 @@ description: Compile the project to verify changes build successfully. Use this 
 Compile the project to verify changes build successfully.
 
 ## Usage
-Run this skill after making code changes to verify they compile.
+Run this skill after code, dependency, bootstrap, toolchain, or build-system changes.
 
 ## Instructions
 
@@ -55,6 +55,57 @@ sccache --start-server
 Do not set `CARGO_INCREMENTAL=0` by default. Use it only when the goal is better Rust cache
 reuse across clean worktrees, since disabling incremental compilation can slow tight local
 edit-build loops in a single worktree.
+
+### Bootstrap and Dependency Changes
+
+Use this checklist when changing `.install/`, bootstrap Make targets, CI provisioning,
+minimum tool versions, or a dependency used by builds, tests, coverage, sanitizers, or linting.
+Run the commands from the RediSearch repository root.
+
+Treat the bootstrap modes as one interface backed by the real installer:
+
+| Command | Expected behavior |
+|---|---|
+| `make bootstrap list` | Report satisfied and missing prerequisites without changing the system |
+| `make bootstrap dry-run` | Print only the actions needed for the current machine without changing it |
+| `make bootstrap` | Install or upgrade the required prerequisites |
+| `make build` | Verify the normal build after bootstrap |
+| `make test` | Run all test families; prefer a narrower target when it exercises the changed dependency |
+
+`make bootstrap` installs system packages and may use `sudo`; run it only when that mutation is
+authorized. `list` and `dry-run` are the safe first checks.
+
+For every new or changed dependency:
+
+1. Wire detection, minimum-version handling, and installation through the real installer so
+   `list`, `dry-run`, and bootstrap cannot drift into separate dependency definitions.
+2. Run `make bootstrap list`, `make bootstrap dry-run`, and
+   `make bootstrap dry-run | bash -n`. Dry-run output must be non-mutating, shell-valid, and
+   usable as an installation plan.
+3. Exercise missing, outdated, and already-sufficient states when version handling changes.
+   Dry-run depends on the host's current state, so use a disposable container for states the
+   development machine cannot represent. Execute generated dry-run commands only in such a
+   disposable environment.
+4. Run the real `make bootstrap`, confirm `make bootstrap list` is satisfied afterward, and run
+   `make build` to verify the resulting environment.
+5. Run the smallest test target that consumes the dependency: `make unit-tests`,
+   `make rust-tests`, or `make pytest TEST=<test>`. Use `make test` when the dependency or
+   bootstrap refactor can affect every test family; do not default to the full suite for a
+   narrowly scoped installer change.
+
+Repeat the relevant checks with feature flags that activate the dependency. For example, a
+coverage dependency requires both the ordinary path above and:
+
+```bash
+make bootstrap list COV=1
+make bootstrap dry-run COV=1
+make bootstrap dry-run COV=1 | bash -n
+make bootstrap COV=1
+make build COV=1
+```
+
+The ordinary path must remain usable without invoking an opt-in tool unless the change
+intentionally makes that tool a general prerequisite.
 
 ### Full Build (C + Rust)
 ```bash

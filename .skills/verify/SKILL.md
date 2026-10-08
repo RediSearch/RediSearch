@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Run full verification before committing or creating a PR. Use this when you want to create a PR.
+description: Run verification before committing or creating a PR, including dependency and bootstrap behavior when build or test prerequisites change.
 ---
 
 # Verify Skill
@@ -13,6 +13,11 @@ Use this skill to run comprehensive checks before finalizing changes.
 ## Instructions
 
 Determine which code was modified (C, Rust, or both) and run the appropriate checks.
+
+If dependencies, `.install/`, bootstrap targets, toolchain versions, or CI provisioning changed,
+first follow [Bootstrap and Dependency Changes](../build/SKILL.md#bootstrap-and-dependency-changes).
+That workflow covers `bootstrap list`, dry-run, real installation, ordinary and feature-gated
+builds, and proportionate test selection; do not duplicate it here.
 
 ### If C code was modified
 
