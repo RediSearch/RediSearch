@@ -1732,6 +1732,10 @@ class TestCoordinatorTimeout:
             # Prove the next cycle switches back from clock to blocked-client
             # and uses the cursor snapshot rather than the current config.
             target_shard.execute_command(config_cmd(), 'SET', 'WORKERS', 1)
+            # Finish lazy pool revival before pausing: revival itself queues
+            # admin jobs that cannot complete while the pool is paused.
+            target_shard.execute_command(
+                '_FT.SEARCH', 'hybrid_idx', '*', 'NOCONTENT', 'LIMIT', '0', '0')
             target_shard.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
             before_timeout_info = info_modules_to_dict(target_shard)
             target_shard.execute_command(debug_cmd(), 'WORKERS', 'pause')

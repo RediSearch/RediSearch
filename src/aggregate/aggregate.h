@@ -126,13 +126,7 @@ typedef enum {
    * keeps draining other shards (the coord has its own deadline check) and the
    * reply emitters surface the TIMEOUT warning to the user via this flag. */
   QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
-  /* The per-query TIMEOUT (or the global default) exceeded
-   * search-_max-foreground-timeout-limit while search-workers is 0, so it
-   * was capped to the limit. Surfaced as a RESP3 warning by the reply
-   * emitters. */
-  QEXEC_S_MAX_TIMEOUT_CAPPED = 0x10,
 } QEStateFlags;
-
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
@@ -176,6 +170,7 @@ typedef struct AREQ {
 
   /** Flags controlling query output */
   QEFlags reqflags;
+  QueryReplyFlags replyflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;

@@ -35,6 +35,13 @@ struct MRChannel;
 
 #define QUERY_OFFSET_NONE UINT32_MAX
 
+// Sticky reply metadata, finalized before execution or between quiescent cursor
+// cycles. Keep separate from mutable execution state; concurrent readers need no atomics.
+typedef uint8_t QueryReplyFlags;
+enum {
+  QUERY_REPLY_F_TIMEOUT_CAPPED = 1u << 0,
+};
+
 /** Cached variables used while serializing stored results. */
 typedef struct {
   RLookup *lastLookup;
