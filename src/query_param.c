@@ -156,8 +156,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   target_param->target = target_value;
   target_param->target_len = target_len;
   target_param->name = source->s;
-  // The numeric-operator lexer can report a length that reaches the query's terminator.
-  target_param->len = strnlen(source->s, source->len);
+  target_param->len = source->len;
   target_param->sign = source->sign;
   q->numParams++;
   return true;
