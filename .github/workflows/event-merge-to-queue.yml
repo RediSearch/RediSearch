@@ -53,10 +53,12 @@ jobs:
   # ------------------------------------------------------------------
   # The ubuntu test lane, in two mutually exclusive flavours.
   #
-  # master goes through flow-pr-pipeline.yml: one build, then unit +
+  # master and 8.8-rse go through flow-pr-pipeline.yml: one build, then unit +
   # standalone + coordinator as separate concurrent jobs off a single
-  # artifact. Release branches keep the task-test.yml monolith, where the
-  # build and every suite run as sequential steps on one runner.
+  # artifact. Other release branches keep the task-test.yml monolith, where the
+  # build and every suite run as sequential steps on one runner (they lack
+  # flow-pr-pipeline.yml). 8.8-rse opts in because the monolith's LTO-linked
+  # Rust test binaries alone took ~47 minutes there.
   #
   # Both feed the same `pr-validation` aggregate, and a skipped job reports
   # `skipped` (which that gate treats as passing), so the required check name
@@ -72,7 +74,7 @@ jobs:
   test-ubuntu-master:
     # Always run tests for merge queue submissions, including text-only PRs.
     needs: get-latest-redis-tag
-    if: ${{ github.event.merge_group.base_ref == 'refs/heads/master' }}
+    if: ${{ contains(fromJSON('["refs/heads/master", "refs/heads/8.8-rse"]'), github.event.merge_group.base_ref) }}
     permissions:
       contents: read
       packages: write
@@ -95,7 +97,7 @@ jobs:
 
   test-ubuntu-release-branch:
     needs: get-latest-redis-tag
-    if: ${{ github.event.merge_group.base_ref != 'refs/heads/master' }}
+    if: ${{ !contains(fromJSON('["refs/heads/master", "refs/heads/8.8-rse"]'), github.event.merge_group.base_ref) }}
     permissions:
       contents: read
       packages: write
