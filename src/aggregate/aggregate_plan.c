@@ -238,8 +238,6 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
 }
 
 int PLNLoadStep_ValidateArgs(const ArgsCursor *args, QueryError *status) {
-  // Walks the slice the way the pipeline's LOAD step does, and reuses its
-  // message, so the client sees the same rejection it always did, only earlier.
   ArgsCursor ac = *args;
   while (!AC_IsAtEnd(&ac)) {
     AC_Advance(&ac);  // the field path
