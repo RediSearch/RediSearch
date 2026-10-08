@@ -180,13 +180,7 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original);
 
 /**
- * Check that every `AS` in a sliced LOAD argument list is followed by an alias.
- *
- * LOAD parsing only takes the requested number of tokens, so the slice can end
- * on a dangling `AS`. Every LOAD parser must reject that here, while parsing:
- * a coordinator walks these raw arguments to plan the shard queries, which
- * happens before the pipeline validates the step. The pipeline's own LOAD
- * validation still owns every other rule, including which aliases are legal.
+* Validate that the LOAD arguments are syntactically correct
  *
  * @param args the sliced LOAD arguments; the cursor itself is not advanced
  * @param status receives the client-facing error when the slice is rejected;
