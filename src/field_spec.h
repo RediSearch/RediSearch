@@ -15,6 +15,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rejson_api.h"
 
 struct TagIndex;
 struct NumericRangeTree;
@@ -143,6 +144,9 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
+
+  // Owned indexing-only path; NULL before first use and in schema snapshots.
+  JSONPath compiledPath;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))

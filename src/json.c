@@ -34,6 +34,38 @@ struct RedisModuleCtx;
 RedisJSONAPI *japi = NULL;
 int japi_ver = 0;
 
+// String-based fallback for APIs without compiled-path evaluation.
+static JSONResultsIterator getWithStringPath(RedisJSON root, const char *path,
+                                             JSONPath *compiledPath) {
+  REDISMODULE_NOT_USED(compiledPath);
+  return japi->get(root, path);
+}
+
+// RedisJSON's path parser rejects the same invalid/projection expressions as get.
+static JSONResultsIterator getWithCompiledPath(RedisJSON root, const char *path,
+                                               JSONPath *compiledPath) {
+  if (!*compiledPath) {
+    RedisModuleString *err_msg = NULL;
+    *compiledPath = japi->pathParse(path, RSDummyContext, &err_msg);
+    if (err_msg) {
+      RedisModule_FreeString(RSDummyContext, err_msg);
+    }
+    if (!*compiledPath) {
+      return NULL;
+    }
+  }
+  return japi->getWithPath(root, *compiledPath);
+}
+
+// Resolve compatibility once instead of branching for each indexed field.
+static JSONResultsIterator (*getWithCachedPath)(RedisJSON, const char *,
+                                                JSONPath *) = getWithStringPath;
+
+JSONResultsIterator JSON_GetWithCachedPath(RedisJSON root, const char *path,
+                                           JSONPath *compiledPath) {
+  return getWithCachedPath(root, path, compiledPath);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
@@ -58,6 +90,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
         japi_ver = i;
+        getWithCachedPath = i >= 9 && japi->getWithPath ? getWithCompiledPath : getWithStringPath;
         RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V%d API", i);
         return 1;
       }

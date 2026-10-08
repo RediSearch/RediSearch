@@ -47,6 +47,14 @@ void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
+/* Evaluate an indexing path, compiling it lazily when the negotiated API supports it.
+ * Call with the Redis GIL held, a live JSON root and an acquired API. The owner must
+ * keep the path string unchanged, keep the compiled handle alive through iteration, and
+ * release it with pathFree. Older APIs use string evaluation and leave the handle NULL.
+ * Returns NULL on compilation failure, matching get's no-result behavior. */
+JSONResultsIterator JSON_GetWithCachedPath(RedisJSON root, const char *path,
+                                           JSONPath *compiledPath);
+
 /* Get the RedisJSON root from an already-open RedisModuleKey handle.
  *
  * Returns NULL if RedisJSON is not loaded, the key is NULL, or it does not
