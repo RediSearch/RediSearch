@@ -92,6 +92,10 @@ else
 fi
 _dry_line() { printf '%s%s%s\n' "$_DRY_CMD_COLOR" "$*" "$_DRY_RESET"; }
 _dry_head() { printf '%s%s%s\n' "$_DRY_HEADER_COLOR" "$*" "$_DRY_RESET"; }
+_dry_dependency_status() {
+    [[ "$DRY_RUN" == 1 ]] || return 0
+    _dry_head "# dependency $1: $2${3:+ ($3)}"
+}
 
 # _run CMD... — install: execute (real sudo prefix); dry-run: print it (blue);
 # list: skip. Callers pre-filter to missing packages.

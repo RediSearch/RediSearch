@@ -106,6 +106,17 @@ fi
 # not). When every step is already satisfied nothing is pending and no env is
 # emitted.
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
+    if nightly_coverage_component_ok; then
+        _dry_dependency_status rust-llvm-tools-preview satisfied
+    else
+        _dry_dependency_status rust-llvm-tools-preview install-required
+    fi
+    if cargo_llvm_cov_ok; then
+        _dry_dependency_status cargo-llvm-cov satisfied
+    else
+        _dry_dependency_status cargo-llvm-cov install-required
+    fi
+
     _need=0
     command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy || _need=1
     # pending unless the pinned toolchain has BOTH clippy and rustfmt (the

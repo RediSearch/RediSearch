@@ -10,6 +10,12 @@ if ! command -v apt_install >/dev/null 2>&1; then
     source "$HERE/deps_lib.sh"
 fi
 
+coverage_arch="$(uname -m)"
+if [[ "${OS:-}" != ubuntu_* || "$coverage_arch" != x86_64 || "$PM" != apt ]]; then
+    echo "coverage bootstrap is supported only on Ubuntu x86_64; found OS=${OS:-unknown}, architecture=$coverage_arch" >&2
+    return 1 2>/dev/null || exit 1
+fi
+
 lcov_version() {
     lcov --version 2>/dev/null | sed -En 's/.*LCOV version ([0-9]+([.][0-9]+)*).*/\1/p' | head -1
 }
@@ -31,6 +37,11 @@ fi
 
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
     _dry_head "# LCOV >= $LCOV_MIN_VERSION required; pinned source fallback: $LCOV_INSTALL_VERSION"
+    if lcov_is_supported; then
+        _dry_dependency_status lcov satisfied "$(lcov_version) >= $LCOV_MIN_VERSION"
+    else
+        _dry_dependency_status lcov install-required ">= $LCOV_MIN_VERSION"
+    fi
 fi
 
 if lcov_is_supported; then
@@ -43,45 +54,11 @@ if lcov_is_supported; then
 fi
 
 # Prefer the platform package because it also supplies LCOV's Perl modules.
-# Platforms without an LCOV package retain their existing non-coverage bootstrap.
-package_available=1
-case "$PM" in
-    apt)
-        apt_install lcov curl tar libcapture-tiny-perl libdatetime-perl \
-            libdevel-stacktrace-perl libjson-xs-perl libtimedate-perl
-        ;;
-    apk)
-        apk_install lcov curl tar
-        ;;
-    brew)
-        if brew list --versions lcov >/dev/null 2>&1; then
-            _run brew upgrade lcov
-        else
-            brew_install lcov
-        fi
-        ;;
-    dnf)
-        case "${OS:-}" in
-            amazon_linux_2023|rocky_linux_8) dnf_install lcov curl tar gzip ;;
-            *) package_available=0 ;;
-        esac
-        ;;
-    *)
-        package_available=0
-        ;;
-esac
+apt_install lcov curl tar libcapture-tiny-perl libdatetime-perl \
+    libdevel-stacktrace-perl libjson-xs-perl libtimedate-perl
 
 if lcov_is_supported; then
     echo "lcov $(lcov_version) installed from the platform package"
-    return 0 2>/dev/null || exit 0
-fi
-
-if [[ "$package_available" == 0 ]] && ! command -v lcov >/dev/null 2>&1; then
-    if [[ "${DRY_RUN:-0}" == 1 ]]; then
-        _dry_head "# LCOV >= $LCOV_MIN_VERSION is unavailable from the $PM repositories"
-    else
-        echo "lcov >= $LCOV_MIN_VERSION is unavailable from the $PM repositories; coverage builds require a manual LCOV installation" >&2
-    fi
     return 0 2>/dev/null || exit 0
 fi
 

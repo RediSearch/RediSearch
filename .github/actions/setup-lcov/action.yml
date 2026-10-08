@@ -14,6 +14,36 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install LCOV runtime dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        if perl -MCapture::Tiny -MDateTime -MDevel::StackTrace -MJSON::XS -e 1 2>/dev/null; then
+          exit 0
+        fi
+
+        if [[ "$(uname -m)" != x86_64 ]] || ! command -v apt-get >/dev/null 2>&1; then
+          echo "LCOV coverage setup is supported only on Ubuntu x86_64" >&2
+          exit 1
+        fi
+
+        sudo_prefix=()
+        if [[ "$(id -u)" != 0 ]]; then
+          command -v sudo >/dev/null 2>&1 || {
+            echo "sudo is required to install LCOV runtime dependencies" >&2
+            exit 1
+          }
+          sudo_prefix=(sudo)
+        fi
+
+        "${sudo_prefix[@]}" apt-get -o DPkg::Lock::Timeout=600 update -qq
+        "${sudo_prefix[@]}" env DEBIAN_FRONTEND=noninteractive \
+          apt-get -o DPkg::Lock::Timeout=600 install -yqq \
+          ca-certificates curl perl tar \
+          libcapture-tiny-perl libdatetime-perl libdevel-stacktrace-perl \
+          libjson-xs-perl libtimedate-perl
+        perl -MCapture::Tiny -MDateTime -MDevel::StackTrace -MJSON::XS -e 1
+
     - name: Install LCOV
       shell: bash
       env:

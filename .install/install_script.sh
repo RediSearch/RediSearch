@@ -43,8 +43,20 @@ else
 fi
 
 source ${OS}.sh $MODE
+
+if [[ "${DRY_RUN:-0}" == 1 && "$OS_TYPE" != 'Darwin' ]]; then
+    gcc_version="$(_get_installed_version gcc || true)"
+    if [[ -n "$gcc_version" ]] && version_ge "$gcc_version" "$GCC_MIN_VERSION"; then
+        _dry_dependency_status gcc satisfied "$gcc_version >= $GCC_MIN_VERSION"
+    else
+        _dry_dependency_status gcc install-required ">= $GCC_MIN_VERSION"
+    fi
+fi
+
 source install_cmake.sh $MODE
-source install_lcov.sh $MODE
+if [[ "${COV:-0}" == 1 ]]; then
+    source install_lcov.sh $MODE
+fi
 
 # Boost is only useful when the build runs from the same checkout this script
 # populates. The CI image builds from /project but jobs build from a fresh

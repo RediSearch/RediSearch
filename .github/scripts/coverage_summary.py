@@ -59,6 +59,19 @@ def validate_branch_counts(path: Path, covered: int, total: int) -> None:
         raise ValueError(f"{path} reports invalid branch counts: {covered}/{total}")
 
 
+def render_summary(rows: list[tuple[str, int, int]]) -> str:
+    lines = [
+        "### Branch coverage",
+        "",
+        "| Suite | Covered | Total | Coverage |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    for label, covered, total in rows:
+        percentage = covered / total * 100
+        lines.append(f"| {label} | {covered} | {total} | {percentage:.2f}% |")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Publish branch totals from LCOV and Cobertura reports."
@@ -97,16 +110,7 @@ def main() -> None:
     except (OSError, ElementTree.ParseError, ValueError) as error:
         parser.error(str(error))
 
-    lines = [
-        "### Branch coverage",
-        "",
-        "| Suite | Covered | Total | Coverage |",
-        "| --- | ---: | ---: | ---: |",
-    ]
-    for label, covered, total in rows:
-        percentage = covered / total * 100
-        lines.append(f"| {label} | {covered} | {total} | {percentage:.2f}% |")
-    summary = "\n".join(lines) + "\n"
+    summary = render_summary(rows)
 
     print(summary)
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
