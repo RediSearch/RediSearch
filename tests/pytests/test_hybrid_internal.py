@@ -643,3 +643,17 @@ def test_hybrid_internal_withcursor_params(env):
     env.assertEqual(read_cursor_completely(env, 'idx', cursors['SEARCH'], protocol=protocol), ['doc:2', 'doc:3'])
     env.assertEqual(read_cursor_completely(env, 'idx', cursors['VSIM'], protocol=protocol),
                     ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def test_hybrid_internal_binary_param_name(env):
+    """A parameter name is matched by its full length, including bytes after a NUL"""
+    setup_hybrid_test_data(env)
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    name = b'blob\x00suffix'
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                     'VSIM', '@embedding', b'$' + name,
+                     'WITHCURSOR', 'PARAMS', '2', name, query_vec.tobytes(),
+                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+    cursors = to_dict(remove_warnings(result))
+    env.assertContains('VSIM', cursors)
