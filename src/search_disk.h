@@ -61,6 +61,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
 /**
  * @brief Close the search disk module
  */
+void SearchDisk_StopMetrics(void);
 void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**
@@ -747,6 +748,9 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * 2) Read the per-component getters below
  */
 
+void SearchDisk_ActivateUsage(IndexSpec *spec);
+CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
+
 /**
  * @brief Collect metrics for an index and store them in the disk context
  *
@@ -756,7 +760,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * @param index Pointer to the index spec
  * @return The total memory used by this index's disk components
  */
-uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get doc table memory for a disk index
