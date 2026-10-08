@@ -121,20 +121,31 @@ static void expectParamsAndTimeout(const std::vector<std::string> &toks,
   }
 }
 
-// Build a parameter dict from a flat name,value,... list, recording the
-// expected pairs. Returns NULL for an empty list (the no-PARAMS case). The
-// returned dict is owned by the caller (free with Param_DictFree).
-dict *makeParamsDict(const std::vector<std::string>& paramsKV, ParamList &expectedPairs) {
-  dict *params = paramsKV.empty() ? nullptr : Param_DictCreate();
-  QueryError status = QueryError_Default();
-  for (size_t i = 0; i + 1 < paramsKV.size(); i += 2) {
-    const std::string &name = paramsKV[i];
-    const std::string &value = paramsKV[i + 1];
-    Param_DictAdd(params, name.c_str(), value.data(), value.size(), &status);
-    expectedPairs.emplace_back(name, value);
+// A parameter dict built from a flat name,value,... list, recording the
+// expected pairs. `d` is NULL for an empty list (the no-PARAMS case). The dict
+// borrows its names and values, so this object keeps both alive.
+struct TestParamsDict {
+  std::vector<std::string> kv;
+  std::vector<RedisModuleString *> values;
+  dict *d = nullptr;
+
+  TestParamsDict(const std::vector<std::string>& paramsKV, ParamList &expectedPairs) : kv(paramsKV) {
+    if (kv.empty()) return;
+    d = Param_DictCreate();
+    QueryError status = QueryError_Default();
+    for (size_t i = 0; i + 1 < kv.size(); i += 2) {
+      values.push_back(RedisModule_CreateString(NULL, kv[i + 1].data(), kv[i + 1].size()));
+      Param_DictAdd(d, kv[i].c_str(), values.back(), &status);
+      expectedPairs.emplace_back(kv[i], kv[i + 1]);
+    }
   }
-  return params;
-}
+  TestParamsDict(const TestParamsDict &) = delete;
+  TestParamsDict &operator=(const TestParamsDict &) = delete;
+  ~TestParamsDict() {
+    if (d) Param_DictFree(d);
+    for (RedisModuleString *v : values) RedisModule_FreeString(NULL, v);
+  }
+};
 
 // Format a double exactly as MRCommand_appendCombine does for the wire
 // (round-trip-safe "%.17g"). Tests use this so expectations can be written
@@ -539,7 +550,7 @@ protected:
       ASSERT_EQ(paramsKV.size() % 2, 0u) << "paramsKV must be name,value pairs";
 
       ParamList expectedPairs;
-      dict *params = makeParamsDict(paramsKV, expectedPairs);
+      TestParamsDict params(paramsKV, expectedPairs);
       const bool forwardTimeout = timeoutMS >= 0;
 
       std::vector<const char*> argsWithNull = baseArgs;
@@ -548,7 +559,7 @@ protected:
 
       HybridShardWireParams shardWireParams = {};
       if (combineParams) shardWireParams.combine = *combineParams;
-      shardWireParams.params = params;
+      shardWireParams.params = params.d;
       shardWireParams.forwardTimeout = forwardTimeout;
       shardWireParams.timeoutMS = forwardTimeout ? timeoutMS : 0;
 
@@ -556,7 +567,6 @@ protected:
       int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
                                    &kArgIndex);
-      if (params) Param_DictFree(params);
 
       // FT.HYBRID -> _FT.HYBRID, and the base args (no PARAMS/TIMEOUT) preserved
       // with the COMBINE clause reconstructed.
@@ -585,7 +595,7 @@ protected:
       ASSERT_EQ(paramsKV.size() % 2, 0u) << "paramsKV must be name,value pairs";
 
       ParamList expectedPairs;
-      dict *params = makeParamsDict(paramsKV, expectedPairs);
+      TestParamsDict params(paramsKV, expectedPairs);
       const bool forwardTimeout = timeoutMS >= 0;
 
       std::vector<const char*> argsWithNull = baseArgs;
@@ -600,7 +610,7 @@ protected:
 
       HybridShardWireParams shardWireParams = {};
       if (combineParams) shardWireParams.combine = *combineParams;
-      shardWireParams.params = params;
+      shardWireParams.params = params.d;
       shardWireParams.forwardTimeout = forwardTimeout;
       shardWireParams.timeoutMS = forwardTimeout ? timeoutMS : 0;
 
@@ -608,7 +618,6 @@ protected:
       int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, sp,
                                    &kArgIndex);
-      if (params) Param_DictFree(params);
 
       // FT.HYBRID -> _FT.HYBRID, base args preserved, COMBINE reconstructed.
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -830,17 +839,15 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
 
         ParamList expectedPairs;
-        dict *params = makeParamsDict({"param1", "EXPLAINSCORE", "BLOB", TEST_BLOB_DATA},
-                                      expectedPairs);
+        TestParamsDict params({"param1", "EXPLAINSCORE", "BLOB", TEST_BLOB_DATA}, expectedPairs);
 
         HybridShardWireParams shardWireParams = {};
-        shardWireParams.params = params;
+        shardWireParams.params = params.d;
 
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
                                      &kArgIndex);
-        Param_DictFree(params);
 
         EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
             << "EXPLAINSCORE as a PARAMS value must not be re-appended as a "
