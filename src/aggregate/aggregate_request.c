@@ -1826,11 +1826,6 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 void AREQ_Free(AREQ *req) {
-  if (IsDebug(req)) {
-    // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
-    AREQ_Debug_FreeParams((AREQ_Debug *)req);
-  }
-
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.

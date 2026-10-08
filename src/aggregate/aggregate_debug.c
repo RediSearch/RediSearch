@@ -44,39 +44,20 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
   debug_req->requestedTimeoutPolicy = debug_req->r.base.timeout.config.timeoutPolicy;
 
-  // Own a copy of the debug argv tail. The request may execute on a worker
-  // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
-  // runs at pipeline-build time — after the dispatcher's argv (or FT.PROFILE's
-  // duplicated argv array) is already freed.
+  AREQ *r = &debug_req->r;
+  // Point the debug tail into the request's held argv rather than the caller's, which may be
+  // freed before parseAndCompileDebug runs on a worker thread.
   unsigned long long debug_argv_count =
       debug_params.debug_params_count + 2;  // + `DEBUG_PARAMS_COUNT` `<count>`
-  RedisModuleString **argv_copy = rm_malloc(sizeof(*argv_copy) * debug_argv_count);
-  for (unsigned long long i = 0; i < debug_argv_count; i++) {
-    argv_copy[i] = RedisModule_HoldString(RSDummyContext, debug_params.debug_argv[i]);
-  }
-  debug_params.debug_argv = argv_copy;
+  debug_params.debug_argv = r->base.args.argv + (argc - debug_argv_count);
   debug_req->debug_params = debug_params;
 
-  AREQ *r = &debug_req->r;
   // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
   // before it.
   r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;
-}
-
-void AREQ_Debug_FreeParams(AREQ_Debug *debug_req) {
-  AREQ_Debug_params *params = &debug_req->debug_params;
-  if (!params->debug_argv) {
-    return;
-  }
-  unsigned long long debug_argv_count = params->debug_params_count + 2;
-  for (unsigned long long i = 0; i < debug_argv_count; i++) {
-    RedisModule_FreeString(RSDummyContext, params->debug_argv[i]);
-  }
-  rm_free(params->debug_argv);
-  params->debug_argv = NULL;
 }
 
 
