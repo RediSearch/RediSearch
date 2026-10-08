@@ -305,8 +305,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
                                VecSim_GetSharedMemory();
   // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
   // counter across all specs in `IndexesInfo_TotalInfo`.
-  size_t total_ii_blocks = isDisk ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
-      : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
+  size_t total_ii_blocks = IndexSpec_TotalBlockCount(sp);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);

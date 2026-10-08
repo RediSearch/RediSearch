@@ -576,6 +576,7 @@ void Indexes_UpgradeLegacyIndexes() {
     // put the new index in the global spec dictionaries (by name and by specId)
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
+    SearchDisk_ActivateUsage(sp);
   }
   dictReleaseIterator(iter);
 }
