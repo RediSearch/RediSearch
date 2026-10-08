@@ -32,7 +32,6 @@
 #include <assert.h>
 
 #include "../parse.h"
-#include "rmutil/rm_assert.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -1907,20 +1906,24 @@ static YYACTIONTYPE yy_reduce(
       case 28: /* text_expr ::= QUOTE ATTRIBUTE QUOTE */
 {
   // Quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer; it still
-  // precedes the token in the query text.
-  RS_ASSERT(yymsp[-1].minor.yy0.s[-1] == '$');
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s - 1, yymsp[-1].minor.yy0.len + 1), -1);
+  // Also need to add the leading '$' which was consumed by the lexer
+  char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
+  *s = '$';
+  memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
+  rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
         break;
       case 29: /* text_expr ::= SQUOTE ATTRIBUTE SQUOTE */
 {
   // Single quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer; it still
-  // precedes the token in the query text.
-  RS_ASSERT(yymsp[-1].minor.yy0.s[-1] == '$');
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s - 1, yymsp[-1].minor.yy0.len + 1), -1);
+  // Also need to add the leading '$' which was consumed by the lexer
+  char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
+  *s = '$';
+  memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
+  rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
         break;
