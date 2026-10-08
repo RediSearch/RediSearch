@@ -17,6 +17,10 @@ buffered rows and becomes a coordinator profile warning. The coordinator then
 collects the remaining shard profile replies. A shard whose hard timeout already
 replied contributes a timeout error entry to `Profile.Shards`, not fabricated
 iterator timings or counters. Responsive shards contribute their actual profiles.
+If the shard budget expires before execution starts, the shard instead returns a
+minimal profile with a timeout warning. Cooperative shard timeouts also retain
+their profiles; RESP2 FAIL now reads these warnings from the shard profile, just
+as RESP3 reads the warnings alongside the results.
 RESP2 retains its `[results, profile]` envelope; RESP3 retains `Results` and
 `Profile`, with a timeout warning in `Results.warning` when execution observes it.
 
@@ -73,9 +77,12 @@ Local test execution is intentionally omitted; CI owns runtime validation.
 
 - RESP2 and RESP3: hold a profile in the coordinator queue beyond an ordinary
   FAIL command's real deadline, then verify the profile returns shard timeout
-  errors and a coordinator warning after dispatch.
+  warnings in minimal profiles and a coordinator warning after dispatch.
 - RESP2 and RESP3: hold profile reply encoding beyond that deadline, then verify
   successful rows and profiles still return without a synthetic timeout warning.
+- Mix successful shards with one cooperative timeout and verify FAIL discards
+  all rows, preserves the shard profiles, and propagates the timeout warning.
+  Exercise both protocols, WITHCOUNT, and profiles with/without clock fields.
 - One or all shards: invoke hard-timeout callbacks at a shard execution barrier;
   verify empty result rows, error entries for timed-out shards, a coordinator
   warning, request/cursor cleanup, and warning/error accounting. Exercise both

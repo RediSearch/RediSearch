@@ -9729,8 +9729,11 @@ def _profile_without_coordinator_deadline(protocol, queued):
             env.assertEqual(rows, [])
             env.assertEqual(coord['Warning'], [TIMEOUT_WARNING], message=results[0])
             for shard in shards:
-                env.assertTrue(isinstance(shard, ResponseError), message=results[0])
-                env.assertContains(TIMEOUT_ERROR, str(shard))
+                env.assertFalse(isinstance(shard, ResponseError), message=results[0])
+                shard_profile = shard if protocol == 3 else to_dict(shard)
+                env.assertEqual(shard_profile['Warning'], [TIMEOUT_WARNING], message=results[0])
+            if protocol == 3:
+                env.assertEqual(results[0]['Results']['warning'], [TIMEOUT_WARNING])
         else:
             expected_rows = [['n', str(n)] for n in range(8)]
             if protocol == 3:
@@ -9776,6 +9779,50 @@ def test_profile_fail_encoding_without_coordinator_deadline_resp2():
 @skip(cluster=False, min_shards=2)
 def test_profile_fail_encoding_without_coordinator_deadline_resp3():
     _profile_without_coordinator_deadline(3, queued=False)
+
+
+def _profile_with_cooperative_shard_timeout(protocol):
+    """A shard profile warning makes FAIL discard rows from successful shards too."""
+    # TIMEOUT_AFTER_N requires inline shard execution under FAIL.
+    env = Env(protocol=protocol,
+              moduleArgs='WORKERS 0 TIMEOUT 0 ON_TIMEOUT FAIL DEFAULT_DIALECT 2 NOGC')
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for shard, tag in enumerate(distinct_shard_tags(conn)):
+        for n in range(8 if shard == 0 else 1):
+            conn.execute_command('HSET', f'{{{tag}}}:{n}', 'n', n)
+
+    for print_clock in ('false', 'true'):
+        run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', print_clock)
+        for withcount in (False, True):
+            command = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                       *(['WITHCOUNT'] if withcount else []), 'LOAD', 1, '@n', 'TIMEOUT', 0]
+            reply = runDebugQueryCommandTimeoutAfterN(env, command, 2, internal_only=True)
+            rows, shards, coord = _profile_timeout_parts(env, reply)
+            env.assertEqual(rows, [], message=reply)
+            env.assertEqual(coord['Warning'], [TIMEOUT_WARNING], message=reply)
+            env.assertEqual(len(shards), env.shardsCount, message=reply)
+            warnings = []
+            for shard in shards:
+                env.assertFalse(isinstance(shard, ResponseError), message=reply)
+                shard_profile = shard if protocol == 3 else to_dict(shard)
+                warnings.append(shard_profile['Warning'])
+            env.assertEqual(warnings.count([TIMEOUT_WARNING]), 1, message=reply)
+            env.assertEqual(warnings.count(['None']), env.shardsCount - 1, message=reply)
+            if protocol == 3:
+                env.assertEqual(reply['Results']['warning'], [TIMEOUT_WARNING])
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_cooperative_shard_timeout_resp2():
+    _profile_with_cooperative_shard_timeout(2)
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_cooperative_shard_timeout_resp3():
+    _profile_with_cooperative_shard_timeout(3)
 
 
 def _profile_with_shard_hard_timeouts(protocol):
