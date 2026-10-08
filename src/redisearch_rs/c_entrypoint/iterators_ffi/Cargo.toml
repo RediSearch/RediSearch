@@ -9,8 +9,8 @@ publish.workspace = true
 workspace = true
 
 [lib]
-# This crate has no Rust unit tests—it only contains bindings
-# that will be exercises by the C side.
+# This crate has no Rust unit tests: its bindings are exercised by the C side
+# and by the integration tests under `tests/`.
 # If `test` is set to `true` (the default), Rust will try to generate and
 # compile a "no-op" test binary, which will in turn try to link to the Redis
 # allocator, thus causing a panic since it's not available.
@@ -39,6 +39,13 @@ rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 top_k.workspace = true
 trie_rs.workspace = true
+vecsim.workspace = true
 vector_score_source.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+# `unittest` provides the VecSim index fixtures and links the C code they call into.
+vector_score_source = { workspace = true, features = ["unittest"] }
 
