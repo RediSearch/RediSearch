@@ -228,6 +228,10 @@ struct MRChannel *MRIterator_GetChannel(MRIterator *it);
  * MR_StartIterator. */
 MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config);
 
+/* Like MR_CreateIterator, but takes over `cmd`'s allocations instead of copying them, leaving
+ * `*cmd` empty. */
+MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *config);
+
 /* Schedule the iterator's start callback on its IO runtime, kicking off the
  * fan-out to the shards. After this call replies may arrive at any time on the
  * IO thread. The callback receives the iterator itself. */
