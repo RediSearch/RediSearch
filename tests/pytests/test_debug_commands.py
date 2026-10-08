@@ -235,6 +235,15 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
         self.env.expect(debug_cmd(), 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
 
+    def testDumpPhoneticHashWithoutPhoneticCode(self):
+        # Digits have no phonetic code, so neither the primary nor the secondary one is produced.
+        try:
+            res = self.env.cmd(debug_cmd(), 'DUMP_PHONETIC_HASH', '04')
+        except Exception as e:
+            self.env.assertTrue(False, message=f'DUMP_PHONETIC_HASH failed on a term without a phonetic code: {e}')
+            return
+        self.env.assertEqual(res, [None, None])
+
     def testDumpPhoneticHashWrongArity(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash').error()
 
