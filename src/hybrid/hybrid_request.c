@@ -75,12 +75,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
-                                      areq->reqflags, &areq->base.reply.err);
+        areq->iteratorTree = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
+                                          areq->reqflags, &areq->base.reply.err);
         rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
-          Profile_AddIters(&areq->rootiter);
+          QueryIteratorTree_Profile(areq->iteratorTree);
           // Initialize parseClock after adding profile iterators, we want that to be accounted in the parsing timing
           rs_wall_clock_init(&parseClock);
           // Calculate the time elapsed for subquery parsing (AST to iterator + profile setup)

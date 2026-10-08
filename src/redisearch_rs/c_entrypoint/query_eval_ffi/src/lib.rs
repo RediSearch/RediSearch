@@ -12,9 +12,15 @@
 
 use std::{ffi::CStr, ptr::NonNull};
 
-use ffi::{QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSSearchOptions, RedisSearchCtx};
-use query_eval::{Config, QueryEvalContext, QueryNodeMut, qast_iterate, scorers::BuiltInScorer};
-use rqe_iterators::IteratorsConfig;
+use ffi::{
+    QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSSearchOptions, RedisSearchCtx,
+    ResultProcessor,
+};
+use query_eval::{
+    Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut, scorers::BuiltInScorer,
+};
+use rqe_iterators::{IteratorsConfig, c2rust::CRQEIterator};
+use slots_tracker::SlotRangeArray;
 
 /// Snapshot the evaluator's configuration.
 ///
@@ -46,12 +52,12 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
     }
 }
 
-/// Build the executable iterator tree for a parsed query AST and return its
-/// root [`QueryIterator`].
+/// Build the executable [`QueryIteratorTree`] for a parsed query AST.
 ///
 /// Assembles the [`QueryEvalCtx`] from the request pieces, then evaluates
-/// `qast`'s root node. The returned pointer is never NULL — an empty iterator
-/// is substituted when the query produces no results.
+/// `qast`'s root node with [`QueryIteratorTree::new`]. The caller owns the
+/// returned tree and releases it with [`QueryIteratorTree_Free`] or
+/// [`QueryIteratorTree_IntoResultProcessor`].
 ///
 /// # Safety
 ///
@@ -65,14 +71,14 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 /// 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
 ///    request timeout reached through `sctx.timeout` must stay valid at stable
-///    addresses for the lifetime of the returned iterator. Timeout source
+///    addresses for the lifetime of the returned tree. Timeout source
 ///    changes and deadline writes may occur only between iterator probes;
 ///    only the blocked-client flag may change concurrently.
 /// 4. `status` must be a non-null pointer to a valid [`QueryError`].
 ///
 /// Together these are exactly the invariants documented on
 /// [`QueryEvalContext::new`] for the assembled context, which remains valid for
-/// the lifetime of the returned iterator.
+/// the lifetime of the returned tree.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QAST_Iterate(
     qast: *mut QueryAST,
@@ -80,7 +86,7 @@ pub unsafe extern "C" fn QAST_Iterate(
     sctx: *mut RedisSearchCtx,
     reqflags: u32,
     status: *mut QueryError,
-) -> *mut QueryIterator {
+) -> NonNull<QueryIteratorTree<'static>> {
     // SAFETY: `qast` is a valid, non-null pointer (precondition 1), held
     // exclusively for the duration of the call.
     let qast = unsafe { &mut *qast };
@@ -117,8 +123,131 @@ pub unsafe extern "C" fn QAST_Iterate(
     let node = unsafe { QueryNodeMut::new(root) };
 
     let config = eval_config(ctx.config());
-    // The returned handle is heap-allocated and self-owning; erasing its borrow
-    // of the transient `qectx` is sound because the index data it reads
-    // (reachable via `sctx`/`spec`) and request timeout outlive it (precondition 3).
-    qast_iterate(&mut ctx, node, config).into_c_iterator()
+    let tree = QueryIteratorTree::new(&mut ctx, node, config);
+    // SAFETY: the index data and request timeout outlive the tree
+    // (precondition 3), and no other tree can be built from `ctx`, which is
+    // dropped on return.
+    let tree = unsafe { tree.erase_lifetime() };
+    NonNull::from(Box::leak(Box::new(tree)))
+}
+
+/// Free a [`QueryIteratorTree`] and every iterator it owns. NULL is a no-op.
+///
+/// # Safety
+///
+/// 1. `tree` must be NULL, or a tree returned by [`QAST_Iterate`] that has not
+///    been released yet.
+/// 2. The tree's root must not have been freed or handed to another owner.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryIteratorTree_Free(tree: Option<NonNull<QueryIteratorTree<'static>>>) {
+    if let Some(tree) = tree {
+        // SAFETY: `tree` came from `Box::leak` and has not been released yet
+        // (precondition 1). Dropping it frees its root, which the tree still
+        // exclusively owns (precondition 2).
+        drop(unsafe { Box::from_raw(tree.as_ptr()) });
+    }
+}
+
+/// Return the root iterator of `tree`, which the tree keeps owning.
+///
+/// It stops being the root once [`QueryIteratorTree_SetRoot`] or
+/// [`QueryIteratorTree_Profile`] replaces it.
+///
+/// # Safety
+///
+/// 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+///    released yet.
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn QueryIteratorTree_Root(
+    tree: NonNull<QueryIteratorTree<'static>>,
+) -> NonNull<QueryIterator> {
+    // SAFETY: `tree` points to a live tree (precondition 1).
+    unsafe { tree.as_ref() }.root_ptr()
+}
+
+/// Replace the root iterator of `tree` with `root`, as
+/// [`QueryIteratorTree::replace_root`] does.
+///
+/// The previous root is not freed: `root` must take ownership of it, typically
+/// as a child, or it leaks.
+///
+/// # Safety
+///
+/// 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+///    released yet.
+/// 2. `tree` must not be accessed through any other pointer, from this or
+///    another thread, for the duration of the call.
+/// 3. `root` must satisfy the safety invariants of
+///    [`CRQEIterator::new`](rqe_iterators::c2rust::CRQEIterator::new).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryIteratorTree_SetRoot(
+    mut tree: NonNull<QueryIteratorTree<'static>>,
+    root: NonNull<QueryIterator>,
+) {
+    // SAFETY: `tree` points to a live tree (precondition 1), not aliased for
+    // the call (precondition 2).
+    let tree = unsafe { tree.as_mut() };
+    // SAFETY: `root` satisfies the `CRQEIterator::new` invariants (precondition 3).
+    let root = unsafe { CRQEIterator::new(root) };
+    let _ = tree.replace_root(root);
+}
+
+/// Profile `tree` in place, via [`QueryIteratorTree::into_profiled`].
+///
+/// # Safety
+///
+/// 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+///    released yet.
+/// 2. `tree` must not be accessed through any other pointer, from this or
+///    another thread, for the duration of the call.
+///
+/// # Panics
+///
+/// Aborts the process if `tree` has already been profiled.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryIteratorTree_Profile(tree: NonNull<QueryIteratorTree<'static>>) {
+    // SAFETY: `tree` came from `Box::leak` and has not been released yet
+    // (precondition 1), and is not aliased for the call (precondition 2).
+    let mut tree = unsafe { Box::from_raw(tree.as_ptr()) };
+    *tree = (*tree).into_profiled();
+    // Reuse the allocation so the caller's handle stays valid.
+    let _ = Box::into_raw(tree);
+}
+
+/// Consume `tree` into the result processor that reads its documents.
+///
+/// The caller owns the returned processor, whose `Free` callback also frees the
+/// tree's root and `query_slots`.
+///
+/// # Safety
+///
+/// 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+///    released yet.
+/// 2. `query_slots` must be NULL, or a [`SlotRangeArray`] allocated with the
+///    Redis allocator and not owned by anything else.
+/// 3. `sctx` must be a valid [`RedisSearchCtx`] with a non-NULL `timeout` and
+///    whose `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec), and
+///    must outlive the returned processor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
+    tree: NonNull<QueryIteratorTree<'static>>,
+    query_slots: *const SlotRangeArray,
+    key_space_version: u32,
+    sctx: NonNull<RedisSearchCtx>,
+) -> NonNull<ResultProcessor> {
+    // SAFETY: `tree` came from `Box::leak` and has not been released yet
+    // (precondition 1).
+    let tree = unsafe { Box::from_raw(tree.as_ptr()) };
+    let root = tree.into_raw_root();
+    // SAFETY: `root` is a valid, owning iterator handed over with the tree
+    // (precondition 1); `query_slots` and `sctx` satisfy preconditions 2 and 3.
+    let rp = unsafe {
+        ffi::RPQueryIterator_New(
+            root.as_ptr(),
+            query_slots.cast(),
+            key_space_version,
+            sctx.as_ptr(),
+        )
+    };
+    NonNull::new(rp).expect("the query iterator result processor must not be NULL")
 }

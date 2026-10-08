@@ -118,7 +118,7 @@ typedef struct timespec timespec;
 """
 
 [header.query_eval_ffi]
-includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h"]
+includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h", "result_processor.h"]
 after_includes = """
 // `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
 // i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the

@@ -501,21 +501,6 @@ QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
 void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
- * Add profile iterators to all nodes in the iterator tree.
- *
- * Wraps the root as a [`CRQEIterator`], calls
- * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
- * (which recursively profiles
- * all descendants), then writes the result back as a `QueryIterator*`.
- *
- * # Safety
- *
- * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
- * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
- */
-void Profile_AddIters(QueryIterator * *root);
-
-/**
  * Print iterator profile tree as a Redis reply.
  *
  * This is the FFI entry point called from C `Profile_PrintCommon`.
@@ -536,7 +521,8 @@ void Profile_AddIters(QueryIterator * *root);
  *
  * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
  * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
- *    that has been profile-wrapped via `Profile_AddIters`.
+ *    that has been profile-wrapped via
+ *    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
  */
 void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 

@@ -17,11 +17,11 @@
 //! `QN_UNION`, and so on — mirroring the per-node-type layout of this crate's
 //! integration tests. This module keeps what they share: the evaluator
 //! [`Config`], the [`Evaluated`] outcome type, the dispatcher and its
-//! [`qast_iterate`] entry point, and the helpers for evaluating a child node
-//! ([`eval_child_iterator`]) and lowering an evaluated one
+//! [`QueryIteratorTree::new`] entry point, and the helpers for evaluating a
+//! child node ([`eval_child_iterator`]) and lowering an evaluated one
 //! ([`into_child_iterator`]).
 
-use std::ptr::NonNull;
+use std::{marker::PhantomData, ptr::NonNull};
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
@@ -156,16 +156,83 @@ impl<'index> Evaluated<'index> {
     }
 }
 
-/// Build the executable iterator tree for a parsed query AST.
+/// The executable iterator tree built from a parsed query AST.
 ///
-/// The `root` node is evaluated via [`eval_node`]. When evaluation yields no
-/// iterator (`None`), an [`Empty`] iterator is returned.
-pub fn qast_iterate<'index>(
-    ctx: &'index mut QueryEvalContext,
-    root: QueryNodeMut<'_>,
-    config: Config,
-) -> Evaluated<'index> {
-    eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
+/// A dedicated type rather than a bare root iterator, so it can carry more as
+/// the evaluator grows.
+///
+/// The tree borrows the [`QueryEvalContext`] it was built from for `'index`:
+/// its iterators read index data reached through that context.
+pub struct QueryIteratorTree<'index> {
+    /// Owns every iterator in the tree, through its children.
+    // Private, as a `CRQEIterator` carries no lifetime: safe code only gets it
+    // out bound to `'index` (`into_root`) or as a raw pointer, which needs
+    // `unsafe` to use beyond the borrow of the context.
+    root: CRQEIterator,
+    // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
+    _ctx: PhantomData<&'index mut QueryEvalContext>,
+}
+
+impl<'index> QueryIteratorTree<'index> {
+    /// Build the executable iterator tree for a parsed query AST.
+    ///
+    /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
+    /// when it yields none.
+    pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
+        Self::from_root(into_child_iterator(eval_node(ctx, root, config)))
+    }
+
+    const fn from_root(root: CRQEIterator) -> Self {
+        Self {
+            root,
+            _ctx: PhantomData,
+        }
+    }
+
+    /// Wrap every iterator in the tree in a profile iterator, via
+    /// [`CRQEIterator::into_profiled`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tree has already been profiled.
+    pub fn into_profiled(self) -> Self {
+        Self::from_root(self.root.into_profiled())
+    }
+
+    /// Consume the tree into its root iterator, which still borrows the
+    /// context for `'index`.
+    pub fn into_root(self) -> impl RQEIteratorPrintable<'index> + 'index {
+        self.root
+    }
+
+    /// The root iterator, still owned by the tree.
+    pub const fn root_ptr(&self) -> NonNull<ffi::QueryIterator> {
+        self.root.as_raw()
+    }
+
+    /// Replace the root iterator with `root`, returning the previous one
+    /// unfreed, typically because `root` already owns it as a child.
+    pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
+        std::mem::replace(&mut self.root, root).into_raw()
+    }
+
+    /// Consume the tree into its owning root iterator handle.
+    pub fn into_raw_root(self) -> NonNull<ffi::QueryIterator> {
+        self.root.into_raw()
+    }
+
+    /// Detach the tree from the borrow of the context it was built from.
+    ///
+    /// # Safety
+    ///
+    /// For as long as the returned tree is alive:
+    ///
+    /// 1. The index data reached through the context it was built from must
+    ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
+    /// 2. No other iterator tree may be built from that context.
+    pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
+        QueryIteratorTree::from_root(self.root)
+    }
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -219,12 +286,12 @@ fn eval_child_iterator(
     into_child_iterator(eval_node(&mut *ctx, child, config))
 }
 
-/// Lower an evaluated child into an owning [`CRQEIterator`] for use as a child
-/// of a Rust compound iterator.
+/// Lower an evaluated node into an owning [`CRQEIterator`], for use as a child
+/// of a Rust compound iterator or as the root of a [`QueryIteratorTree`].
 ///
-/// A `None` child (no results) becomes a freshly boxed [`Empty`] so the
-/// reducer can apply its empty-child rules, since a missing child is
-/// equivalent to one that matches nothing.
+/// A `None` node (no results) becomes a freshly boxed [`Empty`] so a reducer
+/// can apply its empty-child rules, since a missing child is equivalent to one
+/// that matches nothing.
 fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
     let ptr = match evaluated {
         Some(ev) => ev.into_c_iterator(),
