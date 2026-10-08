@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE` and the exact
-//! `COUNT_DISTINCT`, driven through [`AccumulatorReducer`] the way the grouper
+//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE`, the exact
+//! `COUNT_DISTINCT` and `RANDOM_SAMPLE`, driven through [`AccumulatorReducer`] the way the grouper
 //! drives them.
 
 extern crate redisearch_rs;
@@ -20,6 +20,7 @@ use reducers::count::Count;
 use reducers::count_distinct::CountDistinct;
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
+use reducers::random_sample::RandomSample;
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -373,6 +374,78 @@ fn count_distinct_counts_a_non_static_null() {
     assert_eq!(reduce(CountDistinct::new(&key), &key, &rows), 1.0);
 }
 
+/// The numbers in the sample of `RANDOM_SAMPLE` of `size` values over a group of
+/// one row per entry of `values`.
+fn sample(size: usize, values: &[Option<SharedValue>]) -> Vec<f64> {
+    let key = key();
+    let rows: Vec<_> = values.iter().map(|value| [value.clone()]).collect();
+    let result = reduce_rows(RandomSample::new(&key, size), [&key], &rows);
+    match &*result {
+        Value::Array(items) => items.iter().map(number).collect(),
+        other => panic!("expected an array, got {other:?}"),
+    }
+}
+
+/// A group that fits in the sample is returned whole, in row order.
+#[test]
+fn random_sample_keeps_every_value_of_a_group_that_fits() {
+    let values = [num(3.0), num(1.0), num(2.0)];
+    assert_eq!(sample(3, &values), [3.0, 1.0, 2.0]);
+    assert_eq!(sample(10, &values), [3.0, 1.0, 2.0]);
+    assert_eq!(sample(10, &[]), [] as [f64; 0]);
+}
+
+/// Rows where the property is missing are not sampled.
+#[test]
+fn random_sample_skips_missing_values() {
+    assert_eq!(sample(5, &[None, num(1.0), None, num(2.0)]), [1.0, 2.0]);
+}
+
+/// Once the sample is full, each value replaces the slot `rand() % (seen + 1)` if
+/// that is within the sample, where `seen` counts only rows with the property. The
+/// reducer is checked against that rule fed the same `rand` sequence.
+///
+/// Every test that draws from `rand` is here: it is one process-wide generator, so
+/// a test drawing from it concurrently would shift the sequence under this one.
+#[test]
+#[cfg_attr(miri, ignore = "calls libc::rand, which miri cannot run")]
+fn random_sample_of_a_larger_group_replaces_values_as_the_reservoir_draws() {
+    const SEED: u32 = 7;
+    const SIZE: usize = 3;
+    // Every fifth row lacks the property.
+    let values: Vec<_> = (0..40)
+        .map(|n| (n % 5 != 4).then(|| SharedValue::new_num(f64::from(n))))
+        .collect();
+
+    // SAFETY: `srand` has no preconditions.
+    unsafe { libc::srand(SEED) };
+    let sampled = sample(SIZE, &values);
+
+    // SAFETY: as above.
+    unsafe { libc::srand(SEED) };
+    let mut expected = Vec::new();
+    for (seen, n) in values.iter().flatten().map(number).enumerate() {
+        if expected.len() < SIZE {
+            expected.push(n);
+            continue;
+        }
+        // SAFETY: `rand` has no preconditions.
+        let slot = unsafe { libc::rand() } as usize % (seen + 1);
+        if let Some(sample) = expected.get_mut(slot) {
+            *sample = n;
+        }
+    }
+    assert_eq!(sampled, expected);
+    assert_ne!(
+        expected,
+        [0.0, 1.0, 2.0],
+        "the seed must exercise a replacement"
+    );
+
+    // A sample of size 0 still draws for every row, and stays empty.
+    assert_eq!(sample(0, &values), [] as [f64; 0]);
+}
+
 /// Runs `accumulator` over two groups the way the grouper does: a state per
 /// group, rows interleaved between them, then finalize and drop. Returns each
 /// group's result.
@@ -424,8 +497,8 @@ fn interleaved_groups_are_kept_apart() {
 #[test]
 fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
-        CountDistinctReducer_Create, FirstValueReducer_Create, StdDevReducer_Create,
-        SumReducer_Create,
+        CountDistinctReducer_Create, FirstValueReducer_Create, RandomSampleReducer_Create,
+        StdDevReducer_Create, SumReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -452,4 +525,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let distinct = unsafe { CountDistinctReducer_Create(key_ptr) };
     assert!(frees_states(distinct));
+    // SAFETY: as above.
+    let random_sample = unsafe { RandomSampleReducer_Create(key_ptr, 10) };
+    assert!(frees_states(random_sample));
 }
