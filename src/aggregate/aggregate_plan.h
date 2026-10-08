@@ -135,11 +135,11 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     const char *alias; // Output key
-    bool ownsAlias;    // Whether `alias` is a heap copy rather than borrowed
     char *inputAlias;  // Optional input key
+    ArgsCursor args;
+    bool ownsAlias;    // Whether `alias` is a heap copy rather than borrowed
     bool isHidden;     // If the output key is hidden. Used by the coordinator
     bool isLocal;      // Whether this reducer runs locally (on the coordinator side)
-    ArgsCursor args;
   } * reducers;
   int idx;
   // Whether we should fail if a key is not prefixed with an @ sign
