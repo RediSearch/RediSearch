@@ -317,6 +317,7 @@ prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+    --ignore-errors unused \
     --exclude '*/_deps/*'
   end_group
 }
@@ -332,6 +333,7 @@ capture_coverage() {
 
   # Capture coverage collected while running tests previously
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+    --ignore-errors unused \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test

@@ -9,7 +9,6 @@ from vecsim_utils import *
 from common import (
     getConnectionByEnv,
     skip,
-    skip_until,
     assertInfoField,
     index_info,
     to_dict,
