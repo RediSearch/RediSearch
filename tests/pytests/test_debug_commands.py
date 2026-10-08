@@ -761,7 +761,9 @@ class TestQueryDebugCommands(object):
         env = self.env
         debug_params = ['TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2]
         res = env.cmd(*query, 'LIMIT', 0, limit, *debug_params)
-        self.verifyResultsResp3(res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout, depth=depth+1)
+        self.verifyResultsResp3(res, expected_res_count,
+                               message=f"{message} QueryWithLimit: {res}",
+                               should_timeout=should_timeout, depth=depth+1)
 
         return res
 
@@ -834,14 +836,12 @@ class TestQueryDebugCommands(object):
         res = env.cmd(*basic_debug_query, *debug_params)
         self.verifyResultsResp3(res, 0, "QueryDebug:")
 
-    def QueryWithSorter(self, limit=2, sortby_params=[], depth=0):
-        # For queries with sorter, the LIMIT determines the heap size.
-        # The sorter will continue to ask for results until it gets timeout or EOF.
-        # the number of results in this case is the minimum between the LIMIT and the TIMEOUT_AFTER_N counter.
-
-        # Therefore, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
-        # we will get LIMIT results *and* TIMEOUT warning.
-        res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
+    def QueryWithSorter(self, limit=2, sortby_params=[], depth=0, expected_res_count=None):
+        # LIMIT bounds the recovered heap. An unfinished upstream safe-loader batch
+        # can leave the sorter empty: Drain must not load that batch to fill it.
+        if expected_res_count is None:
+            expected_res_count = limit
+        res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=expected_res_count, should_timeout=True, depth=depth+1)
         res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]
         self.env.assertTrue(res_values == sorted(res_values), depth=depth+1, message="QueryWithSorter: expected sorted results")
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
@@ -931,21 +931,22 @@ class TestQueryDebugCommands(object):
         finally:
             env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
-    def SearchDebug(self):
+    def SearchDebug(self, worker_shards=0):
         self.setBasicDebugQuery("SEARCH")
         basic_debug_query = self.basic_debug_query
         self.QueryDebug()
 
         timeout_res_count = 4
 
-        # FT.SEARCH with coord doesn't have a timeout check, therefore it will return shards * timeout_res_count results
-        expected_results_count = self.env.shardsCount * timeout_res_count
+        # Worker shards cannot load their unfinished batches during Drain. Inline
+        # shards still return their partial results to the SEARCH coordinator.
+        expected_results_count = (self.env.shardsCount - worker_shards) * timeout_res_count
         # set LIMIT to be larger than the expected results count
-        limit = expected_results_count + 1
+        limit = self.env.shardsCount * timeout_res_count + 1
         self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         # SEARCH always has a sorter
-        self.QueryWithSorter()
+        self.QueryWithSorter(expected_res_count=min(2, expected_results_count))
 
         # with no sorter (dialect 4)
         self.QueryWithLimit(basic_debug_query + ["DIALECT", 4], timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
@@ -958,10 +959,11 @@ class TestQueryDebugCommands(object):
 
     def testSearchDebug_MT(self):
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
-        self.SearchDebug()
+        # env.cmd changes only the connected shard's configuration in cluster mode.
+        self.SearchDebug(worker_shards=1)
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
-    def AggregateDebug(self):
+    def AggregateDebug(self, expected_sorter_results=2):
         env = self.env
         self.setBasicDebugQuery("AGGREGATE")
         basic_debug_query = self.basic_debug_query
@@ -971,7 +973,8 @@ class TestQueryDebugCommands(object):
         limit = 2
         res = self.QueryWithLimit(basic_debug_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
 
-        self.QueryWithSorter(sortby_params=['sortby', 1, '@n'])
+        self.QueryWithSorter(sortby_params=['sortby', 1, '@n'],
+                             expected_res_count=expected_sorter_results)
 
         # with cursor
         timeout_res_count = 200
@@ -1030,9 +1033,17 @@ class TestQueryDebugCommands(object):
         self.AggregateDebug()
 
     def testAggregateDebug_MT(self):
-        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
-        self.AggregateDebug()
-        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
+        connections = (self.env.getOSSMasterNodesConnectionList() if self.env.isCluster()
+                       else [self.env.getConnection()])
+        try:
+            for conn in connections:
+                conn.execute_command(config_cmd(), 'SET', 'WORKERS', 4)
+            # Every shard stops before loading its safe-loader batch. Mixed worker
+            # settings would make recovery depend on which shard reply arrives first.
+            self.AggregateDebug(expected_sorter_results=0)
+        finally:
+            for conn in connections:
+                conn.execute_command(config_cmd(), 'SET', 'WORKERS', 0)
 
     def testAggregateTimeoutDebugRejectsReturnStrict(self):
         """Standalone rejects only timeout-related aggregate debug hooks with RETURN-STRICT."""
@@ -1084,16 +1095,23 @@ class TestQueryDebugCommands(object):
         timeout_res_count = 4
         limit = self.env.shardsCount * timeout_res_count + 1
 
-        def runCmd(cmd, expected_results_count):
+        def runCmd(cmd, expected_results_count=None):
             query = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'LIMIT', 0, limit + 1, "TIMEOUT_AFTER_N", timeout_res_count, "INTERNAL_ONLY", "DEBUG_PARAMS_COUNT", 3]
             res = env.cmd(*query)
-            self.verifyResultsResp3(res, expected_results_count, f"InternalOnly: FT.{cmd}:")
+            if expected_results_count is not None:
+                self.verifyResultsResp3(res, expected_results_count, f"InternalOnly: FT.{cmd}:")
+            else:
+                # RPNet drains any other already-arrived shard batches without waiting.
+                # Arrival order determines how many complete batches are available.
+                env.assertTrue(len(res['results']) in range(
+                    timeout_res_count, self.env.shardsCount * timeout_res_count + 1,
+                    timeout_res_count), message=res)
+                self.verifyWarning(res, f"InternalOnly: FT.{cmd}:")
 
         # we get timeout_res_count from each shard
         runCmd("SEARCH", self.env.shardsCount * timeout_res_count)
 
-        # with AGGREGATE we will get timeout_res_count results because the shard returned timeout
-        runCmd("AGGREGATE", timeout_res_count)
+        runCmd("AGGREGATE")
 
     def Resp2(self, cmd, query_params, listResults_func):
         skipTest(cluster=True)

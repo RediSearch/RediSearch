@@ -258,8 +258,15 @@ def test_debug_timeout_return_both():
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
                        'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     warnings = get_warnings(response)
-    env.assertTrue('Timeout limit was reached (SEARCH)' in get_warnings(response))
-    env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
+    if env.isCluster():
+        # The first producer timeout folds Next. Drain does not wait for the
+        # other producer to publish its diagnostic, even with both hooks armed.
+        expected = {'Timeout limit was reached (SEARCH)', 'Timeout limit was reached (VSIM)'}
+        env.assertTrue(bool(warnings) and set(warnings) <= expected, message=response)
+        env.assertEqual(len(warnings), len(set(warnings)), message=response)
+    else:
+        # Next folds on SEARCH; the unstarted synchronous VSIM input has no timeout to report.
+        env.assertEqual(warnings, ['Timeout limit was reached (SEARCH)'])
     # TODO: add test for tail timeout once MOD-11004 is merged
 
 # Partial result assertions depend on data distribution across shards.
@@ -268,15 +275,13 @@ def test_debug_timeout_return_with_results():
     """Test RETURN policy returns partial results when components timeout"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    # VSIM returns doc:2 and doc:4 (without timeout), SEARCH returns doc:3 (without timeout)
+    # SEARCH times out first; Drain must not start synchronous VSIM to produce more rows.
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'gear', 'VSIM', \
                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, \
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
-    env.assertTrue('doc:3' in results.keys())
-    # Expect exactly one document from VSIM since the timeout occurred after processing one result - should be either doc:2 or doc:4
-    env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
+    env.assertEqual(set(results), {'doc:3'}, message=response)
 
 # Helper to add enough documents with distinct "run*" terms to guarantee
 # max prefix expansion triggers on at least one shard in cluster mode.

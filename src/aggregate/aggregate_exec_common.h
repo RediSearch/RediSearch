@@ -39,6 +39,12 @@ SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc)
 void AggregateResultsContinue(ResultProcessor *rp, struct AREQ *areq, int *rc,
                               SearchResult ***results);
 
+// Append owned Drain output within the caller's remaining resultLimit. The caller
+// must have exclusive pipeline access and select recovery only for RETURN/STRICT.
+// EOF preserves the timeout outcome in rc; ERROR replaces it. The caller retains
+// ownership of the existing prefix and every appended row.
+void Pipeline_CollectDrainResults(ResultProcessor *rp, int *rc, SearchResult ***results);
+
 typedef struct CommonPipelineCtx {
   const struct QueryRequestTimeout *timeout;
   RSOomPolicy oomPolicy;
@@ -53,7 +59,8 @@ typedef struct CommonPipelineCtx {
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
 
 /**
- * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
+ * Legacy shape restriction for invoking `endProc->Drain` after a RETURN-STRICT timeout.
+ * True iff recovery produces a
  * valid (possibly empty) partial answer for the request's pipeline.
  *
  * The set of accepted shapes is selected by inspecting the pipeline's root
@@ -73,9 +80,8 @@ void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResu
  * Shard (root is `RP_INDEX`): RPIndex pulls fresh from the query iterator
  * on every call and RPPager has no buffer of its own, so shapes (1) and
  * (2) have nothing to harvest -- draining them would re-enter the QI for
- * no useful work. Only shape (3) is accepted: rpsortNext_Yield (the state
- * RPSorter enters on TIMEDOUT) pops from the sorter's heap without
- * re-entering its upstream.
+ * no useful work. Only shape (3) is accepted: the sorter's Drain pops its
+ * heap without re-entering upstream.
  *
  * Any other root type returns false.
  *

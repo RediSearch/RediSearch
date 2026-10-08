@@ -166,7 +166,8 @@ TEST_F(OwnedRowDrainTest, ProfileCountsScopedWaitAsOneNextCall) {
   };
   auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   auto *execution = PipelineExecution_New(&timeout);
   EXPECT_TRUE(PipelineExecution_RunNext(
@@ -181,6 +182,7 @@ TEST_F(OwnedRowDrainTest, ProfileCountsScopedWaitAsOneNextCall) {
       profile));
   PipelineExecution_Free(execution);
   EXPECT_EQ(1, RPProfile_GetCount(profile));
+  EXPECT_EQ(0, RPProfile_GetResultCount(profile));
 }
 
 TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
@@ -188,7 +190,9 @@ TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
   append(RPEvaluator_NewProjector(expression("@input * 10"), &lookup, output));
   append(RPPager_New(1, 2));
   auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
+  EXPECT_EQ(0, RPProfile_GetResultCount(profile));
   ASSERT_EQ(RP_DRAIN_OK, profile->Drain(profile, &row));
+  EXPECT_EQ(1, RPProfile_GetResultCount(profile));
   EXPECT_EQ(4, SearchResult_GetDocId(&row));
   EXPECT_EQ(40, value(output));
   SearchResult_Clear(&row);
@@ -200,6 +204,9 @@ TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
   EXPECT_EQ(4, qctx.totalResults);
   EXPECT_EQ(0, source.nextCalls);
   EXPECT_EQ(3, RPProfile_GetCount(profile));
+  EXPECT_EQ(2, RPProfile_GetResultCount(profile));
+  EXPECT_EQ(RP_DRAIN_EOF, profile->Drain(profile, &row));
+  EXPECT_EQ(2, RPProfile_GetResultCount(profile));
 }
 
 TEST_F(OwnedRowDrainTest, FilterDoesNotUnderflowCursorCount) {
@@ -418,7 +425,8 @@ class OwnedSafeLoaderDrainTest : public OwnedLoaderDrainTest {
 
   void SetUp() override {
     OwnedLoaderDrainTest::SetUp();
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 1000, .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     sctx.timeout = &timeout;
     qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
@@ -623,6 +631,30 @@ TEST_F(OwnedSafeLoaderDrainTest, ScopedWaitPreservesOriginalBatchBudget) {
   EXPECT_EQ(2, source.nextCalls);
   EXPECT_EQ(1, third->ref_count);
   source.Next = next;
+}
+
+TEST_F(OwnedSafeLoaderDrainTest, ReturnTimeoutDoesNotLoadUnfinishedBatch) {
+  qctx.timeoutPolicy = TimeoutPolicy_Return;
+  auto *buffered = document("safe:return", "value");
+  source.Next = [](ResultProcessor *base, SearchResult *row) -> int {
+    auto *self = static_cast<OwnedLoaderSource *>(base);
+    ++self->nextCalls;
+    if (self->cursor == self->documents.size()) return RS_RESULT_TIMEDOUT;
+    auto *dmd = self->documents[self->cursor++];
+    DMD_Incref(dmd);
+    SearchResult_SetDocumentMetadata(row, dmd);
+    return RS_RESULT_OK;
+  };
+  create("field", QEXEC_F_RUN_IN_BACKGROUND);
+  const auto accumulate = loader->Next;
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &row));
+  EXPECT_EQ(accumulate, loader->Next);
+  EXPECT_EQ(4096, qctx.resultLimit);
+  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
+  EXPECT_EQ(2, source.nextCalls);
+  loader->Free(loader);
+  loader = nullptr;
+  EXPECT_EQ(1, buffered->ref_count);
 }
 
 TEST_F(OwnedSafeLoaderDrainTest, TerminalScratchIsDestroyedWithoutPublishingIt) {

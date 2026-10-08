@@ -1325,6 +1325,15 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // `base.reply` (the abort-channel wakes above let it exit promptly).
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
+  // Next now folds at the first timed-out input. The callback timed out every
+  // subquery, including inputs the merger never visited; preserve completed
+  // inputs' terminal statuses and report timeout for the unfinished ones.
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_DEPLETING) {
+      hreq->subqueriesReturnCodes[i] = RS_RESULT_TIMEDOUT;
+    }
+  }
+
   // The coordinator hybrid pipeline is not drainable: the tail merger and the
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
