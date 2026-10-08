@@ -20,12 +20,6 @@ typedef struct RSQueryNode RSQueryNode;
 
 typedef struct QueryError QueryError;
 
-/**
- * Various modifiers and options that can apply to the entire query or any
- * sub-query of it.
- */
-typedef struct QueryNodeOptions QueryNodeOptions;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -60,29 +54,6 @@ extern "C" {
  * the lifetime of the returned iterator.
  */
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
-
-/**
- * Whether a query node needs term offset data.
- *
- * # Safety
- *
- * `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
- * null or point to a valid [`QueryNodeOptions`].
- */
-bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *opts);
-
-/**
- * Whether the scorer named `scorer_name` needs term offset data.
- *
- * A null `scorer_name` falls back to the configured default scorer
- * ([`ffi::RSGlobalConfig`]'s `defaultScorer`), and a custom or
- * otherwise unrecognised name conservatively needs offsets.
- *
- * # Safety
- *
- * `scorer_name` must be null or a valid NUL-terminated C string.
- */
-bool scorerNeedsOffsets(const char *scorer_name);
 
 #ifdef __cplusplus
 }  // extern "C"

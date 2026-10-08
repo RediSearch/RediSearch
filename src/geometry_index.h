@@ -30,3 +30,13 @@ GeometryIndex *OpenGeometryIndex(FieldSpec *fs, bool create_if_missing);
 
 // Remove indexed data for the given document ID
 void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id);
+
+/**
+ * Move a GEOSHAPE field's entry from oldDocId to newDocId without re-parsing. Same contract as
+ * VectorIndex_RelabelField: returns whether it moved; on a refusal the old entry is dropped.
+ */
+bool GeometryIndex_RelabelField(GeometryIndex *idx, t_docId oldDocId, t_docId newDocId);
+
+// True iff docId holds exactly the geometry `str` parses to. WKT only.
+bool GeometryIndex_HoldsGeom(const GeometryIndex *idx, t_docId docId, GEOMETRY_FORMAT format,
+                             const char *str, size_t len);

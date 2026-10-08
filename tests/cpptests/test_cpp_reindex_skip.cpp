@@ -38,6 +38,8 @@ extern "C" {
 #include "redis_index.h"
 }
 
+#include "partial_update_fixture.h"
+
 #include <cmath>
 #include <string>
 #include <vector>
@@ -46,31 +48,9 @@ extern "C" {
 static const char *const kVecA = "aaaabbbbccccdddd";
 static const char *const kVecB = "eeeeffffgggghhhh";
 
-class ReindexSkipTest : public ::testing::Test {
-protected:
-  RedisModuleCtx *ctx = nullptr;
-  IndexSpec *spec = nullptr;
-  std::string indexName;
-  bool previousOptimizePartialUpdate = false;
-
-  void SetUp() override {
-    ctx = RedisModule_GetThreadSafeContext(nullptr);
-    RMCK::flushdb(ctx);
-    static int counter = 0;
-    indexName = "skipidx" + std::to_string(++counter);
-    // The vector-only fast path is gated behind OPTIMIZE_PARTIAL_UPDATE (on by default).
-    // Forced here so a config change elsewhere can't disable it out from under these tests;
-    // restored in TearDown, which runs even when an assertion fails.
-    previousOptimizePartialUpdate = RSGlobalConfig.optimizePartialUpdate;
-    RSGlobalConfig.optimizePartialUpdate = true;
-  }
-
-  void TearDown() override {
-    RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
-    if (ctx) {
-      RedisModule_FreeThreadSafeContext(ctx);
-      ctx = nullptr;
-    }
+class ReindexSkipTest : public PartialUpdateTest {
+ protected:
+  ReindexSkipTest() : PartialUpdateTest("skipidx") {
   }
 
   // Same schema as `createIndex`, plus a FLAT vector field `vec` (FLOAT32, DIM 4, L2).
@@ -136,14 +116,6 @@ protected:
     ASSERT_TRUE(spec != nullptr);
   }
 
-  t_docId docIdOf(const char *key) {
-    uint64_t docId = 0;
-    if (DocIdMeta_Get(ctx, RMCK::RString(key), spec->specId, &docId) != REDISMODULE_OK) {
-      return 0;
-    }
-    return (t_docId)docId;
-  }
-
   // Run the update the way a keyspace notification would, naming `changed` as the fields the
   // command wrote. An empty `changed` means no change set at all -- what a server without
   // subkey notifications, a JSON document or a background scan delivers -- which is a
@@ -158,14 +130,6 @@ protected:
     for (RedisModuleString *f : fields) {
       RedisModule_FreeString(nullptr, f);
     }
-  }
-
-  // Deletes a single Hash field the same way HDEL does (RedisModule_HashSet with
-  // REDISMODULE_HASH_DELETE); unlike RMCK::hset, there is no convenience wrapper for this.
-  void hdel(const char *key, const char *field) {
-    RedisModuleKey *k = RedisModule_OpenKey(ctx, RMCK::RString(key), REDISMODULE_WRITE);
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field, REDISMODULE_HASH_DELETE, nullptr);
-    RedisModule_CloseKey(k);
   }
 
   // Writing kVecA then kVecB to `path` -- each write's change set naming only `path` -- must

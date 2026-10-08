@@ -354,6 +354,9 @@ fn receive_field_header_rejects_empty_frame() {
     ));
 }
 
+/// Encoded size of a node's two survivor bounds, each a `min` and a `max` `f64`.
+const BOUNDS_BYTES: usize = 4 * size_of::<f64>();
+
 /// `NumericNodeDelta::decode` rejects a node shorter than its fixed-size fields.
 #[test]
 fn numeric_node_delta_rejects_short_length() {
@@ -368,7 +371,7 @@ fn numeric_node_delta_rejects_short_length() {
         source.to_string(),
         format!(
             "0 is below the minimum {}",
-            size_of::<u32>() * 2 + Hll::size() * 2
+            size_of::<u32>() * 2 + Hll::size() * 2 + BOUNDS_BYTES
         )
     );
 }
@@ -377,7 +380,8 @@ fn numeric_node_delta_rejects_short_length() {
 #[test]
 fn numeric_node_delta_preserves_deserialization_error() {
     let invalid_message_pack = [0xc1];
-    let node_len = size_of::<u32>() * 2 + invalid_message_pack.len() + Hll::size() * 2;
+    let node_len =
+        size_of::<u32>() * 2 + invalid_message_pack.len() + Hll::size() * 2 + BOUNDS_BYTES;
     let mut buf = Vec::new();
     buf.extend_from_slice(&node_len.to_ne_bytes());
     buf.extend_from_slice(&0u32.to_ne_bytes());
@@ -385,6 +389,7 @@ fn numeric_node_delta_preserves_deserialization_error() {
     buf.extend_from_slice(&invalid_message_pack);
     buf.extend_from_slice(&[0; Hll::size()]);
     buf.extend_from_slice(&[0; Hll::size()]);
+    buf.extend_from_slice(&[0; BOUNDS_BYTES]);
 
     let error = NumericNodeDelta::decode(&mut Cursor::new(buf)).unwrap_err();
     assert!(matches!(
@@ -618,7 +623,7 @@ fn handle_numeric_with_accepts_empty_node_stream_without_locking_spec() {
 mod round_trip {
     use super::*;
     use inverted_index::GcScanDelta;
-    use numeric_range_tree::{Hll, NodeGcDelta};
+    use numeric_range_tree::{Hll, NodeGcDelta, ValueBounds};
     use proptest::prelude::*;
 
     proptest! {
@@ -629,6 +634,8 @@ mod round_trip {
             generation in any::<u32>(),
             registers_with_last_block in any::<[u8; Hll::size()]>(),
             registers_without_last_block in any::<[u8; Hll::size()]>(),
+            // NaN would fail the equality check on its own.
+            bounds in prop::array::uniform4(any::<f64>().prop_filter("not NaN", |v| !v.is_nan())),
         ) {
             let node = NumericNodeDelta {
                 position,
@@ -637,6 +644,8 @@ mod round_trip {
                     delta: GcScanDelta::empty_for_testing(),
                     registers_with_last_block,
                     registers_without_last_block,
+                    bounds_with_last_block: ValueBounds { min: bounds[0], max: bounds[1] },
+                    bounds_without_last_block: ValueBounds { min: bounds[2], max: bounds[3] },
                 },
             };
 

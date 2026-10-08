@@ -10,17 +10,10 @@
 //! C-callable bindings for the Rust query-evaluation dispatcher
 //! ([`query_eval`]).
 
-use std::{
-    ffi::{CStr, c_char},
-    ptr::NonNull,
-};
+use std::{ffi::CStr, ptr::NonNull};
 
 use ffi::{QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSSearchOptions, RedisSearchCtx};
-use query_eval::{
-    Config, QueryEvalContext, QueryNodeMut, qast_iterate,
-    scorers::{BuiltInScorer, slop_forces_offsets},
-};
-use query_types::QueryNodeOptions;
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, qast_iterate, scorers::BuiltInScorer};
 use rqe_iterators::IteratorsConfig;
 
 /// Snapshot the evaluator's configuration.
@@ -30,9 +23,7 @@ use rqe_iterators::IteratorsConfig;
 /// instead taken from `iterators` rather than the live global.
 ///
 /// The resulting [`Config`] is threaded through evaluation as a parameter, so evaluation
-/// itself never re-reads the global. [`resolve_scorer`] does, on the path that decides
-/// whether a query needs term offsets, so a `CONFIG SET` landing between the two can still
-/// leave that decision and this snapshot disagreeing.
+/// itself never re-reads the global.
 fn eval_config(iterators: &IteratorsConfig) -> Config {
     // The default scorer is resolved (not retained) here, so `Config` carries no pointer
     // into config memory that a later `CONFIG SET` can free.
@@ -53,77 +44,6 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
         max_prefix_expansions: iterators.max_prefix_expansions as usize,
         min_union_iter_heap: iterators.min_union_iter_heap as usize,
     }
-}
-
-/// Resolve a C scorer name to a built-in [`BuiltInScorer`], applying the configured
-/// default when `scorer_name` is null.
-///
-/// Returns [`None`] when the resolved name is unset or not a built-in name (a
-/// custom scorer) — cases the caller treats conservatively (as needing term
-/// offsets).
-///
-/// # Safety
-///
-/// `scorer_name` must be null or a valid NUL-terminated C string.
-unsafe fn resolve_scorer(scorer_name: *const c_char) -> Option<BuiltInScorer> {
-    // A null scorer name means "use the configured default scorer".
-    let name = if scorer_name.is_null() {
-        global_config::default_scorer()
-    } else {
-        NonNull::new(scorer_name.cast_mut())
-    };
-
-    name.and_then(|ptr| {
-        // SAFETY: `ptr` is non-null and points to a valid NUL-terminated C string:
-        // either `scorer_name` (by this function's contract) or, in the default
-        // branch, the configured default scorer name, which the config layer
-        // guarantees is a valid NUL-terminated C string.
-        BuiltInScorer::from_c_str(unsafe { CStr::from_ptr(ptr.as_ptr()) })
-    })
-}
-
-/// Whether the scorer named `scorer_name` needs term offset data.
-///
-/// A null `scorer_name` falls back to the configured default scorer
-/// ([`ffi::RSGlobalConfig`]'s `defaultScorer`), and a custom or
-/// otherwise unrecognised name conservatively needs offsets.
-///
-/// # Safety
-///
-/// `scorer_name` must be null or a valid NUL-terminated C string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn scorerNeedsOffsets(scorer_name: *const c_char) -> bool {
-    // SAFETY: `scorer_name` upholds this function's contract (null or a valid
-    // NUL-terminated C string).
-    let scorer = unsafe { resolve_scorer(scorer_name) };
-    scorer.is_none_or(BuiltInScorer::needs_offsets)
-}
-
-/// Whether a query node needs term offset data.
-///
-/// # Safety
-///
-/// `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
-/// null or point to a valid [`QueryNodeOptions`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn queryNeedsOffsets(
-    scorer_name: *const c_char,
-    opts: *const QueryNodeOptions,
-) -> bool {
-    // A phrase/slop constraint forces offsets regardless of the scorer, so check
-    // it first and return before resolving the scorer — which would otherwise
-    // read the process-wide default scorer needlessly. A null `opts` carries no
-    // such constraint.
-    // SAFETY: `opts` is null or a valid `QueryNodeOptions` (this function's contract).
-    if let Some(opts) = unsafe { opts.as_ref() }
-        && slop_forces_offsets(opts.max_slop, opts.in_order)
-    {
-        return true;
-    }
-    // No phrase/slop constraint: the scorer alone decides.
-    // SAFETY: `scorer_name` upholds this function's contract (null or a valid
-    // NUL-terminated C string).
-    unsafe { scorerNeedsOffsets(scorer_name) }
 }
 
 /// Build the executable iterator tree for a parsed query AST and return its
