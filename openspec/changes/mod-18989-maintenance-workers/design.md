@@ -30,7 +30,8 @@ job, which would leave an event's backlog to one thread. So:
   applies the shrink once that many jobs are done, or once the queue is empty. Jobs
   queued later do not postpone it, and the main thread does not block. A new request
   while one is deferred, such as an event ending, re-counts, so its own backlog drains
-  too.
+  too. The insert of an overwritten HNSW vector counts as a later job: VecSim submits
+  it only once the old vector's repairs are done, so it can reuse the old internal id.
 - A paused pool (`FT.DEBUG WORKERS PAUSE`, now allowed at `WORKERS 0`) defers any
   shrink until it is resumed.
 

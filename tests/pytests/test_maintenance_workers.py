@@ -134,16 +134,24 @@ def _resize_paused_pool(env, set_cmd):
     return to_dict(pipe.execute()[1])
 
 
-def _queue_repairs(env, rng, docs, removed_vectors, n):
-    """With the pool paused, delete and overwrite `n` docs each; returns the paused pool stats."""
+def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
+    """With the pool paused, delete `n` docs and, if `overwrite`, overwrite `n` others; returns the
+    paused pool stats. VecSim submits an overwrite's insert only once the old vector's repairs are
+    done, so it is not queued yet: `heldInserts` counts these."""
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     keys = list(docs)
-    deleted, overwritten = keys[:n], keys[n:2 * n]
+    deleted, overwritten = keys[:n], keys[n:2 * n] if overwrite else []
     removed_vectors.update({key: docs[key] for key in deleted + overwritten})
     _mutate_in_transaction(env, rng, docs, deleted, overwritten)
     stats = _stats(env)
     env.assertGreater(_pending(stats), 0, message=stats, depth=1)
+    stats['heldInserts'] = len(overwritten) * N_INDEXES
     return stats
+
+
+def _jobs_done_after(queued):
+    """The jobs-done count once the jobs queued at `queued`, and the inserts they hold, have run."""
+    return queued['totalJobsDone'] + _pending(queued) + queued.get('heldInserts', 0)
 
 
 def _assert_ran_exactly_once(env, queued):
@@ -151,8 +159,8 @@ def _assert_ran_exactly_once(env, queued):
     drain_workers(env)
     stats = _stats(env)
     env.assertEqual(_pending(stats), 0, message=stats, depth=1)
-    env.assertEqual(stats['totalJobsDone'], queued['totalJobsDone'] + _pending(queued),
-                    message=(queued, stats), depth=1)
+    env.assertEqual(stats['totalJobsDone'], _jobs_done_after(queued), message=(queued, stats),
+                    depth=1)
 
 
 @skip(cluster=True)
@@ -347,8 +355,7 @@ def test_disable_maintenance_workers_with_pending_repairs():
     _wait_for_pool_size(env, 0)
     stats = _stats(env)
     env.assertEqual(_pending(stats), 0, message=stats)
-    env.assertEqual(stats['totalJobsDone'], queued['totalJobsDone'] + _pending(queued),
-                    message=(queued, stats))
+    env.assertEqual(stats['totalJobsDone'], _jobs_done_after(queued), message=(queued, stats))
     _converge(env, len(docs))
     _assert_query_results(env, docs, removed_vectors)
 
@@ -495,7 +502,7 @@ def test_shrink_while_paused_is_deferred():
     env.assertEqual(getWorkersThpoolNumThreads(env), 1)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
     _wait_for_pool_size(env, 0)
-    env.assertEqual(_stats(env)['totalJobsDone'], queued['totalJobsDone'] + _pending(queued))
+    env.assertEqual(_stats(env)['totalJobsDone'], _jobs_done_after(queued))
     env.expect(config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', 1).ok()
 
     # The load grows the paused pool to MIN_OPERATION_WORKERS and queues the rebuild, and its end
@@ -564,7 +571,8 @@ def test_shrink_to_floor_waits_for_queue():
     rng = np.random.default_rng(18989)
     _create_indexes(env)
     docs = _load_docs(env, rng)
-    queued = _queue_repairs(env, rng, docs, {}, N_DELETED)
+    # Deletes only: an overwrite's insert is queued after the request (see _queue_repairs).
+    queued = _queue_repairs(env, rng, docs, {}, N_DELETED, overwrite=False)
     at_resize = _resize_paused_pool(env, [config_cmd(), 'SET', 'WORKERS', 0])
     env.assertEqual(_queued(at_resize), _queued(queued))
     samples = _sample_until_floor(env)
@@ -584,8 +592,8 @@ def test_shrink_to_floor_not_postponed_by_later_jobs():
     rng = np.random.default_rng(18989)
     _create_indexes(env)
     docs = _load_docs(env, rng)
-    queued = _queue_repairs(env, rng, docs, {}, N_DELETED)
-    target = queued['totalJobsDone'] + _queued(queued)
+    queued = _queue_repairs(env, rng, docs, {}, N_DELETED, overwrite=False)
+    target = _jobs_done_after(queued)
     later = {f'doc:later{j}': [_vector(rng) for _ in range(N_INDEXES)] for j in range(50)}
 
     # One transaction, so the deferred-shrink timer cannot fire in between (DRAIN yields to clients
