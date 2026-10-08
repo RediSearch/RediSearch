@@ -675,10 +675,8 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         while (!AC_IsAtEnd(&ac)) {
           const char *name = AC_GetStringNC(&ac, NULL);
 
-          // Check for AS alias
-          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
-            RS_ASSERT(!AC_IsAtEnd(&ac));
-            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
+          if (AC_NumRemaining(&ac) >= 2 && AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            name = AC_GetStringNC(&ac, NULL);
           }
           name = stripAtPrefix(name);
           RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
