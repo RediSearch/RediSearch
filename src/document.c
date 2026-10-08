@@ -1067,7 +1067,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookup lookup_s = RLookup_New();
   RLookupRow row = RLookupRow_New();;
   RSValue *rv = NULL;
-  IndexSpecCache *spcache = NULL;
+  const IndexSpecCache *spcache = NULL;
   ExprEval evaluator = {0};
   LoadIndividualKeysOptions opts = {0};
 

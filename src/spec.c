@@ -21,6 +21,7 @@
 #include <sys/param.h>
 
 #include "document.h"
+#include "index_spec_cache_ffi.h"
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
 #include "rlookup_load_document.h"
@@ -1441,7 +1442,7 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
   return length;
 }
 
-static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
+static const IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
  * Validate that a disk-backed JSON field uses a single-value JSONPath.
@@ -1948,69 +1949,18 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   }
 }
 
-static void IndexSpecCache_Free(IndexSpecCache *c) {
-  for (size_t ii = 0; ii < c->nfields; ++ii) {
-    if (c->fields[ii].fieldName != c->fields[ii].fieldPath) {
-      HiddenString_Free(c->fields[ii].fieldName, true);
-    }
-    HiddenString_Free(c->fields[ii].fieldPath, true);
-  }
-  rm_free(c->fields);
-  rm_free(c->lang_field);
-  rm_free(c->score_field);
-  rm_free(c->payload_field);
-  rm_free(c);
-}
-
-// The value of the refcount can get to 0 only if the index spec itself does not point to it anymore,
-// and at this point the refcount only gets decremented so there is no wory of some thread increasing the
-// refcount while we are freeing the cache.
-void IndexSpecCache_Decref(IndexSpecCache *c) {
-  if (c && !__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
-    IndexSpecCache_Free(c);
-  }
-}
-
-// Copy the rule's special-field names into the cache (a fresh cache holds
-// NULLs). The RDB loaders build the cache before the rule loads and call this
-// afterwards — the cache is not yet shared at that point, so the patch does
-// not violate its published-immutable contract.
-static void IndexSpecCache_CopyRuleFields(IndexSpecCache *c, const struct SchemaRule *rule) {
-  if (!rule) {
-    return;
-  }
-  c->lang_field = rule->lang_field ? rm_strdup(rule->lang_field) : NULL;
-  c->score_field = rule->score_field ? rm_strdup(rule->score_field) : NULL;
-  c->payload_field = rule->payload_field ? rm_strdup(rule->payload_field) : NULL;
-}
-
 // Assuming the spec is properly locked before calling this function.
-static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
-  IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
-  IndexSpecCache_CopyRuleFields(ret, spec->rule);
-  ret->nfields = spec->numFields;
-  ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
-  ret->refcount = 1;
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    const FieldSpec* fs = spec->fields + ii;
-    FieldSpec* field = ret->fields + ii;
-    *field = *fs;
-    field->fieldName = HiddenString_Duplicate(fs->fieldName);
-    // if name & path are pointing to the same string, copy only pointer
-    if (fs->fieldName != fs->fieldPath) {
-      field->fieldPath = HiddenString_Duplicate(fs->fieldPath);
-    } else {
-      // use the same pointer for both name and path
-      field->fieldPath = field->fieldName;
-    }
-  }
-  return ret;
+// The cache copies the rule's special field names, so the RDB loaders call this
+// once the rule is loaded.
+static const IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
+  const SchemaRule *rule = spec->rule;
+  return IndexSpecCache_New(spec->fields, spec->numFields, rule ? rule->lang_field : NULL,
+                            rule ? rule->score_field : NULL, rule ? rule->payload_field : NULL);
 }
 
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
+const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   RS_LOG_ASSERT(spec->spcache, "Index spec cache is NULL");
-  __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
-  return spec->spcache;
+  return IndexSpecCache_Incref(spec->spcache);
 }
 
 void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
@@ -3370,15 +3320,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
-  // After loading all the fields, we can build the spec cache
-  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
     goto cleanup;
   }
-  // The cache was built before the rule loaded; fill in its rule names.
-  IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
@@ -3577,8 +3524,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     }
     IndexSpec_TrackIndexMissingField(sp, fs);
   }
-  // After loading all the fields, we can build the spec cache
-  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   IndexStats_RdbLoad(rdb, &sp->stats, encver);
 
@@ -3656,8 +3601,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     StrongRef_Release(spec_ref);
     return NULL;
   }
-  // The cache was built before the rule was created; fill in its rule names.
-  IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
   // Initialize the spec's cursor-related fields.

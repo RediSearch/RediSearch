@@ -14,10 +14,10 @@ use std::{
     ops::{Deref, DerefMut},
     pin::Pin,
     ptr::{self, NonNull},
-    slice,
 };
 
 use enumflags2::{BitFlags, bitflags, make_bitflags};
+use index_spec_cache::CachedField;
 use pin_project::pin_project;
 
 use crate::bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
@@ -350,38 +350,19 @@ impl<'a> RLookupKey<'a> {
         (name, path)
     }
 
-    pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
+    pub fn update_from_field_spec(&mut self, fs: &CachedField) {
         self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
-        let path = {
-            debug_assert!(!fs.fieldPath.is_null());
-            let mut path_len = 0;
-            // Safety: we received the pointer from the field spec and have to assume it is valid
-            let path_ptr =
-                unsafe { ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::from_mut(&mut path_len)) };
-            debug_assert!(!path_ptr.is_null());
-            // Safety: We assume the `path_ptr` and `length` information returned by the field spec
-            // point to a valid null-terminated C string. Importantly `length` here is value as returned by
-            // `strlen` so **does not** include the null terminator (that is why we do `path_len + 1` below)
-            let bytes = unsafe { slice::from_raw_parts(path_ptr.cast::<u8>(), path_len + 1) };
-            let path = CStr::from_bytes_with_nul(bytes)
-                .expect("string returned by HiddenString_GetUnsafe is malformed");
-
-            // When the name is owned, we also want the path to be owned
-            if matches!(self._name, Cow::Owned(_)) {
-                Cow::Owned(path.to_owned())
-            } else {
-                Cow::Borrowed(path)
-            }
-        };
-        self._path = Some(path);
+        // Owned rather than borrowed from the cache: a key's path can be cloned
+        // out of the lookup and outlive the cache the lookup holds.
+        self._path = Some(Cow::Owned(fs.path().to_owned()));
         self.path = self._path.as_ref().unwrap().as_ptr();
 
         let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
 
         if fs_options.contains(FieldSpecOption::Sortable) {
             self.flags |= RLookupKeyFlag::SvSrc;
-            self.svidx = u16::try_from(fs.sortIdx).unwrap();
+            self.svidx = u16::try_from(fs.sort_idx()).unwrap();
 
             if fs_options.contains(FieldSpecOption::Unf) {
                 // If the field is sortable and not normalized (UNF), the available data in the
@@ -434,8 +415,6 @@ impl<'a> RLookupKey<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::MaybeUninit;
-
     use super::*;
 
     // Compile time check to ensure that `RLookupKey` can safely be re-interpreted as `RLookupKeyHeader` (has the same
@@ -504,20 +483,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn update_from_field_spec() {
+        let fs = CachedField::new(b"this is the field name").with_path(b"this is the field path");
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
-
-        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
-        let field_name = c"this is the field name";
-        fs.fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = c"this is the field path";
-        fs.fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
 
         key.update_from_field_spec(&fs);
 
@@ -526,40 +494,22 @@ mod tests {
                 .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
         );
         assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
         assert_eq!(
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
         );
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldPath, false);
-        }
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn update_from_field_spec_sortable() {
+        let fs = CachedField::new(b"this is the field name")
+            .with_path(b"this is the field path")
+            .with_options(
+                ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
+            )
+            .with_sort_idx(43);
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
-
-        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
-        let field_name = c"this is the field name";
-        fs.fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = c"this is the field path";
-        fs.fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-        fs.set_options(
-            ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
-        );
-        fs.sortIdx = 43;
 
         key.update_from_field_spec(&fs);
 
@@ -570,38 +520,20 @@ mod tests {
                 | RLookupKeyFlag::ValAvailable
         ));
         assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
         assert_eq!(
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
         );
         assert_eq!(key.svidx, 43);
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldPath, false);
-        }
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-    )]
     fn update_from_field_spec_numeric() {
+        let fs = CachedField::new(b"this is the field name")
+            .with_path(b"this is the field path")
+            .with_types(ffi::FieldType_INDEXFLD_T_NUMERIC);
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
-
-        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
-        let field_name = c"this is the field name";
-        fs.fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = c"this is the field path";
-        fs.fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-        fs.set_types(ffi::FieldType_INDEXFLD_T_NUMERIC);
 
         key.update_from_field_spec(&fs);
 
@@ -609,19 +541,11 @@ mod tests {
             RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::Numeric
         ));
         assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
         assert_eq!(
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
         );
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldPath, false);
-        }
     }
 
     #[test]

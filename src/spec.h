@@ -32,6 +32,8 @@
 #include "rs_wall_clock.h"
 
 typedef struct QueryError QueryError;
+// Owned by Rust; see index_spec_cache_ffi.h.
+typedef struct IndexSpecCache IndexSpecCache;
 
 #ifdef __cplusplus
 extern "C" {
@@ -369,7 +371,7 @@ typedef struct IndexSpec {
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
   // cached fields, corresponding to number of fields
-  struct IndexSpecCache *spcache;
+  const IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
   RedisModuleTimerID timerId;
@@ -467,29 +469,6 @@ static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
 }
 
 /**
- * This lightweight object contains a COPY of the actual index spec.
- * This makes it safe for other modules to use for information such as
- * field names, WITHOUT worrying about the index schema changing.
- *
- * If the index schema changes, this object is simply recreated rather
- * than modified, making it immutable.
- *
- * It is freed when its reference count hits 0
- */
-typedef struct IndexSpecCache {
-  FieldSpec *fields;
-  size_t nfields;
-  size_t refcount;
-  // Owned copies of the schema rule's special document-field names (each may
-  // be NULL). Key creation marks keys with these names as hidden, so reply
-  // serialization needs no access to the schema rule (the rule may already be
-  // freed by reply time; this cache is refcounted and outlives the spec).
-  char *lang_field;
-  char *score_field;
-  char *payload_field;
-} IndexSpecCache;
-
-/**
  * Compare redis versions
  */
 int CompareVersions(Version v1, Version v2);
@@ -498,14 +477,7 @@ int CompareVersions(Version v1, Version v2);
  * Retrieves the current spec cache from the index, incrementing its
  * reference count by 1. Use IndexSpecCache_Decref to free
  */
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
-
-/**
- * Decrement the reference count of the spec cache. Should be matched
- * with a previous call of GetSpecCache()
- * Can handle NULL
- */
-void IndexSpecCache_Decref(IndexSpecCache *cache);
+const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
 
 /**
  * Replace the spec's cache with a freshly built one, releasing the spec's

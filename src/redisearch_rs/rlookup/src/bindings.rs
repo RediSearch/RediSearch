@@ -9,10 +9,6 @@
 
 //! Re-exports of wrapper types for as-of-yet unported types and modules from `c_wrappers` crates.
 
-#[cfg(any(test, feature = "unittest"))]
-#[cfg_attr(miri, allow(unused))]
-pub use field_spec::FieldSpecBuilder;
 pub use field_spec::{FieldSpec, FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
 pub use index_spec::IndexSpec;
-pub use index_spec_cache::IndexSpecCache;
 pub use schema_rule::SchemaRule;

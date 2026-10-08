@@ -23,6 +23,7 @@ use std::{
     ffi::{CStr, CString, c_char, c_int},
     ptr::{self, NonNull},
     slice,
+    sync::Arc,
 };
 
 /// Add all non-overridden keys from `src` to `dest`.
@@ -112,7 +113,11 @@ pub unsafe extern "C" fn RLookup_EnableOptions(lookup: *mut OpaqueRLookup, optio
     lookup.enable_options(options);
 }
 
-/// Find a field in the index spec cache of the lookup.
+/// Find a full-text field in the index spec cache of the lookup.
+///
+/// Returns `true` and writes the field's full-text field id to `ft_id` if the
+/// first field named `name` is a full-text field. Otherwise returns `false` and
+/// leaves `ft_id` untouched.
 ///
 /// # Safety
 ///
@@ -124,24 +129,35 @@ pub unsafe extern "C" fn RLookup_EnableOptions(lookup: *mut OpaqueRLookup, optio
 ///     1. The entire memory range of this cstr must be contained within a single allocation!
 ///     2. `name` must be non-null even for a zero-length cstr.
 /// 4. The nul terminator must be within `isize::MAX` from `name`
+/// 5. `ft_id` must be a [valid], non-null, properly aligned pointer for
+///    writes.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
+pub unsafe extern "C" fn RLookup_FindTextFieldInSpecCache(
     lookup: *const OpaqueRLookup,
     name: *const c_char,
-) -> *const ffi::FieldSpec {
+    ft_id: *mut u16,
+) -> bool {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
     #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_FindFieldInSpecCache");
+    lookup.assert_valid("RLookup_FindTextFieldInSpecCache");
 
     // Safety: ensured by caller (2., 3., 4.)
     let name = unsafe { CStr::from_ptr(name) };
 
-    lookup
+    let Some(field) = lookup
         .find_field_in_spec_cache(name)
-        .map_or(ptr::null(), ptr::from_ref)
+        .filter(|field| field.types() & ffi::FieldType_INDEXFLD_T_FULLTEXT != 0)
+    else {
+        return false;
+    };
+
+    debug_assert!(!ft_id.is_null(), "`ft_id` must not be null");
+    // Safety: ensured by caller (5.)
+    unsafe { ft_id.write(field.ft_id()) };
+    true
 }
 
 /// Get an RLookup key for a given name.
@@ -470,32 +486,24 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
     lookup.into_opaque()
 }
 
-/// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
+/// Sets the [`IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
-/// Takes ownership of one reference to the cache: the lookup releases it
-/// (via `IndexSpecCache_Decref`) when the cache is replaced or the lookup is
-/// cleaned up, so the caller must not release that reference themselves.
+/// Takes over the handle `spcache`: the lookup releases it when it is cleaned
+/// up, so the caller must not release it themselves.
 ///
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`], and
-///    the caller must transfer an owned reference to it (see above).
-/// 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
-///    being pointed to, and everything reachable through it, MUST NOT get
-///    mutated: its `fields` pointer MUST point to a valid array of `nfields`
-///    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
-///    those entries (e.g. `fieldName`) MUST stay valid with string fields
-///    NUL-terminated, and each special document-field name (`lang_field`,
-///    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
-///    string.
+/// 2. `spcache` must be null or an [`IndexSpecCache`] handle that has not
+///    been released: one strong reference of an [`Arc`], as described in
+///    the `index_spec_cache_ffi` crate.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_SetCache(
     lookup: *mut OpaqueRLookup,
-    spcache: *mut ffi::IndexSpecCache,
+    spcache: *const IndexSpecCache,
 ) {
     // Safety: ensured by caller (1.)
     let lookup =
@@ -503,9 +511,9 @@ pub unsafe extern "C" fn RLookup_SetCache(
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_SetCache");
 
-    let spcache = NonNull::new(spcache).map(|spcache| {
-        // Safety: ensured by caller (2. & 3.)
-        unsafe { IndexSpecCache::from_raw(spcache) }
+    let spcache = (!spcache.is_null()).then(|| {
+        // Safety: ensured by caller (2.)
+        unsafe { Arc::from_raw(spcache) }
     });
 
     lookup.set_cache(spcache);
