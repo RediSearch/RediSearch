@@ -26,12 +26,14 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub mod range_iterator;
+pub mod reducer;
 pub mod score_batch;
 pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
+pub use reducer::{NewNumericTopK, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
-pub use source::{AllValid, DocValidity, NumericScoreSource};
+pub use source::{AllValid, DocValidity, NumericOptimizerMode, NumericScoreSource};
 
 use std::num::NonZeroUsize;
 
@@ -52,6 +54,9 @@ use top_k::{RuntimeOrder, TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile
 /// `I` is the filter child iterator type, defaulting to the production
 /// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
 /// An unfiltered iterator carries no child, so `I` is then an unused phantom.
+///
+/// The sort direction is a query parameter, so the heap's ordering is
+/// [`RuntimeOrder`].
 pub type NumericTopKIterator<
     'index,
     V = AllValid,
@@ -94,17 +99,17 @@ pub fn new_numeric_top_k_unfiltered<
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
 /// child filter, and the heap keeps the top `k` by numeric value. The sort
 /// direction is taken from the `source` (`SORTBY field ASC`/`DESC`).
-pub fn new_numeric_top_k_filtered<'index, V, E, T, C>(
-    source: NumericScoreSource<'index, V, E, T>,
-    child: C,
-    k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E, T, C>
-where
+pub fn new_numeric_top_k_filtered<
+    'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
     C: RQEIterator<'index> + 'index,
-{
+>(
+    source: NumericScoreSource<'index, V, E, T>,
+    child: C,
+    k: NonZeroUsize,
+) -> NumericTopKIterator<'index, V, E, T, C> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(source, Some(child), k, cmp, TopKMode::Batches)
 }
@@ -112,24 +117,24 @@ where
 impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
     for NumericScoreSource<'_, V, E, T>
 {
-    /// Render the numeric optimizer's profile entry: an `OPTIMIZER` header plus
-    /// the batch and window-expansion counters.
+    /// Render the numeric optimizer's profile entry: an `OPTIMIZER` header, the
+    /// [`NumericOptimizerMode`] the query plan picked, and the child subtree.
     ///
-    /// `mode` is unused — the numeric source has no runtime mode string.
+    /// `mode` and `metrics` are unused: the reported strategy is fixed by the plan
+    /// and carried on the source, and the entry exposes no runtime counters. The
+    /// key set is a stable part of the `FT.PROFILE` reply, so adding one is an API
+    /// change rather than a detail of this impl.
     fn print_profile(
         &self,
         _mode: TopKMode,
-        metrics: &TopKMetrics,
+        _metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
     ) {
         map.kv_simple_string(c"Type", c"OPTIMIZER");
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Batches number", metrics.num_batches as i64);
-        // A strategy switch on the numeric source is exactly a disjoint-window
-        // expansion.
-        map.kv_long_long(c"Window expansions", metrics.strategy_switches as i64);
+        map.kv_simple_string(c"Optimizer mode", self.optimizer_mode().profile_name());
 
         if let Some(child) = child {
             let mut child_map = map.kv_map(c"Child iterator");
