@@ -74,6 +74,10 @@ static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) 
   VVW_Write(w->vw, offset);
 }
 
+static inline uint32_t ByteOffsetWriter_Count(const ByteOffsetWriter *w) {
+  return VVW_GetCount(w->vw);
+}
+
 /**
  * Iterator which yields the byte offset for a given position
  */

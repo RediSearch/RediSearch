@@ -32,6 +32,7 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
   RSByteOffsetField *field = &(offsets->fields[offsets->numFields++]);
   field->fieldId = fieldId;
   field->firstTokPos = startPos;
+  field->lastTokPos = startPos - 1;
   return field;
 }
 
@@ -104,11 +105,14 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
 int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
                          RSByteOffsetIterator *iter) {
   const RSByteOffsetField *offField = NULL;
+  // Each field owns one offset per position in its range (asserted when the document is indexed)
+  uint32_t offsetsStart = 0;
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
     if (offsets->fields[ii].fieldId == fieldId) {
       offField = offsets->fields + ii;
       break;
     }
+    offsetsStart += offsets->fields[ii].lastTokPos - offsets->fields[ii].firstTokPos + 1;
   }
   if (!offField) {
     return REDISMODULE_ERR;
@@ -121,17 +125,15 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   iter->buf.data = (char *) offsets_data;
   iter->buf.offset = offsets_len;
   iter->rdr = NewBufferReader(&iter->buf);
-  iter->curPos = 1;
   iter->endPos = offField->lastTokPos;
 
   iter->lastValue = 0;
 
-  while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
+  for (uint32_t ii = 0; ii < offsetsStart && !BufferReader_AtEnd(&iter->rdr); ++ii) {
     iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
-    iter->curPos++;
   }
 
-  iter->curPos--;
+  iter->curPos = offField->firstTokPos - 1;
   return REDISMODULE_OK;
 }
 

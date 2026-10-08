@@ -5,6 +5,8 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import json
+
 from includes import *
 from common import *
 
@@ -325,3 +327,108 @@ def test_highlight_contract_knn_matches_plain(env):
                   'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't',
                   'DIALECT', 2)
     env.assertEqual(_docs(plain), _docs(knn))
+
+
+# The values of a multi-value TEXT field (a JSON array) are indexed MULTI_TEXT_SLOP positions
+# apart, so the token positions of the fields indexed after it run ahead of the number of tokens
+# indexed before them. Highlighting and summarizing must still pair each token with its own
+# byte offset.
+
+MULTI_VALUE_ARRAYS = {
+    'doc:two': ['red', 'green'],
+    'doc:three': ['red', 'green', 'blue'],
+    'doc:one': ['red'],
+    'doc:empty_array': [],
+    'doc:nulls': [None, None],
+    'doc:with_null': ['red', None, 'blue'],
+    'doc:with_empty_string': ['red', '', 'blue'],
+}
+TITLE = 'hello big world'
+BODY = ' '.join(f'word{i}' for i in range(1, 201))
+
+
+def _load_multi_value_docs(conn):
+    for key, arr in MULTI_VALUE_ARRAYS.items():
+        conn.execute_command('JSON.SET', key, '$', json.dumps({'arr': arr, 'title': TITLE, 'body': BODY}))
+
+
+def _highlight_title_and_body(env, index):
+    """HIGHLIGHT and SUMMARIZE title and body of every document of `index`; the results by document."""
+    query = '@title:hello @body:word150'
+    common_args = ['RETURN', '2', 'title', 'body', 'LIMIT', '0', str(len(MULTI_VALUE_ARRAYS))]
+    highlighted = env.cmd('FT.SEARCH', index, query, *common_args, 'HIGHLIGHT', 'FIELDS', '2', 'title', 'body')
+    summarized = env.cmd('FT.SEARCH', index, query, *common_args,
+                         'SUMMARIZE', 'FIELDS', '2', 'title', 'body', 'LEN', '3', 'FRAGS', '1')
+    return _docs(highlighted), _docs(summarized)
+
+
+@skip(no_json=True, cluster=True)
+def test_highlight_fields_indexed_after_multi_value_json_field(env):
+    """The fields indexed after a multi-value TEXT field of a JSON document are highlighted and
+    summarized exactly as the same text of a HASH document is, wherever the multi-value field
+    is in the schema, and whether it has none, one or many values."""
+    conn = getConnectionByEnv(env)
+
+    # Ground truth: the same two fields without a multi-value field before them
+    env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'PREFIX', '1', 'hash:',
+               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+    conn.execute_command('HSET', 'hash:1', 'title', TITLE, 'body', BODY)
+    hl, sm = _highlight_title_and_body(env, 'idx_hash')
+    expected_hl, expected_sm = hl['hash:1'], sm['hash:1']
+    env.assertEqual(expected_hl, {'title': '<b>hello</b> big world',
+                                  'body': BODY.replace('word150', '<b>word150</b>')})
+    # A summary that starts at word150 rather than at word1 is built from the byte offsets
+    env.assertEqual(expected_sm, {'title': 'hello big... ', 'body': 'word150 ... '})
+
+    _load_multi_value_docs(conn)
+    for name, order in (('first', ('arr', 'title', 'body')),
+                        ('middle', ('title', 'arr', 'body')),
+                        ('last', ('title', 'body', 'arr'))):
+        schema = []
+        for field in order:
+            schema += [f'$.{field}', 'AS', field, 'TEXT']
+        index = f'idx_arr_{name}'
+        env.expect('FT.CREATE', index, 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', *schema).ok()
+        waitForIndex(env, index)
+
+        hl, sm = _highlight_title_and_body(env, index)
+        env.assertEqual(sorted(hl), sorted(MULTI_VALUE_ARRAYS), message=f'{index}: {hl}')
+        for key in MULTI_VALUE_ARRAYS:
+            env.assertEqual(hl[key], expected_hl, message=f'HIGHLIGHT {index} {key}')
+            env.assertEqual(sm[key], expected_sm, message=f'SUMMARIZE {index} {key}')
+
+
+@skip(no_json=True, cluster=True)
+def test_highlight_fields_indexed_after_two_multi_value_json_fields(env):
+    """Same as above with a multi-value field before each of the highlighted fields, and a
+    value count large enough to shift the positions by more than the highlighted text has tokens."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.arr', 'AS', 'arr', 'TEXT',
+               '$.title', 'AS', 'title', 'TEXT',
+               '$.arr2', 'AS', 'arr2', 'TEXT',
+               '$.body', 'AS', 'body', 'TEXT').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(
+        {'arr': [f'red{i}' for i in range(50)], 'title': TITLE,
+         'arr2': ['cat', 'dog', 'emu'], 'body': BODY}))
+
+    res = env.cmd('FT.SEARCH', 'idx', '@title:hello @body:word150', 'RETURN', '2', 'title', 'body',
+                  'HIGHLIGHT', 'FIELDS', '2', 'title', 'body')
+    env.assertEqual(_docs(res), {'doc:1': {'title': '<b>hello</b> big world',
+                                           'body': BODY.replace('word150', '<b>word150</b>')}})
+
+
+@skip(no_json=True, cluster=True)
+def test_highlight_after_multi_value_json_field_small_slop():
+    """With a small MULTI_TEXT_SLOP, which needs its own server, a field indexed after a
+    multi-value one is still highlighted at its own words."""
+    env = Env(moduleArgs='MULTI_TEXT_SLOP 3')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.arr', 'AS', 'arr', 'TEXT',
+               '$.title', 'AS', 'title', 'TEXT').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'arr': ['red', 'blue'], 'title': TITLE}))
+
+    res = env.cmd('FT.SEARCH', 'idx', '@title:hello', 'RETURN', '1', 'title',
+                  'HIGHLIGHT', 'FIELDS', '1', 'title')
+    env.assertEqual(_docs(res), {'doc:1': {'title': '<b>hello</b> big world'}})
