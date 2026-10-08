@@ -9268,6 +9268,9 @@ def _exercise_cancellation(protocol, cancellation):
         point = f'{stage}CoordBackgroundReplyEncode'
         for kind in ('aggregate', 'profile', 'withcount', 'cursor_initial', 'cursor_read',
                      'withcount_cursor_initial', 'withcount_cursor_read', 'hybrid', 'hybrid_profile'):
+            if kind == 'profile' and cancellation == 'deadline':
+                # PROFILE AGGREGATE has shard deadlines only; explicit cancellation still applies.
+                continue
             timeout = 1000 if cancellation == 'deadline' else 10000
             command = _aggregate(timeout, withcount=kind.startswith('withcount'))
             baseline = _background_fail_cursor_total(env)
@@ -9653,3 +9656,209 @@ def test_coord_profile_timeout_before_fanout_resp2():
 def test_coord_profile_timeout_before_fanout_resp3():
     """RESP3 PROFILE survives timeout before its RPNet iterator exists."""
     _coord_profile_timeout_before_fanout(3)
+
+
+def _profile_timeout_parts(env, reply):
+    """Normalize the envelope without converting shard error entries into maps."""
+    if env.protocol == 3:
+        return reply['Results']['results'], reply['Profile']['Shards'], reply['Profile']['Coordinator']
+    profile = to_dict(reply[1])
+    return reply[0][1:], profile['Shards'], to_dict(profile['Coordinator'])
+
+
+def _profile_without_coordinator_deadline(protocol, queued):
+    """An ordinary FAIL deadline proves that an earlier PROFILE deadline has elapsed."""
+    env = _new_env(protocol)
+    point = 'DuringCoordBackgroundReplyEncode'
+    original = env.getConnection().connection_pool
+    pools = [ConnectionPool(connection_class=original.connection_class,
+                            **dict(original.connection_kwargs,
+                                   retry=Retry(NoBackoff(), 0), socket_timeout=15))
+             for _ in range(2)]
+    client, control = [Redis(connection_pool=pool, single_connection_client=True) for pool in pools]
+    client_id = client.client_id()
+    command = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+               'LOAD', 1, '@n', 'SORTBY', 2, '@n', 'ASC', 'TIMEOUT', 1000]
+    results, errors = [], []
+
+    def query():
+        try:
+            results.append(client.execute_command(*command))
+        except Exception as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=query, daemon=True)
+    try:
+        if queued:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        else:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        thread.start()
+        wait_for_condition(
+            lambda: (is_client_blocked(env, client_id), {'results': results, 'errors': errors}),
+            'PROFILE did not block its client', timeout=5)
+        if not queued:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
+                         {'results': results, 'errors': errors}),
+                'PROFILE did not reach reply encoding', timeout=5)
+
+        # This later command is held by the same queue or encoding hook. Its
+        # real timeout proves Redis has also serviced the earlier PROFILE deadline.
+        try:
+            control.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'TIMEOUT', 1000)
+            env.assertTrue(False, message='Ordinary FAIL unexpectedly ignored its deadline')
+        except ResponseError as error:
+            env.assertContains(TIMEOUT_ERROR, str(error))
+        env.assertTrue(is_client_blocked(env, client_id), message=(results, errors))
+        env.assertTrue(thread.is_alive(), message=(results, errors))
+        env.assertEqual(errors, [])
+
+        if queued:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+        else:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+        thread.join(timeout=10)
+        env.assertFalse(thread.is_alive(), message=(results, errors))
+        env.assertEqual(errors, [])
+        env.assertEqual(len(results), 1, message=results)
+        rows, shards, coord = _profile_timeout_parts(env, results[0])
+        env.assertEqual(len(shards), env.shardsCount, message=results[0])
+        if queued:
+            # Dispatch time exhausts the shard budget before query construction.
+            env.assertEqual(rows, [])
+            env.assertEqual(coord['Warning'], [TIMEOUT_WARNING], message=results[0])
+            for shard in shards:
+                env.assertTrue(isinstance(shard, ResponseError), message=results[0])
+                env.assertContains(TIMEOUT_ERROR, str(shard))
+        else:
+            expected_rows = [['n', str(n)] for n in range(8)]
+            if protocol == 3:
+                expected_rows = [{'extra_attributes': {'n': str(n)}, 'values': []} for n in range(8)]
+            env.assertEqual(rows, expected_rows, message=results[0])
+            env.assertEqual(coord['Warning'], ['None'], message=results[0])
+            if protocol == 3:
+                env.assertEqual(results[0]['Results']['warning'], [])
+            for shard in shards:
+                env.assertFalse(isinstance(shard, ResponseError), message=results[0])
+        env.assertTrue(client.ping())
+        env.assertEqual(client.client_id(), client_id)
+    finally:
+        if queued:
+            env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+        else:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+        if thread.ident is not None:
+            thread.join(timeout=10)
+        if not queued:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        client.close()
+        control.close()
+        for pool in pools:
+            pool.disconnect()
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_queued_without_coordinator_deadline_resp2():
+    _profile_without_coordinator_deadline(2, queued=True)
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_queued_without_coordinator_deadline_resp3():
+    _profile_without_coordinator_deadline(3, queued=True)
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_encoding_without_coordinator_deadline_resp2():
+    _profile_without_coordinator_deadline(2, queued=False)
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_encoding_without_coordinator_deadline_resp3():
+    _profile_without_coordinator_deadline(3, queued=False)
+
+
+def _profile_with_shard_hard_timeouts(protocol):
+    """Shard timeout callbacks leave errors in the profile and discard FAIL rows."""
+    env = _new_env(protocol)
+    point = 'BeforeCursorReadSendChunk'
+    shard_conns = list(shardsConnections(env))
+    original = env.getConnection().connection_pool
+    pool = ConnectionPool(connection_class=original.connection_class,
+                          **dict(original.connection_kwargs,
+                                 retry=Retry(NoBackoff(), 0), socket_timeout=15))
+    client = Redis(connection_pool=pool, single_connection_client=True)
+    try:
+        for withcount in (False, True):
+            for targets in (shard_conns[:1], shard_conns):
+                command = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                           *(['WITHCOUNT'] if withcount else []),
+                           'LOAD', 1, '@n', 'SORTBY', 2, '@n', 'ASC', 'TIMEOUT', 0]
+                results, errors = [], []
+                before_info = info_modules_to_dict(env)
+                base_errors = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+                base_warnings = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+                freed = _get_coord_req_ctx_free_count(env)
+
+                def query():
+                    try:
+                        results.append(client.execute_command(*command))
+                    except Exception as error:
+                        errors.append(error)
+
+                thread = threading.Thread(target=query, daemon=True)
+                try:
+                    for shard in targets:
+                        shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+                    thread.start()
+                    blocked = [(shard, _wait_pinned_shard_with_blocked_cmd(
+                        shard, point, '_FT.PROFILE')) for shard in targets]
+                    # Fire the shard's hard-timeout callback deterministically.
+                    # TIMEOUT 0 prevents a real deadline racing the pause hook.
+                    for shard, client_id in blocked:
+                        env.assertEqual(shard.execute_command('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT'), 1)
+                    thread.join(timeout=10)
+                    env.assertFalse(thread.is_alive(), message=(results, errors))
+                    env.assertEqual(errors, [])
+                    env.assertEqual(len(results), 1, message=results)
+                    rows, shards, coord = _profile_timeout_parts(env, results[0])
+                    env.assertEqual(rows, [], message=results[0])
+                    env.assertEqual(coord['Warning'], [TIMEOUT_WARNING], message=results[0])
+                    env.assertEqual(len(shards), env.shardsCount, message=results[0])
+                    timed_out = [shard for shard in shards if isinstance(shard, ResponseError)]
+                    env.assertEqual(len(timed_out), len(targets), message=results[0])
+                    for shard in timed_out:
+                        env.assertContains(TIMEOUT_ERROR, str(shard))
+                    if protocol == 3:
+                        env.assertEqual(results[0]['Results']['warning'], [TIMEOUT_WARNING])
+                    wait_for_condition(
+                        lambda: (_get_coord_req_ctx_free_count(env) == freed + 1, {}),
+                        'PROFILE request was not freed', timeout=10)
+                    wait_for_condition(
+                        lambda: (_background_fail_cursor_total(env) == 0, {}),
+                        'PROFILE left shard cursors behind', timeout=10)
+                    after_info = info_modules_to_dict(env)
+                    env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC]),
+                                    base_errors)
+                    env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC]),
+                                    base_warnings + 1)
+                finally:
+                    for shard in targets:
+                        shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+                    if thread.ident is not None:
+                        thread.join(timeout=10)
+                    for shard in targets:
+                        shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    finally:
+        client.close()
+        pool.disconnect()
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_shard_hard_timeouts_resp2():
+    _profile_with_shard_hard_timeouts(2)
+
+
+@skip(cluster=False, min_shards=2)
+def test_profile_fail_shard_hard_timeouts_resp3():
+    _profile_with_shard_hard_timeouts(3)
