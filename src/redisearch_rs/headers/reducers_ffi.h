@@ -202,6 +202,20 @@ Reducer *FirstValueReducer_Create(const RLookupKey *retkey, const RLookupKey *so
 Reducer *MinMaxReducer_Create(const RLookupKey *srckey, bool max);
 
 /**
+ * Creates a `RANDOM_SAMPLE` reducer of `srckey`, keeping up to `size` values per
+ * group, and returns its base [`ffi::Reducer`], which the caller frees through
+ * its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *RandomSampleReducer_Create(const RLookupKey *srckey, uint32_t size);
+
+/**
  * Creates a `STDDEV` reducer of `srckey` and returns its base [`ffi::Reducer`],
  * which the caller frees through its `Free` callback.
  *

@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE` and the exact
-//! `COUNT_DISTINCT`, driven through [`AccumulatorReducer`] the way the grouper
+//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE`, the exact
+//! `COUNT_DISTINCT` and `RANDOM_SAMPLE`, driven through [`AccumulatorReducer`] the way the grouper
 //! drives them.
 
 extern crate redisearch_rs;
@@ -20,6 +20,7 @@ use reducers::count::Count;
 use reducers::count_distinct::CountDistinct;
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
+use reducers::random_sample::RandomSample;
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -371,6 +372,51 @@ fn count_distinct_counts_a_non_static_null() {
     let key = key();
     let rows = [Some(SharedValue::new(Value::Null))];
     assert_eq!(reduce(CountDistinct::new(&key), &key, &rows), 1.0);
+}
+
+/// The numbers in the sample of `RANDOM_SAMPLE` of `size` values over a group of
+/// one row per entry of `values`.
+fn sample(size: usize, values: &[Option<SharedValue>]) -> Vec<f64> {
+    let key = key();
+    let rows: Vec<_> = values.iter().map(|value| [value.clone()]).collect();
+    let result = reduce_rows(RandomSample::new(&key, size), [&key], &rows);
+    match &*result {
+        Value::Array(items) => items.iter().map(number).collect(),
+        other => panic!("expected an array, got {other:?}"),
+    }
+}
+
+/// A group that fits in the sample is returned whole, in row order.
+#[test]
+fn random_sample_keeps_every_value_of_a_group_that_fits() {
+    let values = [num(3.0), num(1.0), num(2.0)];
+    assert_eq!(sample(3, &values), [3.0, 1.0, 2.0]);
+    assert_eq!(sample(10, &values), [3.0, 1.0, 2.0]);
+    assert_eq!(sample(10, &[]), [] as [f64; 0]);
+}
+
+/// Rows where the property is missing are neither sampled nor counted.
+#[test]
+fn random_sample_skips_missing_values() {
+    assert_eq!(sample(5, &[None, num(1.0), None, num(2.0)]), [1.0, 2.0]);
+}
+
+#[test]
+fn random_sample_of_size_zero_is_empty() {
+    let values = [num(1.0), num(2.0)];
+    assert_eq!(sample(0, &values), [] as [f64; 0]);
+}
+
+/// A larger group is cut to the sample size, and every sampled value comes from it.
+#[test]
+fn random_sample_of_a_larger_group_has_the_sample_size_and_only_its_values() {
+    let values: Vec<_> = (0..100).map(|n| num(f64::from(n))).collect();
+    let mut sampled = sample(10, &values);
+    assert_eq!(sampled.len(), 10);
+    sampled.sort_by(f64::total_cmp);
+    sampled.dedup();
+    assert_eq!(sampled.len(), 10, "values are each sampled at most once");
+    assert!(sampled.iter().all(|n| (0.0..100.0).contains(n)));
 }
 
 /// Runs `accumulator` over two groups the way the grouper does: a state per

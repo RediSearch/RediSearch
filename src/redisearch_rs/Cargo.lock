@@ -2242,6 +2242,7 @@ dependencies = [
  "global_config",
  "indexmap",
  "itertools 0.15.0",
+ "libc",
  "min-max-heap",
  "priority-queue",
  "query_error",

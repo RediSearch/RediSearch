@@ -17,6 +17,7 @@ ffi.workspace = true
 global_config.workspace = true
 indexmap = "2.14.0"
 itertools.workspace = true
+libc.workspace = true
 min-max-heap = "1.3.0"
 priority-queue = "2.7.0"
 query_error.workspace = true
