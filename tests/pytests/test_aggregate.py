@@ -1710,6 +1710,11 @@ def testAggregateBadLoadArgs(env):
         .contains("Bad arguments for LOAD: Expected number of fields or `*`")
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
         .contains("Bad arguments for LOAD: Expected an argument, but none provided")
+    # A dangling `AS` has to be rejected while the command is parsed: on a
+    # coordinator the LOAD arguments are walked to plan the shard queries
+    # before the pipeline gets a chance to validate them.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@title', 'AS').error() \
+        .contains("LOAD path AS name - must be accompanied with NAME")
 
 def testeAggregateBadApplyFunction(env):
     """Tests that we get a proper error message when passing a bad function to APPLY"""

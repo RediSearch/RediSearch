@@ -398,6 +398,10 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
         }
     }
 
+    if (PLNLoadStep_ValidateArgs(&loadfields, status) != REDISMODULE_OK) {
+        return;
+    }
+
     PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
     lstp->base.type = PLN_T_LOAD;
     lstp->base.dtor = loadDtor;

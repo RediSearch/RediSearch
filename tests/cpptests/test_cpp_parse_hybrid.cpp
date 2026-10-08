@@ -1623,6 +1623,13 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
 }
 
+TEST_F(ParseHybridTest, testLoadMissingAsArgument) {
+  // The sliced LOAD arguments end with a dangling `AS`. The distributed planner
+  // walks this slice before the pipeline validates it, so parsing must reject it.
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "2", "@title", "AS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LOAD path AS name - must be accompanied with NAME");
+}
+
 // ============================================================================
 // Test not yet supported arguments
 // ============================================================================
