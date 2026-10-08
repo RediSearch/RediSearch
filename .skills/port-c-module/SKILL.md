@@ -1,93 +1,95 @@
 ---
 name: port-c-module
-description: Guide for porting a C module to Rust. Use this when starting to port a C module to Rust.
+description: Plan and implement a RediSearch C-to-Rust migration of one module or a connected set of modules, preserving behavior and validating integration.
 disable-model-invocation: true
 ---
 
-# Port Module Skill
+# Port C code to Rust
 
-Guide for porting a C module to Rust.
+Accept a module name or an explicit feature/dependency scope in `$ARGUMENTS`.
+Keep this entrypoint for both single-module ports and broader migrations.
+Create crates and FFI only where the chosen boundary requires them.
 
-## Arguments
-The module name to port should be provided as an argument (e.g., `/port-module triemap`).
+## Establish the scope
 
-Module to port: `$ARGUMENTS`
+Use [migration-readiness](../migration-readiness/SKILL.md) before dependent
+implementation. Read the supplied case manifest using the shared
+[run template](../../docs/migration/run-template.md). The runner supplies the
+[prompt](../../docs/migration/prompt.txt), pinned skills, and case inputs explicitly.
+The [runner setup and directory layout](../../docs/migration/runner-setup.md)
+define common operating rules; do not copy them into each case.
 
-## Usage
-Use this skill when starting to port a C module to Rust.
+Read case inputs from `cases/<case>/` and write only migration artifacts to
+`runs/<run-id>/author/`. Final review is separate. Private `evaluation-cases/`
+inputs and `runs/<run-id>/evaluation/` outputs are not migration context and
+must not be mounted for the author. Follow the supplied locations if the runner
+uses different physical paths.
 
-## Instructions
+Read the original C source and headers at the chosen starting SHA, its callers,
+callbacks, shared structs, global state, Redis API interactions, and tests.
+Use existing Rust crates where their ownership and API assumptions fit. A static
+dependency graph assists discovery; verify indirect calls and lifecycle edges.
+Treat the starting SHA as the source knowledge boundary. Do not read future
+revisions, other checkouts, external task implementations, or later reference
+code. Local source and permitted ancestor history remain usable. Newer general
+skills are separately pinned and must not reveal target-specific future answers.
+Report accidental exposure. Do not substitute current `master` for the baseline. Use the
+[dependency-graph guidance](references/dependency-graph.md) when analysis is
+available to compare scopes, identify consumers, and check integration.
 
-### 1. Analyze the C Code
-First, understand the C module you're porting (look for `$ARGUMENTS.c` and `$ARGUMENTS.h` in `src/`):
-- Read the `.c` and `.h` files in `src/`
-- Identify what is exposed by the header file:
-  - Does the rest of the codebase have access to the inner fields of the data structures defined in this module?
-  - Are types always passed by value or by reference? A mix?
-  - Can the corresponding Rust types be passed over the FFI boundary?
-- Understand data structures and their lifetimes
-- Identify which types and functions this module imports from other modules:
-  - Determine if those types are implemented in Rust or C
-  - If those types are implemented in Rust, identify the relevant Rust crate
-  - If those types are implemented in C, understand if it makes sense to port them first to Rust
-    or if it's preferable to invoke the C implementation from Rust via FFI
-- Note any global state or Redis module interactions
-- Identify which tests under `tests/` are relevant to this module
+Choose a boundary by shared ownership and observable behavior, not file count.
+Compare a single connected migration with smaller changes using temporary FFI,
+review/test cost, integration risk, and likely rework. Record one short rationale
+and a task dependency map. Large migrations are valid; partition review by
+behavior and invariants even when delivery is one PR. Do not assume an FFI
+boundary prevents optimization or cross-language LTO is enabled: inspect the
+actual build only when relevant to the performance decision.
 
-### 2. Define A Porting Plan
+## Resolve compatibility risks
 
-Create a `$ARGUMENTS_plan.md` file to outline the steps and decisions for porting the module.
-Determine if the C code should be modified, at this stage, to ease the porting process.
-For example:
-- Introduce getters and setters to avoid exposing inner fields of data structures defined in this module.
-- Split the module into smaller, more manageable parts.
+Apply the [compatibility checklist](references/compatibility.md), recording
+scope-specific risks and checks. Preserve supported behavior, including accepted
+inputs and error paths. Existing C test coverage is a baseline, not a limit.
+Compare new edge cases against C where safe and meaningful; observed behavior
+is evidence, not proof of an intended contract or absence of undefined behavior.
 
-### 3. Create the Rust Crate
-```bash
-cargo new src/redisearch_rs/$ARGUMENTS --lib
-```
+Use [batch-findings](../batch-findings/SKILL.md) for unresolved requirements,
+behavior changes, and discovered defects. Repair clear migration mistakes
+autonomously. Do not silently include unrelated fixes or recreate undefined
+operations. Continue useful independent work while a decision is pending.
 
-### 4. Implement Pure Rust Logic
-- Create idiomatic Rust code
-- Add comprehensive tests
-  - Ensure that all C/C++ tests have equivalent Rust tests
-- Document public APIs with doc comments
-- For performance sensitive code, create microbenchmarks using `criterion`
-- Use `proptest` for property-based testing where appropriate
-- Testing code should be written with the same care reserved to production code
+## Implement using repository patterns
 
-### 5. Compare Rust API with C API
-- Review the public API of the new Rust module against the C API in the header file
-- Ensure that differences can be bridged by adding appropriate wrappers or adapters
-- Go back to step 1 if discovered differences cannot be bridged without a re-design
+- Follow the target revision's `AGENTS.md`, applicable subdirectory guides,
+  [Rust docs](../rust-docs-guidelines/SKILL.md), and
+  [Rust tests](../rust-tests-guidelines/SKILL.md). Record conflicts with a
+  separately supplied skill snapshot rather than silently overriding constraints.
+- Inspect approved reference ports and their decisions. `src/redisearch_rs/trie_rs/`
+  and `c_entrypoint/trie_ffi/` are existing examples; use them only when available,
+  relevant, and present at the starting SHA or a permitted ancestor.
+- Reuse or create Rust crates under `src/redisearch_rs/` according to ownership
+  and API boundaries. Keep algorithms testable independently of Redis when useful.
+- Account for existing C/C++ test assertions. Keep boundary/integration tests;
+  add equivalent Rust unit tests where useful rather than mechanically duplicating
+  the entire suite. Use property tests for meaningful invariants and microbenchmarks
+  for performance-sensitive paths.
+- Where C callers remain, use the repository's `c_entrypoint/` and generated-header
+  conventions. Verify calling convention, representation, ownership transfer,
+  allocator pairing, error mapping, null handling, and panic boundaries.
+  Document each unsafe operation's actual safety argument.
+- Update callers and regenerate affected headers with the target revision's
+  supported command. Remove replaced C sources, headers, and build entries only
+  after accounting for their consumers. A larger port need not add intermediate FFI.
 
-### 6. Create FFI Wrapper
-Create an FFI crate to expose the new Rust module to the C codebase:
-```bash
-cargo new src/redisearch_rs/c_entrypoint/${ARGUMENTS}_ffi --lib
-```
+## Validate and hand off
 
-FFI crate should:
-- Expose `#[unsafe(no_mangle)] pub extern "C" fn` functions
-- Handle null pointers and error cases
-- Convert between C and Rust types safely
-- Document all unsafe blocks with `// SAFETY:` comments
+Build a concrete plan using [validation guidance](references/validation.md).
+Run focused checks while repairing, broader checks at component checkpoints,
+and required CI against the final candidate before acceptance. Record exact
+revision/patch identity and explain differences from the C baseline.
 
-### 7. Wire Up C Code
-- Delete the C header file and its implementation
-- Update the rest of the C codebase to import the new Rust header wherever the old C header was used
-
-C header files for Rust FFI crates are auto-generated. No need to use their full path in imports,
-use just their name (e.g. `#include $ARGUMENTS.h;` for `${ARGUMENTS}_ffi`)
-
-### 8. Test The Integration
-```bash
-./build.sh RUN_UNIT_TESTS               # C/C++ unit tests
-./build.sh RUN_PYTEST                   # Integration tests
-```
-
-## Example: Well-Ported Module
-See `src/redisearch_rs/trie_rs/` for a high-quality example:
-- Pure Rust implementation with comprehensive docs
-- Extensive test coverage
-- Clean FFI boundary in `c_entrypoint/trie_ffi/`
+Deliver the patch, short design rationale, behavior-to-test mapping, evidence,
+and remaining findings. Prepare for independent review; obey applicable repository
+review gates. Freeze the candidate and end the attempt as ready for review or
+incomplete. Reference-PR comparison is a separate, optional POC workflow after
+migration concludes; it is never an automatic repair step or merge authorization.
