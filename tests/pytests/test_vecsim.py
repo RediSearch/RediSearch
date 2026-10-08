@@ -474,6 +474,8 @@ def test_create_multiple_vector_fields():
 
     # Insert one vector only to each index, validate it was inserted only to the right index.
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    # A vector being ingested into HNSW is briefly counted in both tiers.
+    drain_workers(env)
     info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['INDEX_SIZE'], 1)
     info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v_flat"))
@@ -774,7 +776,8 @@ def test_search_errors():
 
 
 def test_with_fields():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    # No workers at all, so the reload indexes vectors synchronously.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1038,7 +1041,9 @@ def test_hybrid_query_with_text_vamana_batches():
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    # The expected results at the default EF_RUNTIME rely on overwritten vectors leaving the graph at
+    # once, which only in-place writes do while the GC is held off.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1115,7 +1120,9 @@ def test_hybrid_query_batches_mode_with_text():
 
 def test_hybrid_query_batches_mode_with_tags():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    # The expected results rely on overwritten vectors leaving the graph at once, which only in-place
+    # writes do while the GC is held off.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1131,6 +1138,8 @@ def test_hybrid_query_batches_mode_with_tags():
         vector = create_np_array_typed([i]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
     p.execute()
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
 
     query_data = create_np_array_typed([index_size/2]*dim, data_type)
 
@@ -1148,6 +1157,7 @@ def test_hybrid_query_batches_mode_with_tags():
     for i in range(1, int(index_size/5) + 1):
         vector = create_np_array_typed([5*i]*dim, data_type)
         conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different, tag')
+    drain_workers(env)
 
     expected_res = [10]
     # Expect to get result which are around index_size/2 that divide by 5, closer results
@@ -1201,6 +1211,8 @@ def test_hybrid_query_with_numeric():
         vector = create_np_array_typed([i]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i)
     p.execute()
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
 
     query_data = create_np_array_typed([index_size]*dim, data_type)
     expected_res = [10]
@@ -1253,6 +1265,8 @@ def test_hybrid_query_with_geo():
         vector = create_np_array_typed([i/100]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
+    # A vector being ingested into HNSW is briefly counted in both tiers.
+    drain_workers(env)
     if not env.isCluster():
         env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
@@ -1293,6 +1307,8 @@ def test_hybrid_query_batches_mode_with_complex_queries():
         further_vector = create_np_array_typed([i]*dimension, data_type)
         p.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
     expected_res_1 = [2, '1', '5']
     # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
     # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
@@ -1334,6 +1350,8 @@ def test_hybrid_query_non_vector_score():
     for i in range(1, 11):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
 
     query_data = np.float32([qty for j in range(dimension)])
 
@@ -1501,7 +1519,8 @@ def test_hybrid_query_scorer_slop_ranking():
 
 @skip(cluster=False)
 def test_single_entry():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    # No workers at all, so the reload indexes vectors synchronously.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -1519,7 +1538,8 @@ def test_single_entry():
 
 
 def test_hybrid_query_adhoc_bf_mode():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    # No workers at all, so the reload indexes vectors synchronously.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -2127,7 +2147,8 @@ class TestIndexMultiValueJsonReload:
 
     def __init__(self):
         skipTest(no_json=True)
-        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+        # No workers at all, so DEBUG RELOAD rebuilds the SVS graph synchronously (see _check_svs).
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
         self.dim = 4
         self.per_doc = 5
         # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within
@@ -2214,7 +2235,7 @@ class TestIndexMultiValueJsonReload:
         # Use enough vectors to trigger the SVS backend (Vamana graph) build. SEARCH_WINDOW_SIZE = n
         # keeps the search effectively exhaustive, so KNN/range results stay exact regardless of graph
         # connectivity; CONSTRUCTION_WINDOW_SIZE keeps the index default. Under coverage with
-        # MIN_OPERATION_WORKERS 0 the graph is rebuilt synchronously during DEBUG RELOAD, so each data
+        # no workers the graph is rebuilt synchronously during DEBUG RELOAD, so each data
         # type runs as its own test to keep that rebuild within a single per-test timeout (MOD-15571).
         n = 250 * self.env.shardsCount
         self._check_algo('svs', 'SVS-VAMANA', data_t, n,
@@ -2340,6 +2361,8 @@ def test_range_query_basic_random_vectors():
                dim, 'DISTANCE_METRIC', 'COSINE', 'M', '4', 'EF_CONSTRUCTION', '4', 'EPSILON', '0.001').ok()
 
     query_data = load_vectors_to_redis(env, n, 0, dim)
+    # Epsilon only affects the HNSW tier, so both queries must see the same tier split.
+    drain_workers(env)
 
     radius = 0.23
     res_default_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
@@ -2750,8 +2773,16 @@ def test_score_name_long_field_name():
 
 @skip(cluster=True)
 def test_tiered_index_gc():
+    _tiered_index_gc('WORKERS 2')
+
+@skip(cluster=True)
+def test_tiered_index_gc_maintenance_worker():
+    # At the default WORKERS 0 the maintenance worker runs the repair jobs.
+    _tiered_index_gc('WORKERS 0')
+
+def _tiered_index_gc(workers_args):
     N = 100
-    env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
+    env = Env(moduleArgs=f'{workers_args} FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2880,7 +2911,9 @@ def test_vector_only_update_no_reindex():
 
 
 @skip(cluster=True)
-def test_switch_write_mode_multiple_indexes(env):
+def test_switch_write_mode_multiple_indexes():
+    # Tests the in-place <-> async switch, so WORKERS 0 must leave the pool empty.
+    env = Env(moduleArgs='MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 32
     n_indexes = 100

@@ -152,6 +152,7 @@ typedef struct {
   // MT configuration
   size_t numWorkerThreads;
   size_t minOperationWorkers;
+  size_t minMaintenanceWorkers;
   size_t tieredVecSimIndexBufferLimit;
   size_t highPriorityBiasNum;
 
@@ -417,6 +418,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define MIN_MAINTENANCE_WORKERS 1
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
@@ -469,6 +471,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
     .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
+    .minMaintenanceWorkers = MIN_MAINTENANCE_WORKERS,                          \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
