@@ -919,7 +919,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Background depleters acquire their own read locks before this thread releases its lock.
+  // In-memory background depleters acquire their own read locks before this thread unlocks.
   // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
   // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
   // Disk depletion uses the snapshot taken during the build and needs no spec lock.
@@ -941,6 +941,10 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     goto done;
   }
 
+  if (sctx->spec->diskSpec) {
+    IndexSpec_Unlock(sctx->spec);
+  }
+
   // Record pipeline build time if profiling is enabled
   if (isProfile) {
     hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
@@ -956,8 +960,6 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   if (suppressSubqueryUnlocks) {
     IndexSpec_SuppressUnlock(sctx->spec);
     unlockSuppressed = true;
-  } else if (!depleteInBackground) {
-    IndexSpec_Unlock(sctx->spec);
   }
 
   if (!isCursor) {
@@ -976,13 +978,12 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
         HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
 #ifdef ENABLE_ASSERT
-      // Sync point (debug): pause while still holding the read lock, before
-      // the depleters race a queued writer for their own locks.
+      // On in-memory indexes, pause before depleters race a queued writer for their locks.
       SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timeout_or_pending_spec_writers, hreq);
 #endif
-      // Launch all background depletion up front; the caller holds the spec
-      // read lock, and StartAll releases it once every depleter has taken its
-      // own. Completion is the merger's business: each depleter's Next waits
+      // Launch all background depletion up front. On in-memory indexes, StartAll
+      // releases the caller's read lock once every depleter has taken its own.
+      // Completion is the merger's business: each depleter's Next waits
       // for its own buffer, so the merger consumes the sub-pipelines in
       // completion order, and the policy-dependent reply (partial results or
       // timeout error) is the pipeline's as usual. A lock failure is fatal
@@ -1209,7 +1210,15 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
 // caller still owns both.
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
-  if (RunInThread(ctx)) {
+  const bool runInThread = RunInThread(ctx);
+  if (sctx->spec->diskSpec &&
+      (!runInThread || (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING))) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                        "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
+                        "is not supported in Redis Flex");
+    return REDISMODULE_ERR;
+  }
+  if (runInThread) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
@@ -1353,9 +1362,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   // Memory guardrail

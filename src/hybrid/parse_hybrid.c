@@ -43,6 +43,8 @@
 #include "result_processor.h"
 #include "result_processor_ffi.h"
 #include "search_options.h"
+#include "search_disk.h"
+#include "search_disk_utils.h"
 #include "slot_ranges.h"
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
@@ -533,17 +535,11 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // No explicit FILTER: the sub-request has no query argument, and AREQ_Query
-  // defaults to matching everything ("*").
-  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
-  // so the vector node becomes the root directly (no PHRASE/intersection needed).
-  // This preserves BY_SCORE ordering from the iterator.
-  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
-    // For RANGE without explicit filter, skip the filter integration
-    // so the vector node is the root and returns results sorted by score.
-    if (vq->type == VECSIM_QT_RANGE) {
-      pvd->skipFilterIntegration = true;
-    }
+  // An implicit wildcard must not turn disk KNN into a pre-filtered query requiring POLICY.
+  // RANGE also needs a bare vector root to preserve distance ordering.
+  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE &&
+      (vq->type == VECSIM_QT_RANGE || SearchDisk_IsEnabledForValidation())) {
+    pvd->skipFilterIntegration = true;
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
@@ -868,6 +864,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (!internal && (*mergeReqflags & QEXEC_F_IS_CURSOR) &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
     goto error;
   }
 

@@ -97,6 +97,24 @@ def test_hybrid_knn_invalid_syntax():
         'PARAMS', '2', 'BLOB', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
     ).error().contains('Invalid argument count: expected an unsigned integer')
 
+@skip(cluster=True)
+def test_hybrid_ram_nonblocking_contexts(env):
+    """RAM hybrid queries retain their results in MULTI/EXEC and Lua, and support cursors."""
+    setup_basic_index_hnsw(env)
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    command = ['FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes', 'VSIM',
+               '@embedding_hnsw', '$BLOB', 'KNN', 2, 'K', 2, 'PARAMS', 2, 'BLOB', blob]
+    expected = get_results_from_hybrid_response(env.cmd(*command))
+    with env.getConnection().pipeline(transaction=True) as pipeline:
+        pipeline.execute_command(*command)
+        responses = pipeline.execute()
+        env.assertEqual(len(responses), 1)
+        env.assertEqual(get_results_from_hybrid_response(responses[0]), expected)
+    lua_response = env.cmd('EVAL', 'return redis.call(unpack(ARGV))', 0, *command)
+    env.assertEqual(get_results_from_hybrid_response(lua_response), expected)
+    env.expect(*command, 'WITHCURSOR').noError()
+
+
 def test_invalid_ef_runtime():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index_hnsw(env)
