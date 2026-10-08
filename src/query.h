@@ -64,7 +64,8 @@ typedef struct QueryAST {
  * @param dst the AST structure to populate
  * @param sctx the context - this is never written to or retained
  * @param sopts options modifying parsing behavior
- * @param qstr the query string. From dialect 2 on the AST borrows it, so it must outlive `dst`.
+ * @param qstr the query string, NUL-terminated at `len`. From dialect 2 on, parameter names in the
+ *        AST point into it, so it must outlive `dst`.
  * @param len the length of the query string
  * @param dialectVersion parse the query according to the given dialect version
  * @param status error details set here.

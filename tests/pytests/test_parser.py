@@ -873,3 +873,8 @@ def test_escaped_field_names(env):
     res = env.cmd('FT.SEARCH', 'idx', r'*=>[KNN 1 @v\-ec $b]', 'PARAMS', '2', 'b', blob,
                   'RETURN', '1', '__v-ec_score')
     env.assertEqual(res, [1, '{doc}:1', ['__v-ec_score', '0']])
+
+    # On a cluster the coordinator parses the KNN query too; the shards must still see the escaped name.
+    res = env.cmd('FT.AGGREGATE', 'idx', r'*=>[KNN 1 @v\-ec $b]', 'PARAMS', '2', 'b', blob,
+                  'LOAD', '1', '@__key')
+    env.assertEqual(res, [1, ['__key', '{doc}:1', '__v-ec_score', '0']])

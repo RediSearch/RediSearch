@@ -581,6 +581,8 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     qstr = dst->query;
     len = dst->nquery;
   }
+  // The lexer's number parsing reads up to the terminator.
+  RS_ASSERT(qstr[len] == '\0');
   QueryParseCtx qpCtx = {// force multiline
                          .raw = qstr,
                          .len = len,
