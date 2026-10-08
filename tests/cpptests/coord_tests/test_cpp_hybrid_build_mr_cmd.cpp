@@ -666,6 +666,17 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
     testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
 }
 
+// Parameter names are binary-safe: a name with an embedded NUL is forwarded in full and does not
+// collide with its prefix.
+TEST_F(HybridBuildMRCommandTest, testCommandWithBinaryParamName) {
+    const std::vector<const char*> baseArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB"};
+    const std::vector<std::string> paramsKV = {std::string("blob\0suffix", 11), TEST_BLOB_DATA,
+                                               "blob", "other"};
+    testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
+    testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
+}
+
 // Test command with TIMEOUT (no params).
 TEST_F(HybridBuildMRCommandTest, testCommandWithTimeout) {
     const std::vector<const char*> baseArgs = {
