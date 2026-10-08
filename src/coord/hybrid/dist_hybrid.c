@@ -595,32 +595,41 @@ static void printProfileExcludingShardId(RedisModule_Reply *reply, MRReply *prof
 }
 
 void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  HybridRequest *hreq = ctx;
+  const HybridProfileView *view = ctx;
+  HybridRequest *hreq = view->request;
   // New format: group by shard with Shard ID printed once per shard
   // [{"Shard ID": "id", "SEARCH": profile (without Shard ID), "VSIM": profile (without Shard ID)}, ...]
 
   // Get RPNets for SEARCH and VSIM requests
   AREQ *searchAreq = hreq->requests[SEARCH_INDEX];
   AREQ *vsimAreq = hreq->requests[VECTOR_INDEX];
-  RPNet *searchRpnet = (RPNet *)AREQ_QueryProcessingCtx(searchAreq)->rootProc;
-  RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
+  RPNet *searchRpnet = !view->published || view->published[SEARCH_INDEX]
+                           ? (RPNet *)AREQ_QueryProcessingCtx(searchAreq)->rootProc
+                           : NULL;
+  RPNet *vsimRpnet = !view->published || view->published[VECTOR_INDEX]
+                         ? (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc
+                         : NULL;
 
-  size_t searchCount = array_len(searchRpnet->shardsProfile);
+  size_t searchCount = searchRpnet ? array_len(searchRpnet->shardsProfile) : 0;
+  size_t vsimCount = vsimRpnet ? array_len(vsimRpnet->shardsProfile) : 0;
 
   bool resp3 = reply->resp3;
 
   // Iterate over shards and print both SEARCH and VSIM profiles for each shard
-  for (size_t i = 0; i < searchCount; i++) {
+  const size_t count = searchCount > vsimCount ? searchCount : vsimCount;
+  for (size_t i = 0; i < count; i++) {
     RedisModule_Reply_Map(reply);  // Start shard map
 
     // Extract shard profiles
-    MRReply *searchProfile = extractShardProfile(searchRpnet->shardsProfile[i], resp3);
-    MRReply *vsimProfile = extractShardProfile(vsimRpnet->shardsProfile[i], resp3);
+    MRReply *searchProfile =
+        i < searchCount ? extractShardProfile(searchRpnet->shardsProfile[i], resp3) : NULL;
+    MRReply *vsimProfile =
+        i < vsimCount ? extractShardProfile(vsimRpnet->shardsProfile[i], resp3) : NULL;
 
     // Extract and print Shard ID from SEARCH profile
     MRReply *shardIdReply = NULL;
-    if (searchProfile) {
-      shardIdReply = extractShardIdReply(searchProfile);
+    if (searchProfile || vsimProfile) {
+      shardIdReply = extractShardIdReply(searchProfile ? searchProfile : vsimProfile);
       RedisModule_Reply_SimpleString(reply, "Shard ID");
       MR_ReplyWithMRReply(reply, shardIdReply);
     }
@@ -643,7 +652,8 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
 
 // Callback to print subquery result processors for the coordinator profile
 static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
-  HybridRequest *hreq = ctx;
+  const HybridProfileView *view = ctx;
+  HybridRequest *hreq = view->request;
   bool profile_verbose = hreq->base.reqConfig.printProfileClock;
 
   // Print subqueries result processors
@@ -659,9 +669,11 @@ static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
       subqueryType = "VSIM";
     }
 
-    ResultProcessor *rp = AREQ_QueryProcessingCtx(areq)->endProc;
     RedisModule_ReplyKV_Array(reply, subqueryType);
-    Profile_PrintResultProcessors(reply, rp, profile_verbose);
+    if (!view->published || view->published[i]) {
+      ResultProcessor *rp = AREQ_QueryProcessingCtx(areq)->endProc;
+      Profile_PrintResultProcessors(reply, rp, profile_verbose);
+    }
     RedisModule_Reply_ArrayEnd(reply);
   }
 
@@ -671,12 +683,14 @@ static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
 // Coordinator profile printer that includes subquery result processors
 static void printDistHybridCoordinatorProfile(RedisModule_Reply *reply,
                                               void *ctx) {
-  Profile_PrintHybridExtra(reply, ctx, printDistHybridSubqueryRPs, ctx);
+  const HybridProfileView *view = ctx;
+  Profile_PrintHybridExtra(reply, view->request, printDistHybridSubqueryRPs, ctx);
 }
 
-void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx,
-                        printDistHybridCoordinatorProfile, ctx);
+void printDistHybridProfile(RedisModule_Reply *reply, HybridRequest *hreq, const bool *published) {
+  HybridProfileView view = {.request = hreq, .published = published};
+  Profile_PrintInFormat(reply, printShardsHybridProfile, &view, printDistHybridCoordinatorProfile,
+                        &view);
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
