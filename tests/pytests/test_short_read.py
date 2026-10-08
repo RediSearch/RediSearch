@@ -7,6 +7,7 @@
 
 import collections
 import random
+import socket
 import re
 import tempfile
 import zipfile
@@ -21,9 +22,7 @@ from common import *
 from includes import *
 
 
-# A step of 1 takes minutes per RDB now that the load is diskless (each retry costs ~40ms),
-# so the default is a prime step to avoid aligning with RDB record boundaries.
-SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '13'))
+SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
@@ -392,6 +391,9 @@ class ShardMock:
         self.new_conns = gevent.queue.Queue()
 
     def _handle_conn(self, sock, client_addr):
+        # Without this, Nagle + the replica's delayed ACK add ~40ms to every handshake reply,
+        # which makes the byte-by-byte truncation loop exceed the test timeout.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         conn = Connection(sock)
         self.new_conns.put(conn)
 
@@ -556,7 +558,10 @@ def runShortRead(env, data, total_len, expected_index):
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
-        if not is_shortread:
+        if is_shortread:
+            # The replica was empty, so a failed diskless load must leave no partial index behind
+            env.assertEqual(env.cmd('ft._list'), [])
+        else:
             res = env.cmd('ft._list')
             res.sort()
             env.assertEqual(len(res), expected_index.count)
