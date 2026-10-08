@@ -16,6 +16,7 @@ build_utils = { path = "../../build_utils" }
 
 [dependencies]
 cheadergen.workspace = true
+ffi.workspace = true
 term_dictionary = { workspace = true }
 workspace_hack.workspace = true
 
