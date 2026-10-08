@@ -16,8 +16,6 @@ Determine which code was modified (C, Rust, or both) and run the appropriate che
 
 If dependencies, `.install/`, bootstrap targets, toolchain versions, or CI provisioning changed,
 first follow [Bootstrap and Dependency Changes](../build/SKILL.md#bootstrap-and-dependency-changes).
-That workflow covers `bootstrap list`, dry-run, real installation, ordinary and feature-gated
-builds, and proportionate test selection; do not duplicate it here.
 
 ### If C code was modified
 
