@@ -27,6 +27,7 @@
 #include "dictionary.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/redis_cluster.h"
+#include "coord/config.h"
 #include "cursor.h"
 #include "search_disk.h"
 #include "disk_gc.h"
@@ -1260,10 +1261,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
 
-  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
-  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
-  // before the Enterprise flow fully supports it (e.g. connections auth).
-  if (!IsEnterprise()) {
+  // Enterprise coordination receives topology through SEARCH.CLUSTERSET.
+  if (RS_IsOSSCoordinator()) {
     RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
@@ -1332,7 +1331,7 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
     RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
     int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
     RedisModule_SetModuleOptions(ctx, optionsFlags);
-    if (redisVersion.majorVersion < 7 || IsEnterprise()) {
+    if (redisVersion.majorVersion < 7 || RS_IsEnterpriseServer()) {
       RedisModule_Log(ctx, "notice", "Enabled diskless replication");
       // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
       //  diskless replication, as diskless replication occurs only in 'swapdb' mode.

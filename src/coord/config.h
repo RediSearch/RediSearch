@@ -29,6 +29,14 @@ typedef struct {
   struct timeval connectTimeout; // per-attempt inter-shard connect timeout; {0,0} disables
 } SearchClusterConfig;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+bool RS_IsOSSCoordinator(void);
+#ifdef __cplusplus
+}
+#endif
+
 extern SearchClusterConfig clusterConfig;
 extern RedisModuleString *config_dummy_password;
 
@@ -55,9 +63,7 @@ extern RedisModuleString *config_dummy_password;
                        .tv_usec = (DEFAULT_CONNECT_TIMEOUT % 1000) * 1000},    \
   }
 
-/* Detect the cluster type, by trying to see if we are running inside RLEC.
- * If we cannot determine, we return OSS type anyway
- */
+// OSS builds use native cluster topology when cluster mode is enabled.
 MRClusterType DetectClusterType();
 
 RSConfigOptions *GetClusterConfigOptions(void);

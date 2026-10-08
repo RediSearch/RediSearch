@@ -549,3 +549,27 @@ def test_WriteCommandsOnReplica():
       env.assertTrue(False, message=f'Command {command} should have failed on the slave')
     except Exception as e:
       env.assertContains("You can't write against a read only replica.", str(e))
+
+
+def testReplicationReceiversMatchRegisteredCommands():
+  """Exercise registered local receivers through a real primary/replica lifecycle."""
+  env = initEnv()  # Replication requires the custom primary/replica environment.
+  replica = env.getSlaveConnection()
+  # Internal receivers are hidden from COMMAND INFO; exercise them through replication.
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+  env.expect('FT.CREATE', 'other', 'SCHEMA', 'title', 'TEXT').ok()
+  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n', 'NUMERIC').ok()
+  env.expect('FT.ALIASADD', 'alias', 'idx').ok()
+  env.expect('WAIT', 1, 10000).equal(1)
+  info = to_dict(replica.execute_command('FT.INFO', 'alias'))
+  env.assertEqual(info['index_name'], 'idx')
+  env.assertEqual([to_dict(field)['attribute'] for field in info['attributes']], ['title', 'n'])
+
+  env.expect('FT.ALIASUPDATE', 'alias', 'other').ok()
+  env.expect('WAIT', 1, 10000).equal(1)
+  env.assertEqual(to_dict(replica.execute_command('FT.INFO', 'alias'))['index_name'], 'other')
+  env.expect('FT.ALIASDEL', 'alias').ok()
+  env.expect('FT.DROPINDEX', 'idx').ok()
+  env.expect('FT.DROPINDEX', 'other').ok()
+  env.expect('WAIT', 1, 10000).equal(1)
+  env.assertEqual(replica.execute_command('FT._LIST'), [])
