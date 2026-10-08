@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` and `STDDEV`, driven through
-//! [`AccumulatorReducer`] the way the grouper drives them.
+//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV` and `FIRST_VALUE`, driven
+//! through [`AccumulatorReducer`] the way the grouper drives them.
 
 extern crate redisearch_rs;
 
@@ -16,6 +16,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
+use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
@@ -26,19 +27,38 @@ fn key() -> RLookupKey<'static> {
     RLookupKey::new(c"price", RLookupKeyFlags::empty())
 }
 
+/// Reduces one group made of one row per entry of `rows`, each row holding a
+/// value per key; `None` leaves the row without that key.
+fn reduce_rows<A: Accumulator, const N: usize>(
+    accumulator: A,
+    keys: [&RLookupKey; N],
+    rows: &[[Option<SharedValue>; N]],
+) -> SharedValue {
+    let reducer = AccumulatorReducer::new(accumulator);
+    let state = reducer.new_state();
+    for values in rows {
+        let mut row = RLookupRow::new();
+        for (key, value) in keys.iter().zip(values) {
+            if let Some(value) = value {
+                row.write_key(key, value.clone());
+            }
+        }
+        reducer.add(state, &row);
+    }
+    let result = reducer.finalize(state);
+    reducer.drop_state(state);
+    result
+}
+
 /// Reduces one group made of one row per entry of `values`; `None` leaves the
 /// row without the property.
 fn reduce<A: Accumulator>(accumulator: A, key: &RLookupKey, values: &[Option<SharedValue>]) -> f64 {
-    let reducer = AccumulatorReducer::new(accumulator);
-    let state = reducer.new_state();
-    for value in values {
-        let mut row = RLookupRow::new();
-        if let Some(value) = value {
-            row.write_key(key, value.clone());
-        }
-        reducer.accumulator().add(state, &row);
-    }
-    match *reducer.accumulator().finalize(state) {
+    let rows: Vec<_> = values.iter().map(|value| [value.clone()]).collect();
+    number(&reduce_rows(accumulator, [key], &rows))
+}
+
+fn number(value: &SharedValue) -> f64 {
+    match **value {
         Value::Number(result) => result,
         ref other => panic!("expected a number, got {other:?}"),
     }
@@ -223,85 +243,180 @@ fn std_dev_of_large_closely_spaced_values() {
     assert!((result - 30.0_f64.sqrt()).abs() < 1e-6);
 }
 
-/// Runs `reducer` over two groups the way the grouper drives the C vtable: a
-/// state per group, rows interleaved between them, then finalize and free.
-/// Returns each group's result.
-///
-/// # Safety
-///
-/// `reducer` must be a reducer returned by one of the `*Reducer_Create`
-/// constructors, reading `key` if it reads a property. It is freed.
-unsafe fn reduce_interleaved(
-    reducer: *mut ffi::Reducer,
-    key: &RLookupKey,
-    rows: [(usize, f64); 4],
-) -> [f64; 2] {
-    // SAFETY: `reducer` is live (see above); the reference ends with this statement.
-    let vtable = unsafe { &*reducer };
-    assert!(vtable.FreeInstance.is_none());
-    let new_instance = vtable.NewInstance.unwrap();
-    let add = vtable.Add.unwrap();
-    let finalize = vtable.Finalize.unwrap();
-    let free = vtable.Free.unwrap();
+/// Without a sort key, the first row's value is kept, even a missing one (as null).
+#[test]
+fn first_value_keeps_the_first_row() {
+    let key = key();
+    let first = |rows: &[Option<SharedValue>]| {
+        let rows: Vec<_> = rows.iter().map(|value| [value.clone()]).collect();
+        reduce_rows(FirstValue::new(&key, None), [&key], &rows)
+    };
+    assert_eq!(number(&first(&[num(3.0), num(1.0)])), 3.0);
+    assert!(matches!(*first(&[None, num(1.0)]), Value::Null));
+    assert!(matches!(*first(&[]), Value::Null));
+}
 
-    // SAFETY: `reducer` is live.
-    let groups = [unsafe { new_instance(reducer) }, unsafe {
-        new_instance(reducer)
-    }];
-    for (group, num) in rows {
-        let mut row = RLookupRow::new();
-        row.write_key(key, SharedValue::new_num(num));
-        // SAFETY: `groups[group]` is a state of `reducer`, and `row` is a live row.
-        unsafe { add(reducer, groups[group], std::ptr::from_ref(&row).cast()) };
-    }
-    let results = groups.map(|group| {
-        // SAFETY: `group` is a state of `reducer`; the returned value is owned.
-        let value = unsafe { SharedValue::from_raw(finalize(reducer, group).cast()) };
-        match *value {
-            Value::Number(result) => result,
-            ref other => panic!("expected a number, got {other:?}"),
-        }
-    });
-    // SAFETY: `reducer` is live and nothing uses it or its states afterwards.
-    unsafe { free(reducer) };
-    results
+/// Runs `FIRST_VALUE` of the first element of each row, sorted by the second.
+fn first_value_by(ascending: bool, rows: &[[Option<SharedValue>; 2]]) -> SharedValue {
+    let key = key();
+    let mut sort_key = RLookupKey::new(c"rank", RLookupKeyFlags::empty());
+    // Its own row slot, apart from `key`'s.
+    sort_key.dstidx = 1;
+    let direction = if ascending {
+        Direction::Ascending
+    } else {
+        Direction::Descending
+    };
+    let sort_by = SortBy {
+        sort_key: &sort_key,
+        direction,
+    };
+    reduce_rows(
+        FirstValue::new(&key, Some(sort_by)),
+        [&key, &sort_key],
+        rows,
+    )
 }
 
 #[test]
-fn vtable_keeps_interleaved_groups_apart() {
-    use redisearch_rs::reducers::accumulator::{
-        CountReducer_Create, MinMaxReducer_Create, StdDevReducer_Create, SumReducer_Create,
+fn first_value_by_keeps_the_row_whose_sort_value_comes_first() {
+    let rows = [
+        [string("a"), num(3.0)],
+        [string("b"), num(1.0)],
+        [string("c"), num(2.0)],
+    ];
+    assert_eq!(first_value_by(true, &rows).as_str_bytes(), Some(&b"b"[..]));
+    assert_eq!(first_value_by(false, &rows).as_str_bytes(), Some(&b"a"[..]));
+}
+
+/// A missing sort value, or one referring to null, is null.
+#[test]
+fn first_value_by_never_prefers_a_null_sort_value() {
+    let null_ref = Some(SharedValue::new(Value::Ref(SharedValue::new(Value::Null))));
+    for null in [None, null_ref] {
+        let rows = [[string("a"), num(1.0)], [string("b"), null.clone()]];
+        for ascending in [true, false] {
+            let result = first_value_by(ascending, &rows);
+            assert_eq!(
+                result.as_str_bytes(),
+                Some(&b"a"[..]),
+                "{ascending} {null:?}"
+            );
+        }
+    }
+}
+
+/// Equal sort values keep the earliest row, in both directions.
+#[test]
+fn first_value_by_keeps_the_earliest_row_on_a_tie() {
+    let rows = [
+        [string("a"), num(2.0)],
+        [string("b"), num(2.0)],
+        [string("c"), num(2.0)],
+    ];
+    for ascending in [true, false] {
+        let result = first_value_by(ascending, &rows);
+        assert_eq!(result.as_str_bytes(), Some(&b"a"[..]), "{ascending}");
+    }
+}
+
+/// A NaN sort value compares equal to everything, so it never wins and nothing
+/// beats it.
+#[test]
+fn first_value_by_never_prefers_a_nan_sort_value() {
+    for ascending in [true, false] {
+        let nan_later = [[string("a"), num(1.0)], [string("b"), num(f64::NAN)]];
+        let result = first_value_by(ascending, &nan_later);
+        assert_eq!(result.as_str_bytes(), Some(&b"a"[..]), "{ascending}");
+
+        let nan_first = [[string("a"), num(f64::NAN)], [string("b"), num(1.0)]];
+        let result = first_value_by(ascending, &nan_first);
+        assert_eq!(result.as_str_bytes(), Some(&b"a"[..]), "{ascending}");
+    }
+}
+
+#[test]
+fn first_value_by_orders_string_sort_values_bytewise() {
+    let rows = [
+        [string("a"), string("pear")],
+        [string("b"), string("apple")],
+        [string("c"), string("zebra")],
+    ];
+    assert_eq!(first_value_by(true, &rows).as_str_bytes(), Some(&b"b"[..]));
+    assert_eq!(first_value_by(false, &rows).as_str_bytes(), Some(&b"c"[..]));
+}
+
+/// Runs `accumulator` over two groups the way the grouper does: a state per
+/// group, rows interleaved between them, then finalize and drop. Returns each
+/// group's result.
+fn reduce_interleaved<A: Accumulator>(
+    accumulator: A,
+    key: &RLookupKey,
+    rows: [(usize, f64); 4],
+) -> [f64; 2] {
+    let reducer = AccumulatorReducer::new(accumulator);
+    let groups = [reducer.new_state(), reducer.new_state()];
+    for (group, num) in rows {
+        let mut row = RLookupRow::new();
+        row.write_key(key, SharedValue::new_num(num));
+        reducer.add(groups[group], &row);
+    }
+    groups.map(|group| {
+        let value = reducer.finalize(group);
+        reducer.drop_state(group);
+        number(&value)
+    })
+}
+
+#[test]
+fn interleaved_groups_are_kept_apart() {
+    let key = key();
+    let rows = [(0, 1.0), (1, 10.0), (0, 3.0), (1, 20.0)];
+
+    assert_eq!(reduce_interleaved(Count, &key, rows), [2.0, 2.0]);
+    let sum = Sum::new(&key, SumMode::Sum);
+    assert_eq!(reduce_interleaved(sum, &key, rows), [4.0, 30.0]);
+    let avg = Sum::new(&key, SumMode::Average);
+    assert_eq!(reduce_interleaved(avg, &key, rows), [2.0, 15.0]);
+    let max = MinMax::new(&key, Extreme::Max);
+    assert_eq!(reduce_interleaved(max, &key, rows), [3.0, 20.0]);
+    let std_dev = StdDev::new(&key);
+    let expected = [2.0_f64.sqrt(), 50.0_f64.sqrt()];
+    assert_eq!(reduce_interleaved(std_dev, &key, rows), expected);
+    let sort_by = SortBy {
+        sort_key: &key,
+        direction: Direction::Descending,
     };
+    let first = FirstValue::new(&key, Some(sort_by));
+    assert_eq!(reduce_interleaved(first, &key, rows), [3.0, 20.0]);
+}
+
+/// Only the reducers whose group states own something free them per group.
+#[test]
+fn vtable_frees_group_states_only_when_they_own_something() {
+    use redisearch_rs::reducers::accumulator::{
+        FirstValueReducer_Create, StdDevReducer_Create, SumReducer_Create,
+    };
+
+    /// Whether `reducer` registers `FreeInstance`; frees it.
+    fn frees_states(reducer: *mut ffi::Reducer) -> bool {
+        // SAFETY: `reducer` is live; the reference ends with this statement.
+        let vtable = unsafe { &*reducer };
+        let (free_instance, free) = (vtable.FreeInstance, vtable.Free.unwrap());
+        // SAFETY: `reducer` is live and not used afterwards.
+        unsafe { free(reducer) };
+        free_instance.is_some()
+    }
 
     let key = key();
     let key_ptr = std::ptr::from_ref(&key).cast::<ffi::RLookupKey>();
-    let rows = [(0, 1.0), (1, 10.0), (0, 3.0), (1, 20.0)];
-
     // SAFETY: each reducer reads `key`, which outlives it and is not mutated.
-    unsafe {
-        assert_eq!(
-            reduce_interleaved(CountReducer_Create(), &key, rows),
-            [2.0, 2.0]
-        );
-    }
+    let sum = unsafe { SumReducer_Create(key_ptr, false) };
+    assert!(!frees_states(sum));
     // SAFETY: as above.
-    unsafe {
-        let sums = reduce_interleaved(SumReducer_Create(key_ptr, false), &key, rows);
-        assert_eq!(sums, [4.0, 30.0]);
-    }
+    let std_dev = unsafe { StdDevReducer_Create(key_ptr) };
+    assert!(!frees_states(std_dev));
     // SAFETY: as above.
-    unsafe {
-        let averages = reduce_interleaved(SumReducer_Create(key_ptr, true), &key, rows);
-        assert_eq!(averages, [2.0, 15.0]);
-    }
-    // SAFETY: as above.
-    unsafe {
-        let maxima = reduce_interleaved(MinMaxReducer_Create(key_ptr, true), &key, rows);
-        assert_eq!(maxima, [3.0, 20.0]);
-    }
-    // SAFETY: as above.
-    unsafe {
-        let deviations = reduce_interleaved(StdDevReducer_Create(key_ptr), &key, rows);
-        assert_eq!(deviations, [2.0_f64.sqrt(), 50.0_f64.sqrt()]);
-    }
+    let first = unsafe { FirstValueReducer_Create(key_ptr, std::ptr::null(), true) };
+    assert!(frees_states(first));
 }
