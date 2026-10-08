@@ -92,6 +92,20 @@ Its fixture checks can be rerun with:
 python3 -m unittest discover -s scripts/migration -v
 ```
 
+## Writable caches before launch
+
+Trusted setup creates a run-owned writable `CARGO_HOME` and build/output directories,
+then provisions the approved dependency revisions and toolchains. Record their paths
+and dependency identities in the manifest. Verify writes and a focused offline build
+as the actual worker user inside the runner before starting migration.
+
+Do not require write access to the developer's shared cache. Seed only approved
+cache contents; historical runs must not expose future Git objects through dependency
+caches. A writable cache does not establish a historical dependency pin: obtain it
+from a lockfile or build record, or explicitly record an approved reconstructed baseline.
+Routine cache setup failures belong to `environment-setup`; repair and retry without
+human escalation unless access or an unresolved dependency decision prevents it.
+
 ## Starting-SHA isolation
 
 A trusted setup process outside the agent environment prepares the source:
@@ -153,6 +167,8 @@ knowledge-boundary exception; do not present it as a starting-SHA-only replay.
 ## Pilot checks before launch
 
 - Confirm exported file/submodule identity and run baseline build/test commands.
+- Verify run-owned cache/build/output writes and an offline dependency smoke build
+  as the worker user; resolve dependency pins before the author needs them.
 - Verify that future Git objects, other checkouts, network endpoints, repository
   connectors, and evaluator inputs are unavailable to every migration worker.
 - Exercise a small budget/timeout stop and resume; confirm counters and logs persist.

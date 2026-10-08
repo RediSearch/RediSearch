@@ -67,6 +67,7 @@ performance tolerances and persistence/API compatibility where applicable.
 | Setting | Run value |
 | --- | --- |
 | Workspace and separate build/output directories | To select |
+| Run-owned writable dependency cache | Record CARGO_HOME, approved dependency pins, and worker-user write/offline-build checks; see runner setup |
 | OS/architecture, toolchain, dependencies/submodules, build flags | To pin |
 | Available Redis/services and test data | To supply; isolated test resources |
 | Network, credentials, allowed commands/actions | Explicit limits; no production access assumed |
