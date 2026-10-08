@@ -7,6 +7,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 NIGHTLY_VERSION=$(cat "$REPO_ROOT/.rust-nightly")
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 NEXTEST_VERSION=$(cat "$REPO_ROOT/.nextest-version")
+CARGO_LLVM_COV_VERSION=$(cat "$REPO_ROOT/.cargo-llvm-cov-version")
 CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
 # The repo pins an exact toolchain in rust-toolchain.toml. Use it as our baseline
 # instead of installing a separate `stable`: nothing needs a distinct `stable`
@@ -65,20 +66,30 @@ pinned_components_ok() {
         rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'
 }
 
-nightly_components_ok() {
+nightly_header_component_ok() {
     ! should_generate_headers ||
         rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json'
+}
+
+cargo_llvm_cov_ok() {
+    [[ "$(cargo llvm-cov --version 2>/dev/null | awk '{print $2}' || true)" == "$CARGO_LLVM_COV_VERSION" ]]
+}
+
+nightly_coverage_component_ok() {
+    rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^llvm-tools-'
 }
 
 # list: record the build-relevant deps (nothing installed). rust = rustup AND
 # cargo (mirrors the real install condition); cheadergen when header-gen is on.
 if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
     if command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy &&
-            pinned_components_ok && nightly_components_ok; then
+            pinned_components_ok && nightly_header_component_ok &&
+            nightly_coverage_component_ok; then
         DEPS_OK="$DEPS_OK rust"
     else
         DEPS_MISSING="$DEPS_MISSING rust"
     fi
+    if cargo_llvm_cov_ok; then DEPS_OK="$DEPS_OK cargo-llvm-cov"; else DEPS_MISSING="$DEPS_MISSING cargo-llvm-cov"; fi
     if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]]; then DEPS_OK="$DEPS_OK cargo-nextest"; else DEPS_MISSING="$DEPS_MISSING cargo-nextest"; fi
     if should_generate_headers; then
         if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then DEPS_OK="$DEPS_OK cheadergen"; else DEPS_MISSING="$DEPS_MISSING cheadergen"; fi
@@ -100,11 +111,13 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
     # pending unless the pinned toolchain has BOTH clippy and rustfmt (the
     # install adds missing components, so "toolchain present" alone isn't enough)
     pinned_components_ok || _need=1
+    nightly_coverage_component_ok || _need=1
+    cargo_llvm_cov_ok || _need=1
     [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]] || _need=1
     if should_generate_headers; then
         # pending unless the nightly toolchain has rust-docs-json (the install
         # adds it; "toolchain present" alone isn't enough — mirrors the pinned check)
-        nightly_components_ok || _need=1
+        nightly_header_component_ok || _need=1
         [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]] || _need=1
     fi
     if [[ "$_need" == 1 ]]; then
@@ -127,6 +140,10 @@ fi
 # fully-provisioned host emits nothing, but a minimal one gets the components.
 if ! pinned_components_ok; then
     _sh "rustup toolchain install --profile=minimal \"$PINNED_VERSION\" -c clippy -c rustfmt"
+fi
+
+if ! nightly_coverage_component_ok; then
+    _sh "rustup toolchain install \"$NIGHTLY_VERSION\" --profile=minimal --allow-downgrade --component llvm-tools-preview"
 fi
 
 # If `cargo` is a distro binary instead of a rustup proxy, `cargo +<pinned>`
@@ -186,13 +203,56 @@ if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}
     hash -r
 fi
 
+# cargo-llvm-cov — pinned coverage driver. Install its small static release
+# binary; llvm-tools-preview above supplies the matching LLVM implementation.
+if ! cargo_llvm_cov_ok; then
+    case "$OS_TYPE:$processor" in
+        Darwin:aarch64|Darwin:arm64)
+            cargo_llvm_cov_target="aarch64-apple-darwin"
+            cargo_llvm_cov_sha256="559c2475502b3e9c62e29230e32ecb77a8962f54c9ca32854e140fb436ec993e"
+            ;;
+        Darwin:x86_64)
+            cargo_llvm_cov_target="x86_64-apple-darwin"
+            cargo_llvm_cov_sha256="f8abe297605aea79978b92e50862104c1ff934d42e14e7bcb02a50934e14a9c5"
+            ;;
+        Linux:aarch64|Linux:arm64)
+            cargo_llvm_cov_target="aarch64-unknown-linux-musl"
+            cargo_llvm_cov_sha256="0364061fff9139f9a69badaf110d3e0035befb5ab7ec7a10b19c47af857316d2"
+            ;;
+        Linux:x86_64)
+            cargo_llvm_cov_target="x86_64-unknown-linux-musl"
+            cargo_llvm_cov_sha256="6ebea3153495c568651cbb893a7b93f5b648b2ba16415e8cd0a06106a4f80092"
+            ;;
+        *)
+            echo "Unsupported cargo-llvm-cov bootstrap platform: $OS_TYPE $processor" >&2
+            return 1 2>/dev/null || exit 1
+            ;;
+    esac
+    cargo_llvm_cov_archive="$cargo_home_bin_dir/cargo-llvm-cov-${CARGO_LLVM_COV_VERSION}.tar.gz"
+    cargo_llvm_cov_url="https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${CARGO_LLVM_COV_VERSION}/cargo-llvm-cov-${cargo_llvm_cov_target}.tar.gz"
+    _sh "mkdir -p \"$cargo_home_bin_dir\""
+    _sh "curl --fail --location --silent --show-error --retry 3 --proto '=https' --proto-redir '=https' --output \"$cargo_llvm_cov_archive\" \"$cargo_llvm_cov_url\""
+    if [[ "$OS_TYPE" == 'Darwin' ]]; then
+        _sh "echo '$cargo_llvm_cov_sha256  $cargo_llvm_cov_archive' | shasum --algorithm 256 --check"
+    else
+        _sh "echo '$cargo_llvm_cov_sha256  $cargo_llvm_cov_archive' | sha256sum --check"
+    fi
+    _sh "tar --extract --gzip --file \"$cargo_llvm_cov_archive\" --directory \"$cargo_home_bin_dir\""
+    _sh "rm -f \"$cargo_llvm_cov_archive\""
+    hash -r
+    if [[ "${DRY_RUN:-0}" != 1 ]] && ! cargo_llvm_cov_ok; then
+        echo "failed to install cargo-llvm-cov $CARGO_LLVM_COV_VERSION" >&2
+        return 1 2>/dev/null || exit 1
+    fi
+fi
+
 # cheadergen — required when REDISEARCH_GENERATE_HEADERS=ON (default). Uses
 # rustdoc JSON from the pinned nightly toolchain to regenerate the Rust C headers.
 if should_generate_headers; then
     # Gate on the COMPONENT, not just the toolchain: the install adds
     # rust-docs-json, so a pre-existing nightly without it still needs this
     # (cheadergen reads its rustdoc JSON). Skip only when it's already present.
-    if ! nightly_components_ok; then
+    if ! nightly_header_component_ok; then
         _sh "rustup toolchain install \"$NIGHTLY_VERSION\" --profile=minimal --allow-downgrade --component rust-docs-json"
     fi
     if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" != "$REQUIRED_CHEADERGEN_VERSION" ]]; then
