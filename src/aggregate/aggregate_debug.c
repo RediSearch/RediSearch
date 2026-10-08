@@ -20,6 +20,7 @@
 #include "query_flags.h"
 #include "rmalloc.h"
 #include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
 #include "search_ctx.h"
 #include "shard_window_ratio.h"
 
@@ -73,6 +74,8 @@ static bool isClusterCoord(AREQ_Debug *debug_req) {
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   RedisModuleString **debug_argv = debug_req->debug_params.debug_argv;
   unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
+  // The tail borrows the held argv; it must still follow the parsed arguments.
+  RS_ASSERT(debug_argv == debug_req->r.base.args.argv + debug_req->r.base.args.parseArgc);
 
   // Parse the debug params
   // For example debug_params = TIMEOUT_AFTER_N 2 [INTERNAL_ONLY]
