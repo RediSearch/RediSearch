@@ -11,6 +11,8 @@
 #include "expr/expression.h"
 #include <util/arr.h>
 #include <ctype.h>
+#include "query_error.h"
+#include "spec.h"
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {
@@ -228,6 +230,22 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
 
 
   return cloned;
+}
+
+int PLNLoadStep_ValidateArgs(const ArgsCursor *args, QueryError *status) {
+  ArgsCursor ac = *args;
+  while (!AC_IsAtEnd(&ac)) {
+    AC_Advance(&ac);  // the field path
+    if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+      if (AC_IsAtEnd(&ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS,
+                            "LOAD path AS name - must be accompanied with NAME");
+        return REDISMODULE_ERR;
+      }
+      AC_Advance(&ac);  // the alias
+    }
+  }
+  return REDISMODULE_OK;
 }
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
