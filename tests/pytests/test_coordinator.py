@@ -553,15 +553,28 @@ def test_clusterset_on_standalone_server(env):
     env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 1)
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     port = env.cmd('CONFIG', 'GET', 'port')[1]
+    logfile = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    log_path = os.path.join(env.cmd('CONFIG', 'GET', 'dir')[1], logfile)
+    start = time.time()
+
+    def tried_to_authenticate():
+        if not logfile:
+            # Logging to stdout (runtests.sh single-test mode without LOG=1): give the shard
+            # connections a few reconnect rounds instead
+            return time.time() - start > 1
+        with open(log_path, encoding='utf-8', errors='replace') as f:
+            return 'Cannot authenticate: no internal secret' in f.read()
+
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE', '0', '16383',
                'ADDR', f'127.0.0.1:{port}', 'MASTER').ok()
     try:
         # Runs on the coordinator I/O thread, which then opens the shard connections
         env.cmd('SEARCH.CLUSTERINFO')
-        # Several reconnect rounds
-        time.sleep(1)
-        # env.cmd, unlike env.expect, raises when the server is gone
+        with TimeLimit(10, 'No shard connection tried to authenticate'):
+            # env.cmd, unlike env.expect, raises when the server is gone
+            while env.cmd('PING') and not tried_to_authenticate():
+                time.sleep(0.05)
         env.assertTrue(env.cmd('PING'))
     except redis.ConnectionError:
         env.assertTrue(False, message='Server went down after SEARCH.CLUSTERSET on a standalone server')

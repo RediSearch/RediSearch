@@ -47,6 +47,9 @@ def test_acl_search_commands(env):
             commands.append('FT.CONFIG')
     if env.env != 'enterprise':
         commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH'])
+        if RS_TEST_ENTERPRISE:
+            # Internal (so outside every ACL category) on OSS only
+            commands.append('search.CLUSTERSET')
 
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
@@ -317,25 +320,26 @@ def test_clusterset_requires_internal_connection(env):
 
     conn = env.getConnection()
     conn.execute_command('ACL', 'SETUSER', 'searcher', 'on', '>pass', '~*', '&*', '+@search')
-    conn.execute_command('AUTH', 'searcher', 'pass')
     try:
-        conn.execute_command(*unreachable_topology)
-        env.assertTrue(False, message='SEARCH.CLUSTERSET accepted a topology from a search user')
-    except redis.ResponseError as e:
-        env.assertContains('unknown command', str(e))
-    env.assertEqual(env.cmd('SEARCH.CLUSTERINFO'), topology)
-    search_commands = [cmd.lower() for cmd in env.cmd('ACL', 'CAT', 'search')]
-    env.assertFalse('search.clusterset' in search_commands)
+        conn.execute_command('AUTH', 'searcher', 'pass')
+        try:
+            conn.execute_command(*unreachable_topology)
+            env.assertTrue(False, message='SEARCH.CLUSTERSET accepted a topology from a search user')
+        except redis.ResponseError as e:
+            env.assertContains('unknown command', str(e))
+        env.assertEqual(env.cmd('SEARCH.CLUSTERINFO'), topology)
+        search_commands = [cmd.lower() for cmd in env.cmd('ACL', 'CAT', 'search')]
+        env.assertFalse('search.clusterset' in search_commands)
 
-    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
-    env.expect(*unreachable_topology).ok()
-    wait_for_condition(
-        lambda: (env.cmd('SEARCH.CLUSTERINFO')[5][0][7] == 9, {}),
-        'Failed waiting for topology to be applied'
-    )
-
-    # Restore the real topology for the following tests
-    env.expect('SEARCH.CLUSTERREFRESH').ok()
-    env.cmd(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER')
-    env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', validation_timeout)
-    env.cmd('ACL', 'DELUSER', 'searcher')
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+        env.expect(*unreachable_topology).ok()
+        wait_for_condition(
+            lambda: (env.cmd('SEARCH.CLUSTERINFO')[5][0][7] == 9, {}),
+            'Failed waiting for topology to be applied'
+        )
+    finally:
+        # Restore the real topology and settings for the following tests
+        env.cmd('SEARCH.CLUSTERREFRESH')
+        env.cmd(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER')
+        env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', validation_timeout)
+        env.cmd('ACL', 'DELUSER', 'searcher')

@@ -4692,12 +4692,8 @@ def test_internal_commands(env):
         except redis.ResponseError as e:
             env.assertTrue(str(e).index("not allowed from script") != -1)
 
-    # A non-internal client would get "unknown command" before reaching the script check.
-    internal_conn = env.getConnection()
-    internal_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
-    fail_eval_call(internal_conn, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
-
     with env.getClusterConnectionIfNeeded() as r:
+        fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
 
