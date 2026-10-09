@@ -159,32 +159,3 @@ pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> Metri
     let vec = unsafe { &*metrics };
     vec.as_metrics_slice()
 }
-
-/// Sets the value carried under `key`, appending a new entry if none carries it yet.
-///
-/// See [`MetricsVec::upsert_with_key`] for which metrics belong here rather than in
-/// [`ResultMetrics_Add`].
-///
-/// # Safety
-///
-/// 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
-/// 2. `key` must be non-null and point to a valid `RLookupKey` that outlives the
-///    collection, since a key not already present is stored rather than ignored.
-///    Compared by pointer identity. Unlike [`ResultMetrics_Add`], null is not accepted:
-///    a caller holding an optional key must check it first.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn MetricsVec_UpsertValue<'a>(
-    metrics: *mut MetricsVec<'a>,
-    key: *const RLookupKey,
-    new_value: f64,
-) {
-    debug_assert!(!metrics.is_null(), "metrics must not be null");
-    debug_assert!(!key.is_null(), "key must not be null");
-
-    // SAFETY: caller guarantees validity (1).
-    let vec = unsafe { &mut *metrics };
-    // SAFETY: caller guarantees `key` is valid, non-null and outlives the collection (2);
-    // non-null is checked by the debug_assert above.
-    let key = unsafe { &*key };
-    vec.upsert_with_key(key, new_value);
-}

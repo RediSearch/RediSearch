@@ -93,22 +93,6 @@ MetricsVec MetricsVec_New(void);
 void MetricsVec_Reset(MetricsVec *metrics);
 
 /**
- * Sets the value carried under `key`, appending a new entry if none carries it yet.
- *
- * See [`MetricsVec::upsert_with_key`] for which metrics belong here rather than in
- * [`ResultMetrics_Add`].
- *
- * # Safety
- *
- * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. `key` must be non-null and point to a valid `RLookupKey` that outlives the
- *    collection, since a key not already present is stored rather than ignored.
- *    Compared by pointer identity. Unlike [`ResultMetrics_Add`], null is not accepted:
- *    a caller holding an optional key must check it first.
- */
-void MetricsVec_UpsertValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
-
-/**
  * Appends a single metric to the result's metrics collection.
  *
  * # Safety
