@@ -247,6 +247,12 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
+  if (rule->compiled_lang_path) {
+    japi->pathFree(rule->compiled_lang_path);
+  }
+  if (rule->compiled_score_path) {
+    japi->pathFree(rule->compiled_score_path);
+  }
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
@@ -311,8 +317,8 @@ done:
   return lang;
 }
 
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSON jsonRoot, const char *kname) {
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jsonRoot,
+                               const char *kname) {
   int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
@@ -329,7 +335,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  jsonIter = JSON_GetWithCachedPath(jsonRoot, rule->lang_field, &rule->compiled_lang_path);
   if (!jsonIter) {
     goto done;
   }
@@ -384,8 +390,8 @@ done:
   return score;
 }
 
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSON jsonRoot, const char *kname) {
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jsonRoot,
+                            const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
   RedisJSON scoreJson = NULL;
@@ -399,7 +405,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->score_field);
+  jsonIter = JSON_GetWithCachedPath(jsonRoot, rule->score_field, &rule->compiled_score_path);
   if (jsonIter == NULL) {
     goto done;
   }
