@@ -260,6 +260,8 @@ main := |*
 
   quote => {
     tok.pos = ts-q->raw;
+    tok.s = ts;
+    tok.len = te - ts;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
