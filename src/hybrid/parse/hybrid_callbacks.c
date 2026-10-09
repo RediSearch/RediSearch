@@ -345,7 +345,7 @@ void handleApply(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    PLN_MapFilterStep *stp = PLNMapFilterStep_NewBorrowed(expr, exprLen, PLN_T_APPLY);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_APPLY);
     AGPLN_AddStep(ctx->plan, &stp->base);
 
     // Check for optional AS alias in remaining arguments
@@ -426,7 +426,7 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    PLN_MapFilterStep *stp = PLNMapFilterStep_NewBorrowed(expr, exprLen, PLN_T_FILTER);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_FILTER);
     AGPLN_AddStep(ctx->plan, &stp->base);
 }
 
