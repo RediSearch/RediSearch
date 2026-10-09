@@ -218,12 +218,9 @@ fn assert_eof_agrees_with_current<'index, I: RQEIterator<'index>>(
 ///   children that report EOF, so one that comes back live re-enters a parent
 ///   that has already moved on without it;
 /// - the position did not move backwards, which would replay documents; and
-/// - [`ResumeOutcome::Ok`] means exactly that — same position, same EOF answer —
-///   matching the promise its [`RQEValidateStatus::Ok`] counterpart makes on the
-///   `revalidate` side.
+/// - [`ResumeOutcome::Ok`] means exactly that — same position, same EOF answer.
 ///
 /// [`ContractChecker`]: crate::contract_checker::ContractChecker
-/// [`RQEValidateStatus::Ok`]: rqe_iterators::RQEValidateStatus::Ok
 pub fn revalidate_via_resume<'borrow, 'index>(
     it: TypeErasedRQEIterator<'index>,
     spec: &'borrow IndexSpecReadGuard<'index>,

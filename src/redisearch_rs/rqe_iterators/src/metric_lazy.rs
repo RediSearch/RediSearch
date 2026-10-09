@@ -11,7 +11,7 @@
 
 use crate::{
     IteratorType, Metric, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     deferred::{ProducedResults, Producer},
     metric::{MetricType, RawMetric, SuspendedMetric},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -176,14 +176,6 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index
         // unread rather than past its end, so callers still read it and trigger
         // production.
         self.inner.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.inner.revalidate(spec)
     }
 
     #[inline(always)]

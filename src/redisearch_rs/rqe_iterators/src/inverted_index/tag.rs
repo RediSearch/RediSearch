@@ -22,7 +22,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -82,7 +82,7 @@ where
     /// The garbage collector may remove all documents from a tag value's
     /// inverted index or replace it with a new allocation. In both cases the
     /// reader's pointer is stale and the iterator must
-    /// [`abort`](RQEValidateStatus::Aborted).
+    /// [`abort`](ResumeOutcome::Aborted).
     ///
     /// Defined on the `Rf`-generic [`RawTag`] so the suspended form can run it
     /// from [`RQESuspendedIterator::resume`] before promoting to [`Active`].
@@ -224,18 +224,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
