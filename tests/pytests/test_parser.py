@@ -892,6 +892,9 @@ def test_quoted_param_and_exact_tokens(env):
 def test_unterminated_quotes_are_syntax_errors(env):
     # A quote that is never closed is rejected, and a closed quoted `$name` is still a verbatim term.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    for query in ['"hello', '"$x', '"a b', '@t:"hello', '"$x y', '"$x )', '"*']:
-        env.expect('FT.EXPLAIN', 'idx', query).error().contains('SEARCH_SYNTAX Syntax error')
+    # The error is reported at the unterminated quote itself.
+    for query in ['"hello', '"$x', '"a b', '"$x y', '"$x )', '"*']:
+        env.expect('FT.EXPLAIN', 'idx', query).error().contains('SEARCH_SYNTAX Syntax error at offset 0 near')
+    env.expect('FT.EXPLAIN', 'idx', '@t:"hello').error().contains('SEARCH_SYNTAX Syntax error at offset 3 near t')
+    env.expect('FT.EXPLAIN', 'idx', '"a" "b').error().contains('SEARCH_SYNTAX Syntax error at offset 4 near a')
     env.expect('FT.EXPLAIN', 'idx', '"$x"').equal('EXACT {\n  $x\n}\n')
