@@ -1,6 +1,6 @@
 ---
 name: build
-description: Compile the project to verify changes build successfully. Use this to verify your changes build properly together with the complete project and dependencies, and make sure to use it before running end to end tests.
+description: Build and validate RediSearch after code, dependency, bootstrap, toolchain, or build-system changes. Use before end-to-end tests and whenever build or test prerequisites change.
 ---
 
 # Build Skill
@@ -8,7 +8,7 @@ description: Compile the project to verify changes build successfully. Use this 
 Compile the project to verify changes build successfully.
 
 ## Usage
-Run this skill after making code changes to verify they compile.
+Run this skill after code, dependency, bootstrap, toolchain, or build-system changes.
 
 ## Instructions
 
@@ -55,6 +55,25 @@ sccache --start-server
 Do not set `CARGO_INCREMENTAL=0` by default. Use it only when the goal is better Rust cache
 reuse across clean worktrees, since disabling incremental compilation can slow tight local
 edit-build loops in a single worktree.
+
+### Bootstrap and Dependency Changes
+
+When changing `.install/`, bootstrap targets, tool versions, CI provisioning, or build/test
+dependencies, inspect the canonical behavior in [`Makefile`](../../Makefile), the
+[installer entrypoint](../../.install/install_script.sh), and the
+[shared dependency-mode helpers](../../.install/deps_lib.sh). Do not restate their package or
+platform logic in this skill.
+
+Consider every affected lifecycle mode: dependency reporting, dry-run, real bootstrap, normal
+and feature-gated builds, and the test target that consumes the dependency. Validate that
+non-mutating modes remain non-mutating, dry-run output is shell-valid, and real bootstrap leaves
+the subsequent build and relevant tests usable. For versioned dependencies, cover missing,
+outdated, and sufficient states on the supported platforms where behavior differs.
+
+Use a disposable environment for installation and version-state checks. `make bootstrap` may
+modify the system or invoke `sudo`, so run it only when authorized. Prefer the narrowest test
+target that exercises the dependency; reserve `make test` for changes that can affect all test
+families.
 
 ### Full Build (C + Rust)
 ```bash

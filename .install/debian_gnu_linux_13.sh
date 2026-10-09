@@ -3,7 +3,7 @@ set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
-apt_install git wget build-essential lcov openssl libssl-dev \
+apt_install git wget build-essential openssl libssl-dev \
         rsync unzip curl gdb
 
 # Need clang for LTO

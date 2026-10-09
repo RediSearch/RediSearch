@@ -58,7 +58,7 @@ _is_optional() { case " $OPTIONAL_PKGS " in *" $1 "*) return 0 ;; *) return 1 ;;
 # MIN_VERSIONS: sparse "pkg:minversion" list — only deps with a real floor a
 # distro package can satisfy. cmake's >= 3.25 is provisioned by install_cmake.sh
 # (recorded there), so it's intentionally NOT here.
-MIN_VERSIONS="${MIN_VERSIONS:-gcc:${GCC_MIN_VERSION} g++:${GPP_MIN_VERSION}}"
+MIN_VERSIONS="${MIN_VERSIONS:-gcc:${GCC_MIN_VERSION} g++:${GPP_MIN_VERSION} lcov:${LCOV_MIN_VERSION}}"
 _min_for() { for _e in $MIN_VERSIONS; do case "$_e" in "$1:"*) echo "${_e#*:}"; return ;; esac; done; }
 
 _get_installed_version() {
@@ -92,6 +92,10 @@ else
 fi
 _dry_line() { printf '%s%s%s\n' "$_DRY_CMD_COLOR" "$*" "$_DRY_RESET"; }
 _dry_head() { printf '%s%s%s\n' "$_DRY_HEADER_COLOR" "$*" "$_DRY_RESET"; }
+_dry_dependency_status() {
+    [[ "$DRY_RUN" == 1 ]] || return 0
+    _dry_head "# dependency $1: $2${3:+ ($3)}"
+}
 
 # _run CMD... — install: execute (real sudo prefix); dry-run: print it (blue);
 # list: skip. Callers pre-filter to missing packages.
