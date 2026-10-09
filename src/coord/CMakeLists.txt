@@ -46,6 +46,12 @@ file(GLOB_RECURSE COORDINATOR_SRC CONFIGURE_DEPENDS *.c *.cpp)
 list(FILTER COORDINATOR_SRC EXCLUDE REGEX "/rmr/")
 add_library(coordinator-core OBJECT ${COORDINATOR_SRC})
 
+# RSCoordinator is a standalone project, so it does not inherit the root's
+# CMAKE_CXX_STANDARD. Without this the standard comes from the compiler default,
+# which is C++98 on Apple clang — the sources use `auto`, lambdas and range-for,
+# so they fail to compile on macOS while building fine against gcc's newer default.
+target_compile_features(coordinator-core PRIVATE cxx_std_20)
+
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
