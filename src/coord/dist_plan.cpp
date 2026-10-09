@@ -41,7 +41,7 @@
 // (`ReducerDistCtx::alloc`).
 #define DIST_REDUCER_BLOCK_SIZE ((size_t)128)
 
-static char *getLastAlias(const PLN_GroupStep *gstp) {
+static const char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
@@ -103,7 +103,14 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
-    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
+    PLN_Reducer *added = &array_tail(gstp->reducers);
+    // The arguments here are assembled from other steps' strings rather than the held argv, so
+    // the reducer keeps its own copy instead of depending on their teardown order.
+    if (!added->ownsAlias) {
+      added->alias = rm_strdup(added->alias);
+      added->ownsAlias = true;
+    }
+    added->isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
