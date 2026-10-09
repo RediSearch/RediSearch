@@ -316,13 +316,12 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
         // SAFETY: `it` is a valid, uniquely-owned C iterator; it is consumed
         // here and replaced below, so it is neither leaked nor double-freed.
         let profiled = unsafe { CRQEIterator::new(it) }.into_profiled();
-        // `CRQEIterator` is `#[repr(transparent)]` over `NonNull<QueryIterator>`,
-        // so a `&mut CRQEIterator` can be viewed as a `*mut *mut QueryIterator`
-        // slot for in-place replacement.
-        let slot = child as *mut CRQEIterator as *mut *mut QueryIterator;
-        // SAFETY: `slot` is a valid, writable pointer; store the profiled
-        // iterator back in place.
-        unsafe { *slot = profiled.into_raw().as_ptr() };
+        // SAFETY: `child` is a valid, aligned, exclusively borrowed slot. `ptr::write` overwrites
+        // it *without* dropping what was there, which is what this needs: the value still in the
+        // slot names the same `QueryIterator` the profiled wrapper now owns, so running its `Drop`
+        // would `Free` a live iterator. Writing the whole struct rather than its first field also
+        // keeps the replacement independent of `CRQEIterator`'s field layout.
+        unsafe { std::ptr::write(child, profiled) };
     }
     base
 }
