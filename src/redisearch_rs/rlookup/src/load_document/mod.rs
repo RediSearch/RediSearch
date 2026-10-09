@@ -13,7 +13,7 @@ mod hash;
 mod json;
 
 pub use hash::{HashDocumentFormat, HashFieldNames};
-pub use json::JsonDocumentFormat;
+pub use json::{JsonDocumentFormat, JsonPathCache};
 
 use std::ffi::CStr;
 use std::ops::Deref;
@@ -167,6 +167,18 @@ pub trait DocumentFormat {
 /// A type that knows how to load individual fields from an open document.
 pub trait FieldLoader {
     fn load_field(&self, kk: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError>;
+
+    /// Loads the key at its position in the query's requested field list.
+    ///
+    /// Formats without positional state use the default [`Self::load_field`] implementation.
+    fn load_field_at(
+        &self,
+        _index: usize,
+        kk: &RLookupKey,
+        dst_row: &mut RLookupRow,
+    ) -> Result<(), LoadFieldError> {
+        self.load_field(kk, dst_row)
+    }
 }
 
 impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
@@ -288,7 +300,7 @@ where
                     doc.as_ref().unwrap()
                 }
             };
-            d.load_field(key_to_load, dst_row)
+            d.load_field_at(index, key_to_load, dst_row)
         })?;
     }
     Ok(())
@@ -336,6 +348,7 @@ mod tests {
     struct StubFormat {
         opens: Cell<usize>,
         loaded: RefCell<Vec<CString>>,
+        loaded_indices: RefCell<Vec<usize>>,
     }
 
     struct StubLoader<'key>(&'key StubFormat);
@@ -370,6 +383,16 @@ mod tests {
     }
 
     impl FieldLoader for StubLoader<'_> {
+        fn load_field_at(
+            &self,
+            index: usize,
+            key: &RLookupKey,
+            row: &mut RLookupRow,
+        ) -> Result<(), LoadFieldError> {
+            self.0.loaded_indices.borrow_mut().push(index);
+            self.load_field(key, row)
+        }
+
         fn load_field(
             &self,
             kk: &RLookupKey,
@@ -425,6 +448,7 @@ mod tests {
             vec![c"a".to_owned(), c"b".to_owned()]
         );
         assert_eq!(format.opens.get(), 1);
+        assert_eq!(*format.loaded_indices.borrow(), [1, 2]);
         assert_eq!(profile.map(|entry| entry.load_count), [1, 1, 1]);
     }
 }

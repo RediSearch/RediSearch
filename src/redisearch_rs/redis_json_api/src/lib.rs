@@ -12,7 +12,7 @@ macro_rules! vtable_fn {
     ($api:expr, $field:ident) => {{
         let vtable = ($api).vtable();
 
-        // Safety: `$field` is part of the V7 prefix, which every accepted provider allocated.
+        // SAFETY: callers ensure the negotiated API version includes `$field`.
         let slot = unsafe { (&raw const (*vtable.as_ptr()).$field).read() };
 
         slot.expect(concat!(
@@ -42,8 +42,8 @@ pub use value::{JsonType, JsonValue, JsonValueRef};
 /// Minimum RedisJSON API version this wrapper accepts, kept in lockstep with the C side.
 pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER.cast_signed();
 
-/// Latest API version (V8).
-pub const LATEST_API_VERSION: i32 = 8;
+/// Latest API version (V9).
+pub const LATEST_API_VERSION: i32 = 9;
 
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";

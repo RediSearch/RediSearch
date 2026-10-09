@@ -9,6 +9,7 @@
 
 use redis_module::RedisString;
 
+use crate::JsonPath;
 use crate::KeyValuesIterator;
 use crate::RedisJsonApi;
 use crate::ResultsIter;
@@ -261,6 +262,25 @@ impl<'a> JsonValueRef<'a> {
         let ptr = NonNull::new(ptr.cast_mut())?;
 
         // Safety: we obtained this pointer from `get`.
+        Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
+    }
+
+    /// Returns an iterator over values matched by a compiled [`JsonPath`].
+    ///
+    /// # Safety
+    ///
+    /// The negotiated API must support V9. The compiled `path` must remain [valid]
+    /// until the returned iterator is dropped.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn get_with_path(&self, path: &JsonPath) -> Option<ResultsIter<'_>> {
+        let get_with_path = vtable_fn!(self.api, getWithPath);
+
+        // SAFETY: `self.ptr` and `path` are live RedisJSON handles by construction.
+        let ptr = unsafe { get_with_path(self.ptr, path.ptr.as_ptr()) };
+        let ptr = NonNull::new(ptr.cast_mut())?;
+
+        // SAFETY: we obtained this pointer from `getWithPath`.
         Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
     }
 
