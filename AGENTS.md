@@ -358,7 +358,7 @@ git worktree add --no-track -b <your-handle>-<feature> .worktree/<your-handle>-<
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 
-The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace needs a git worktree attached to it in a specific order; getting that wrong silently breaks the submodules in every other checkout on the machine.
+The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace must be created as a git worktree (`jj workspace add --colocate`, jj ≥ 0.46); a hand-rolled `.git` pointer silently breaks the submodules in every other checkout on the machine.
 
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.
