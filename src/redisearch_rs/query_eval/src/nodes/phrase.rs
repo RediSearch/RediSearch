@@ -74,7 +74,11 @@ pub(crate) fn eval<'index>(
     }
 
     let result_ptr = match new_intersection_iterator(children) {
-        NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(Box::new(Empty))),
+        NewIntersectionIterator::Empty => {
+            return Some(Evaluated::RustLeaf(
+                rqe_iterators::TypeErasedRQEIterator::new(Box::new(Empty)),
+            ));
+        }
         NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
         NewIntersectionIterator::Proceed(cs) => {
             let intersection = Intersection::new_with_slop_order(

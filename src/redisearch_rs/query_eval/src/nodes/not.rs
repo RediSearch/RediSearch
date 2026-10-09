@@ -70,8 +70,12 @@ pub(crate) fn eval<'index>(
         )
     };
     match outcome {
-        NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(Box::new(wc)),
-        NewNotIterator::ReducedEmpty(empty) => Evaluated::RustLeaf(Box::new(empty)),
+        NewNotIterator::ReducedWildcard(wc) => {
+            Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(wc)))
+        }
+        NewNotIterator::ReducedEmpty(empty) => {
+            Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(empty)))
+        }
         NewNotIterator::Not(it) => Evaluated::RustCompound(
             NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
                 .expect("not iterator must not be null"),

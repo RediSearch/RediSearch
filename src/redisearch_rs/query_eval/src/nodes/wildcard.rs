@@ -33,5 +33,5 @@ pub(crate) fn eval<'index>(
     // 8. `SEARCH_ENTERPRISE_ITERATORS` is initialised when `diskSpec` is
     //    non-null — the enterprise module sets it during `OnLoad`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(ctx.as_non_null(), weight) };
-    Evaluated::RustLeaf(Box::new(it))
+    Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(it)))
 }

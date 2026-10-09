@@ -15,5 +15,5 @@ use crate::Evaluated;
 
 /// `QN_NULL` — stopword queries produce an empty iterator.
 pub(crate) fn eval<'index>() -> Evaluated<'index> {
-    Evaluated::RustLeaf(Box::new(Empty))
+    Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(Empty)))
 }
