@@ -67,7 +67,7 @@ pub mod wildcard;
 
 pub use boxed::{
     RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
-    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator, assert_layout_compatible,
 };
 pub use config::IteratorsConfig;
 pub use empty::Empty;
