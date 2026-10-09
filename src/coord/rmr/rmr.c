@@ -948,7 +948,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config) {
+static MRIterator *createIterator(MRCommand cmd, const MRIteratorConfig *config) {
   // successCB is required: the per-reply path dereferences it.
   RS_ASSERT(config && config->successCB);
   MRIterator *ret = rm_new(MRIterator);
@@ -979,11 +979,21 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
     .len = 1,
   };
   *ret->cbxs = (MRIteratorCallbackCtx){
-    .cmd = MRCommand_Copy(cmd),
+    .cmd = cmd,
     .it = ret,
     .privateData = config->cbPrivateData,
   };
   return ret;
+}
+
+MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config) {
+  return createIterator(MRCommand_Copy(cmd), config);
+}
+
+MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *config) {
+  MRIterator *it = createIterator(*cmd, config);
+  *cmd = (MRCommand){0};
+  return it;
 }
 
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {

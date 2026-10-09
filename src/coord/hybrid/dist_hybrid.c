@@ -459,15 +459,13 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
 }
 
-// UPDATED: Set RPNet types when creating them
-// NOTE: Caller should clone the dispatcher_ref before calling this function
-static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
+// The RPNet takes over `cmd`'s allocations; `*cmd` is left empty.
+static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *cmd,
                           RLookup *lookup,
                           int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
-  MRCommand cmd = MRCommand_Copy(xcmd);
-
-  RPNet *rpRoot = RPNet_New(&cmd, nextFunc);
+  RPNet *rpRoot = RPNet_New(cmd, nextFunc);
+  *cmd = (MRCommand){0};
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
@@ -794,9 +792,12 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
 
     // The RPNets consume cursor-read streams whose iterators are created and
-    // wired by HybridRequest_prepareCursors below.
+    // wired by HybridRequest_prepareCursors below. The search RPNet carries the
+    // fan-out command until then; the VSIM RPNet's command is only ever the
+    // cursor-read template, so it starts empty.
+    MRCommand vsimCmd = {0};
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &vsimCmd, lookups[1], rpnetNext);
 
     if (profileOptions != EXEC_NO_FLAGS) {
       rs_wall_clock pipelineClock;
@@ -805,8 +806,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_diff_ns(&parseClock, &pipelineClock);
     }
 
-    // Free the command
-    MRCommand_Free(&xcmd);
     return REDISMODULE_OK;
 }
 
@@ -903,7 +902,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     armingCtx->vsimIt = vsimIt;
     armingCtx->knnCtx = knnCtx;
 
-    MRIterator *hybridIt = MR_CreateIterator(
+    MRIterator *hybridIt = MR_CreateIteratorTakingCmd(
       xcmd,
       &(MRIteratorConfig){
         .successCB = hybridArmingCallback,
