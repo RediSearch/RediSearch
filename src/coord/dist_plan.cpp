@@ -375,7 +375,8 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
       PLNMapFilterStep_New(distAllocStr(rdctx->alloc, ss.c_str(), ss.length()), ss.length(), PLN_T_APPLY);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->base.alias = distAllocStr(rdctx->alloc, src->alias, strlen(src->alias));
+  // `src` belongs to the original group step, which the distribute step keeps until the plan is freed.
+  applyStep->base.alias = src->alias;
 
   RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
