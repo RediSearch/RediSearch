@@ -64,6 +64,14 @@ static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
   return p;
 }
 
+// Copy `s` into the distribute step's allocator, which outlives the plan steps that borrow from it.
+static const char *distAllocStr(BlkAlloc *alloc, const char *s, size_t len) {
+  auto p = (char *)BlkAlloc_Alloc(alloc, len + 1, std::max(len + 1, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, s, len);
+  p[len] = '\0';
+  return p;
+}
+
 struct ReducerDistCtx {
   AGGPlan *localPlan;
   AGGPlan *remotePlan;
@@ -363,12 +371,11 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   }
   array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
-  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  HiddenString_Free(expr, false);
+  PLN_MapFilterStep *applyStep =
+      PLNMapFilterStep_New(distAllocStr(rdctx->alloc, ss.c_str(), ss.length()), ss.length(), PLN_T_APPLY);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->base.alias = rm_strdup(src->alias);
+  applyStep->base.alias = distAllocStr(rdctx->alloc, src->alias, strlen(src->alias));
 
   RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);

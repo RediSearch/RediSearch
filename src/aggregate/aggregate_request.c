@@ -1004,23 +1004,11 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
-  HiddenString_Free(fstp->expr, fstp->ownsText);
-  if (fstp->ownsText) {
-    rm_free((void *)fstp->base.alias);
-  }
+  HiddenString_Free(fstp->expr, false);
   rm_free(bstp);
 }
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
-  PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
-  stp->base.dtor = freeFilterStep;
-  stp->base.type = mode;
-  stp->expr = HiddenString_Duplicate(expr);
-  stp->ownsText = true;
-  return stp;
-}
-
-PLN_MapFilterStep *PLNMapFilterStep_NewBorrowed(const char *expr, size_t len, int mode) {
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, size_t len, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
@@ -1038,7 +1026,7 @@ static int handleApplyOrFilter(AGGPlan *plan, ArgsCursor *ac, QueryError *status
     return REDISMODULE_ERR;
   }
 
-  PLN_MapFilterStep *stp = PLNMapFilterStep_NewBorrowed(expr, exprLen, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, isApply ? PLN_T_APPLY : PLN_T_FILTER);
   AGPLN_AddStep(plan, &stp->base);
 
   if (isApply) {

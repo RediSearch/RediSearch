@@ -92,7 +92,6 @@ typedef struct {
   HiddenString *expr;
   RSExpr *parsedExpr;
   bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
-  bool ownsText;       // Whether the step owns the expression bytes and `base.alias`
 } PLN_MapFilterStep;
 
 /** ARRANGE covers sort, limit, and so on */
@@ -168,11 +167,9 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp);
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status);
 
-/* Copies `expr`; the caller sets an owned `base.alias`. */
-PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
-/* Borrows `expr` (NUL-terminated at `len`), e.g. from the request's held argv; the caller sets a
- * borrowed `base.alias`. */
-PLN_MapFilterStep *PLNMapFilterStep_NewBorrowed(const char *expr, size_t len, int mode);
+/* The step borrows `expr` (NUL-terminated at `len`) and the `base.alias` its caller sets, so both
+ * must outlive the plan: the request's held argv, or the distribute step's allocator. */
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, size_t len, int mode);
 
 /**
  * Clone a LOAD step for use in individual AREQ pipelines.
