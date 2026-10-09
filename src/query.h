@@ -46,9 +46,8 @@ typedef struct QueryAST {
   // array of additional metrics names in the AST.
   MetricRequest *metricRequests;
 
-  // Copied query and length, because it seems we modify the string
-  // in the parser (FIXME). Thus, if the original query is const
-  // then it explodes
+  // Owned copy of a dialect 1 query, whose parser unescapes field names in place. NULL for later
+  // dialects, which parse the caller's string directly.
   char *query;
   size_t nquery;
 
@@ -65,7 +64,8 @@ typedef struct QueryAST {
  * @param dst the AST structure to populate
  * @param sctx the context - this is never written to or retained
  * @param sopts options modifying parsing behavior
- * @param qstr the query string
+ * @param qstr the query string, NUL-terminated at `len`. From dialect 2 on, parameter names in the
+ *        AST point into it, so it must outlive `dst`.
  * @param len the length of the query string
  * @param dialectVersion parse the query according to the given dialect version
  * @param status error details set here.

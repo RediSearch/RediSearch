@@ -2341,6 +2341,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
 
   // KNN queries are parsed only on dialect versions >=2
   queryNode = RSQuery_ParseRaw_v2(&qpCtx);
+  QueryParseCtx_Cleanup(&qpCtx);
   if (QueryError_HasError(status) || queryNode == NULL) {
     // Query parsing failed.
     goto cleanup;

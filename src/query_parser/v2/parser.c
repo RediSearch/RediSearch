@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -2009,7 +2010,13 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 46: /* modifier ::= MODIFIER */
 {
-  yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  // Unescape into a copy: the query text belongs to the caller.
+  if (memchr(yymsp[0].minor.yy0.s, '\\', yymsp[0].minor.yy0.len)) {
+    char *unescaped = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    yymsp[0].minor.yy0.len = unescapen(unescaped, yymsp[0].minor.yy0.len);
+    yymsp[0].minor.yy0.s = unescaped;
+    array_ensure_append_1(ctx->unescapedNames, unescaped);
+  }
   yylhsminor.yy150.tok = yymsp[0].minor.yy0;
   if (ctx->sctx->spec) {
     yylhsminor.yy150.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
