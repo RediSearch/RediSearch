@@ -97,9 +97,6 @@ void QueryNode_Free(QueryNode *n) {
   }
 
   if (n->params) {
-    for (size_t ii = 0; ii < QueryNode_NumParams(n); ++ii) {
-      Param_FreeInternal(&n->params[ii]);
-    }
     array_free(n->params);
     n->params = NULL;
   }
@@ -1087,7 +1084,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE &&
                 qs->params[i].target == &qs->vn.vq->knn.vector) {
-              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              s = sdscatprintf(s, "`$%.*s` ", (int)qs->params[i].len, qs->params[i].name);
               break;
             }
           }
@@ -1100,7 +1097,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE &&
                 qs->params[i].target == &qs->vn.vq->range.vector) {
-              s = sdscatprintf(s, " `$%s` ", qs->params[i].name);
+              s = sdscatprintf(s, " `$%.*s` ", (int)qs->params[i].len, qs->params[i].name);
               break;
             }
           }

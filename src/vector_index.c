@@ -275,7 +275,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
     return 0;
   }
   size_t val_len;
-  const char *val = Param_DictGet(paramsDict, params.params[index].value, &val_len, status);
+  const char *val = Param_DictGet(paramsDict, params.params[index].value, params.params[index].valLen, &val_len, status);
   if (!val) {
     return -1;
   }
