@@ -1219,6 +1219,8 @@ _eof_trans:
 /* #line 263 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
+    tok.s = ts;
+    tok.len = te - ts;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
@@ -1563,6 +1565,8 @@ _eof_trans:
 	case 15:
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
+    tok.s = ts;
+    tok.len = te - ts;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
