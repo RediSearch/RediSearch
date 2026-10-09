@@ -10,10 +10,10 @@ on:
         default: bin/linux-x64-release/search-community/redisearch.so
       rejson_branch:
         type: string
-        default: master
+        default: fb5bb25c4a242f579fc1a84c1e6d474b9220c30e
       rejson_module_path:
         type: string
-        default: bin/linux-x64-release/RedisJSON/master/rejson.so
+        default: bin/linux-x64-release/RedisJSON/fb5bb25c4a242f579fc1a84c1e6d474b9220c30e/rejson.so
       benchmark_glob:
         type: string
         default: "*.yml"
