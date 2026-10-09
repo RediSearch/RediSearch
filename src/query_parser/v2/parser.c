@@ -158,18 +158,18 @@ static const char ToksepParserMap_g[256] = {
 
 /**
  * Copy of toksep.h function to use a different map
- * Function reads string pointed to by `s` and indicates the length of the next
- * token in `tokLen`. `s` is set to NULL if this is the last token.
+ * Function reads string pointed to by `s`, up to `end` or a NUL, and indicates the
+ * length of the next token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep2(char **s, size_t *tokLen) {
-  uint8_t *pos = (uint8_t *)*s;
-  char *orig = *s;
+static inline const char *toksep2(const char **s, const char *end, size_t *tokLen) {
+  const uint8_t *pos = (const uint8_t *)*s;
+  const char *orig = *s;
   int escaped = 0;
-  for (; *pos; ++pos) {
+  for (; (const char *)pos < end && *pos; ++pos) {
     if (ToksepParserMap_g[*pos] && !escaped) {
-      *s = (char *)++pos;
-      *tokLen = ((char *)pos - orig) - 1;
-      if (!*pos) {
+      *s = (const char *)++pos;
+      *tokLen = ((const char *)pos - orig) - 1;
+      if ((const char *)pos == end || !*pos) {
         *s = NULL;
       }
       return orig;
@@ -179,7 +179,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
   // Didn't find a terminating token. Use a simpler length calculation
   *s = NULL;
-  *tokLen = (char *)pos - orig;
+  *tokLen = (const char *)pos - orig;
   return orig;
 };
 
@@ -1883,22 +1883,21 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 27: /* text_expr ::= EXACT */
 {
-  char *str = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-  char *s = str;
+  const char *str = yymsp[0].minor.yy0.s;
+  const char *end = yymsp[0].minor.yy0.s + yymsp[0].minor.yy0.len;
 
   yylhsminor.yy3 = NewPhraseNode(0);
 
   while (str != NULL) {
     // get the next token
     size_t tokLen = 0;
-    char *tok = toksep2(&str, &tokLen);
+    const char *tok = toksep2(&str, end, &tokLen);
     if(tokLen > 0) {
       QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(yylhsminor.yy3, C);
     }
   }
 
-  rm_free(s);
   yylhsminor.yy3->pn.exact = 1;
   yylhsminor.yy3->opts.flags |= QueryNode_Verbatim;
 }

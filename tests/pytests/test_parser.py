@@ -856,3 +856,11 @@ def test_explain_with_inkeys(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
     env.assertContains('IDS', res)
+
+@skip(cluster=True)
+def test_quoted_param_and_exact_tokens(env):
+    # A quoted `$name` is a verbatim term that keeps its `$`; exact phrases split on separators.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.EXPLAIN', 'idx', '"$Val1"').equal('EXACT {\n  $val1\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', "'$Val1'").equal('EXACT {\n  $val1\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', '"Hello, wOrld foo"').equal('EXACT {\n  hello\n  world\n  foo\n}\n')
