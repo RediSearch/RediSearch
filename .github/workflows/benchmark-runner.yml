@@ -23,7 +23,7 @@ on:
         default: ""
       rejson_branch:
         type: string
-        default: master
+        default: fb5bb25c4a242f579fc1a84c1e6d474b9220c30e
         description: "branch to use for rejson"
       base_branch:
         type: string
@@ -91,7 +91,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -119,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -129,7 +129,7 @@ jobs:
       allowed_setups: oss-standalone
       arch: aarch64
       module_path: bin/linux-aarch64-release/search-community/redisearch.so
-      rejson_module_path: bin/linux-aarch64-release/RedisJSON/master/rejson.so
+      rejson_module_path: bin/linux-aarch64-release/RedisJSON/fb5bb25c4a242f579fc1a84c1e6d474b9220c30e/rejson.so
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -219,7 +219,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -292,7 +292,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
