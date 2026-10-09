@@ -51,7 +51,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
  * Call with the Redis GIL held, a live JSON root and an acquired API. The owner must
  * keep the path string unchanged, keep the compiled handle alive through iteration, and
  * release it with pathFree. Older APIs use string evaluation and leave the handle NULL.
- * Returns NULL on compilation failure, matching get's no-result behavior. */
+ * Returns NULL on compilation failure, matching the no-result behavior of get. */
 JSONResultsIterator JSON_GetWithCachedPath(RedisJSON root, const char *path,
                                            JSONPath *compiledPath);
 
