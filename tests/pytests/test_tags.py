@@ -345,6 +345,7 @@ def testTagMultiWordTermCaseAndEscapes(env):
     conn.execute_command('HSET', 'cs:lower', 't', 'foo bar')
     conn.execute_command('HSET', 'ci:backslash', 't', r'x\- y')
     conn.execute_command('HSET', 'ci:plain', 't', 'x- y')
+    conn.execute_command('HSET', 'ci:lower', 't', 'foo bar')
 
     def ids(*args):
         res = env.cmd('FT.SEARCH', *args, 'NOCONTENT')
@@ -353,7 +354,10 @@ def testTagMultiWordTermCaseAndEscapes(env):
     for dialect in range(1, set_max_dialect(env) + 1):
         for query in ['@t:{Foo Bar}', '@t:{Baz|Foo Bar}']:
             env.assertEqual(ids('cs', query, 'DIALECT', dialect), ['cs:upper'], message=f'{query} DIALECT {dialect}')
-            env.assertEqual(ids('cs', query.lower(), 'DIALECT', dialect), ['cs:lower'], message=f'{query} DIALECT {dialect}')
+            env.assertEqual(ids('cs', query.lower(), 'DIALECT', dialect), ['cs:lower'],
+                            message=f'{query.lower()} DIALECT {dialect}')
+        for query in ['@t:{FOO BAR}', '@t:{BAZ|FOO BAR}']:
+            env.assertEqual(ids('ci', query, 'DIALECT', dialect), ['ci:lower'], message=f'{query} DIALECT {dialect}')
         env.assertEqual(ids('ci', r'@t:{x\\\- y}', 'DIALECT', dialect), ['ci:backslash'], message=f'DIALECT {dialect}')
         env.assertEqual(ids('ci', r'@t:{x\- y}', 'DIALECT', dialect), ['ci:plain'], message=f'DIALECT {dialect}')
 
@@ -364,6 +368,10 @@ def testTagMultiWordTermCaseAndEscapes(env):
     # Lowercasing a case-insensitive value at query time must agree with indexing, beyond ASCII.
     conn.execute_command('HSET', 'ci:unicode', 't', 'äbc déf')
     env.assertEqual(ids('ci', '@t:{ÄBC Déf}', 'DIALECT', 2), ['ci:unicode'])
+
+    # Dialect 1 drops a stopword inside a multi-word tag value.
+    conn.execute_command('HSET', 'ci:stop', 't', 'foo bar baz')
+    env.assertEqual(ids('ci', '@t:{foo bar the baz}', 'DIALECT', 1), ['ci:stop'])
 
     # Explain keeps the case of a multi-word value, like a single-word one.
     env.expect('FT.EXPLAIN', 'cs', r'@t:{Foo Bar|x\- y}', 'DIALECT', 2).equal('TAG:@t {\n  Foo Bar\n  x- y\n}\n')

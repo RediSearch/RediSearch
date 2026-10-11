@@ -1572,7 +1572,7 @@ static YYACTIONTYPE yy_reduce(
       case 44: /* tag_list ::= LB STOPWORD */ yytestcase(yyruleno==44);
 {
     yymsp[-1].minor.yy17 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy17, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yymsp[-1].minor.yy17, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
 }
         break;
       case 45: /* tag_list ::= LB affix */
@@ -1585,7 +1585,7 @@ static YYACTIONTYPE yy_reduce(
       case 47: /* tag_list ::= tag_list OR term */
       case 48: /* tag_list ::= tag_list OR STOPWORD */ yytestcase(yyruleno==48);
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy17, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yymsp[-2].minor.yy17, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), yymsp[0].minor.yy0.len));
     yylhsminor.yy17 = yymsp[-2].minor.yy17;
 }
   yymsp[-2].minor.yy17 = yylhsminor.yy17;

@@ -818,7 +818,7 @@ static const char *const yyTokenName[] = {
   /*   46 */ "suffix",
   /*   47 */ "contains",
   /*   48 */ "verbatim",
-  /*   49 */ "termlist",
+  /*   49 */ "tag_termlist",
   /*   50 */ "union",
   /*   51 */ "text_union",
   /*   52 */ "text_expr",
@@ -885,8 +885,8 @@ static const char *const yyRuleName[] = {
  /*  30 */ "text_expr ::= param_term",
  /*  31 */ "text_expr ::= affix",
  /*  32 */ "text_expr ::= verbatim",
- /*  33 */ "termlist ::= param_term_case param_term_case",
- /*  34 */ "termlist ::= termlist param_term_case",
+ /*  33 */ "tag_termlist ::= param_term_case param_term_case",
+ /*  34 */ "tag_termlist ::= tag_termlist param_term_case",
  /*  35 */ "expr ::= MINUS expr",
  /*  36 */ "text_expr ::= MINUS text_expr",
  /*  37 */ "expr ::= TILDE expr",
@@ -906,11 +906,11 @@ static const char *const yyRuleName[] = {
  /*  51 */ "tag_list ::= param_term_case",
  /*  52 */ "tag_list ::= affix",
  /*  53 */ "tag_list ::= verbatim",
- /*  54 */ "tag_list ::= termlist",
+ /*  54 */ "tag_list ::= tag_termlist",
  /*  55 */ "tag_list ::= tag_list OR param_term_case",
  /*  56 */ "tag_list ::= tag_list OR affix",
  /*  57 */ "tag_list ::= tag_list OR verbatim",
- /*  58 */ "tag_list ::= tag_list OR termlist",
+ /*  58 */ "tag_list ::= tag_list OR tag_termlist",
  /*  59 */ "expr ::= modifier COLON numeric_range",
  /*  60 */ "numeric_range ::= LSQB param_num param_num RSQB",
  /*  61 */ "numeric_range ::= LSQB exclusive_param_num param_num RSQB",
@@ -1113,7 +1113,7 @@ static void yy_destructor(
     case 46: /* suffix */
     case 47: /* contains */
     case 48: /* verbatim */
-    case 49: /* termlist */
+    case 49: /* tag_termlist */
     case 50: /* union */
     case 51: /* text_union */
     case 52: /* text_expr */
@@ -1489,8 +1489,8 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     52,  /* (30) text_expr ::= param_term */
     52,  /* (31) text_expr ::= affix */
     52,  /* (32) text_expr ::= verbatim */
-    49,  /* (33) termlist ::= param_term_case param_term_case */
-    49,  /* (34) termlist ::= termlist param_term_case */
+    49,  /* (33) tag_termlist ::= param_term_case param_term_case */
+    49,  /* (34) tag_termlist ::= tag_termlist param_term_case */
     42,  /* (35) expr ::= MINUS expr */
     52,  /* (36) text_expr ::= MINUS text_expr */
     42,  /* (37) expr ::= TILDE expr */
@@ -1510,11 +1510,11 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     54,  /* (51) tag_list ::= param_term_case */
     54,  /* (52) tag_list ::= affix */
     54,  /* (53) tag_list ::= verbatim */
-    54,  /* (54) tag_list ::= termlist */
+    54,  /* (54) tag_list ::= tag_termlist */
     54,  /* (55) tag_list ::= tag_list OR param_term_case */
     54,  /* (56) tag_list ::= tag_list OR affix */
     54,  /* (57) tag_list ::= tag_list OR verbatim */
-    54,  /* (58) tag_list ::= tag_list OR termlist */
+    54,  /* (58) tag_list ::= tag_list OR tag_termlist */
     42,  /* (59) expr ::= modifier COLON numeric_range */
     65,  /* (60) numeric_range ::= LSQB param_num param_num RSQB */
     65,  /* (61) numeric_range ::= LSQB exclusive_param_num param_num RSQB */
@@ -1607,8 +1607,8 @@ static const signed char yyRuleInfoNRhs[] = {
    -1,  /* (30) text_expr ::= param_term */
    -1,  /* (31) text_expr ::= affix */
    -1,  /* (32) text_expr ::= verbatim */
-   -2,  /* (33) termlist ::= param_term_case param_term_case */
-   -2,  /* (34) termlist ::= termlist param_term_case */
+   -2,  /* (33) tag_termlist ::= param_term_case param_term_case */
+   -2,  /* (34) tag_termlist ::= tag_termlist param_term_case */
    -2,  /* (35) expr ::= MINUS expr */
    -2,  /* (36) text_expr ::= MINUS text_expr */
    -2,  /* (37) expr ::= TILDE expr */
@@ -1628,11 +1628,11 @@ static const signed char yyRuleInfoNRhs[] = {
    -1,  /* (51) tag_list ::= param_term_case */
    -1,  /* (52) tag_list ::= affix */
    -1,  /* (53) tag_list ::= verbatim */
-   -1,  /* (54) tag_list ::= termlist */
+   -1,  /* (54) tag_list ::= tag_termlist */
    -3,  /* (55) tag_list ::= tag_list OR param_term_case */
    -3,  /* (56) tag_list ::= tag_list OR affix */
    -3,  /* (57) tag_list ::= tag_list OR verbatim */
-   -3,  /* (58) tag_list ::= tag_list OR termlist */
+   -3,  /* (58) tag_list ::= tag_list OR tag_termlist */
    -3,  /* (59) expr ::= modifier COLON numeric_range */
    -4,  /* (60) numeric_range ::= LSQB param_num param_num RSQB */
    -4,  /* (61) numeric_range ::= LSQB exclusive_param_num param_num RSQB */
@@ -1930,7 +1930,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[0].minor.yy3 = yylhsminor.yy3;
         break;
-      case 33: /* termlist ::= param_term_case param_term_case */
+      case 33: /* tag_termlist ::= param_term_case param_term_case */
 {
   yylhsminor.yy3 = NewPhraseNode(0);
   QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
@@ -1938,7 +1938,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[-1].minor.yy3 = yylhsminor.yy3;
         break;
-      case 34: /* termlist ::= termlist param_term_case */
+      case 34: /* tag_termlist ::= tag_termlist param_term_case */
 {
   yylhsminor.yy3 = yymsp[-1].minor.yy3;
   QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
@@ -2106,7 +2106,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 52: /* tag_list ::= affix */
       case 53: /* tag_list ::= verbatim */ yytestcase(yyruleno==53);
-      case 54: /* tag_list ::= termlist */ yytestcase(yyruleno==54);
+      case 54: /* tag_list ::= tag_termlist */ yytestcase(yyruleno==54);
 {
   yylhsminor.yy3 = NewPhraseNode(0);
   QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
@@ -2122,7 +2122,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 56: /* tag_list ::= tag_list OR affix */
       case 57: /* tag_list ::= tag_list OR verbatim */ yytestcase(yyruleno==57);
-      case 58: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==58);
+      case 58: /* tag_list ::= tag_list OR tag_termlist */ yytestcase(yyruleno==58);
 {
   QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
   yylhsminor.yy3 = yymsp[-2].minor.yy3;
