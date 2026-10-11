@@ -666,6 +666,7 @@ modifier(A) ::= MODIFIER(B) . {
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  C.len = unescapen((char*)C.s, C.len);
   if (ctx->sctx->spec) {
     if (!FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
@@ -694,6 +695,7 @@ modifierlist(A) ::= modifier(B) OR term(C). {
 
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+  C.len = unescapen((char*)C.s, C.len);
   if (ctx->sctx->spec) {
     FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
     if (!second.fs) {

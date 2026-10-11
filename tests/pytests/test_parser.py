@@ -856,3 +856,14 @@ def test_explain_with_inkeys(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
     env.assertContains('IDS', res)
+
+def test_escaped_field_name_in_field_list(env):
+    """Every name in an `@a|b:` field list is unescaped, not just the first."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'sub-title', 'TEXT', 'body', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'x', 'sub-title', 'hello')
+
+    for dialect in range(1, set_max_dialect(env) + 1):
+        for query in [r'@sub\-title|title:hello', r'@title|sub\-title:hello', r'@title|body|sub\-title:hello']:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, 'doc1'], message=f'{query} DIALECT {dialect}')

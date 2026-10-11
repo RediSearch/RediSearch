@@ -1499,6 +1499,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy42 = NewVector(char *, 2);
     char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     Vector_Push(yylhsminor.yy42, s);
+    yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yylhsminor.yy42, s);
 }
@@ -1506,6 +1507,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 38: /* modifierlist ::= modifierlist OR term */
 {
+    yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yymsp[-2].minor.yy42, s);
     yylhsminor.yy42 = yymsp[-2].minor.yy42;

@@ -2023,6 +2023,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 47: /* modifierlist ::= modifier OR term */
 {
+  yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
   if (ctx->sctx->spec) {
     if (!FIELD_IS(yymsp[-2].minor.yy150.fs, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy150, SPEC_TEXT_STR);
@@ -2052,6 +2053,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 48: /* modifierlist ::= modifierlist OR term */
 {
+  yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
   if (ctx->sctx->spec) {
     FieldName second = { .tok = yymsp[0].minor.yy0, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len) };
     if (!second.fs) {
@@ -2080,6 +2082,8 @@ static YYACTIONTYPE yy_reduce(
     reportSyntaxError(ctx->status, &yymsp[-1].minor.yy150.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     yymsp[-3].minor.yy3 = NULL;
   } else {
+    // `yymsp[-1].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yymsp[-3].minor.yy3 = NewMissingNode(ctx->sctx->spec ? yymsp[-1].minor.yy150.fs : NULL);
   }
 }
@@ -2091,6 +2095,8 @@ static YYACTIONTYPE yy_reduce(
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_TAG_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
+    // `yymsp[-4].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewTagNode(ctx->sctx->spec ? yymsp[-4].minor.yy150.fs : NULL);
     QueryNode_AddChildren(yylhsminor.yy3, yymsp[-1].minor.yy3->children, QueryNode_NumChildren(yymsp[-1].minor.yy3));
 
@@ -2141,6 +2147,8 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewNumericNode(yymsp[0].minor.yy62, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
@@ -2202,6 +2210,8 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = not_step(E);
   }
@@ -2215,6 +2225,8 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
@@ -2227,6 +2239,8 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 0, 1);
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
@@ -2239,6 +2253,8 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 1, 1);
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
@@ -2251,6 +2267,8 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 0);
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
@@ -2263,6 +2281,8 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 1);
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
@@ -2276,6 +2296,8 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     GeoFilter_SetField(yymsp[0].minor.yy62->gf, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
@@ -2303,6 +2325,8 @@ static YYACTIONTYPE yy_reduce(
     QueryNode_Free(yymsp[0].minor.yy3);
   } else if (yymsp[0].minor.yy3) {
     // we keep the capitalization as is
+    // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
     GeometryQuery_SetField(yymsp[0].minor.yy3->gmn.geomq, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = yymsp[0].minor.yy3;
   }
@@ -2436,6 +2460,11 @@ static YYACTIONTYPE yy_reduce(
   } else if (yymsp[-3].minor.yy0.len == strlen("KNN") && !strncasecmp("KNN", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
+    // `yymsp[-1].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — unset
+    // when the coordinator parses a KNN clause with no local spec, purely to read
+    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
+    // itself is never evaluated. Otherwise `yymsp[-1].minor.yy150.fs` is uninitialised parser-stack garbage, not
+    // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
     VectorQuery_SetField(yylhsminor.yy3->vn.vq, ctx->sctx->spec ? yymsp[-1].minor.yy150.fs : NULL);
     VectorQuery_SetDefaultScoreField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.tok.s, yymsp[-1].minor.yy150.tok.len);
   } else {
@@ -2484,6 +2513,8 @@ static YYACTIONTYPE yy_reduce(
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_VECTOR_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
+    // `yymsp[-4].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — see the
+    // `vector_command` rule above for when it is not.
     VectorQuery_SetField(yymsp[-1].minor.yy3->vn.vq, ctx->sctx->spec ? yymsp[-4].minor.yy150.fs : NULL);
     yylhsminor.yy3 = yymsp[-1].minor.yy3;
   }
