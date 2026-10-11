@@ -892,7 +892,7 @@ def test_quoted_param_and_exact_tokens(env):
 def test_escaped_field_name_in_field_list(env):
     """Every name in an `@a|b:` field list is unescaped, not just the first."""
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'sub-title', 'TEXT', 'body', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'sub-title', 'TEXT', 'body', 'TEXT', 'tag-f', 'TAG').ok()
     conn.execute_command('HSET', 'doc1', 'title', 'x', 'sub-title', 'hello')
 
     for dialect in range(1, set_max_dialect(env) + 1):
@@ -900,6 +900,14 @@ def test_escaped_field_name_in_field_list(env):
             res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(res, [1, 'doc1'], message=f'{query} DIALECT {dialect}')
 
+    # Errors on a later name report it unescaped.
+    for dialect in range(2, set_max_dialect(env) + 1):
+        env.expect('FT.SEARCH', 'idx', r'@title|no\-such:hello', 'DIALECT', dialect).error() \
+            .contains('Unknown field at offset 7 near no-such')
+        env.expect('FT.SEARCH', 'idx', r'@title|tag\-f:hello', 'DIALECT', dialect).error() \
+            .contains('Expected a TEXT field at offset 7 near tag-f')
+
+@skip(cluster=True)
 def test_unterminated_quotes_are_syntax_errors(env):
     # A quote that is never closed is rejected, and a closed quoted `$name` is still a verbatim term.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
