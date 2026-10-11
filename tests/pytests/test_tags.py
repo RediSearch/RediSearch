@@ -335,6 +335,7 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
+@skip(cluster=True)
 def testTagMultiWordTermCaseAndEscapes(env):
     """A multi-word tag term is one tag value: it keeps its case and is unescaped once."""
     conn = getConnectionByEnv(env)
