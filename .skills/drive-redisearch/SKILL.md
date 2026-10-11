@@ -58,7 +58,12 @@ Run `rsv.sh --name N doctor` first whenever anything looks off. It exits non-zer
 It also prints a `WARN`, which does not change the exit code, when build inputs under `src/` or `deps/` (C, C++, Rust, the `.rl`/`.y` query grammars, `Cargo.toml`/`Cargo.lock`, `CMakeLists.txt`) are newer than the `.so`: you probably need to rebuild. It then prints the module's mtime and the HEAD commit so you can judge staleness yourself. A `FAIL ... rebuilt after this server started` means you are not testing your build. Run `stop`, then `start`.
 
 ## Drive
-
+Use the [Redis command reference](https://redis.io/docs/latest/commands/)
+for syntax and option semantics. For unreleased or changed behavior, also
+inspect the relevant entry in the checkout's [commands.json](../../commands.json)
+and implementation; published docs may describe a different version.
+The feature recipes provide verification scenarios and expected observations,
+not exhaustive command documentation.
 Every command goes through `cli`, which runs `redis-cli --no-raw` against the instance under a timeout (`RSV_CLI_TIMEOUT`, default 120 s). It refuses to run when the instance's own server is no longer alive, so a server that took over the port never gets the command. Only `-x` may come before the command. `cli` rejects other redis-cli options, because `-p`, `-h`, `-s` or `-u` would send the command to a server this run did not start. In cluster mode it adds `-c` so key-routed writes follow `MOVED`. `--no-raw` keeps reply types visible (`(error)`, `(integer)`, `(nil)`), because `redis-cli` **exits 0 on an error reply**. Judge success by the reply, never by the exit code. Commands are literal redis-cli argv. Quote query strings once for the shell, and single-quote anything containing `$` (JSON paths, `$param` references).
 
 ```bash
