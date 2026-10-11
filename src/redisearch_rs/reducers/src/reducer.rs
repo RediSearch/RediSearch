@@ -47,7 +47,7 @@ impl Reducer {
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: NonNull<ffi::Reducer>) -> &'a Self {
         // SAFETY: the caller guarantees validity and shared access for the returned lifetime.
-        unsafe { &*ptr.cast::<Self>().as_ptr() }
+        unsafe { ptr.cast::<Self>().as_ref() }
     }
 
     /// Set `NewInstance` function pointer.

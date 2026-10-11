@@ -30,7 +30,7 @@ impl ReducerOptions {
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw_mut<'a>(ptr: NonNull<ffi::ReducerOptions>) -> &'a mut Self {
         // SAFETY: the caller guarantees validity and exclusive access for the returned lifetime.
-        unsafe { &mut *ptr.cast::<Self>().as_ptr() }
+        unsafe { ptr.cast::<Self>().as_mut() }
     }
 
     /// Get a reference to the `args` cursor.

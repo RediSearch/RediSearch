@@ -36,9 +36,9 @@ impl ForkGC {
     /// 2. For the chosen lifetime `'a`, no other reference to the same
     ///    struct may exist.
     pub const unsafe fn from_ptr_mut<'a>(ptr: NonNull<ffi::ForkGC>) -> &'a mut Self {
-        // SAFETY: `#[repr(transparent)]` guarantees `NonNull<ffi::ForkGC>` and
-        // `NonNull<ForkGC>` have identical layout. Validity and aliasing are
-        // the caller's responsibility per (1) and (2).
+        // SAFETY: `#[repr(transparent)]` guarantees `ffi::ForkGC` and `ForkGC`
+        // have identical layout. Validity and aliasing are the caller's
+        // responsibility per (1) and (2).
         unsafe { ptr.cast::<ForkGC>().as_mut() }
     }
 

@@ -23,8 +23,9 @@ use crate::map::MapBuilder;
 
 /// A wrapper for Redis module reply functions.
 ///
-/// Validates the context once at construction and provides ergonomic
-/// methods for building Redis protocol replies.
+/// The context is non-null by type, and the caller of [`Replier::new`]
+/// guarantees its validity. Provides ergonomic methods for building Redis
+/// protocol replies.
 pub struct Replier {
     pub(crate) ctx: NonNull<RedisModuleCtx>,
 }
@@ -41,7 +42,7 @@ impl Replier {
 
     /// Reply with a 64-bit signed integer.
     pub fn long_long(&mut self, value: i64) {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithLongLong.expect("RedisModule_ReplyWithLongLong")(
                 self.ctx.as_ptr(),
@@ -52,7 +53,7 @@ impl Replier {
 
     /// Reply with a double-precision floating point number.
     pub fn double(&mut self, value: f64) {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithDouble.expect("RedisModule_ReplyWithDouble")(
                 self.ctx.as_ptr(),
@@ -63,7 +64,7 @@ impl Replier {
 
     /// Reply with a simple string.
     pub fn simple_string(&mut self, s: &CStr) {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithSimpleString.expect("RedisModule_ReplyWithSimpleString")(
                 self.ctx.as_ptr(),
@@ -74,7 +75,7 @@ impl Replier {
 
     /// Reply with a string buffer (bulk string).
     pub fn string_buffer(&mut self, buf: &[u8]) {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithStringBuffer.expect("RedisModule_ReplyWithStringBuffer")(
                 self.ctx.as_ptr(),
@@ -86,7 +87,7 @@ impl Replier {
 
     /// Reply with an empty array.
     pub fn empty_array(&mut self) {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithEmptyArray.expect("RedisModule_ReplyWithEmptyArray")(
                 self.ctx.as_ptr(),
@@ -96,7 +97,7 @@ impl Replier {
 
     /// Reply with an empty map.
     pub fn empty_map(&mut self) {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(self.ctx.as_ptr(), 0);
         }
@@ -106,7 +107,7 @@ impl Replier {
     ///
     /// The array length is automatically set when the returned [`ArrayBuilder`] is dropped.
     pub fn array(&mut self) -> ArrayBuilder<'_> {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithArray.expect("RedisModule_ReplyWithArray")(
                 self.ctx.as_ptr(),
@@ -125,7 +126,7 @@ impl Replier {
     /// The map length is automatically set when the returned [`MapBuilder`] is dropped.
     /// Note: Map length counts key-value pairs, not individual elements.
     pub fn map(&mut self) -> MapBuilder<'_> {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(
                 self.ctx.as_ptr(),
@@ -144,7 +145,7 @@ impl Replier {
     /// The length is declared upfront. The returned [`ArrayBuilder`] validates
     /// on drop that the actual element count matches the declared length.
     pub fn fixed_array(&mut self, len: u32) -> ArrayBuilder<'_> {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithArray.expect("RedisModule_ReplyWithArray")(
                 self.ctx.as_ptr(),
@@ -163,7 +164,7 @@ impl Replier {
     /// The length is declared upfront. The returned [`MapBuilder`] validates
     /// on drop that the actual key-value pair count matches the declared length.
     pub fn fixed_map(&mut self, len: u32) -> MapBuilder<'_> {
-        // SAFETY: ctx is validated at construction
+        // SAFETY: `ctx` is non-null by type and valid per `Replier::new`'s contract.
         unsafe {
             RedisModule_ReplyWithMap.expect("RedisModule_ReplyWithMap")(
                 self.ctx.as_ptr(),
