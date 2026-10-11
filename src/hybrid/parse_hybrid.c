@@ -172,6 +172,21 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   return REDISMODULE_OK;
 }
 
+static int parseRerankClause(ArgsCursor *ac, VectorQuery *vq, bool *hasRerank, QueryError *status) {
+  if (*hasRerank) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+    return REDISMODULE_ERR;
+  }
+  if (CheckEnd(ac, "RERANK", status) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+  size_t valueLen;
+  const char *value = AC_GetStringNC(ac, &valueLen);
+  addVectorQueryParam(vq, VECSIM_RERANK, sizeof(VECSIM_RERANK) - 1, value, valueLen);
+  *hasRerank = true;
+  return REDISMODULE_OK;
+}
+
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
@@ -233,17 +248,9 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
-      if (hasRerank) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-      if (CheckEnd(ac, "RERANK", status) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-      }
-      size_t valueLen;
-      const char *value = AC_GetStringNC(ac, &valueLen);
-      addVectorQueryParam(vq, VECSIM_RERANK, sizeof(VECSIM_RERANK) - 1, value, valueLen);
-      hasRerank = true;
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
       if (hasShardKRatio) {
@@ -330,17 +337,9 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
-      if (hasRerank) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-      if (CheckEnd(ac, "RERANK", status) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-      }
-      size_t valueLen;
-      const char *value = AC_GetStringNC(ac, &valueLen);
-      addVectorQueryParam(vq, VECSIM_RERANK, sizeof(VECSIM_RERANK) - 1, value, valueLen);
-      hasRerank = true;
 
     } else {
       const char *current;
