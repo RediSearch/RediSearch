@@ -3665,10 +3665,6 @@ cleanup:
   return REDISMODULE_OK;
 }
 
-static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
-  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
-}
-
 static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
 }

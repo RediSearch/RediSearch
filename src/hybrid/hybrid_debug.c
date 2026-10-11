@@ -281,8 +281,6 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
       return QueryError_ReplyAndClear(ctx, &status);
     }
     int hybridArgc = argc - debugParams.debug_params_count - 2;
-    debugParams.debug_argv = NULL;
-    debugParams.debug_params_count = 0;
     return hybridCommandHandler(ctx, argv, hybridArgc, false, EXEC_NO_FLAGS, &debugParams);
   }
 

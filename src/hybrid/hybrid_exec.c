@@ -1339,11 +1339,6 @@ static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridReques
 
 }
 
-static bool canExecuteDiskHybridQuery(RedisModuleCtx *ctx) {
-  return RunInThread(ctx) &&
-         !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING);
-}
-
 /**
  * Main command handler for FT.HYBRID command.
  *
@@ -1463,7 +1458,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   const unsigned int dialectVersion = hybridRequest->base.reqConfig.dialectVersion;
   IndexSpec *spec = sctx->spec;
 
-  if (sctx->spec->diskSpec && !canExecuteDiskHybridQuery(ctx)) {
+  if (sctx->spec->diskSpec && (!RunInThread(ctx) || cannotBlockCtx(ctx))) {
     QueryError_SetError(&status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
                         "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
                         "is not supported in Redis Flex");

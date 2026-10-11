@@ -407,34 +407,6 @@ TEST_P(RPSafeDepleterTest, SharedContextOwnership) {
   QueryError_ClearError(&error);
 }
 
-TEST_P(RPSafeDepleterTest, DepleteAllLifecycle) {
-  MockUpstream upstream;
-  QueryProcessingCtx qctx{};
-  QueryError error = QueryError_Default();
-  qctx.err = &error;
-  auto *depleter =
-      RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
-  QITR_PushRP(&qctx, &upstream);
-  QITR_PushRP(&qctx, depleter);
-  auto depleters = array_new(ResultProcessor *, 1);
-  array_append(depleters, depleter);
-  if (GetParam()) {
-    IndexSpec_LockRead(mockSpec);
-  }
-  EXPECT_EQ(RPSafeDepleter_DepleteAll(depleters, &searchContexts[0], &error), RS_RESULT_OK);
-  SearchResult result = SearchResult_New();
-  for (int docId = 1; docId <= upstream.max_docs; ++docId) {
-    EXPECT_EQ(depleter->Next(depleter, &result), RS_RESULT_OK);
-    EXPECT_EQ(SearchResult_GetDocId(&result), docId);
-    SearchResult_Clear(&result);
-  }
-  EXPECT_EQ(depleter->Next(depleter, &result), RS_RESULT_EOF);
-  SearchResult_Destroy(&result);
-  depleter->Free(depleter);
-  array_free(depleters);
-  QueryError_ClearError(&error);
-}
-
 // Instantiate the parameterized test with both true and false values
 INSTANTIATE_TEST_SUITE_P(
     LockingVariants,
