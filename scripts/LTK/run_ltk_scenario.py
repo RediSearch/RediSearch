@@ -559,6 +559,12 @@ def capture_index_schema(search: Any) -> IndexSchema:
         if isinstance(raw_flags, (str, bytes)):
             raw_flags = [raw_flags]
         flags = {decode(flag).upper() for flag in raw_flags}
+        if not isinstance(raw_attribute, dict):
+            flags.update(
+                token
+                for value in raw_attribute
+                if (token := decode(value).upper()) in {"SORTABLE", "UNF", "NOINDEX"}
+            )
         if "SORTABLE" in flags and "UNF" in flags and "NOINDEX" not in flags:
             sortable_paths.add(paths[name])
     return IndexSchema(
@@ -933,20 +939,23 @@ def capture_redis_field_presence(
     cluster: Any,
     tracked_keys: list[bytes],
     identifiers: frozenset[str],
-) -> dict[bytes, set[str]]:
+) -> tuple[dict[bytes, set[str]], set[bytes]]:
     output: dict[bytes, set[str]] = {}
+    existing: set[bytes] = set()
     for start in range(0, len(tracked_keys), 200):
         keys = tracked_keys[start : start + 200]
         pipeline = cluster.pipeline(transaction=False)
         for key in keys:
             pipeline.hgetall(key)
         for key, raw_hash in zip(keys, pipeline.execute()):
+            if raw_hash:
+                existing.add(key)
             output[key] = {
                 decode(raw_field)
                 for raw_field, raw_value in (raw_hash or {}).items()
                 if raw_value not in (None, b"", "") and decode(raw_field) in identifiers
             }
-    return output
+    return output, existing
 
 
 def cross_check_tracked_keys(
@@ -959,17 +968,17 @@ def cross_check_tracked_keys(
     if not identifiers:
         raise RuntimeError("index schema has no SORTABLE UNF fields to cross-check")
     actual = walk_index_field_presence(search, schema, set(keys))
-    expected = capture_redis_field_presence(cluster, keys, identifiers)
+    expected, existing = capture_redis_field_presence(cluster, keys, identifiers)
     failures: list[str] = []
     missing_fields: Counter[str] = Counter()
     phantom_fields: Counter[str] = Counter()
     for key, expected_fields in expected.items():
         actual_fields = actual.get(key)
-        if not expected_fields and actual_fields is not None:
+        if key not in existing and actual_fields is not None:
             failures.append(f"{decode(key)} is absent from Redis but remains in the index")
             continue
         if actual_fields is None:
-            if expected_fields:
+            if key in existing:
                 failures.append(f"{decode(key)} missing from index walk")
             continue
         missing = expected_fields - actual_fields
@@ -1049,6 +1058,24 @@ def existing_keys(cluster: Any, keys: list[bytes]) -> set[bytes]:
             pipeline.exists(key)
         existing.update(key for key, result in zip(batch, pipeline.execute()) if result)
     return existing
+
+
+def assert_ttl_set_present(
+    cluster: Any,
+    search: Any,
+    key_set: TtlKeySet,
+    label: str,
+) -> None:
+    present_in_redis = existing_keys(cluster, key_set.keys)
+    present_in_index = find_indexed_ttl_keys(search, key_set)
+    missing_redis = set(key_set.keys) - present_in_redis
+    missing_index = set(key_set.keys) - present_in_index
+    if missing_redis or missing_index:
+        raise RuntimeError(
+            f"{label} was not present before replay: "
+            f"redis={len(missing_redis)} index={len(missing_index)}"
+        )
+    LOGGER.info("%s precondition passed for %d documents", label, len(key_set.keys))
 
 
 def validate_ttl_sets(
@@ -1147,6 +1174,10 @@ def main() -> int:
             sample_size=args.ttl_survivor_count,
             expire_seconds=TTL_SURVIVOR_EXPIRE_SEC,
         )
+
+        LOGGER.info("Step: Verify TTL sets before replay")
+        assert_ttl_set_present(cluster, search, ttl_probes, "TTL probe set")
+        assert_ttl_set_present(cluster, search, ttl_survivors, "TTL survivor set")
 
         baseline = capture_ft_info(search)
         baseline_schema = capture_index_schema(search)

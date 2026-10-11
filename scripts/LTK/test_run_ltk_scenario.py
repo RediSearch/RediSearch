@@ -143,6 +143,39 @@ class ScenarioTests(unittest.TestCase):
         schema = scenario.capture_index_schema(InfoClient())
         self.assertEqual(schema.sortable_paths, frozenset({"score"}))
 
+    def test_schema_reads_resp2_trailing_flags(self) -> None:
+        class InfoClient:
+            def execute_command(self, *command: object) -> list[object]:
+                return [
+                    "attributes",
+                    [
+                        [
+                            "identifier",
+                            "score",
+                            "attribute",
+                            "score",
+                            "type",
+                            "NUMERIC",
+                            "SORTABLE",
+                            "UNF",
+                        ],
+                        [
+                            "identifier",
+                            "hidden",
+                            "attribute",
+                            "hidden",
+                            "type",
+                            "TAG",
+                            "SORTABLE",
+                            "UNF",
+                            "NOINDEX",
+                        ],
+                    ],
+                ]
+
+        schema = scenario.capture_index_schema(InfoClient())
+        self.assertEqual(schema.sortable_paths, frozenset({"score"}))
+
     def test_sortable_presence_uses_index_result_and_accepts_numeric_zero(self) -> None:
         key = b"A#PR#1"
         schema = scenario.IndexSchema(
@@ -170,6 +203,38 @@ class ScenarioTests(unittest.TestCase):
                 schema,
                 [key],
             )
+
+    def test_hash_with_only_non_sortable_fields_is_not_treated_as_absent(self) -> None:
+        key = b"A#PR#1"
+        schema = scenario.IndexSchema(
+            fields=frozenset({"score", "full_name"}),
+            types={"score": "NUMERIC", "full_name": "TEXT"},
+            paths={"score": "score", "full_name": "full_name"},
+            sortable_paths=frozenset({"score"}),
+        )
+        scenario.cross_check_tracked_keys(
+            FakeCluster(hashes={key: {b"full_name": b"Redis"}}, existing={key}),
+            FakeSearch({key: {}}),
+            schema,
+            [key],
+        )
+
+    def test_ttl_set_must_be_indexed_before_replay(self) -> None:
+        key = b"A#PR#probe"
+        probes = scenario.TtlKeySet([key], ["probe"], 1_000_000)
+        with self.assertRaisesRegex(RuntimeError, "was not present before replay"):
+            scenario.assert_ttl_set_present(
+                FakeCluster(existing={key}),
+                FakeSearch({}),
+                probes,
+                "TTL probe set",
+            )
+        scenario.assert_ttl_set_present(
+            FakeCluster(existing={key}),
+            FakeSearch({key: {}}),
+            probes,
+            "TTL probe set",
+        )
 
     def test_ttl_survivors_must_exist_in_redis_and_index(self) -> None:
         survivor = b"A#PR#survivor"
