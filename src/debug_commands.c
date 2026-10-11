@@ -4014,20 +4014,20 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
 #ifdef ENABLE_ASSERT
   for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
 #endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
-          IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+          RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
           RS_DEBUG_FLAGS);
 }
 
