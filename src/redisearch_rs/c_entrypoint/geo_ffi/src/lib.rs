@@ -121,7 +121,8 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
 ///
 /// # Safety
 ///
-/// - `distance` must be either null or a [valid] pointer to a writable `f64`.
+/// - `distance` must be either null or a [valid] pointer to a writable `f64`,
+///   properly aligned for [`f64`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -174,7 +175,8 @@ unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
 /// # Safety
 ///
 /// - `c` must be a [valid] pointer to at least `len` bytes.
-/// - `lon` and `lat` must be [valid], non-null pointers to writable `f64` values.
+/// - `lon` and `lat` must be [valid], non-null pointers to writable `f64` values,
+///   properly aligned for [`f64`].
 /// - `status` must be a [valid], non-null pointer to an [`OpaqueQueryError`]
 ///   created by `QueryError_Default`.
 ///

@@ -188,11 +188,14 @@ size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
  *  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  *  - `len` can be 0. If so, `str` is regarded as an empty string.
  *  - `value` holds a pointer to the value of the record, which can be NULL
+ *  - if `cb` is not NULL, it must be an [ABI-compatible] function pointer of the type
+ *    [`TrieMapReplaceFunc`].
  *  - `cb` must not free the value it returns
  *  - The Redis allocator must be initialized before calling this function,
  *    and `RedisModule_Free` must not get mutated while running this function.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  */
 int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
 
