@@ -364,6 +364,8 @@ def testTagMultiWordTermCaseAndEscapes(env):
     for dialect in range(2, set_max_dialect(env) + 1):
         env.assertEqual(ids('cs', '@t:{$a $b}', 'PARAMS', '4', 'a', 'Foo', 'b', 'Bar', 'DIALECT', dialect), ['cs:upper'],
                         message=f'DIALECT {dialect}')
+        env.assertEqual(ids('ci', '@t:{$a $b}', 'PARAMS', '4', 'a', 'FOO', 'b', 'BAR', 'DIALECT', dialect), ['ci:lower'],
+                        message=f'DIALECT {dialect}')
 
     # Lowercasing a case-insensitive value at query time must agree with indexing, beyond ASCII.
     conn.execute_command('HSET', 'ci:unicode', 't', 'äbc déf')
@@ -373,7 +375,7 @@ def testTagMultiWordTermCaseAndEscapes(env):
     conn.execute_command('HSET', 'ci:stop', 't', 'foo bar baz')
     env.assertEqual(ids('ci', '@t:{foo bar the baz}', 'DIALECT', 1), ['ci:stop'])
 
-    # Explain keeps the case of a multi-word value, like a single-word one.
+    # Explain shows the evaluated value: case kept on a CASESENSITIVE field, escapes removed.
     env.expect('FT.EXPLAIN', 'cs', r'@t:{Foo Bar|x\- y}', 'DIALECT', 2).equal('TAG:@t {\n  Foo Bar\n  x- y\n}\n')
 
 @skip(cluster=True)
