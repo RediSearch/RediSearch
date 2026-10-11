@@ -640,7 +640,7 @@ def test_disk_vector_query_validation(env: Env):
     env.assertEqual(after_uses, before_uses + 1)
 
     env.expect('FT.HYBRID', *hybrid_args, 'WITHCURSOR') \
-        .error().contains('WITHCURSOR is not supported in Redis Flex')
+        .error().contains('WITHCURSOR: Unknown argument')
     filtered_args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b',
                      'KNN', 2, 'K', 2, 'FILTER', 1, '@t:hello',
                      'PARAMS', 2, 'b', query_blob]

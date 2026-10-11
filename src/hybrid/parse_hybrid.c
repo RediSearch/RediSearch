@@ -44,7 +44,6 @@
 #include "result_processor_ffi.h"
 #include "search_options.h"
 #include "search_disk.h"
-#include "search_disk_utils.h"
 #include "slot_ranges.h"
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
@@ -858,11 +857,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
-    goto error;
-  }
-
-  if (!internal && (*mergeReqflags & QEXEC_F_IS_CURSOR) &&
-      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
     goto error;
   }
 

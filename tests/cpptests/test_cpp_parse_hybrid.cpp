@@ -118,14 +118,14 @@ class ParseHybridTest : public ::testing::Test {
    * @param args The command arguments to parse
    * @return REDISMODULE_OK if parsing succeeded, REDISMODULE_ERR otherwise
    */
-  int parseCommandInternal(RMCK::ArgvList& args) {
+  int parseCommandInternal(RMCK::ArgvList& args, bool internal = false) {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     if (!hybridRequest) {
       recreateHybridRequest(args);
     }
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, internal, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -149,7 +149,7 @@ class ParseHybridTest : public ::testing::Test {
   }
 
   // Helper function to test error cases with less boilerplate
-  void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
+  void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail, bool internal = false);
 
 };
 
@@ -157,43 +157,10 @@ class ParseHybridTest : public ::testing::Test {
   ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed"; \
 } while(0)
 
-class FlexHybridCursorTest : public ParseHybridTest {
- protected:
-  bool previousFlex;
-
-  void SetUp() override {
-    ParseHybridTest::SetUp();
-    previousFlex = RSGlobalConfig.simulateInFlex;
-    RSGlobalConfig.simulateInFlex = true;
-  }
-
-  void TearDown() override {
-    RSGlobalConfig.simulateInFlex = previousFlex;
-    ParseHybridTest::TearDown();
-  }
-};
-
-TEST_F(FlexHybridCursorTest, RejectsUserCursor) {
+TEST_F(ParseHybridTest, RejectsPublicCursor) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
                       "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR");
-  testErrorCode(args, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                "WITHCURSOR is not supported in Redis Flex");
-}
-
-TEST_F(FlexHybridCursorTest, AllowsInternalCursor) {
-  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
-                      "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR",
-                      "_COORD_DISPATCH_TIME", "1");
-  recreateHybridRequest(args);
-  QueryError status = QueryError_Default();
-  ArgsCursor ac = {};
-  HybridRequest_InitArgsCursor(hybridRequest, &ac, args.size());
-  EXPECT_EQ(
-      parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS),
-      REDISMODULE_OK);
-  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK);
-  EXPECT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_IS_CURSOR);
-  QueryError_ClearError(&status);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR: Unknown argument");
 }
 
 #define assertLinearScoringCtx(Weight0, Weight1, Window) do { \
@@ -335,9 +302,9 @@ TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
 }
 
 TEST_F(ParseHybridTest, testCursorSettingsOwnedByEachSubquery) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "42", "MAXIDLE", "1000");
-  parseCommand(args);
+  ASSERT_EQ(parseCommandInternal(args, true), REDISMODULE_OK);
 
   EXPECT_EQ(hybridRequest->base.cursorConfig.chunkSize, 42);
   EXPECT_EQ(hybridRequest->base.cursorConfig.maxIdle, 1000);
@@ -1173,14 +1140,14 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
 }
 
 // Helper function to test error cases with less boilerplate
-void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail) {
+void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail, bool internal) {
   QueryError status = QueryError_Default();
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   recreateHybridRequest(args);
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, internal, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
 
@@ -1629,14 +1596,14 @@ TEST_F(ParseHybridTest, testParamsSpecifiedMultipleTimes) {
 // WITHCURSOR callback error tests
 TEST_F(ParseHybridTest, testWithCursorInvalidMaxIdle) {
   // Test WITHCURSOR with invalid MAXIDLE value (zero)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "MAXIDLE", "0");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds");
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "MAXIDLE", "0");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds", true);
 }
 
 TEST_F(ParseHybridTest, testWithCursorInvalidCount) {
   // Test WITHCURSOR with invalid COUNT value (zero)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "0");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for COUNT: Value is outside acceptable bounds");
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "0");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for COUNT: Value is outside acceptable bounds", true);
 }
 
 // GROUPBY callback error tests

@@ -99,7 +99,7 @@ def test_hybrid_knn_invalid_syntax():
 
 @skip(cluster=True)
 def test_hybrid_ram_nonblocking_contexts(env):
-    """RAM hybrid queries retain their results in MULTI/EXEC and Lua, and support cursors."""
+    """RAM hybrid queries retain their results in MULTI/EXEC and Lua."""
     setup_basic_index_hnsw(env)
     blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     command = ['FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes', 'VSIM',
@@ -112,7 +112,7 @@ def test_hybrid_ram_nonblocking_contexts(env):
         env.assertEqual(get_results_from_hybrid_response(responses[0]), expected)
     lua_response = env.cmd('EVAL', 'return redis.call(unpack(ARGV))', 0, *command)
     env.assertEqual(get_results_from_hybrid_response(lua_response), expected)
-    env.expect(*command, 'WITHCURSOR').noError()
+    env.expect(*command, 'WITHCURSOR').error().contains('WITHCURSOR: Unknown argument')
 
 
 def test_invalid_ef_runtime():
