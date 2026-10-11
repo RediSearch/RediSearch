@@ -2331,7 +2331,8 @@
                     "type": "string",
                     "token": "RERANK",
                     "summary": "Whether to rerank disk vector candidates (TRUE or FALSE)",
-                    "optional": true
+                    "optional": true,
+                    "since": "8.8.1"
                   },
                   {
                     "name": "shard_k_ratio",
@@ -2377,7 +2378,8 @@
                     "type": "string",
                     "token": "RERANK",
                     "summary": "Whether to rerank disk vector candidates (TRUE or FALSE)",
-                    "optional": true
+                    "optional": true,
+                    "since": "8.8.1"
                   },
                   {
                     "name": "yield_score_as",
@@ -3276,6 +3278,10 @@
       [
         "8.4.3",
         "Added `count`, `POLICY` and `BATCH_SIZE` arguments to the `VSIM` `FILTER` clause"
+      ],
+      [
+        "8.8.1",
+        "Added `RERANK` to the `VSIM` `KNN` and `RANGE` clauses for disk-based HNSW indexes"
       ]
     ],
     "group": "search",
