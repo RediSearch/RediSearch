@@ -63,8 +63,7 @@ pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     ///
     /// - [`None`], indicating that the iterator is not associated with a key.
     /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
-    ///   this iterator is dropped or the handle is replaced. The handle must permit
-    ///   exclusive mutable access when dropping the iterator clears its validity flag.
+    ///   this iterator is dropped or the handle is replaced.
     key_handle: Option<NonNull<RLookupKeyHandle<'query>>>,
 }
 
@@ -103,12 +102,11 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_
 
 impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
     fn drop(&mut self) {
-        if let Some(mut key_handle) = self.key_handle {
-            // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
-            // dereference the handle if it is present.
-            unsafe {
-                key_handle.as_mut().is_valid = false;
-            }
+        if let Some(key_handle) = self.key_handle {
+            // SAFETY: [`Self::key_handle`]'s invariant keeps the handle initialized
+            // and alive until now. Writing through the raw place creates no
+            // reference, so other live pointers to the handle are not invalidated.
+            unsafe { (*key_handle.as_ptr()).is_valid = false };
         }
     }
 }
@@ -185,8 +183,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// - [`None`], indicating that the metric iterator does not have a key.
     /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
-    ///   this iterator is dropped or the handle is replaced. The handle must permit
-    ///   exclusive mutable access when dropping the iterator clears its validity flag.
+    ///   this iterator is dropped or the handle is replaced.
     pub const unsafe fn set_handle(
         &mut self,
         key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
