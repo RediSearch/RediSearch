@@ -2547,7 +2547,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .name = "rerank",
                     .token = "RERANK",
                     .summary = "Whether to rerank disk vector candidates (TRUE or FALSE)",
-                    .since = "8.8.1",
+                    .since = "8.8.7",
                     .type = REDISMODULE_ARG_TYPE_STRING,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
@@ -2595,7 +2595,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .name = "rerank",
                     .token = "RERANK",
                     .summary = "Whether to rerank disk vector candidates (TRUE or FALSE)",
-                    .since = "8.8.1",
+                    .since = "8.8.7",
                     .type = REDISMODULE_ARG_TYPE_STRING,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
@@ -3552,7 +3552,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
     .since = "8.4.0",
     .history = (RedisModuleCommandHistoryEntry[]){
       {"8.4.3", "Added `count`, `POLICY` and `BATCH_SIZE` arguments to the `VSIM` `FILTER` clause"},
-      {"8.8.1", "Added `RERANK` to the `VSIM` `KNN` and `RANGE` clauses for disk-based HNSW indexes"},
+      {"8.8.7", "Added `RERANK` to the `VSIM` `KNN` and `RANGE` clauses for disk-based HNSW indexes"},
       {0}
     },
     .tips = "dont_cache",
