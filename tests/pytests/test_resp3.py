@@ -427,6 +427,13 @@ def check_network_breakdown(env):
     env.assertEqual(int(network['Fields converted']), 0, message=network)
     env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
 
+    # Early termination drains remaining shard profiles outside the Network timer.
+    res = env.cmd("FT.PROFILE", "idx1", "AGGREGATE", "QUERY", "*", "LIMIT", 0, 1)
+    network = network_profile(env, res)
+    measured = sum(float(network[key]) for key in breakdown_keys[:3])
+    # Allow floating-point rounding when summing the disjoint timers.
+    env.assertLessEqual(measured, float(network["Time"]) + 1e-9, message=network)
+
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile_network_breakdown_resp3():
     check_network_breakdown(Env(protocol=3))

@@ -710,9 +710,16 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    // Profile collection is outside the Network processor timer; retain its measured times.
+    const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
+    const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
+    const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
     do {
       MRReply_Free(rpnet->current.root);
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
+    rpnet->breakdown.waitTime = waitTime;
+    rpnet->breakdown.convertTime = convertTime;
+    rpnet->breakdown.freeTime = freeTime;
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
