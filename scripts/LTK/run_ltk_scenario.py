@@ -50,6 +50,15 @@ TTL_SURVIVOR_EXPIRE_SEC = 7 * 24 * 3600
 TRACKED_KEYS_BY_PREFIX = {"A#PR#*": 24_000, "A#PO#*": 3_000, "A#CR#*": 3_000}
 FT_WALK_TIMEOUT_MS = 1_000_000
 INDEX_LOOKUP_BATCH = 200
+LTK_SEARCH_CONFIG = {
+    "search-workers": "12",
+    "search-cursor-max-idle": "60000",
+    "search-workers-priority-bias-threshold": "6",
+    "search-enable-unstable-features": "yes",
+    "search-bm25std-tanh-factor": "200",
+    "search-default-dialect": "2",
+    "search-index-cursor-limit": "256",
+}
 
 LOGGER = logging.getLogger("ltk-scenario")
 
@@ -285,21 +294,26 @@ def flat_pairs(values: Iterable[Any]) -> dict[str, Any]:
     return {decode(items[i]): items[i + 1] for i in range(0, len(items) - 1, 2)}
 
 
-def config_value(reply: Any, key: str) -> str | None:
-    if isinstance(reply, dict):
-        value = reply.get(key) or reply.get(key.encode())
-        return decode(value) if value is not None else None
-    if not isinstance(reply, (list, tuple)):
-        return None
-    if len(reply) == 1 and isinstance(reply[0], (list, tuple, dict)):
-        return config_value(reply[0], key)
-    value = flat_pairs(reply).get(key)
-    return decode(value) if value is not None else None
+def expected_search_config(args: argparse.Namespace) -> dict[str, str]:
+    return {
+        **LTK_SEARCH_CONFIG,
+        "search-timeout": str(args.search_timeout_ms),
+        "search-on-timeout": "fail",
+    }
 
 
-def verify_search_timeout_on_primaries(redis_module: Any, args: argparse.Namespace) -> None:
+def search_config_matches(name: str, actual: str | None, expected: str) -> bool:
+    if actual is None:
+        return False
+    if name == "search-enable-unstable-features":
+        return actual.lower() in {"1", "true", "yes"}
+    return actual.lower() == expected.lower()
+
+
+def verify_search_config_on_primaries(redis_module: Any, args: argparse.Namespace) -> None:
     cluster = make_cluster_client(redis_module, args, PROBE_SOCKET_TIMEOUT_SEC)
     failures: list[str] = []
+    expected = expected_search_config(args)
     try:
         primaries = list(cluster.get_primaries())
         if not primaries:
@@ -311,46 +325,21 @@ def verify_search_timeout_on_primaries(redis_module: Any, args: argparse.Namespa
                 **connection_kwargs(args, PROBE_SOCKET_TIMEOUT_SEC),
             )
             try:
-                timeout_value: str | None = None
-                on_timeout_value: str | None = None
-                try:
-                    config = client.execute_command(
-                        "CONFIG", "GET", "search-timeout", "search-on-timeout"
-                    )
-                except redis_module.exceptions.ResponseError:
-                    config = []
-                if config:
-                    timeout_value = config_value(config, "search-timeout")
-                    on_timeout_value = config_value(config, "search-on-timeout")
-                if timeout_value is None or on_timeout_value is None:
-                    for command_name in ("_FT.CONFIG", "FT.CONFIG"):
-                        try:
-                            timeout_reply = client.execute_command(command_name, "GET", "TIMEOUT")
-                            policy_reply = client.execute_command(command_name, "GET", "ON_TIMEOUT")
-                        except redis_module.exceptions.ResponseError:
-                            continue
-                        timeout_value = config_value(timeout_reply, "TIMEOUT")
-                        on_timeout_value = config_value(policy_reply, "ON_TIMEOUT")
-                        break
-                if timeout_value != str(args.search_timeout_ms):
-                    failures.append(
-                        f"{node.host}:{node.port} timeout={timeout_value!r}, "
-                        f"expected {args.search_timeout_ms}"
-                    )
-                if (on_timeout_value or "").lower() != "fail":
-                    failures.append(
-                        f"{node.host}:{node.port} on-timeout={on_timeout_value!r}, expected 'fail'"
-                    )
+                config = client.execute_command("CONFIG", "GET", *expected)
+                actual = {name: decode(value) for name, value in flat_pairs(config).items()}
+                for name, value in expected.items():
+                    if not search_config_matches(name, actual.get(name), value):
+                        failures.append(
+                            f"{node.host}:{node.port} {name}={actual.get(name)!r}, "
+                            f"expected {value!r}"
+                        )
             finally:
                 client.close()
     finally:
         cluster.close()
     if failures:
-        raise RuntimeError("Search timeout configuration mismatch:\n  " + "\n  ".join(failures))
-    LOGGER.info(
-        "Search timeout=%d and ON_TIMEOUT=fail verified on all primaries",
-        args.search_timeout_ms,
-    )
+        raise RuntimeError("LTK Search configuration mismatch:\n  " + "\n  ".join(failures))
+    LOGGER.info("LTK Search configuration verified on all primaries")
 
 
 @contextmanager
@@ -1190,8 +1179,8 @@ def main() -> int:
     cluster = make_cluster_client(redis, args, REPLAY_SOCKET_TIMEOUT_SEC)
     search = make_search_client(redis, args, REPLAY_SOCKET_TIMEOUT_SEC)
     try:
-        LOGGER.info("Step: Verify Search timeout settings before warmup")
-        verify_search_timeout_on_primaries(redis, args)
+        LOGGER.info("Step: Verify LTK Search configuration before warmup")
+        verify_search_config_on_primaries(redis, args)
 
         LOGGER.info("Step: Load monitor trace")
         with obtain_monitor_trace(args) as trace_path:

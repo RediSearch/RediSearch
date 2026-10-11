@@ -87,6 +87,23 @@ class FakeSearch:
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_expected_search_config_matches_customer_profile(self) -> None:
+        config = scenario.expected_search_config(SimpleNamespace(search_timeout_ms=5000))
+        self.assertEqual(
+            config,
+            {
+                "search-workers": "12",
+                "search-timeout": "5000",
+                "search-on-timeout": "fail",
+                "search-cursor-max-idle": "60000",
+                "search-workers-priority-bias-threshold": "6",
+                "search-enable-unstable-features": "yes",
+                "search-bm25std-tanh-factor": "200",
+                "search-default-dialect": "2",
+                "search-index-cursor-limit": "256",
+            },
+        )
+
     def test_s3_trace_uses_secure_temporary_path_and_expected_owner(self) -> None:
         calls: list[tuple[object, ...]] = []
 

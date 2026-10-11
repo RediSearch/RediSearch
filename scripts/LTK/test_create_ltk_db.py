@@ -27,6 +27,77 @@ SPEC.loader.exec_module(setup)
 
 
 class DatabaseSetupTests(unittest.TestCase):
+    def test_cluster_uses_complete_ltk_search_profile(self) -> None:
+        args = SimpleNamespace(
+            search_timeout_ms=5000,
+            username=None,
+            password=None,
+            tls=False,
+        )
+        config = {"search-workers-priority-bias-threshold": "6"}
+        commands: list[tuple[object, ...]] = []
+
+        class RedisClient:
+            def __init__(self, **_kwargs: object):
+                pass
+
+            def execute_command(self, *command: object) -> object:
+                commands.append(command)
+                if command[:2] == ("CONFIG", "SET"):
+                    for index in range(2, len(command), 2):
+                        config[str(command[index])] = str(command[index + 1])
+                    return b"OK"
+                if command[:2] == ("CONFIG", "GET"):
+                    return {name.encode(): config[name].encode() for name in command[2:]}
+                raise AssertionError(command)
+
+            def close(self) -> None:
+                pass
+
+        redis_module = SimpleNamespace(
+            Redis=RedisClient,
+            exceptions=SimpleNamespace(RedisError=RuntimeError),
+        )
+        nodes = [SimpleNamespace(host="127.0.0.1", port=7000)]
+        setup.configure_cluster(redis_module, args, nodes)
+
+        set_command = next(command for command in commands if command[:2] == ("CONFIG", "SET"))
+        self.assertNotIn("search-workers-priority-bias-threshold", set_command)
+        self.assertEqual(config, setup.expected_search_config(args))
+
+    def test_immutable_profile_mismatch_does_not_mutate_cluster(self) -> None:
+        commands: list[tuple[object, ...]] = []
+
+        class RedisClient:
+            def __init__(self, **_kwargs: object):
+                pass
+
+            def execute_command(self, *command: object) -> object:
+                commands.append(command)
+                return {b"search-workers-priority-bias-threshold": b"1"}
+
+            def close(self) -> None:
+                pass
+
+        redis_module = SimpleNamespace(
+            Redis=RedisClient,
+            exceptions=SimpleNamespace(RedisError=RuntimeError),
+        )
+        args = SimpleNamespace(
+            search_timeout_ms=2000,
+            username=None,
+            password=None,
+            tls=False,
+        )
+        with self.assertRaisesRegex(RuntimeError, "recreate the cluster"):
+            setup.configure_cluster(
+                redis_module,
+                args,
+                [SimpleNamespace(host="127.0.0.1", port=7000)],
+            )
+
+        self.assertFalse(any(command[:2] == ("CONFIG", "SET") for command in commands))
+
     def test_rdb_preflight_verifies_expected_bucket_owner(self) -> None:
         calls: list[dict[str, object]] = []
 

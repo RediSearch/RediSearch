@@ -31,6 +31,8 @@ Options:
   --redis-cli PATH        Remote redis-cli command or path (default: redis-cli)
   --json-module PATH      Remote absolute path to rejson.so (required)
   --search-module PATH    Remote absolute path to redisearch.so (required)
+  --search-module-args ARGS
+                           Space-separated arguments passed to redisearch.so
   --install               Install the exact Redis 8+ distribution on all hosts
   --shards COUNT          Number of primary shards (default: 20)
   --db-memory-gb GB       Logical primary capacity in GiB (default: 400)
@@ -42,6 +44,7 @@ Options:
 Example:
   scripts/start-redis-oss-cluster.sh --ssh-user ec2-user \
     --identity-file ~/.ssh/test.pem \
+    --search-module-args "WORKERS 12 TIMEOUT 2000 ON_TIMEOUT fail CURSOR_MAX_IDLE 60000 WORKERS_PRIORITY_BIAS_THRESHOLD 6 ENABLE_UNSTABLE_FEATURES TRUE BM25STD_TANH_FACTOR 200 DEFAULT_DIALECT 2 INDEX_CURSOR_LIMIT 256" \
     --install \
     10.0.1.10 10.0.2.10 10.0.3.10 10.0.4.10 8.2.1
 
@@ -119,6 +122,7 @@ redis_server=redis-server
 redis_cli=redis-cli
 json_module=
 search_module=
+search_module_args_text=
 install_redis=0
 shards=20
 db_memory_gb=400
@@ -171,6 +175,11 @@ while (($# > 0)); do
     --search-module)
       (($# >= 2)) || die "--search-module requires a value"
       search_module=$2
+      shift 2
+      ;;
+    --search-module-args)
+      (($# >= 2)) || die "--search-module-args requires a value"
+      search_module_args_text=$2
       shift 2
       ;;
     --install)
@@ -289,6 +298,13 @@ is_safe_remote_value "$search_module" || die "unsafe --search-module value: $sea
 total_nodes=$((shards * 2))
 memory_per_node_mb=$((logical_memory_mb / shards))
 physical_memory_mb=$((memory_per_node_mb * total_nodes))
+declare -a search_module_args=()
+if [[ -n "$search_module_args_text" ]]; then
+  read -r -a search_module_args <<<"$search_module_args_text"
+  for module_arg in "${search_module_args[@]}"; do
+    is_safe_remote_value "$module_arg" || die "unsafe --search-module-args value: $module_arg"
+  done
+fi
 
 declare -a primary_counts=()
 declare -a replica_counts=()
@@ -395,6 +411,11 @@ echo "  Physical Redis capacity including replicas: $((physical_memory_mb / 1024
 echo "  Redis version: $redis_version"
 echo "  RedisJSON module: $json_module"
 echo "  RediSearch module: $search_module"
+if ((${#search_module_args[@]})); then
+  echo "  RediSearch module args: ${search_module_args[*]}"
+else
+  echo "  RediSearch module args: <none>"
+fi
 for ((i = 0; i < host_count; i++)); do
   if ((node_counts[i] == 0)); then
     port_range="none"
@@ -711,7 +732,8 @@ start_host() {
   echo "Starting $count shards on $destination"
   ssh "${ssh_options[@]}" "$destination" bash -s -- \
     "$announce_ip" "$base_port" "$count" "$remote_dir" "$redis_server" "$redis_cli" \
-    "$startup_timeout" "$json_module" "$search_module" "$memory_per_node_mb" <<'REMOTE_START'
+    "$startup_timeout" "$json_module" "$search_module" "$memory_per_node_mb" \
+    "${search_module_args[@]}" <<'REMOTE_START'
 set -euo pipefail
 announce_ip=$1
 base_port=$2
@@ -723,6 +745,8 @@ startup_timeout=$7
 json_module=$8
 search_module=$9
 memory_per_node_mb=${10}
+shift 10
+search_module_args=("$@")
 
 mkdir -p -m 700 "$remote_dir"
 for ((i = 0; i < count; i++)); do
@@ -747,7 +771,7 @@ for ((i = 0; i < count; i++)); do
     --cluster-announce-port "$port" \
     --cluster-announce-bus-port "$((port + 10000))" \
     --loadmodule "$json_module" \
-    --loadmodule "$search_module" \
+    --loadmodule "$search_module" "${search_module_args[@]}" \
     --pidfile "$node_dir/redis.pid" \
     --logfile "$node_dir/redis.log"
 done

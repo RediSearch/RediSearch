@@ -34,6 +34,16 @@ S3_EXPECTED_BUCKET_OWNER = "620187402834"
 SOURCE_START_TIMEOUT_SEC = 300.0
 LOGGER = logging.getLogger("ltk-db-setup")
 _SOURCE_LAUNCH_LOCK = threading.Lock()
+LTK_SEARCH_CONFIG = {
+    "search-workers": "12",
+    "search-cursor-max-idle": "60000",
+    "search-workers-priority-bias-threshold": "6",
+    "search-enable-unstable-features": "yes",
+    "search-bm25std-tanh-factor": "200",
+    "search-default-dialect": "2",
+    "search-index-cursor-limit": "256",
+}
+IMMUTABLE_SEARCH_CONFIG = {"search-workers-priority-bias-threshold"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,7 +102,7 @@ def connection_kwargs(
     }
 
 
-def configure_cluster(redis_module: Any, args: argparse.Namespace) -> list[Any]:
+def cluster_nodes(redis_module: Any, args: argparse.Namespace) -> list[Any]:
     cluster = redis_module.RedisCluster(
         host=str(args.shard_ip),
         port=args.port,
@@ -102,38 +112,109 @@ def configure_cluster(redis_module: Any, args: argparse.Namespace) -> list[Any]:
         nodes = list(cluster.get_nodes())
         if not nodes:
             raise RuntimeError("Redis Cluster returned no nodes")
-        failures: list[str] = []
-        for node in nodes:
-            client = redis_module.Redis(
-                host=node.host,
-                port=node.port,
-                **connection_kwargs(args),
-            )
-            try:
-                response = client.execute_command(
-                    "CONFIG",
-                    "SET",
-                    "search-timeout",
-                    args.search_timeout_ms,
-                    "search-on-timeout",
-                    "fail",
-                )
-                if response not in (True, b"OK", "OK"):
-                    failures.append(f"{node.host}:{node.port} returned {response!r}")
-            except redis_module.exceptions.RedisError as error:
-                failures.append(f"{node.host}:{node.port}: {error}")
-            finally:
-                client.close()
-        if failures:
-            raise RuntimeError("Search configuration failed:\n  " + "\n  ".join(failures))
-        LOGGER.info(
-            "Configured search-timeout=%d and search-on-timeout=fail on %d nodes",
-            args.search_timeout_ms,
-            len(nodes),
-        )
         return nodes
     finally:
         cluster.close()
+
+
+def expected_search_config(args: argparse.Namespace) -> dict[str, str]:
+    return {
+        **LTK_SEARCH_CONFIG,
+        "search-timeout": str(args.search_timeout_ms),
+        "search-on-timeout": "fail",
+    }
+
+
+def decode_config(reply: Any) -> dict[str, str]:
+    if isinstance(reply, dict):
+        return {
+            (key.decode() if isinstance(key, bytes) else str(key)): (
+                value.decode() if isinstance(value, bytes) else str(value)
+            )
+            for key, value in reply.items()
+        }
+    values = list(reply)
+    return {
+        (values[index].decode() if isinstance(values[index], bytes) else str(values[index])): (
+            values[index + 1].decode()
+            if isinstance(values[index + 1], bytes)
+            else str(values[index + 1])
+        )
+        for index in range(0, len(values) - 1, 2)
+    }
+
+
+def search_config_matches(name: str, actual: str | None, expected: str) -> bool:
+    if actual is None:
+        return False
+    if name == "search-enable-unstable-features":
+        return actual.lower() in {"1", "true", "yes"}
+    return actual.lower() == expected.lower()
+
+
+def configure_cluster(
+    redis_module: Any,
+    args: argparse.Namespace,
+    nodes: list[Any],
+) -> None:
+    expected = expected_search_config(args)
+    mutable = {
+        name: value for name, value in expected.items() if name not in IMMUTABLE_SEARCH_CONFIG
+    }
+    failures: list[str] = []
+    for node in nodes:
+        client = redis_module.Redis(
+            host=node.host,
+            port=node.port,
+            **connection_kwargs(args),
+        )
+        try:
+            actual = decode_config(
+                client.execute_command("CONFIG", "GET", *IMMUTABLE_SEARCH_CONFIG)
+            )
+            for name in IMMUTABLE_SEARCH_CONFIG:
+                if not search_config_matches(name, actual.get(name), expected[name]):
+                    failures.append(
+                        f"{node.host}:{node.port} {name}={actual.get(name)!r}, "
+                        f"expected {expected[name]!r}"
+                    )
+        except redis_module.exceptions.RedisError as error:
+            failures.append(f"{node.host}:{node.port}: {error}")
+        finally:
+            client.close()
+    if failures:
+        raise RuntimeError(
+            "immutable LTK Search startup configuration mismatch; recreate the cluster with "
+            "--search-module-args:\n  " + "\n  ".join(failures)
+        )
+
+    for node in nodes:
+        client = redis_module.Redis(
+            host=node.host,
+            port=node.port,
+            **connection_kwargs(args),
+        )
+        try:
+            set_command: list[object] = ["CONFIG", "SET"]
+            for name, value in mutable.items():
+                set_command.extend((name, value))
+            response = client.execute_command(*set_command)
+            if response not in (True, b"OK", "OK"):
+                failures.append(f"{node.host}:{node.port} CONFIG SET returned {response!r}")
+                continue
+            actual = decode_config(client.execute_command("CONFIG", "GET", *expected))
+            for name, value in expected.items():
+                if not search_config_matches(name, actual.get(name), value):
+                    failures.append(
+                        f"{node.host}:{node.port} {name}={actual.get(name)!r}, expected {value!r}"
+                    )
+        except redis_module.exceptions.RedisError as error:
+            failures.append(f"{node.host}:{node.port}: {error}")
+        finally:
+            client.close()
+    if failures:
+        raise RuntimeError("Search configuration failed:\n  " + "\n  ".join(failures))
+    LOGGER.info("Configured and verified the LTK Search profile on %d nodes", len(nodes))
 
 
 def assert_cluster_ready(redis_module: Any, args: argparse.Namespace, nodes: list[Any]) -> None:
@@ -366,10 +447,11 @@ def main() -> int:
         return 2
 
     try:
-        nodes = configure_cluster(redis, args)
+        nodes = cluster_nodes(redis, args)
         assert_cluster_ready(redis, args, nodes)
         s3 = boto3.client("s3")
         verify_rdb_objects(args, s3)
+        configure_cluster(redis, args, nodes)
         imported_keys = 0
         ordinals = range(args.start_ordinal, RDB_COUNT + 1)
         LOGGER.info(

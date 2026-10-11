@@ -24,6 +24,9 @@ environment or instance-role chain. Redis authentication is read from
 REDIS_PASSWORD or REDISCLI_AUTH. Arguments after SHARD_IP are passed only to
 run_ltk_scenario.py.
 
+Create the cluster with the customer Search profile:
+  --search-module-args "WORKERS 12 TIMEOUT 2000 ON_TIMEOUT fail CURSOR_MAX_IDLE 60000 WORKERS_PRIORITY_BIAS_THRESHOLD 6 ENABLE_UNSTABLE_FEATURES TRUE BM25STD_TANH_FACTOR 200 DEFAULT_DIALECT 2 INDEX_CURSOR_LIMIT 256"
+
 Example:
   scripts/LTK/run_ltk.sh --port 7000 10.0.1.10 --replay-duration 600
 EOF
