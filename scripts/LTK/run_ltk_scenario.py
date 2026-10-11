@@ -21,10 +21,10 @@ import sys
 import threading
 import time
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 INDEX_NAME = "idx:acs"
 S3_BUCKET = "rl-automation"
@@ -146,6 +146,7 @@ class IndexSchema:
     fields: frozenset[str]
     types: dict[str, str]
     paths: dict[str, str]
+    sortable_paths: frozenset[str]
 
 
 @dataclass
@@ -432,6 +433,22 @@ def partition_monitor_trace(path: Path) -> tuple[ReplayBuckets, TraceTotals]:
     return buckets, totals
 
 
+def validate_trace_buckets(buckets: ReplayBuckets) -> None:
+    empty = [
+        name
+        for name, commands in (
+            ("writes", buckets.writes),
+            ("FT queries", buckets.ft),
+            ("reads", buckets.reads),
+        )
+        if not commands
+    ]
+    if empty:
+        raise RuntimeError(
+            "monitor trace did not produce required command buckets: " + ", ".join(empty)
+        )
+
+
 def derive_product_id(key: bytes) -> str:
     return key[len(TTL_PROBE_KEY_PREFIX) :].decode("latin-1", errors="replace")
 
@@ -529,6 +546,7 @@ def capture_index_schema(search: Any) -> IndexSchema:
     info = flat_pairs(search.execute_command("FT.INFO", INDEX_NAME))
     types: dict[str, str] = {}
     paths: dict[str, str] = {}
+    sortable_paths: set[str] = set()
     attributes = info.get("attributes", [])
     for raw_attribute in attributes:
         attribute = flat_pairs(raw_attribute)
@@ -537,7 +555,18 @@ def capture_index_schema(search: Any) -> IndexSchema:
             continue
         types[name] = decode(attribute.get("type", "")).upper()
         paths[name] = decode(attribute.get("identifier", name))
-    return IndexSchema(fields=frozenset(types), types=types, paths=paths)
+        raw_flags = attribute.get("flags", [])
+        if isinstance(raw_flags, (str, bytes)):
+            raw_flags = [raw_flags]
+        flags = {decode(flag).upper() for flag in raw_flags}
+        if "SORTABLE" in flags and "UNF" in flags and "NOINDEX" not in flags:
+            sortable_paths.add(paths[name])
+    return IndexSchema(
+        fields=frozenset(types),
+        types=types,
+        paths=paths,
+        sortable_paths=frozenset(sortable_paths),
+    )
 
 
 def clamp_inline_timeout(command: Command, floor_ms: int) -> tuple[Command, bool]:
@@ -616,12 +645,14 @@ def replay_bucket(
                 errors += 1
                 message = str(result)
                 error_counts[(type(result).__name__, message[:160])] += 1
-                if is_ft and isinstance(result, redis_module.exceptions.ResponseError):
-                    if _TIMEOUT_ERROR_RE.search(message) and not _COORDINATOR_ERROR_RE.search(
-                        message
-                    ):
-                        timeouts += 1
-                        continue
+                if (
+                    is_ft
+                    and isinstance(result, redis_module.exceptions.ResponseError)
+                    and _TIMEOUT_ERROR_RE.search(message)
+                    and not _COORDINATOR_ERROR_RE.search(message)
+                ):
+                    timeouts += 1
+                    continue
                 if is_ft and (
                     isinstance(result, redis_module.exceptions.TimeoutError)
                     or _COORDINATOR_ERROR_RE.search(message)
@@ -666,7 +697,7 @@ def run_validator(
 ) -> ValidatorReport:
     report = ValidatorReport()
     search = make_search_client(redis_module, args, PROBE_SOCKET_TIMEOUT_SEC)
-    lower_bound = baseline.num_docs - totals.deletes - totals.expires
+    lower_bound = baseline.num_docs - totals.deletes - totals.expires - args.ttl_probe_count
     upper_bound = baseline.num_docs + totals.inserts
     try:
         while not stop_event.is_set():
@@ -798,6 +829,13 @@ def assert_replay_and_validator(
     failures: list[str] = []
     if ft_exception is not None:
         failures.append(f"FT replay failed: {type(ft_exception).__name__}: {ft_exception}")
+    if not processed:
+        failures.append("FT replay processed no commands")
+    non_timeout_errors = ft_stats["err"] - ft_stats["timeout"]
+    if non_timeout_errors:
+        failures.append(
+            f"FT replay had {non_timeout_errors} non-timeout errors in {processed} commands"
+        )
     if write_stats["err"]:
         failures.append(
             f"write replay had {write_stats['err']} errors in "
@@ -807,6 +845,12 @@ def assert_replay_and_validator(
         failures.append(
             f"FT timeout rate {timeout_rate:.2%} ({ft_stats['timeout']}/{processed}) exceeds "
             f"{args.ft_timeout_rate_budget:.2%}"
+        )
+    if not report.info_samples:
+        failures.append("validator captured no FT.INFO samples")
+    if report.probe_samples < len(GOLDEN_PROBES):
+        failures.append(
+            f"validator ran only {report.probe_samples}/{len(GOLDEN_PROBES)} golden probes"
         )
     failures.extend(report.failures[:50])
     if failures:
@@ -828,7 +872,11 @@ def absorb_search_results(
                 continue
             key = raw_key if isinstance(raw_key, bytes) else str(raw_key).encode("latin-1")
             fields = flat_pairs(raw_fields)
-            output[key] = {name for name in identifiers if fields.get(name)}
+            output[key] = {
+                name
+                for name in identifiers
+                if name in fields and fields[name] not in (None, b"", "")
+            }
         return
 
     values = list(response)
@@ -839,7 +887,11 @@ def absorb_search_results(
             continue
         key = raw_key if isinstance(raw_key, bytes) else str(raw_key).encode("latin-1")
         fields = flat_pairs(raw_fields)
-        output[key] = {name for name in identifiers if fields.get(name)}
+        output[key] = {
+            name
+            for name in identifiers
+            if name in fields and fields[name] not in (None, b"", "")
+        }
 
 
 def walk_index_field_presence(
@@ -847,7 +899,9 @@ def walk_index_field_presence(
     schema: IndexSchema,
     tracked: set[bytes],
 ) -> dict[bytes, set[str]]:
-    identifiers = sorted(set(schema.paths.values()))
+    # SORTABLE UNF values are served from Search's sorting vector. Other RETURN
+    # fields may be reloaded from the live hash and cannot validate indexed state.
+    identifiers = sorted(schema.sortable_paths)
     output: dict[bytes, set[str]] = {}
     tracked_keys = list(tracked)
     for start in range(0, len(tracked_keys), INDEX_LOOKUP_BATCH):
@@ -890,7 +944,7 @@ def capture_redis_field_presence(
             output[key] = {
                 decode(raw_field)
                 for raw_field, raw_value in (raw_hash or {}).items()
-                if raw_value and decode(raw_field) in identifiers
+                if raw_value not in (None, b"", "") and decode(raw_field) in identifiers
             }
     return output
 
@@ -901,7 +955,9 @@ def cross_check_tracked_keys(
     schema: IndexSchema,
     keys: list[bytes],
 ) -> None:
-    identifiers = frozenset(schema.paths.values())
+    identifiers = schema.sortable_paths
+    if not identifiers:
+        raise RuntimeError("index schema has no SORTABLE UNF fields to cross-check")
     actual = walk_index_field_presence(search, schema, set(keys))
     expected = capture_redis_field_presence(cluster, keys, identifiers)
     failures: list[str] = []
@@ -909,6 +965,9 @@ def cross_check_tracked_keys(
     phantom_fields: Counter[str] = Counter()
     for key, expected_fields in expected.items():
         actual_fields = actual.get(key)
+        if not expected_fields and actual_fields is not None:
+            failures.append(f"{decode(key)} is absent from Redis but remains in the index")
+            continue
         if actual_fields is None:
             if expected_fields:
                 failures.append(f"{decode(key)} missing from index walk")
@@ -929,6 +988,104 @@ def cross_check_tracked_keys(
             + "\n  ".join(failures[:20])
         )
     LOGGER.info("Tracked-key cross-check passed for %d documents", len(keys))
+
+
+def escape_tag_value(value: str) -> str:
+    return re.sub(r"([^A-Za-z0-9_])", r"\\\1", value)
+
+
+def search_result_keys(response: Any) -> set[bytes]:
+    if isinstance(response, dict):
+        results = response.get("results") or response.get(b"results") or []
+        keys = []
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            raw_key = result.get("id") or result.get(b"id")
+            if raw_key is not None:
+                keys.append(raw_key)
+    else:
+        keys = list(response)[1:]
+    return {
+        key if isinstance(key, bytes) else str(key).encode("latin-1")
+        for key in keys
+    }
+
+
+def find_indexed_ttl_keys(search: Any, key_set: TtlKeySet) -> set[bytes]:
+    indexed: set[bytes] = set()
+    for start in range(0, len(key_set.keys), INDEX_LOOKUP_BATCH):
+        keys = key_set.keys[start : start + INDEX_LOOKUP_BATCH]
+        ids = key_set.ids[start : start + INDEX_LOOKUP_BATCH]
+        if not keys:
+            continue
+        query = "@product_id:{" + "|".join(escape_tag_value(value) for value in ids) + "}"
+        response = search.execute_command(
+            "FT.SEARCH",
+            INDEX_NAME,
+            query,
+            "INKEYS",
+            str(len(keys)),
+            *keys,
+            "NOCONTENT",
+            "LIMIT",
+            "0",
+            str(len(keys)),
+            "TIMEOUT",
+            str(FT_WALK_TIMEOUT_MS),
+            "DIALECT",
+            "2",
+        )
+        indexed.update(search_result_keys(response))
+    return indexed
+
+
+def existing_keys(cluster: Any, keys: list[bytes]) -> set[bytes]:
+    existing: set[bytes] = set()
+    for start in range(0, len(keys), INDEX_LOOKUP_BATCH):
+        batch = keys[start : start + INDEX_LOOKUP_BATCH]
+        pipeline = cluster.pipeline(transaction=False)
+        for key in batch:
+            pipeline.exists(key)
+        existing.update(key for key, result in zip(batch, pipeline.execute()) if result)
+    return existing
+
+
+def validate_ttl_sets(
+    cluster: Any,
+    search: Any,
+    probes: TtlKeySet,
+    survivors: TtlKeySet,
+) -> None:
+    deadline = max(time.time(), probes.expire_at_unix) + 60.0
+    remaining_keys: set[bytes] = set(probes.keys)
+    remaining_indexed: set[bytes] = set(probes.keys)
+    while time.time() <= deadline:
+        remaining_keys = existing_keys(cluster, probes.keys)
+        remaining_indexed = find_indexed_ttl_keys(search, probes)
+        if not remaining_keys and not remaining_indexed:
+            break
+        time.sleep(2.0)
+    if remaining_keys or remaining_indexed:
+        raise RuntimeError(
+            "TTL probes did not expire cleanly: "
+            f"redis={len(remaining_keys)} index={len(remaining_indexed)}"
+        )
+
+    survivor_keys = existing_keys(cluster, survivors.keys)
+    survivor_indexed = find_indexed_ttl_keys(search, survivors)
+    missing_redis = set(survivors.keys) - survivor_keys
+    missing_index = set(survivors.keys) - survivor_indexed
+    if missing_redis or missing_index:
+        raise RuntimeError(
+            "TTL survivors disappeared: "
+            f"redis={len(missing_redis)} index={len(missing_index)}"
+        )
+    LOGGER.info(
+        "TTL validation passed: expired=%d survivors=%d",
+        len(probes.keys),
+        len(survivors.keys),
+    )
 
 
 def main() -> int:
@@ -957,6 +1114,7 @@ def main() -> int:
 
         LOGGER.info("Step: Parse monitor trace")
         buckets, totals = partition_monitor_trace(trace_path)
+        validate_trace_buckets(buckets)
         LOGGER.info(
             "Trace buckets: writes=%d ft=%d reads=%d inserts=%d deletes=%d expires=%d hdel=%d",
             len(buckets.writes),
@@ -994,12 +1152,18 @@ def main() -> int:
         baseline_schema = capture_index_schema(search)
 
         LOGGER.info("Step: Sample tracked keys for post-replay validation")
-        tracked_keys = reservoir_sample_tracked_keys(
+        stable_keys = reservoir_sample_tracked_keys(
             cluster,
             touched_keys | set(ttl_probes.keys) | set(ttl_survivors.keys),
             random.Random(args.rng_seed),
         )
-        LOGGER.info("Tracked keys selected: %d", len(tracked_keys))
+        tracked_keys = list(dict.fromkeys([*stable_keys, *sorted(touched_keys)]))
+        LOGGER.info(
+            "Tracked keys selected: total=%d stable=%d replay_touched=%d",
+            len(tracked_keys),
+            len(stable_keys),
+            len(touched_keys),
+        )
 
         LOGGER.info("Running monitor replay and validator for %.0fs", args.replay_duration)
         report, ft_exception, ft_stats, write_stats = run_replay_and_validator(
@@ -1012,6 +1176,9 @@ def main() -> int:
 
         LOGGER.info("Step: Assert FT replay bucket and validator report")
         assert_replay_and_validator(args, report, ft_exception, ft_stats, write_stats)
+
+        LOGGER.info("Step: Validate TTL probes and survivors")
+        validate_ttl_sets(cluster, search, ttl_probes, ttl_survivors)
 
         LOGGER.info("Step: §4.6 tracked-key FT cross-check")
         cross_check_tracked_keys(cluster, search, baseline_schema, tracked_keys)

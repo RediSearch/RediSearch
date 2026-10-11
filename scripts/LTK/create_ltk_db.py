@@ -26,7 +26,6 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-
 RDB_COUNT = 20
 S3_BUCKET = "rl-automation"
 S3_PREFIX = "rlauto/search-customer-scenarios/ltk/rdbs-without-index"

@@ -30,7 +30,6 @@ EOF
 
 port=7000
 username=${REDIS_USERNAME:-}
-tls=0
 monitor_trace=
 s3_bucket=rl-automation
 s3_prefix=rlauto/search-customer-scenarios/ltk/rdbs-without-index
@@ -50,8 +49,8 @@ while (($# > 0)); do
       shift 2
       ;;
     --tls)
-      tls=1
-      shift
+      echo "error: run_ltk.sh cannot import the local temporary Redis source over TLS" >&2
+      exit 2
       ;;
     --monitor-trace)
       (($# >= 2)) || { echo "error: --monitor-trace requires a path" >&2; exit 2; }
@@ -100,7 +99,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 python=${PYTHON:-python3}
 common_args=(--port "$port")
 [[ -z "$username" ]] || common_args+=(--username "$username")
-((tls == 0)) || common_args+=(--tls)
 if [[ -n "$monitor_trace" ]]; then
   monitor_args=(--monitor-trace "$monitor_trace")
 else

@@ -17,7 +17,6 @@ import sys
 import time
 from typing import Any
 
-
 INDEX_NAME = "idx:acs"
 INDEX_WAIT_TIMEOUT_SEC = 7_200.0
 INDEX_POLL_INTERVAL_SEC = 5.0
