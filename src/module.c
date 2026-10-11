@@ -3792,9 +3792,29 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
-  RedisModuleString **argv, int argc, int indexNamePos) {
-  if (argc < 2) {
+typedef enum {
+  FANOUT_NO_INDEX,
+  FANOUT_REQUIRED_INDEX,
+  FANOUT_OPTIONAL_INDEX,
+  FANOUT_ALIAS_ADD,
+  FANOUT_ALIAS_ADD_IFNX,
+  FANOUT_ALIAS_UPDATE,
+} FanoutIndexAccess;
+
+static bool MayAccessExistingIndex(RedisModuleCtx *ctx, RedisModuleString *name, bool allowAlias) {
+  IndexLoadOptions options = {.nameR = name,
+                              .flags = INDEXSPEC_LOAD_KEY_RSTRING | INDEXSPEC_LOAD_NOCOUNTERINC |
+                                       INDEXSPEC_LOAD_NOTIMERUPDATE};
+  if (!allowAlias) options.flags |= INDEXSPEC_LOAD_NOALIAS;
+  IndexSpec *sp = StrongRef_Get(Indexes_LoadIndexSpecUnsafeEx(&options));
+  return !sp || ACLUserMayAccessIndex(ctx, sp);
+}
+
+static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                       FanoutIndexAccess access) {
+  if (argc < 2 || ((access == FANOUT_ALIAS_ADD || access == FANOUT_ALIAS_ADD_IFNX ||
+                    access == FANOUT_ALIAS_UPDATE) &&
+                   argc != 3)) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
@@ -3802,12 +3822,18 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
   }
   RS_AutoMemory(ctx);
 
-  // Validate ACL key permissions if needed (for commands that access an index)
-  if (indexNamePos != -1) {
-    if (indexNamePos >= argc) {
-      return RedisModule_WrongArity(ctx);
+  // Dispatch uses internal privileges, so authorize every affected index as the caller.
+  if (access == FANOUT_REQUIRED_INDEX) {
+    VERIFY_ACL(ctx, argv[1])
+  } else if (access == FANOUT_OPTIONAL_INDEX || access == FANOUT_ALIAS_UPDATE) {
+    if (!MayAccessExistingIndex(ctx, argv[1], true)) {
+      return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
     }
-    VERIFY_ACL(ctx, argv[indexNamePos])
+  }
+  if (access == FANOUT_ALIAS_ADD || access == FANOUT_ALIAS_UPDATE) {
+    VERIFY_ACL(ctx, argv[2])
+  } else if (access == FANOUT_ALIAS_ADD_IFNX && !MayAccessExistingIndex(ctx, argv[2], false)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
   if (NumShards == 1) {
@@ -3827,19 +3853,33 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
   return REDISMODULE_OK;
 }
 
-static int FanoutCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
-  RedisModuleString **argv, int argc) {
-  return MastersFanoutCommandHandler(ctx, argv, argc, 1);
+static int FanoutCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                                   int argc) {
+  return MastersFanoutCommandHandler(ctx, argv, argc, FANOUT_REQUIRED_INDEX);
 }
 
-static int FanoutCommandHandlerWithIndexAtSecondArg(RedisModuleCtx *ctx,
-  RedisModuleString **argv, int argc) {
-  return MastersFanoutCommandHandler(ctx, argv, argc, 2);
+static int AliasAddFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return MastersFanoutCommandHandler(ctx, argv, argc, FANOUT_ALIAS_ADD);
 }
 
-static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
-  RedisModuleString **argv, int argc) {
-  return MastersFanoutCommandHandler(ctx, argv, argc, -1);
+static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return MastersFanoutCommandHandler(ctx, argv, argc, FANOUT_NO_INDEX);
+}
+
+static int FanoutCommandHandlerWithOptionalIndex(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                                 int argc) {
+  if (argc < 2 || argc > 3) return RedisModule_WrongArity(ctx);
+  return MastersFanoutCommandHandler(ctx, argv, argc, FANOUT_OPTIONAL_INDEX);
+}
+
+static int AliasAddIfNotExistsFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                                   int argc) {
+  return MastersFanoutCommandHandler(ctx, argv, argc, FANOUT_ALIAS_ADD_IFNX);
+}
+
+static int AliasUpdateFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                           int argc) {
+  return MastersFanoutCommandHandler(ctx, argv, argc, FANOUT_ALIAS_UPDATE);
 }
 
 void RSExecDistAggregate(void *arg);
@@ -5088,21 +5128,20 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       DEFINE_COMMAND("FT.ALTER",          SafeCmd(DiskDisabledCmd(FanoutCommandHandlerWithIndexAtFirstArg)),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(DiskDisabledCmd(FanoutCommandHandlerWithIndexAtFirstArg)),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                noKeyArgs, false),
-      // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.true
-      DEFINE_COMMAND("FT._DROPINDEXIFX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT._DROPINDEXIFX",  SafeCmd(FanoutCommandHandlerWithOptionalIndex),                  "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.DICTADD",        SafeCmd(DiskDisabledCmd(FanoutCommandHandlerIndexless)),    "write deny-oom", SetFtDictaddInfo,               SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.DICTDEL",        SafeCmd(DiskDisabledCmd(FanoutCommandHandlerIndexless)),    "write",          SetFtDictdelInfo,               SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.ALIASADD",       SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT._ALIASADDIFNX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.ALIASADD",       SafeCmd(AliasAddFanoutCommandHandler),       "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT._ALIASADDIFNX",  SafeCmd(AliasAddIfNotExistsFanoutCommandHandler),                  "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerWithOptionalIndex),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerWithOptionalIndex),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(AliasUpdateFanoutCommandHandler),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(DiskDisabledCmd(FanoutCommandHandlerWithIndexAtFirstArg)),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly",       RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !isClusterEnabled,   noKeyArgs, false),
 
       // // Deprecated OSS commands
       DEFINE_COMMAND("FT.DROP",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", NULL, NONE,    "write slow dangerous", true,          noKeyArgs, false),
-      DEFINE_COMMAND("FT._DROPIFX",  SafeCmd(FanoutCommandHandlerIndexless),           "write", NULL, NONE,    "write",                true,          noKeyArgs, false),
+      DEFINE_COMMAND("FT._DROPIFX",  SafeCmd(FanoutCommandHandlerWithOptionalIndex),           "write", NULL, NONE,    "write",                true,          noKeyArgs, false),
     };
     if (CreateSearchCommands(ctx, writeCommands, sizeof(writeCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
