@@ -307,40 +307,39 @@ def test_acl_metadata_commands(env):
     env.expect('FT.CREATE', 'allowed', 'PREFIX', 1, 'allowed:',
                'SCHEMA', 'text', 'TEXT').ok()
 
-    denied_commands = [
-        ['FT._DROPINDEXIFX', '{index}'],
-        ['FT._DROPIFX', '{index}', '_FORCEKEEPDOCS'],
-        ['FT._DROPINDEXIFX', '{alias}'],
-        ['FT._DROPIFX', '{alias}', '_FORCEKEEPDOCS'],
-        ['FT._ALIASADDIFNX', 'new_alias', '{index}'],
-        ['FT.ALIASDEL', '{alias}'],
-        ['FT._ALIASDELIFX', '{alias}'],
-        ['FT.ALIASUPDATE', '{alias}', 'allowed'],
-        ['FT.ALIASUPDATE', 'allowed_alias', '{index}'],
-    ]
-    for i, command in enumerate(denied_commands):
-        index, alias = f'denied_{i}', f'denied_alias_{i}'
-        env.expect('FT.CREATE', index, 'PREFIX', 1, 'denied:',
+    denied_commands = {
+        'drop_index': ['FT._DROPINDEXIFX', '{index}'],
+        'drop_legacy': ['FT._DROPIFX', '{index}', '_FORCEKEEPDOCS'],
+        'drop_index_by_alias': ['FT._DROPINDEXIFX', '{alias}'],
+        'drop_legacy_by_alias': ['FT._DROPIFX', '{alias}', '_FORCEKEEPDOCS'],
+        'add_alias': ['FT._ALIASADDIFNX', 'new_alias', '{index}'],
+        'delete_alias': ['FT.ALIASDEL', '{alias}'],
+        'delete_alias_if_exists': ['FT._ALIASDELIFX', '{alias}'],
+        'update_denied_source': ['FT.ALIASUPDATE', '{alias}', 'allowed'],
+        'update_denied_destination': ['FT.ALIASUPDATE', 'allowed_alias', '{index}'],
+    }
+    for scenario in denied_commands:
+        env.expect('FT.CREATE', scenario, 'PREFIX', 1, 'denied:',
                    'SCHEMA', 'text', 'TEXT').ok()
-        env.expect('FT.ALIASADD', alias, index).ok()
+        env.expect('FT.ALIASADD', f'{scenario}_alias', scenario).ok()
     env.expect('FT.ALIASADD', 'allowed_alias', 'allowed').ok()
 
     env.expect('AUTH', 'metadata_user', '123').true()
-    for i, command in enumerate(denied_commands):
-        command = [arg.format(index=f'denied_{i}', alias=f'denied_alias_{i}')
+    for scenario, command in denied_commands.items():
+        command = [arg.format(index=scenario, alias=f'{scenario}_alias')
                    for arg in command]
         env.expect(*command).error().contains('User does not have the required permissions')
 
     for command in ['FT.ALIASDEL', 'FT._ALIASDELIFX']:
-        env.expect(command, 'denied_alias_5', 'extra').error().contains('wrong number of arguments')
+        env.expect(command, 'delete_alias_alias', 'extra').error().contains('wrong number of arguments')
     for command in ['FT._DROPINDEXIFX', 'FT._DROPIFX']:
-        env.expect(command, 'denied_5', 'extra', 'extra').error().contains('wrong number of arguments')
+        env.expect(command, 'drop_index', 'extra', 'extra').error().contains('wrong number of arguments')
 
     # Check the state as admin: rejection must leave every index and alias intact.
     env.expect('AUTH', 'default', '').true()
-    for i in range(len(denied_commands)):
-        env.expect('FT.INFO', f'denied_{i}').noError()
-        env.assertEqual(env.cmd('FT.ALIASLIST', f'denied_{i}'), [f'denied_alias_{i}'])
+    for scenario in denied_commands:
+        env.expect('FT.INFO', scenario).noError()
+        env.assertEqual(env.cmd('FT.ALIASLIST', scenario), [f'{scenario}_alias'])
     env.assertEqual(env.cmd('FT.ALIASLIST', 'allowed'), ['allowed_alias'])
 
     env.expect('AUTH', 'metadata_user', '123').true()
