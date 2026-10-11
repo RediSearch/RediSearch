@@ -461,6 +461,8 @@ def seed_ttl_keys(
     sample_size: int,
     expire_seconds: int,
 ) -> TtlKeySet:
+    if sample_size == 0:
+        return TtlKeySet(keys=[], ids=[], expire_at_unix=time.time() + expire_seconds)
     candidates: list[bytes] = []
     for key in cluster.scan_iter(match=TTL_PROBE_PATTERN, count=1_000):
         if key in exclude_keys:
@@ -758,7 +760,13 @@ def run_replay_and_validator(
     buckets: ReplayBuckets,
     totals: TraceTotals,
     baseline: FtInfoSample,
-) -> tuple[ValidatorReport, BaseException | None, dict[str, int], dict[str, int]]:
+) -> tuple[
+    ValidatorReport,
+    BaseException | None,
+    dict[str, int],
+    dict[str, int],
+    dict[str, int],
+]:
     stop_event = threading.Event()
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         ft_future = executor.submit(
@@ -804,17 +812,22 @@ def run_replay_and_validator(
             ft_exception = error
             ft_stats = {"ok": 0, "err": 0, "timeout": 0, "processed": 0}
         write_stats = {"ok": 0, "err": 0, "timeout": 0, "processed": 0}
+        read_stats = {"ok": 0, "err": 0, "timeout": 0, "processed": 0}
         for future_name, future in (("writes", writes_future), ("reads", reads_future)):
             try:
                 stats = future.result()
                 if future_name == "writes":
                     write_stats = stats
+                else:
+                    read_stats = stats
             except BaseException as error:  # noqa: BLE001 - non-FT replay is evidence
                 LOGGER.warning("%s replay failed: %s: %s", future_name, type(error).__name__, error)
                 if future_name == "writes":
                     write_stats["err"] = 1
+                else:
+                    read_stats["err"] = 1
         report = validator_future.result()
-    return report, ft_exception, ft_stats, write_stats
+    return report, ft_exception, ft_stats, write_stats, read_stats
 
 
 def assert_replay_and_validator(
@@ -823,6 +836,7 @@ def assert_replay_and_validator(
     ft_exception: BaseException | None,
     ft_stats: dict[str, int],
     write_stats: dict[str, int],
+    read_stats: dict[str, int],
 ) -> None:
     processed = ft_stats["processed"]
     timeout_rate = ft_stats["timeout"] / processed if processed else 0.0
@@ -846,6 +860,13 @@ def assert_replay_and_validator(
         failures.append(
             f"write replay had {write_stats['err']} errors in "
             f"{write_stats['processed']} processed commands"
+        )
+    if not read_stats["processed"]:
+        failures.append("read replay processed no commands")
+    if read_stats["err"]:
+        failures.append(
+            f"read replay had {read_stats['err']} errors in "
+            f"{read_stats['processed']} processed commands"
         )
     if timeout_rate > args.ft_timeout_rate_budget:
         failures.append(
@@ -1197,7 +1218,7 @@ def main() -> int:
         )
 
         LOGGER.info("Running monitor replay and validator for %.0fs", args.replay_duration)
-        report, ft_exception, ft_stats, write_stats = run_replay_and_validator(
+        report, ft_exception, ft_stats, write_stats, read_stats = run_replay_and_validator(
             redis,
             args,
             buckets,
@@ -1206,7 +1227,14 @@ def main() -> int:
         )
 
         LOGGER.info("Step: Assert FT replay bucket and validator report")
-        assert_replay_and_validator(args, report, ft_exception, ft_stats, write_stats)
+        assert_replay_and_validator(
+            args,
+            report,
+            ft_exception,
+            ft_stats,
+            write_stats,
+            read_stats,
+        )
 
         LOGGER.info("Step: Validate TTL probes and survivors")
         validate_ttl_sets(cluster, search, ttl_probes, ttl_survivors)

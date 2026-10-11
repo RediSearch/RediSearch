@@ -112,7 +112,35 @@ class ScenarioTests(unittest.TestCase):
                 None,
                 {"ok": 0, "err": 1, "timeout": 0, "processed": 1},
                 {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
+                {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
             )
+
+    def test_read_error_fails(self) -> None:
+        args = SimpleNamespace(ft_timeout_rate_budget=1.0)
+        report = scenario.ValidatorReport(
+            info_samples=[scenario.FtInfoSample(1, 0, 0, 0)],
+            probe_samples=len(scenario.GOLDEN_PROBES),
+        )
+        with self.assertRaisesRegex(RuntimeError, "read replay had 1 errors"):
+            scenario.assert_replay_and_validator(
+                args,
+                report,
+                None,
+                {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
+                {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
+                {"ok": 0, "err": 1, "timeout": 0, "processed": 1},
+            )
+
+    def test_zero_sized_ttl_set_does_not_scan_or_mutate(self) -> None:
+        key_set = scenario.seed_ttl_keys(
+            object(),
+            label="empty set",
+            exclude_keys=set(),
+            sample_size=0,
+            expire_seconds=60,
+        )
+        self.assertEqual(key_set.keys, [])
+        self.assertEqual(key_set.ids, [])
 
     def test_schema_keeps_only_sortable_unf_indexed_paths(self) -> None:
         class InfoClient:

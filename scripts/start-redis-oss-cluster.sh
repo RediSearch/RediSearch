@@ -737,6 +737,7 @@ for ((i = 0; i < count; i++)); do
     --dir "$node_dir" \
     --dbfilename dump.rdb \
     --appendonly no \
+    --save "" \
     --maxmemory "${memory_per_node_mb}mb" \
     --maxmemory-policy noeviction \
     --cluster-enabled yes \
