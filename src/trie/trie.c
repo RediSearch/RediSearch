@@ -147,7 +147,8 @@ static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, siz
   // Find the node for this term
   TrieNode *node = TrieNode_Get(t->root, runes, len, true, NULL);
   if (!node) {
-    return TRIE_DECR_NOT_FOUND;
+    return TrieNode_IsFullOnPath(t->root, runes, len) ? TRIE_DECR_UNSUPPORTED
+                                                      : TRIE_DECR_NOT_FOUND;
   }
 
   // Only terminal nodes represent actual terms in the trie.

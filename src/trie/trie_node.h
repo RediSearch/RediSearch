@@ -89,6 +89,10 @@ int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
 /* Find the entry with a given string and length, and return it. */
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
 
+/* Whether adding `str` would need a new child under a full node, so that TrieNode_Add refuses it
+ * with TRIE_ERR_TOO_MANY_CHILDREN. */
+bool TrieNode_IsFullOnPath(TrieNode *n, const rune *str, t_len len);
+
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.

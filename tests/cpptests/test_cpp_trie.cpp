@@ -170,6 +170,24 @@ TEST_F(TrieTest, testAddChildToFullNodeFails) {
   }
 }
 
+// A term refused at a full node is still in the inverted index, so GC later decrements it, and
+// Trie_DecrementNumDocs must tell it apart from a term that went missing.
+TEST_F(TrieTest, testIsFullOnPath) {
+  for (TrieSortMode mode : {Trie_Sort_Lex, Trie_Sort_Score}) {
+    TrieNode *root = newFullTrieNode(mode);
+    const rune refused[] = {0, 5};
+    const rune belowChild[] = {1, 2};
+    const rune existing = 0x8000;
+
+    EXPECT_TRUE(TrieNode_IsFullOnPath(root, refused, 1)) << "mode " << mode;
+    EXPECT_TRUE(TrieNode_IsFullOnPath(root, refused, 2)) << "mode " << mode;
+    // The child under the full node has room, and an existing term needs no new child.
+    EXPECT_FALSE(TrieNode_IsFullOnPath(root, belowChild, 2)) << "mode " << mode;
+    EXPECT_FALSE(TrieNode_IsFullOnPath(root, &existing, 1)) << "mode " << mode;
+    TrieNode_Free(root, nullptr);
+  }
+}
+
 TEST_F(TrieTest, testGetScansPackedChildKeys) {
   Trie *t = nullptr;
   TrieNode *prefixNode = nullptr;
