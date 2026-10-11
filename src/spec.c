@@ -3430,7 +3430,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       TrieType_Free(sp->terms);
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
-    RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
+    if (!sp->terms) {
+      goto cleanup;
+    }
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
     // here directly; consumed at LOADING_ENDED (SST flow) or freed by

@@ -104,13 +104,13 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
       int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
       RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "TrieNode_Add failed due to payload overflow");
+      // Each suffix is its own key, so the shorter ones may still fit where this one did not.
       if (rc < 0) {
         RedisModule_Log(
             RSDummyContext, "warning",
             "Suffix trie: Trie_InsertRune() failed (%d), suffix trie entry was not added", rc);
         array_free(newdata.array);
-        runeBufFree(&buf);
-        return;
+        continue;
       }
 
     } else {

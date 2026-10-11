@@ -155,8 +155,8 @@ TEST_F(TrieTest, testAddChildToFullNodeFails) {
       // Debug builds catch the overflow in an assertion, which redismock throws.
       FAIL() << "a full trie node accepted another child (mode " << mode << "): " << e.what();
     }
-    // Any error code: the test must also build on code that predates the dedicated one.
-    EXPECT_LT(rc, 0) << "a full trie node accepted another child (mode " << mode << ")";
+    EXPECT_EQ(TRIE_ERR_TOO_MANY_CHILDREN, rc)
+        << "a full trie node accepted another child (mode " << mode << ")";
     EXPECT_EQ(before, root);
     EXPECT_EQ(UINT16_MAX, TrieNode_NumChildren(root));
     EXPECT_EQ(nullptr, TrieNode_Get(root, &extra, 1, true, nullptr));
