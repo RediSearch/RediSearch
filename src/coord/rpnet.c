@@ -795,13 +795,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       RLookup_WriteOwnKey(nc->current.schemaKeys[i], SearchResult_GetRowDataMut(r), v);
     }
     fields_length = valueIdx * 2;
-  }
-  for (size_t i = 0; i < fields_length && !nc->current.schemaKeys; i += 2) {
-    size_t len;
-    const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-    MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
-    RSValue *v = MRReply_ToValue(val);
-    RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
+  } else {
+    for (size_t i = 0; i < fields_length; i += 2) {
+      size_t len;
+      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+      MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
+      RSValue *v = MRReply_ToValue(val);
+      RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
+    }
   }
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.convertTime, &convertStart);
