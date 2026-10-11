@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 SCRIPT = Path(__file__).with_name("run_ltk_scenario.py")
 SPEC = importlib.util.spec_from_file_location("run_ltk_scenario", SCRIPT)
@@ -100,7 +103,12 @@ class ScenarioTests(unittest.TestCase):
             )
 
     def test_non_timeout_ft_error_fails(self) -> None:
-        args = SimpleNamespace(ft_timeout_rate_budget=1.0)
+        args = SimpleNamespace(ft_timeout_rate_budget=1.0, min_replay_completion_ratio=1.0)
+        buckets = scenario.ReplayBuckets(
+            writes=[("SET", b"key", b"value")],
+            ft=[("FT.SEARCH", "idx", "*")],
+            reads=[("GET", b"key")],
+        )
         report = scenario.ValidatorReport(
             info_samples=[scenario.FtInfoSample(1, 0, 0, 0)],
             probe_samples=len(scenario.GOLDEN_PROBES),
@@ -108,6 +116,7 @@ class ScenarioTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "non-timeout errors"):
             scenario.assert_replay_and_validator(
                 args,
+                buckets,
                 report,
                 None,
                 {"ok": 0, "err": 1, "timeout": 0, "processed": 1},
@@ -116,7 +125,12 @@ class ScenarioTests(unittest.TestCase):
             )
 
     def test_read_error_fails(self) -> None:
-        args = SimpleNamespace(ft_timeout_rate_budget=1.0)
+        args = SimpleNamespace(ft_timeout_rate_budget=1.0, min_replay_completion_ratio=1.0)
+        buckets = scenario.ReplayBuckets(
+            writes=[("SET", b"key", b"value")],
+            ft=[("FT.SEARCH", "idx", "*")],
+            reads=[("GET", b"key")],
+        )
         report = scenario.ValidatorReport(
             info_samples=[scenario.FtInfoSample(1, 0, 0, 0)],
             probe_samples=len(scenario.GOLDEN_PROBES),
@@ -124,12 +138,56 @@ class ScenarioTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "read replay had 1 errors"):
             scenario.assert_replay_and_validator(
                 args,
+                buckets,
                 report,
                 None,
                 {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
                 {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
                 {"ok": 0, "err": 1, "timeout": 0, "processed": 1},
             )
+
+    def test_incomplete_replay_fails(self) -> None:
+        args = SimpleNamespace(ft_timeout_rate_budget=1.0, min_replay_completion_ratio=0.99)
+        buckets = scenario.ReplayBuckets(
+            writes=[("SET", b"key", b"value")],
+            ft=[("FT.SEARCH", "idx", "*")] * 100,
+            reads=[("GET", b"key")],
+        )
+        report = scenario.ValidatorReport(
+            info_samples=[scenario.FtInfoSample(1, 0, 0, 0)],
+            probe_samples=len(scenario.GOLDEN_PROBES),
+        )
+        with self.assertRaisesRegex(RuntimeError, "FT replay completed 98/100"):
+            scenario.assert_replay_and_validator(
+                args,
+                buckets,
+                report,
+                None,
+                {"ok": 98, "err": 0, "timeout": 0, "processed": 98},
+                {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
+                {"ok": 1, "err": 0, "timeout": 0, "processed": 1},
+            )
+
+    def test_only_canonical_execution_timeout_is_allowed(self) -> None:
+        self.assertIsNotNone(scenario._TIMEOUT_ERROR_RE.fullmatch("Timeout limit was reached"))
+        self.assertIsNotNone(
+            scenario._TIMEOUT_ERROR_RE.fullmatch(
+                "SEARCH_TIMEOUT Timeout limit was reached"
+            )
+        )
+        self.assertIsNone(
+            scenario._TIMEOUT_ERROR_RE.fullmatch("Syntax error near TIMEOUT argument")
+        )
+
+    def test_nonpositive_ttl_probe_duration_is_rejected(self) -> None:
+        argv = [str(SCRIPT), "--ttl-probe-seconds", "0", "127.0.0.1"]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as error,
+        ):
+            scenario.parse_args()
+        self.assertEqual(error.exception.code, 2)
 
     def test_zero_sized_ttl_set_does_not_scan_or_mutate(self) -> None:
         key_set = scenario.seed_ttl_keys(

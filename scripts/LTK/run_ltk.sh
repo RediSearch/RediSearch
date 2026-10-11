@@ -14,7 +14,7 @@ usage() {
 Usage:
   run_ltk.sh [--monitor-trace PATH] [--s3-bucket BUCKET] [--s3-prefix PREFIX] \
     [--monitor-s3-key KEY] [--import-workers COUNT] [--port PORT] [--username USER] \
-    SHARD_IP [SCENARIO_OPTIONS...]
+    [--search-timeout-ms MILLISECONDS] SHARD_IP [SCENARIO_OPTIONS...]
 
 Downloads and imports the LTK baseline RDB shards from S3, creates idx:acs, then
 runs the LTK scenario after downloading its monitor trace from S3. A local trace
@@ -35,6 +35,7 @@ s3_bucket=rl-automation
 s3_prefix=rlauto/search-customer-scenarios/ltk/rdbs-without-index
 monitor_s3_key=rlauto/search-customer-scenarios/ltk/monitor.txt
 import_workers=4
+search_timeout_ms=2000
 
 while (($# > 0)); do
   case "$1" in
@@ -77,6 +78,11 @@ while (($# > 0)); do
       import_workers=$2
       shift 2
       ;;
+    --search-timeout-ms)
+      (($# >= 2)) || { echo "error: --search-timeout-ms requires a value" >&2; exit 2; }
+      search_timeout_ms=$2
+      shift 2
+      ;;
     -h | --help)
       usage
       exit 0
@@ -95,6 +101,25 @@ done
 shard_ip=$1
 shift
 
+scenario_args=()
+while (($# > 0)); do
+  case "$1" in
+    --search-timeout-ms)
+      (($# >= 2)) || { echo "error: --search-timeout-ms requires a value" >&2; exit 2; }
+      search_timeout_ms=$2
+      shift 2
+      ;;
+    --search-timeout-ms=*)
+      search_timeout_ms=${1#*=}
+      shift
+      ;;
+    *)
+      scenario_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 python=${PYTHON:-python3}
 common_args=(--port "$port")
@@ -108,11 +133,12 @@ fi
 echo "Configuring the cluster and importing the LTK baseline RDBs..."
 "$python" "$script_dir/create_ltk_db.py" "${common_args[@]}" \
   --s3-bucket "$s3_bucket" --s3-prefix "$s3_prefix" \
-  --workers "$import_workers" "$shard_ip"
+  --workers "$import_workers" --search-timeout-ms "$search_timeout_ms" "$shard_ip"
 
 echo "Creating the LTK index..."
 "$python" "$script_dir/create_acs_index.py" "${common_args[@]}" "$shard_ip"
 
 echo "Running the LTK scenario..."
 "$python" "$script_dir/run_ltk_scenario.py" "${common_args[@]}" \
-  "${monitor_args[@]}" "$shard_ip" "$@"
+  "${monitor_args[@]}" --search-timeout-ms "$search_timeout_ms" \
+  "$shard_ip" "${scenario_args[@]}"

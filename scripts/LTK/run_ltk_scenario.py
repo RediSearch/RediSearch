@@ -31,6 +31,7 @@ S3_BUCKET = "rl-automation"
 S3_KEY = "rlauto/search-customer-scenarios/ltk/monitor.txt"
 SEARCH_TIMEOUT_MS = 2_000
 FT_TIMEOUT_RATE_BUDGET = 0.01
+MIN_REPLAY_COMPLETION_RATIO = 0.99
 REPLAY_DURATION_SEC = 600.0
 READ_PIPELINE_BATCH = 50
 REPLAY_SOCKET_TIMEOUT_SEC = 60.0
@@ -89,7 +90,10 @@ _SIMPLE_UNESCAPES = {
     "b": "\b",
 }
 _COORDINATOR_ERROR_RE = re.compile("coordinator", re.IGNORECASE)
-_TIMEOUT_ERROR_RE = re.compile("timeout|timed out", re.IGNORECASE)
+_TIMEOUT_ERROR_RE = re.compile(
+    r"(?:SEARCH_TIMEOUT )?Timeout limit was reached\.?",
+    re.IGNORECASE,
+)
 
 Command = tuple[str | bytes, ...]
 
@@ -207,6 +211,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-duration", type=float, default=REPLAY_DURATION_SEC)
     parser.add_argument("--search-timeout-ms", type=int, default=SEARCH_TIMEOUT_MS)
     parser.add_argument("--ft-timeout-rate-budget", type=float, default=FT_TIMEOUT_RATE_BUDGET)
+    parser.add_argument(
+        "--min-replay-completion-ratio",
+        type=float,
+        default=MIN_REPLAY_COMPLETION_RATIO,
+    )
     parser.add_argument("--ttl-probe-count", type=int, default=TTL_PROBE_SAMPLE_SIZE)
     parser.add_argument("--ttl-probe-seconds", type=int, default=TTL_PROBE_EXPIRE_SEC)
     parser.add_argument("--ttl-survivor-count", type=int, default=TTL_SURVIVOR_SAMPLE_SIZE)
@@ -221,8 +230,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--search-timeout-ms must be positive")
     if not 0 <= args.ft_timeout_rate_budget <= 1:
         parser.error("--ft-timeout-rate-budget must be between 0 and 1")
+    if not 0 < args.min_replay_completion_ratio <= 1:
+        parser.error("--min-replay-completion-ratio must be greater than 0 and at most 1")
     if args.ttl_probe_count < 0 or args.ttl_survivor_count < 0:
         parser.error("TTL sample counts cannot be negative")
+    if args.ttl_probe_seconds <= 0:
+        parser.error("--ttl-probe-seconds must be positive")
     return args
 
 
@@ -656,7 +669,7 @@ def replay_bucket(
                 if (
                     is_ft
                     and isinstance(result, redis_module.exceptions.ResponseError)
-                    and _TIMEOUT_ERROR_RE.search(message)
+                    and _TIMEOUT_ERROR_RE.fullmatch(message.strip())
                     and not _COORDINATOR_ERROR_RE.search(message)
                 ):
                     timeouts += 1
@@ -733,9 +746,9 @@ def run_validator(
                     search.execute_command(*command)
                 except redis_module.exceptions.ResponseError as error:
                     message = str(error)
-                    if _TIMEOUT_ERROR_RE.search(message) and not _COORDINATOR_ERROR_RE.search(
-                        message
-                    ):
+                    if _TIMEOUT_ERROR_RE.fullmatch(
+                        message.strip()
+                    ) and not _COORDINATOR_ERROR_RE.search(message):
                         continue
                     report.failures.append(f"probe {probe_name} response error: {message}")
                 except Exception as error:  # noqa: BLE001 - validator records and continues
@@ -832,6 +845,7 @@ def run_replay_and_validator(
 
 def assert_replay_and_validator(
     args: argparse.Namespace,
+    buckets: ReplayBuckets,
     report: ValidatorReport,
     ft_exception: BaseException | None,
     ft_stats: dict[str, int],
@@ -849,8 +863,18 @@ def assert_replay_and_validator(
     failures: list[str] = []
     if ft_exception is not None:
         failures.append(f"FT replay failed: {type(ft_exception).__name__}: {ft_exception}")
-    if not processed:
-        failures.append("FT replay processed no commands")
+    replay_stats = (
+        ("FT", len(buckets.ft), ft_stats),
+        ("write", len(buckets.writes), write_stats),
+        ("read", len(buckets.reads), read_stats),
+    )
+    for name, expected, stats in replay_stats:
+        completion_ratio = stats["processed"] / expected if expected else 0.0
+        if completion_ratio < args.min_replay_completion_ratio:
+            failures.append(
+                f"{name} replay completed {stats['processed']}/{expected} commands "
+                f"({completion_ratio:.2%}), below {args.min_replay_completion_ratio:.2%}"
+            )
     non_timeout_errors = ft_stats["err"] - ft_stats["timeout"]
     if non_timeout_errors:
         failures.append(
@@ -861,8 +885,6 @@ def assert_replay_and_validator(
             f"write replay had {write_stats['err']} errors in "
             f"{write_stats['processed']} processed commands"
         )
-    if not read_stats["processed"]:
-        failures.append("read replay processed no commands")
     if read_stats["err"]:
         failures.append(
             f"read replay had {read_stats['err']} errors in "
@@ -1178,11 +1200,18 @@ def main() -> int:
         touched_keys = (
             totals.insert_keys | totals.delete_keys | totals.expire_keys | totals.hdel_keys
         )
+        LOGGER.info("Step: Sample tracked keys for post-replay validation")
+        stable_keys = reservoir_sample_tracked_keys(
+            cluster,
+            touched_keys,
+            random.Random(args.rng_seed),
+        )
+
         LOGGER.info("Step: Seed TTL probes")
         ttl_probes = seed_ttl_keys(
             cluster,
             label="TTL probe set",
-            exclude_keys=touched_keys,
+            exclude_keys=touched_keys | set(stable_keys),
             sample_size=args.ttl_probe_count,
             expire_seconds=args.ttl_probe_seconds,
         )
@@ -1191,7 +1220,7 @@ def main() -> int:
         ttl_survivors = seed_ttl_keys(
             cluster,
             label="TTL survivor set",
-            exclude_keys=touched_keys | set(ttl_probes.keys),
+            exclude_keys=touched_keys | set(stable_keys) | set(ttl_probes.keys),
             sample_size=args.ttl_survivor_count,
             expire_seconds=TTL_SURVIVOR_EXPIRE_SEC,
         )
@@ -1203,12 +1232,6 @@ def main() -> int:
         baseline = capture_ft_info(search)
         baseline_schema = capture_index_schema(search)
 
-        LOGGER.info("Step: Sample tracked keys for post-replay validation")
-        stable_keys = reservoir_sample_tracked_keys(
-            cluster,
-            touched_keys | set(ttl_probes.keys) | set(ttl_survivors.keys),
-            random.Random(args.rng_seed),
-        )
         tracked_keys = list(dict.fromkeys([*stable_keys, *sorted(touched_keys)]))
         LOGGER.info(
             "Tracked keys selected: total=%d stable=%d replay_touched=%d",
@@ -1229,6 +1252,7 @@ def main() -> int:
         LOGGER.info("Step: Assert FT replay bucket and validator report")
         assert_replay_and_validator(
             args,
+            buckets,
             report,
             ft_exception,
             ft_stats,

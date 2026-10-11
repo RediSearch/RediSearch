@@ -21,6 +21,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -31,6 +32,7 @@ S3_BUCKET = "rl-automation"
 S3_PREFIX = "rlauto/search-customer-scenarios/ltk/rdbs-without-index"
 SOURCE_START_TIMEOUT_SEC = 300.0
 LOGGER = logging.getLogger("ltk-db-setup")
+_SOURCE_LAUNCH_LOCK = threading.Lock()
 
 
 def parse_args() -> argparse.Namespace:
@@ -181,6 +183,46 @@ def reserve_source_port() -> int:
         return int(listener.getsockname()[1])
 
 
+def launch_temporary_redis(
+    redis_module: Any,
+    args: argparse.Namespace,
+    temp_dir: Path,
+    rdb_path: Path,
+    pidfile: Path,
+    logfile: Path,
+) -> tuple[int, Any]:
+    with _SOURCE_LAUNCH_LOCK:
+        source_port = reserve_source_port()
+        subprocess.run(
+            [
+                args.redis_server,
+                "--port",
+                str(source_port),
+                "--bind",
+                "127.0.0.1",
+                "--protected-mode",
+                "no",
+                "--daemonize",
+                "yes",
+                "--dir",
+                str(temp_dir),
+                "--dbfilename",
+                rdb_path.name,
+                "--appendonly",
+                "no",
+                "--save",
+                "",
+                "--pidfile",
+                str(pidfile),
+                "--logfile",
+                str(logfile),
+            ],
+            check=True,
+        )
+        source_client = wait_for_source(redis_module, source_port, SOURCE_START_TIMEOUT_SEC)
+        return source_port, source_client
+
+
 def wait_for_source(redis_module: Any, port: int, timeout_sec: float) -> Any:
     client = redis_module.Redis(
         host="127.0.0.1",
@@ -255,39 +297,19 @@ def import_rdb(redis_module: Any, args: argparse.Namespace, s3: Any, ordinal: in
             shutil.copyfileobj(source, destination, length=8 * 1024 * 1024)
         compressed_path.unlink()
 
-        source_port = reserve_source_port()
         pidfile = temp_dir / "redis.pid"
         logfile = temp_dir / "redis.log"
-        subprocess.run(
-            [
-                args.redis_server,
-                "--port",
-                str(source_port),
-                "--bind",
-                "127.0.0.1",
-                "--protected-mode",
-                "no",
-                "--daemonize",
-                "yes",
-                "--dir",
-                str(temp_dir),
-                "--dbfilename",
-                rdb_path.name,
-                "--appendonly",
-                "no",
-                "--save",
-                "",
-                "--pidfile",
-                str(pidfile),
-                "--logfile",
-                str(logfile),
-            ],
-            check=True,
-        )
         source_client = None
         try:
             try:
-                source_client = wait_for_source(redis_module, source_port, SOURCE_START_TIMEOUT_SEC)
+                source_port, source_client = launch_temporary_redis(
+                    redis_module,
+                    args,
+                    temp_dir,
+                    rdb_path,
+                    pidfile,
+                    logfile,
+                )
             except RuntimeError as error:
                 log_tail = logfile.read_text(errors="replace")[-4_000:] if logfile.is_file() else ""
                 if log_tail:
