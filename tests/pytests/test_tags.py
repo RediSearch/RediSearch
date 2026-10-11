@@ -361,6 +361,13 @@ def testTagMultiWordTermCaseAndEscapes(env):
         env.assertEqual(ids('cs', '@t:{$a $b}', 'PARAMS', '4', 'a', 'Foo', 'b', 'Bar', 'DIALECT', dialect), ['cs:upper'],
                         message=f'DIALECT {dialect}')
 
+    # Lowercasing a case-insensitive value at query time must agree with indexing, beyond ASCII.
+    conn.execute_command('HSET', 'ci:unicode', 't', 'äbc déf')
+    env.assertEqual(ids('ci', '@t:{ÄBC Déf}', 'DIALECT', 2), ['ci:unicode'])
+
+    # Explain keeps the case of a multi-word value, like a single-word one.
+    env.expect('FT.EXPLAIN', 'cs', r'@t:{Foo Bar|x\- y}', 'DIALECT', 2).equal('TAG:@t {\n  Foo Bar\n  x- y\n}\n')
+
 @skip(cluster=True)
 def testTagGCClearEmpty(env):
 
