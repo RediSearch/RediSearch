@@ -460,6 +460,9 @@ def _setup_hybrid_index(env):
     for i in range(100):
         vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
         conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+    # The background scan re-indexes these docs under the spec write lock, which
+    # fails a concurrent worker query's depleter try-lock.
+    waitForIndex(env, 'hybrid_idx')
     return np.array([0.0, 0.0], dtype=np.float32).tobytes()
 
 
