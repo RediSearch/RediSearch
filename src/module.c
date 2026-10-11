@@ -1946,6 +1946,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
   // data structure that is accessed upon releasing the spec (and running thread might hold
   // a reference to the spec bat this time).
+  // A paused pool (a debug state) would never drain, and destroying it waits for its jobs.
+  if (workerThreadPool_isPaused()) workersThreadPool_resume();
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 

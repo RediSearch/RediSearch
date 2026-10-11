@@ -1795,10 +1795,11 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     post_count = query_success_count[0]
     env.debugPrint(f"Query success count after config change: {post_count}", force=True)
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
+    # WORKERS 0 keeps the maintenance worker.
     with TimeLimit(10):
-        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 0 or getWorkersThpoolNumThreads(env) != 0):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 1 or getWorkersThpoolNumThreads(env) != 1):
             time.sleep(0.1)
-    check_threads(env, 0, 0)
+    check_threads(env, 1, 1)
 
     # Verify the config change took effect
     # Critical test: Verify Redis is still responsive
@@ -1831,7 +1832,7 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     final_search = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
-    check_threads(env, 0, 0)
+    check_threads(env, 1, 1)
 
 @skip(cluster=False)
 def test_mod_12493(env:Env):
