@@ -907,6 +907,22 @@ def test_escaped_field_name_in_field_list(env):
         env.expect('FT.SEARCH', 'idx', r'@title|tag\-f:hello', 'DIALECT', dialect).error() \
             .contains('Expected a TEXT field at offset 7 near tag-f')
 
+@skip(cluster=False)
+def test_escaped_field_name_in_field_list_coord_knn(env):
+    """The coordinator's KNN parse leaves an escaped field-list name intact for the shards."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'sub-title', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    blob = struct.pack('2f', 1.0, 2.0)
+    conn.execute_command('HSET', '{doc}:1', 'title', 'x', 'sub-title', 'hello', 'v', blob)
+
+    query = r'(@title|sub\-title:hello)=>[KNN 1 @v $b]'
+    res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '2', 'b', blob, 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, '{doc}:1'])
+    res = env.cmd('FT.AGGREGATE', 'idx', query, 'PARAMS', '2', 'b', blob, 'LOAD', '1', '@__key', 'DIALECT', 2)
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1])['__key'], '{doc}:1')
+
 @skip(cluster=True)
 def test_unterminated_quotes_are_syntax_errors(env):
     # A quote that is never closed is rejected, and a closed quoted `$name` is still a verbatim term.
