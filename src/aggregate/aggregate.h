@@ -202,6 +202,8 @@ typedef struct AREQ {
 
   /** Cursor configuration */
   CursorConfig cursorConfig;
+  // Finalized by AREQ_Compile and retained across cursor reads.
+  bool internalRespSchema;
 
   /** Profile variables */
   ProfileClocks profileClocks;

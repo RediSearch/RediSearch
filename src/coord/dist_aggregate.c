@@ -655,6 +655,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   // lookup at execution time; changing an existing key panics in the Rust core.
   RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
+  // Only profiled requests pay for the wait/convert/free breakdown (see RPNet::breakdown).
+  rpRoot->profileBreakdown = (r->reqflags & QEXEC_F_PROFILE) != 0;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
   // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
@@ -714,13 +716,21 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   }
   // A FAIL timeout can reach PROFILE encoding before rpnetNext_Start creates the iterator.
   if (rpnet->it && (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it))) {
+    // Profile collection is outside the Network processor timer; retain its measured times.
+    const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
+    const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
+    const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
     // A cancelled FAIL reply is discarded, including any remaining shard profiles.
     while (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
       MRReply_Free(rpnet->current.root);
+      RPNet_resetCurrent(rpnet);
       if (getNextReply(rpnet) == RS_RESULT_EOF) {
         break;
       }
     }
+    rpnet->breakdown.waitTime = waitTime;
+    rpnet->breakdown.convertTime = convertTime;
+    rpnet->breakdown.freeTime = freeTime;
   }
 
   size_t num_shards = rpnet->it ? MRIterator_GetNumShards(rpnet->it) : 0;

@@ -1122,6 +1122,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
 }
 
 static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
+  req->internalRespSchema = false;
   req->reqConfig = RSGlobalConfig.requestConfigParams;
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &req->reqConfig, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
@@ -1341,6 +1342,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
+
+  // Finalize the format after parsing metadata options and retain it across cursor reads.
+  req->internalRespSchema =
+      req->reqConfig.internalRespSchemaEnabled && IsInternal(req) && IsAggregate(req) &&
+      !(AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS |
+                                  QEXEC_F_SEND_SORTKEYS | QEXEC_F_REQUIRED_FIELDS));
 
   // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
   // on disk.
