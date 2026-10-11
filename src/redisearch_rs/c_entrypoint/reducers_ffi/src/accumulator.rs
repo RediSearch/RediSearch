@@ -8,7 +8,7 @@
 */
 
 //! FFI layer for the [`Accumulator`] reducers: `COUNT`, `SUM`, `AVG`, `MIN`,
-//! `MAX`, `STDDEV`, `FIRST_VALUE` and the exact `COUNT_DISTINCT`.
+//! `MAX`, `STDDEV`, `FIRST_VALUE`, the exact `COUNT_DISTINCT` and `RANDOM_SAMPLE`.
 //!
 //! C parses the reducer arguments and calls one of the constructors below; the
 //! rest of the vtable is one set of callbacks, generic over the accumulator.
@@ -21,6 +21,7 @@ use reducers::count::Count;
 use reducers::count_distinct::CountDistinct;
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
+use reducers::random_sample::RandomSample;
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupRow};
@@ -141,6 +142,26 @@ pub unsafe extern "C" fn CountDistinctReducer_Create(
     // SAFETY: ensured by caller (1.)
     let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
     into_c_reducer(CountDistinct::new(key))
+}
+
+/// Creates a `RANDOM_SAMPLE` reducer of `srckey`, keeping up to `size` values per
+/// group, and returns its base [`ffi::Reducer`], which the caller frees through
+/// its `Free` callback.
+///
+/// # Safety
+///
+/// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RandomSampleReducer_Create(
+    srckey: *const ffi::RLookupKey,
+    size: u32,
+) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
+    into_c_reducer(RandomSample::new(key, size as usize))
 }
 
 /// Boxes an [`AccumulatorReducer`] running `accumulator` and wires its vtable.

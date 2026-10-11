@@ -13,6 +13,7 @@ pub mod count;
 pub mod count_distinct;
 pub mod first_value;
 pub mod min_max;
+pub mod random_sample;
 mod reducer;
 mod reducer_options;
 pub mod std_dev;
