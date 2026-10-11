@@ -162,7 +162,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
 typedef struct {
   arrayof(const RLookupKey *) keys;
   uint32_t lookupWidth;
-  char *presence;
+  char *presence;  // ASCII mask sent directly as a RESP string for sparse rows.
 } RespSchema;
 
 static void respSchemaRefresh(RespSchema *schema, const AREQ *req, const RLookup *lookup) {
@@ -202,6 +202,7 @@ static void serializeSchemaResult(AREQ *req, RedisModule_Reply *reply, const Sea
     }
   }
   RedisModule_Reply_ArrayWithLen(reply, 2);
+  // A dense prefix needs no mask: the value count identifies its columns in the final schema.
   if (present == extent)
     RedisModule_Reply_Null(reply);
   else
@@ -221,6 +222,7 @@ static void finishRespSchema(AREQ *req, RedisModule_Reply *reply, const cachedVa
                              RespSchema *schema) {
   if (!req->internalRespSchema) return;
   RedisModule_Reply_ArrayEnd(reply);  // rows
+  // Streaming LOAD * can discover columns in later rows, so send the completed schema last.
   respSchemaRefresh(schema, req, cv->lastLookup);
   RedisModule_Reply_ArrayWithLen(reply, array_len(schema->keys));
   for (size_t i = 0; i < array_len(schema->keys); ++i) {
