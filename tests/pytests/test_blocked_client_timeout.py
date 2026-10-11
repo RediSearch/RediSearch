@@ -3544,6 +3544,7 @@ def _compare_background_fail_replies(protocol):
     for n in range(12):
         env.cmd('HSET', f'doc:{n:02}', 'text', 'hello redis', 'n', n,
                 'binary', 'prefix\x00suffix\r\n', 'wide', 'w' * 4096)
+    waitForIndex(env, 'idx')
     queries = [
         ['FT.SEARCH', 'idx', '*', 'SORTBY', 'n', 'ASC', 'WITHSORTKEYS', 'LIMIT', 0, 12],
         ['FT.SEARCH', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE',
@@ -3583,6 +3584,7 @@ def _compare_background_fail_replies(protocol):
             env.assertTrue(env.cmd('PING'))
 
     query_vec = _setup_hybrid_index(env)
+    waitForIndex(env, 'hybrid_idx')
     with _preserve_config(env, 'search-workers'):
         for profile in (False, True):
             command = _background_hybrid_query(query_vec)
