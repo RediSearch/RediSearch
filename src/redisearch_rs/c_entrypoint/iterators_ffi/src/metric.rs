@@ -65,7 +65,6 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
 
         (ids_list, metrics_list)
     } else {
-        // SAFETY: Safe thanks to 3.
         debug_assert_eq!(
             num, 0,
             "The pointer to the array of IDs is null, but the number of IDs is non-zero."
