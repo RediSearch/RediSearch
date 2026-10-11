@@ -16,7 +16,7 @@
 #include "config.h"
 #include "doc_table.h"
 #include "trie/trie.h"
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
@@ -566,7 +566,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /* Get the count of total blocks*/
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp);
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.
@@ -673,6 +673,13 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                         DocumentType type, RedisModuleKey *openKey,
                         RedisModuleString **changedFields, size_t numChangedFields);
+
+// IndexSpec_UpdateDoc for a document an FT.ALTER backfill replaces while its scan is selective.
+// Schema fields at or past `addedFieldsStart` were added by that ALTER, so their VECTOR or
+// GEOSHAPE values are inserted without a comparison; every other field is handled as by
+// IndexSpec_UpdateDoc with no change set, and a pre-existing GEOSHAPE field may also be moved.
+int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                DocumentType type, t_fieldIndex addedFieldsStart);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -858,6 +865,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
  * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
  * currently it is a best effort that account only for part of the actual memory.
  */
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory);
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
   size_t vector_overhead);
 

@@ -45,3 +45,19 @@ void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id) {
     }
   }
 }
+
+bool GeometryIndex_RelabelField(GeometryIndex *idx, t_docId oldDocId, t_docId newDocId) {
+  const GeometryApi *api = GeometryApi_Get(idx);
+  if (api->relabelGeom(idx, oldDocId, newDocId)) {
+    return true;
+  }
+  api->delGeom(idx, oldDocId);
+  RedisModule_Log(RSDummyContext, "verbose", "Geometry relabel %llu -> %llu refused",
+                  (unsigned long long)oldDocId, (unsigned long long)newDocId);
+  return false;
+}
+
+bool GeometryIndex_HoldsGeom(const GeometryIndex *idx, t_docId docId, GEOMETRY_FORMAT format,
+                             const char *str, size_t len) {
+  return GeometryApi_Get(idx)->holdsGeomStr(idx, format, str, len, docId);
+}

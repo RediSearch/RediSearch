@@ -644,7 +644,7 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
 // Callback to print subquery result processors for the coordinator profile
 static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
-  bool profile_verbose = hreq->reqConfig.printProfileClock;
+  bool profile_verbose = hreq->base.reqConfig.printProfileClock;
 
   // Print subqueries result processors
   // (SEARCH and VSIM pipelines in coordinator)
@@ -691,10 +691,11 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     ParseHybridCommandCtx cmd = {0};
     cmd.search = hreq->requests[SEARCH_INDEX];
     cmd.vector = hreq->requests[VECTOR_INDEX];
-    cmd.cursorConfig = &hreq->cursorConfig;
+    cmd.cursorConfig = &hreq->base.cursorConfig;
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
-    cmd.reqConfig = &hreq->reqConfig;
+    cmd.reqConfig = &hreq->base.reqConfig;
+    cmd.timeoutConfig = &hreq->base.timeout.config;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
     // Only detects the profile prefix; nothing borrows from the job's argv here.

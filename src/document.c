@@ -622,6 +622,13 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   const GeometryApi *api = GeometryApi_Get(rt);
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
+    if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+      if (GeometryIndex_RelabelField(rt, aCtx->oldDocId, aCtx->doc->docId)) {
+        return 0;
+      }
+      // Refused: the old entry is gone. Insert and count it as indexed.
+      aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+    }
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Error indexing geoshape", ": %s",
                              RedisModule_StringPtrLen(errMsg, NULL));
@@ -922,7 +929,11 @@ FIELD_BULK_APPLIER(geometryApplier) {
   // TODO: when geometry lands on the per-document disk write batch, move the
   // R-tree mutation here. Today `geometryIndexer` does the insert inline and
   // asserts disk-mode is disabled.
-  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  (void)field;
+  (void)fdata;
+  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+    return;
+  }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 

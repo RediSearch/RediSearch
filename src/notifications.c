@@ -73,6 +73,10 @@ extern RedisModuleCtx *RSDummyContext;
 // and the actual event string. Each gets its own enum value so individual
 // commands can be handled differently in the future.
 //
+// Every write event RedisJSON emits must be listed here: one that is missing
+// maps to _null_cmd and is dropped, so every index over the key keeps serving
+// the document's previous value.
+//
 // These events are NOT pointer-cached like the core events: RedisJSON emits
 // them through redismodule-rs, which builds a fresh temporary CString per call
 // and frees it once the notification returns (see notify_keyspace_event in
@@ -90,7 +94,9 @@ extern RedisModuleCtx *RSDummyContext;
   X(json_arrinsert, "json.arrinsert")         \
   X(json_arrpop,    "json.arrpop")            \
   X(json_arrtrim,   "json.arrtrim")           \
-  X(json_toggle,    "json.toggle")
+  X(json_toggle,    "json.toggle")            \
+  X(json_clear,     "json.clear")             \
+  X(json_numpowby,  "json.numpowby")
 
 // Define an enum value for each event.
 #define DECLARE_EVENT_ENUM(E) E##_cmd,
@@ -335,12 +341,14 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
     case json_del_cmd:
     case json_numincrby_cmd:
     case json_nummultby_cmd:
+    case json_numpowby_cmd:
     case json_strappend_cmd:
     case json_arrappend_cmd:
     case json_arrinsert_cmd:
     case json_arrpop_cmd:
     case json_arrtrim_cmd:
     case json_toggle_cmd:
+    case json_clear_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, changedFields, numChangedFields);
       break;
 
@@ -1275,60 +1283,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
 
 
-void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-
-  REDISMODULE_NOT_USED(eid);
-  switch(subevent) {
-  case REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE:
-    Backup_Globals();
-    break;
-  case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
-    Restore_Globals(ctx);
-    refreshDiskResourceState(ctx);
-    break;
-  case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
-    Discard_Globals_Backup(ctx);
-    refreshDiskResourceState(ctx);
-    break;
-  }
-}
-
-void ReplicaAsyncLoad(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-	REDISMODULE_NOT_USED(eid);
-	// Todo: implement callbacks to support async read requests during diskless rdb replication
-	//  in "swapdb" mode.
-}
-
-
-int CheckVersionForShortRead() {
-  // Minimal versions: 6.2.5
-  // (6.0.15 is not supporting the required event notification for modules)
-  if (redisVersion.majorVersion >= 7 || (redisVersion.majorVersion == 6 && redisVersion.minorVersion >= 2)) {
-	  return REDISMODULE_OK;
-  }
-  if (redisVersion.majorVersion == 6 && redisVersion.minorVersion == 2) {
-      return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
-  } else if (redisVersion.majorVersion == 255 &&
-           redisVersion.minorVersion == 255 &&
-           redisVersion.patchVersion == 255) {
-    // Also supported on master (version=255.255.255)
-    return REDISMODULE_OK;
-  }
-  return REDISMODULE_ERR;
-}
-
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
-  if (CheckVersionForShortRead() == REDISMODULE_OK) {
-    int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
-    RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
-    int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
-    RedisModule_SetModuleOptions(ctx, optionsFlags);
-    if (redisVersion.majorVersion < 7 || RS_IsEnterpriseServer()) {
-      RedisModule_Log(ctx, "notice", "Enabled diskless replication");
-      // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
-      //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
-    }
-  }
+  int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
+  RedisModule_SetModuleOptions(ctx, optionsFlags);
 }
 
 void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {

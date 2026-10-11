@@ -1087,7 +1087,7 @@ def testTagWildcardWithSuffixTrieNoMatch():
 def testTagSuffixMaxExpansionsWithSuffixTrie():
     """Tag suffix query on WITHSUFFIXTRIE field hits max prefix expansion
     limit when there are more matching terms than allowed (covers the suffix
-    trie branch of Query_EvalTagPrefixNode)."""
+    trie branch of the tag prefix expansion)."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
     conn = getConnectionByEnv(env)
 
@@ -1229,8 +1229,8 @@ def testTagInvalidUtf8LoweringOverflow(env):
     `nu_utf8_read` reads as a multi-byte UTF-8 lead must not overflow past
     its allocation during `unicode_tolower`'s lowering.
 
-    Covers the token, prefix, and wildcard branches, which each reach
-    `tag_strtolower` independently in `src/query.c`. See
+    Covers the token, prefix, and wildcard branches, which each normalize
+    their token independently during tag evaluation. See
     `_assertSurvivesInvalidUtf8TagToken` for the overflow mechanism.
     """
     conn = getConnectionByEnv(env)
@@ -1241,9 +1241,9 @@ def testTagInvalidUtf8LoweringOverflow(env):
     # byte off the very first position, off the ASCII-only fast path that
     # ASCII-only tokens like `hello` above would take.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'}')
-    # Prefix token, through Query_EvalTagPrefixNode.
+    # Prefix token, through the tag prefix expansion.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'*}')
-    # Wildcard token, through Query_EvalTagWildcardNode. `w'...'` needs DIALECT 2.
+    # Wildcard token, through the tag wildcard expansion. `w'...'` needs DIALECT 2.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b"@t:{w'caf" + _INVALID_UTF8_LEAD + b"*'}",
                                         dialect='2')
 

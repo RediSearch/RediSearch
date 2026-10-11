@@ -117,7 +117,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
     case PROFILE_REQUEST_TYPE_AREQ:
       req = request->req;
       profileCtx = AREQ_ProfilePrinterCtx(req);
-      profile_verbose = req->reqConfig.printProfileClock;
+      profile_verbose = req->base.reqConfig.printProfileClock;
       clocks = &(req->profileClocks);
       qctx = AREQ_QueryProcessingCtx(req);
       reqFlags = AREQ_RequestFlags(req);
@@ -126,7 +126,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
     case PROFILE_REQUEST_TYPE_HYBRID: {
       HybridRequest *hreq = request->hreq;
       profileCtx = &(hreq->profileCtx);
-      profile_verbose = hreq->reqConfig.printProfileClock;
+      profile_verbose = hreq->base.reqConfig.printProfileClock;
       clocks = &(hreq->profileClocks);
       qctx = &hreq->tailPipeline->qctx;
       reqFlags = (QEFlags)hreq->reqflags;

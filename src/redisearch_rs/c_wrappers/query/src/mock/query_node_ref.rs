@@ -109,7 +109,7 @@ impl Drop for MockQueryNode {
         // an `RSToken` here too -- the same invariant that constructor's own
         // SAFETY comment establishes at construction time. `tok.str_` is
         // whatever that field addresses now, not necessarily the buffer
-        // `with_redis_token` allocated: a callee such as `tag_strtolower` may
+        // `with_redis_token` allocated: a callee such as `RSTokenMut::normalize_tag` may
         // have freed that one and written back a replacement, but only ever
         // one it obtained from the same `RedisModule_Alloc`/`RedisModule_Free`
         // pair -- so at most one live Redis-allocator allocation is addressed

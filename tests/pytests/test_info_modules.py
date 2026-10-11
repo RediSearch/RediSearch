@@ -701,6 +701,11 @@ def test_redis_info_modules_vecsim():
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[3]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+  for field_info in field_infos[:2]:
+    env.assertGreater(int(field_info['TIERED_HNSW_DEFRAG_RUNS']), 0, message=field_info)
+    env.assertGreater(int(field_info['TIERED_HNSW_DEFRAG_TIME_NS']), 0, message=field_info)
+  env.assertGreater(int(field_infos[3]['TIERED_SVS_DEFRAG_RUNS']), 0, message=field_infos[3])
+  env.assertGreater(int(field_infos[3]['TIERED_SVS_DEFRAG_TIME_NS']), 0, message=field_infos[3])
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):

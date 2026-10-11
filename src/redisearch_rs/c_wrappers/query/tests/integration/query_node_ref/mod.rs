@@ -373,3 +373,54 @@ fn token_mut_declines_node_types_without_a_rewritable_token() {
         assert!(node.token_mut().is_none(), "{node_type:?}");
     }
 }
+
+#[test]
+fn token_node_mut_rewrites_a_token_nodes_own_token() {
+    // Reading back through `as_enum` shows the handle addressed the node's own
+    // token.
+    let mock = MockQueryNode::with_token(TokenNodeType::Token, br"a\*b\?c");
+    // SAFETY: sole wrapper to a valid node; the mock owns writable, terminated
+    // token backing that outlives it, per invariant (3).
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+
+    // SAFETY: the mock's token was never expanded: its backing is writable and
+    // NUL-terminated, as the constructor requires.
+    unsafe { node.token_node_mut() }
+        .expect("a token node carries a token")
+        .remove_wildcard_escapes();
+
+    let QueryNode::Token { tok } = node.as_ref().as_enum() else {
+        panic!("node is a token");
+    };
+    assert_eq!(tok.len(), 5);
+    assert_eq!(tok.as_bytes(), Some(&b"a*b?c"[..]));
+}
+
+#[test]
+fn token_node_mut_declines_every_other_node_type() {
+    // The types `token_mut` accepts carry a token too, but the accessors are
+    // disjoint.
+    for node_type in [
+        TokenNodeType::Prefix,
+        TokenNodeType::Fuzzy,
+        TokenNodeType::WildcardQuery,
+    ] {
+        let mock = MockQueryNode::with_token(node_type, b"hello");
+        // SAFETY: sole wrapper to a valid node; the mock owns writable, terminated
+        // token backing that outlives it, per invariants (3) and (4).
+        let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+        // SAFETY: not a token node, so the contract places no demand on it.
+        assert!(unsafe { node.token_node_mut() }.is_none(), "{node_type:?}");
+    }
+    for node_type in [
+        QueryNodeType::Union,
+        QueryNodeType::Wildcard,
+        QueryNodeType::Null,
+    ] {
+        let mock = MockQueryNode::new(node_type);
+        // SAFETY: sole wrapper to a valid leaf node.
+        let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+        // SAFETY: not a token node, so the contract places no demand on it.
+        assert!(unsafe { node.token_node_mut() }.is_none(), "{node_type:?}");
+    }
+}

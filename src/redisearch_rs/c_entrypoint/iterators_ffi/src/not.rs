@@ -190,7 +190,7 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
 ///    [`SchemaRule`](ffi::SchemaRule).
 /// 7. When the optimized path is taken, the preconditions of
-///    [`crate::wildcard::NewWildcardIterator`] must hold.
+///    [`rqe_iterators::wildcard::new_wildcard_iterator`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,

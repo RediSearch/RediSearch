@@ -82,16 +82,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Get the index of the last block in the GC delta.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `gc_scan_delta` must be a valid, non NULL, pointer to a `GcScanDelta` instance.
- */
-size_t GcScanDelta_LastBlockIdx(const struct InvertedIndexGcDelta *gc_scan_delta);
-
-/**
  * Get a pointer to the raw data of the index block. This is used by some C tests.
  *
  * # Safety
@@ -112,16 +102,6 @@ const char *IndexBlock_Data(const struct IndexBlock *ib);
 t_docId IndexBlock_FirstId(const struct IndexBlock *ib);
 
 /**
- * Get ID of the last document in the index block. This is used by some C tests.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
- */
-t_docId IndexBlock_LastId(const struct IndexBlock *ib);
-
-/**
  * Get the number of entries in the index block. This is used by some C tests.
  *
  * # Safety
@@ -130,16 +110,6 @@ t_docId IndexBlock_LastId(const struct IndexBlock *ib);
  * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
  */
 uint16_t IndexBlock_NumEntries(const struct IndexBlock *ib);
-
-/**
- * Get the flags used to create the inverted index of the reader.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-IndexFlags IndexReader_Flags(const struct IndexReader *ir);
 
 /**
  * Free the memory associated with an index reader instance created using [`NewIndexReader`].
@@ -151,39 +121,6 @@ IndexFlags IndexReader_Flags(const struct IndexReader *ir);
  *   [`NewIndexReader`].
  */
 void IndexReader_Free(struct IndexReader *ir);
-
-/**
- * Check if the index reader can return multiple entries for the same document ID.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-bool IndexReader_HasMulti(const struct IndexReader *ir);
-
-/**
- * Check if the index reader can read from the given inverted index. This is true if the index
- * reader was created for the same type of index as the given inverted index.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- * - `ii` must be either NULL or a valid pointer to an `InvertedIndex` instance.
- */
-bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
-
-/**
- * Report whether the index reader needs to be revalidated against its inverted index. This is
- * only needed if the inverted index has been modified since the last time the reader was used.
- * The function returns true if the reader needs revalidation, false otherwise.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-bool IndexReader_NeedsRevalidation(struct IndexReader *ir);
 
 /**
  * Advance the index reader to the next entry in the index. If there is a next entry, it will be
@@ -199,37 +136,6 @@ bool IndexReader_NeedsRevalidation(struct IndexReader *ir);
 bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
 /**
- * Get the estimated number of documents in the index reader.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-uint64_t IndexReader_NumEstimated(const struct IndexReader *ir);
-
-/**
- * Get a pointer to the numeric filter used by the index reader. If the index reader does not use
- * a numeric filter, the function will return NULL.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-const struct NumericFilter *IndexReader_NumericFilter(const struct IndexReader *ir);
-
-/**
- * Reset the index reader to the beginning of the index.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-void IndexReader_Reset(struct IndexReader *ir);
-
-/**
  * Seek the index reader to the entry with the given document ID. If such an entry exists, it will be
  * written to the output parameter `res` and the function will return true. If there is no entry
  * with the given document ID, but there are entries with higher document IDs, the next higher
@@ -242,19 +148,6 @@ void IndexReader_Reset(struct IndexReader *ir);
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
 bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res);
-
-/**
- * Skip the internal block of the inverted index reader to the block that may contain the given
- * document ID. If such a block exists, the function returns true and the next call to
- * `IndexReader_Seek` will return the entry for the given document ID or the next higher document
- * ID. If the document ID is beyond the last document in the index, the function returns false.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
 
 /**
  * Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
@@ -377,26 +270,6 @@ struct InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(struct II_GCReader *rd);
 bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
 /**
- * Get the garbage collector marker of the inverted index. This is used by some C tests.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
- */
-uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
-
-/**
- * Increment the garbage collector marker of the inverted index. This is used by some C tests.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
- */
-void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
-
-/**
  * Get ID of the last document in the index. Returns 0 if the index is empty.
  * This is used by some C tests.
  *
@@ -432,16 +305,6 @@ size_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
 uint32_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
-
-/**
- * Get the number of entries in the inverted index. This is only valid for numeric indexes created
- * with the `StoreNumeric` flag. For other index types, this function will return 0.
- *
- * # Safety
- * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
- */
-size_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
 
 /**
  * Get a summary of the inverted index for debugging purposes.

@@ -1022,6 +1022,12 @@ def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
+def get_internal_id(env, key, idx='idx'):
+    """Returns the internal doc id of `key` in `idx`. A full reindex goes through the REPLACE
+    path, which deletes the old doc-table entry and assigns a new, larger id, so a changed id
+    shows that the document was reindexed."""
+    return to_dict(env.cmd(debug_cmd(), 'DOCINFO', idx, key, 'REVEAL'))['internal_id']
+
 def to_list(input_dict: dict):
     return [item for pair in input_dict.items() for item in pair]
 
