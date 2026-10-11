@@ -137,11 +137,13 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
 
 impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
     fn drop(&mut self) {
-        if let Some(mut key_handle) = self.key_handle {
+        if let Some(key_handle) = self.key_handle {
             // SAFETY: a present `key_handle` is one the setter's contract
-            // requires to outlive this source.
+            // requires to outlive this source. Writing through a raw place
+            // touches only `is_valid`, without asserting exclusive access to
+            // the rest of the C-owned handle.
             unsafe {
-                key_handle.as_mut().is_valid = false;
+                (*key_handle.as_ptr()).is_valid = false;
             }
         }
     }
