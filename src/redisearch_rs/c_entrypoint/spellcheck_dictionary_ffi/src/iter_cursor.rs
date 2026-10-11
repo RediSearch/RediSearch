@@ -110,7 +110,7 @@ pub unsafe extern "C" fn SpellCheckDictionary_IterateFuzzy<'scd>(
 /// with [`SpellCheckDictionaryIterator_Free`].
 ///
 /// The string `*str` points at is NOT NUL-terminated, owned by the
-/// iterator, and only [valid] until the next call to
+/// iterator, and only valid until the next call to
 /// [`SpellCheckDictionaryIterator_Next`] or
 /// [`SpellCheckDictionaryIterator_Free`].
 ///

@@ -444,7 +444,7 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The accessors in
  * [`vector_score_source::interop`] must not be called on such a handle.
  *
- * Pass `child = NULL` for a pure KNN query; pass a [valid] owning child iterator
+ * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
  * for a hybrid (filtered) query.
  *
  * The `query_params` pointer is read once to copy the parameters into the

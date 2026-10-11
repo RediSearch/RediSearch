@@ -334,7 +334,7 @@ void RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32
 /**
  * Releases any resources created by this lookup object. Note that if there are
  * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
- * [valid] after this call!
+ * valid after this call!
  *
  * # Safety
  *

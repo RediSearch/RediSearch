@@ -54,7 +54,7 @@ void SpellCheckDictionaryIterator_Free(struct SpellCheckDictionaryIterator *it);
  * with [`SpellCheckDictionaryIterator_Free`].
  *
  * The string `*str` points at is NOT NUL-terminated, owned by the
- * iterator, and only [valid] until the next call to
+ * iterator, and only valid until the next call to
  * [`SpellCheckDictionaryIterator_Next`] or
  * [`SpellCheckDictionaryIterator_Free`].
  *

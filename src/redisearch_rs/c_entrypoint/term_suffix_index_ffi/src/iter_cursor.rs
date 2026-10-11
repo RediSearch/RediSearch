@@ -59,7 +59,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// with [`TermSuffixIndexIterator_Free`].
 ///
 /// The string `*str` points at is NOT NUL-terminated, owned by the
-/// iterator, and only [valid] until the next call to
+/// iterator, and only valid until the next call to
 /// [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
 ///
 /// # Safety

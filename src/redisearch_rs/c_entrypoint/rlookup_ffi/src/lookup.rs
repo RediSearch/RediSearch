@@ -551,7 +551,7 @@ pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup)
 
 /// Releases any resources created by this lookup object. Note that if there are
 /// lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
-/// [valid] after this call!
+/// valid after this call!
 ///
 /// # Safety
 ///

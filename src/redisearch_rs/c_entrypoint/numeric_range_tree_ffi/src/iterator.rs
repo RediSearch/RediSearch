@@ -45,7 +45,7 @@ pub unsafe extern "C" fn NumericRangeTreeIterator_New<'a>(
 /// Returns a pointer to the next [`NumericRangeNode`] in the traversal,
 /// or NULL if the iteration is complete.
 ///
-/// The returned pointer is [valid] until the tree is modified or freed.
+/// The returned pointer is valid until the tree is modified or freed.
 /// Do NOT free the returned pointer - it points to memory owned by the tree.
 ///
 /// # Safety

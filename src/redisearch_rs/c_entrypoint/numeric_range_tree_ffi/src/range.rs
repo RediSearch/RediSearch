@@ -88,7 +88,7 @@ pub unsafe extern "C" fn NumericRange_InvertedIndexSize(range: *const NumericRan
 /// Get the inverted index entries from a range.
 ///
 /// Returns a pointer to the [`InvertedIndexNumeric`] (which is a `NumericIndex` enum)
-/// stored inside the range. The returned pointer is [valid] until the tree is modified or freed.
+/// stored inside the range. The returned pointer is valid until the tree is modified or freed.
 ///
 /// # Safety
 ///

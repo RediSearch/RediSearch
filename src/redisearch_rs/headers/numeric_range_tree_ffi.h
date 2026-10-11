@@ -75,7 +75,7 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * Returns a pointer to the range, or NULL if the node has no range
  * (e.g., an internal node whose range has been trimmed).
  *
- * The returned pointer is [valid] until the tree is modified or freed.
+ * The returned pointer is valid until the tree is modified or freed.
  * Do NOT free the returned pointer - it points to memory owned by the tree.
  *
  * # Safety
@@ -140,7 +140,7 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRange
  * Returns a pointer to the next [`NumericRangeNode`] in the traversal,
  * or NULL if the iteration is complete.
  *
- * The returned pointer is [valid] until the tree is modified or freed.
+ * The returned pointer is valid until the tree is modified or freed.
  * Do NOT free the returned pointer - it points to memory owned by the tree.
  *
  * # Safety
@@ -379,7 +379,7 @@ size_t NumericRange_GetCardinality(const struct NumericRange *range);
  * Get the inverted index entries from a range.
  *
  * Returns a pointer to the [`InvertedIndexNumeric`] (which is a `NumericIndex` enum)
- * stored inside the range. The returned pointer is [valid] until the tree is modified or freed.
+ * stored inside the range. The returned pointer is valid until the tree is modified or freed.
  *
  * # Safety
  *
