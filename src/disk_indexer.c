@@ -66,7 +66,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // TODO: Consider calling this from SearchDisk_PutDocument
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, ctx, &oldDocId);
-  aCtx->disk.oldDocId = oldDocId;
+  aCtx->oldDocId = oldDocId;
 
   // Open a per-document write batch that doc-table / inverted-index / tag-index writes
   // will be staged into. The batch is committed (or aborted on error) by
@@ -221,20 +221,14 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // memory mode, which gates `Indexer_RemoveOldDocStats` on whether an old DMD
   // existed, not on its length. `oldDocLen` is still the right value to subtract
   // from `totalDocsLen` (0 for a zero-length old doc is a correct no-op subtraction).
-  const bool replaced = aCtx->disk.oldDocId != 0;
+  const bool replaced = aCtx->oldDocId != 0;
   if (replaced) {
-    Indexer_RemoveReplacedDocVectorAndGeometry(spec, aCtx->disk.oldDocId);
+    Indexer_HandleReplacedDocVectorAndGeometry(spec, aCtx->oldDocId, aCtx);
     Indexer_RemoveOldDocStats(spec, aCtx->disk.oldDocLen);
   }
   Indexer_AddNewDocStats(spec, aCtx->fwIdx->totalFreq);
 
-  if (spec->gc) {
-    if (replaced) {
-      GCContext_OnUpdate(spec->gc);
-    } else {
-      GCContext_OnWrite(spec->gc);
-    }
-  }
+  handle_gc(spec, replaced);
 }
 
 /**
@@ -266,7 +260,7 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
 /**
  * Disk-mode apply step for non-fulltext fields: runs the per-field-type
- * appliers (`tagApplier`, `vectorApplier`, …) defined in
+ * appliers (`tagApplier`, `numericApplier`, …) defined in
  * [document.c](document.c) once per indexed field. Called from
  * `DiskIndexer_IndexDocument` after `commitDocument` reports success. Infallible.
  */
@@ -305,11 +299,52 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     // the next RDB save would persist that divergence. Match the post-commit
     // policy used by `applyDocTable` for `DocIdMeta_Set` failure.
     RS_LOG_ASSERT_ALWAYS(vecsim, "openVectorIndex returned NULL after a successful disk commit");
-    const char *curr_vec = (const char *)fdata->vector;
+    // Safe here and not before `commitDocument`: the batch is durable, so the
+    // vector index cannot end up pointing at an unpersisted doc-id.
+    if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
+        VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
+      continue;
+    }
+    const char *curr_vec = fdata->vector;
     for (size_t i = 0; i < fdata->numVec; i++) {
       VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
       curr_vec += fdata->vecLen;
     }
+    FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
+  }
+}
+
+// Missing postings share the document batch; a partial failure aborts all its writes.
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  if (aCtx->stateFlags & ACTX_F_ERRORED) return;
+
+  dict *missing = Indexer_GetDocumentMissingFields(sctx->spec, aCtx->doc);
+  if (!missing) return;
+  size_t numFields = dictSize(missing);
+  if (numFields == 0) {
+    dictRelease(missing);
+    return;
+  }
+
+  t_fieldIndex *fields = rm_malloc(numFields * sizeof(t_fieldIndex));
+  size_t n = 0;
+  dictIterator *iter = dictGetIterator(missing);
+  for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
+    const FieldSpec *fs = dictGetVal(entry);
+    fields[n++] = fs->index;
+  }
+  dictReleaseIterator(iter);
+  dictRelease(missing);
+
+  bool success = SearchDisk_IndexMissingFields(
+      sctx->redisCtx, sctx->spec->diskSpec, aCtx->disk.batch, fields, numFields, aCtx->doc->docId);
+  rm_free(fields);
+
+  if (!success) {
+    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to add missing-field postings to the write batch");
+    IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, aCtx->doc->docKey);
+    aCtx->stateFlags |= ACTX_F_ERRORED;
   }
 }
 
@@ -319,6 +354,7 @@ void DiskIndexer_IndexDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     stageText(aCtx, ctx);
   }
   bulkStageFields(aCtx, ctx);
+  writeMissingFieldDocs(aCtx, ctx);
 
   // Commit fence — returns false if the batch was aborted or the commit
   // failed; in either case the apply step must not run.

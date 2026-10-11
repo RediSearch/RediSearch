@@ -79,6 +79,9 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite this change can't affect, unless enforce:test asks for everything.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
 
   coverage:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
@@ -97,6 +100,10 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Never skipped: Codecov has no carryforward configured (.github/codecov.yml), so
+      # skipping a suite here would show its lines as "missed" instead of carried forward.
+      skip-unit-tests: false
+      skip-flow-tests: false
 
   sanitize:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
@@ -115,6 +122,9 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Skip a suite this change can't affect, unless enforce:sanitize asks for everything.
+      skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
+      skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
 
   # ------------------------------------------------------------------
   # MIRI runs independently — no build artifact reuse possible, and we
@@ -124,7 +134,9 @@ jobs:
   miri:
     name: miri (${{ matrix.shard }}/3)
     needs: [check-what-changed, spellcheck]
-    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # Runs when, in a non-draft PR, code or tests changed (or enforce:sanitize is set),
+    # and either enforce:sanitize is set or the change could actually affect MIRI.
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && (contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') || needs.check-what-changed.outputs.MIRI_RELEVANT == 'true') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     # Split MIRI across 3 nextest partitions. Each shard is self-contained
     # (builds the C side + compiles miri) since miri can't reuse the nextest
     # archive; the slow part — miri interpretation — is split 3 ways.

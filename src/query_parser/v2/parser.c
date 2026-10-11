@@ -2080,7 +2080,7 @@ static YYACTIONTYPE yy_reduce(
     reportSyntaxError(ctx->status, &yymsp[-1].minor.yy150.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     yymsp[-3].minor.yy3 = NULL;
   } else {
-    yymsp[-3].minor.yy3 = NewMissingNode(yymsp[-1].minor.yy150.fs);
+    yymsp[-3].minor.yy3 = NewMissingNode(ctx->sctx->spec ? yymsp[-1].minor.yy150.fs : NULL);
   }
 }
         break;
@@ -2091,7 +2091,7 @@ static YYACTIONTYPE yy_reduce(
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_TAG_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
-    yylhsminor.yy3 = NewTagNode(yymsp[-4].minor.yy150.fs);
+    yylhsminor.yy3 = NewTagNode(ctx->sctx->spec ? yymsp[-4].minor.yy150.fs : NULL);
     QueryNode_AddChildren(yylhsminor.yy3, yymsp[-1].minor.yy3->children, QueryNode_NumChildren(yymsp[-1].minor.yy3));
 
     // Set the children count on yymsp[-1].minor.yy3 to 0 so they won't get recursively free'd
@@ -2141,7 +2141,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yylhsminor.yy3 = NewNumericNode(yymsp[0].minor.yy62, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(yymsp[0].minor.yy62, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2202,7 +2202,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
-    QueryNode* E = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = not_step(E);
   }
 }
@@ -2215,7 +2215,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2227,7 +2227,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 0, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2239,7 +2239,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 1, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2251,7 +2251,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 0);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2263,7 +2263,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy3 = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 1);
-    yylhsminor.yy3 = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
+    yylhsminor.yy3 = NewNumericNode(qp, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2276,7 +2276,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->fieldSpec = yymsp[-2].minor.yy150.fs;
+    GeoFilter_SetField(yymsp[0].minor.yy62->gf, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }
@@ -2303,7 +2303,7 @@ static YYACTIONTYPE yy_reduce(
     QueryNode_Free(yymsp[0].minor.yy3);
   } else if (yymsp[0].minor.yy3) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy3->gmn.geomq->fs = yymsp[-2].minor.yy150.fs;
+    GeometryQuery_SetField(yymsp[0].minor.yy3->gmn.geomq, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = yymsp[0].minor.yy3;
   }
 }
@@ -2436,7 +2436,7 @@ static YYACTIONTYPE yy_reduce(
   } else if (yymsp[-3].minor.yy0.len == strlen("KNN") && !strncasecmp("KNN", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
-    yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
+    VectorQuery_SetField(yylhsminor.yy3->vn.vq, ctx->sctx->spec ? yymsp[-1].minor.yy150.fs : NULL);
     VectorQuery_SetDefaultScoreField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.tok.s, yymsp[-1].minor.yy150.tok.len);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
@@ -2484,7 +2484,7 @@ static YYACTIONTYPE yy_reduce(
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_VECTOR_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
-    yymsp[-1].minor.yy3->vn.vq->field = yymsp[-4].minor.yy150.fs;
+    VectorQuery_SetField(yymsp[-1].minor.yy3->vn.vq, ctx->sctx->spec ? yymsp[-4].minor.yy150.fs : NULL);
     yylhsminor.yy3 = yymsp[-1].minor.yy3;
   }
 }

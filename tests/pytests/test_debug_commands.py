@@ -36,6 +36,18 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
 
+    def testHashSubkeyNotifications(self):
+        """The probe answers whether this server can name the fields a hash command wrote.
+
+        Which decides whether a write reaching no indexed field can skip the reindex, so a
+        test asserting change-set-driven behavior has to be able to ask. Only the shape is
+        checked here: the answer depends on the Redis under test, and pinning either value
+        would make this fail on the other.
+        """
+        res = self.env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+        self.env.assertIn(res, (0, 1, True, False),
+                          message=f'expected a boolean, got {res!r}')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
@@ -70,6 +82,7 @@ class TestDebugCommands(object):
             "TTL_PAUSE",
             "TTL_EXPIRE",
             "VECSIM_INFO",
+            "VECSIM_RELABEL_SUPPORTED",
             "DELETE_LOCAL_CURSORS",
             "DELETE_LOCAL_COORD_CURSORS",
             "DUMP_HNSW",
@@ -80,6 +93,8 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
+            'HASH_SUBKEY_NOTIFICATIONS',
+            'FORCE_PLAIN_HASH_NOTIFICATIONS',
             'YIELDS_COUNTER',
             'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
@@ -117,6 +132,7 @@ class TestDebugCommands(object):
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
+                        'HASH_SUBKEY_NOTIFICATIONS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
                         'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
@@ -218,6 +234,15 @@ class TestDebugCommands(object):
     def testDumpPhoneticHash(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
         self.env.expect(debug_cmd(), 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
+
+    def testDumpPhoneticHashWithoutPhoneticCode(self):
+        # Digits have no phonetic code, so neither the primary nor the secondary one is produced.
+        try:
+            res = self.env.cmd(debug_cmd(), 'DUMP_PHONETIC_HASH', '04')
+        except Exception as e:
+            self.env.assertTrue(False, message=f'DUMP_PHONETIC_HASH failed on a term without a phonetic code: {e}')
+            return
+        self.env.assertEqual(res, [None, None])
 
     def testDumpPhoneticHashWrongArity(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash').error()
@@ -1417,7 +1442,14 @@ def test_query_controller_set_cursor_read_size():
     # restoring it works.
     prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
     env.assertGreater(int(prev), 0)
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
+    try:
+        previous = 7
+        for value in [(1 << 32) - 1, 1 << 32, (1 << 63) - 1]:
+            env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', value).equal(previous)
+            previous = min(value, (1 << 32) - 1)
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1 << 63).error()
+    finally:
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(previous)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():

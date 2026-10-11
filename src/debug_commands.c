@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "op_block_client.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -38,6 +39,7 @@
 #include "cursor.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
+#include "notifications.h"
 #include "hybrid/hybrid_exec.h"
 #include "reply.h"
 #include "info/info_command.h"
@@ -1030,9 +1032,18 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 
   PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
 
+  // A term with no phonetic code (digits, for one) leaves the code NULL.
   RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
-  RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  if (primary) {
+    RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
+  if (secondary) {
+    RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
 
   rm_free(primary);
   rm_free(secondary);
@@ -1330,8 +1341,7 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, GCForceInvokeReply);
   GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
 }
@@ -1865,6 +1875,37 @@ DEBUG_COMMAND(VecsimInfo) {
   VecSimDebugInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG VECSIM_RELABEL_SUPPORTED <index> <field>
+ */
+DEBUG_COMMAND(VecsimRelabelSupported) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  if (!fs) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
+  }
+  VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
+  if (!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Can't open vector index");
+  }
+
+  // A supported implementation rejects an identity move as SameLabel without touching the index.
+  // The interface default returns Unsupported, which is how builds lacking the backend operation
+  // advertise that the caller must fall back to delete and insert.
+  VecSimRelabelCode code = VecSimIndex_RelabelVector(vecsimIndex, INVALID_LABEL, INVALID_LABEL);
+  SearchCtx_Free(sctx);
+  return RedisModule_ReplyWithLongLong(ctx, code != VecSimRelabel_Unsupported);
 }
 
 /**
@@ -2698,6 +2739,33 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   return RedisModule_ReplyWithLongLong(ctx, value);
 }
 
+DEBUG_COMMAND(hashSubkeyNotifications) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RedisModule_ReplyWithBool(ctx, HashSubkeyNotificationsSupported());
+}
+
+DEBUG_COMMAND(forcePlainHashNotifications) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  // argv[0] = FT.DEBUG, argv[1] = FORCE_PLAIN_HASH_NOTIFICATIONS, argv[2] = 0|1
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long force;
+  if (RedisModule_StringToLongLong(argv[2], &force) != REDISMODULE_OK || force < 0 || force > 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid value. Must be 0 or 1.");
+  }
+  if (!ForcePlainHashNotifications_Set(force != 0)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Keyspace notifications are already subscribed; the channel cannot be changed. "
+             "Set this before creating any index.");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 // Global counter for tracking yield calls
 typedef struct {
   size_t yieldOnLoadCounter;
@@ -3427,7 +3495,7 @@ DEBUG_COMMAND(ioRuntimePendingRequests) {
 
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
- * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * Override RSGlobalConfig.cursorConfigParams.chunkSize at runtime. Returns the previous
  * value so the caller can restore it. N must be >= 1.
  */
 DEBUG_COMMAND(setCursorReadSize) {
@@ -3442,8 +3510,8 @@ DEBUG_COMMAND(setCursorReadSize) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
   }
 
-  long long previous = RSGlobalConfig.cursorReadSize;
-  RSGlobalConfig.cursorReadSize = n;
+  long long previous = RSGlobalConfig.cursorConfigParams.chunkSize;
+  RSGlobalConfig.cursorConfigParams.chunkSize = n > UINT32_MAX ? UINT32_MAX : (uint32_t)n;
   return RedisModule_ReplyWithLongLong(ctx, previous);
 }
 #endif
@@ -3568,7 +3636,7 @@ static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-// Used in hybrid_reader.c in computeDistances
+// Defined in vector_top_k.c, called from the Rust vector top-k scan.
 extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 
 /**
@@ -3866,6 +3934,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"VECSIM_RELABEL_SUPPORTED", VecsimRelabelSupported},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DELETE_LOCAL_COORD_CURSORS", DeleteCoordCursors},
                                {"DUMP_HNSW", dumpHNSWData},
@@ -3876,6 +3945,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
+                               {"HASH_SUBKEY_NOTIFICATIONS", hashSubkeyNotifications},
+                               {"FORCE_PLAIN_HASH_NOTIFICATIONS", forcePlainHashNotifications},
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},

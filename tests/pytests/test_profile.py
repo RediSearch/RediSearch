@@ -410,9 +410,9 @@ def testProfileVector(env):
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
   expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 2, 'Largest batch size', 4, 'Largest batch iteration (zero based)', 0, 'Child iterator',
-                            ['Type', 'INTERSECT', 'Number of reading operations', 8, 'Child iterators', [
-                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 8, 'Estimated number of matches', 9997],
-                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 8, 'Estimated number of matches', 10000]]]]
+                            ['Type', 'INTERSECT', 'Number of reading operations', 6, 'Child iterators', [
+                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 6, 'Estimated number of matches', 9997],
+                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 6, 'Estimated number of matches', 10000]]]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 3]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
@@ -476,9 +476,9 @@ def testProfileVector(env):
 
 @skip(cluster=True)
 def testProfileVectorZeroK(env):
-  """`KNN 0` is not short-circuited: it builds a vector iterator, attaches any
-  filter child without ever reading it, and issues an index query that returns
-  no neighbours but still sets the index's last search mode.
+  """`KNN 0` is reduced to an empty iterator before the vector index is reached:
+  any filter child is freed unread, no index query is issued, and the index's
+  last search mode is left as the previous query set it.
   """
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -489,34 +489,30 @@ def testProfileVectorZeroK(env):
   conn.execute_command('hset', '2', 'v', 'babababa', 't', 'hello')
 
   def prime_search_mode():
-    # Leave the index in a mode no zero-K query can produce, so the search-mode
-    # assertion tells a fresh query apart from a mode left by an earlier one.
+    # Leave the index in a mode no KNN query can produce, so a mode surviving the
+    # zero-K query below is proof the index was never queried.
     conn.execute_command('ft.profile', 'idx', 'search', 'query',
                          '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
                          'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
     env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
                     'RANGE_QUERY')
 
-  knn_profile = ['Type', 'VECTOR', 'Number of reading operations', 0,
-                 'Vector search mode', 'STANDARD_KNN']
-  # A filter child is built and attached to the iterator, then never read.
-  filtered_profile = knn_profile + [
-      'Child iterator',
-      ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0,
-       'Estimated number of matches', 2]]
+  # The reduction happens ahead of the child reduction, so the filtered shape
+  # yields the same entry as the bare one rather than an elided subtree.
+  empty_profile = ['Type', 'EMPTY', 'Number of reading operations', 0]
 
   # Bare, filtered, and distance-yielding zero-K queries.
-  for query, expected_profile in [('*=>[KNN 0 @v $vec]', knn_profile),
-                                  ('(@t:hello)=>[KNN 0 @v $vec]', filtered_profile),
-                                  ('*=>[KNN 0 @v $vec AS dist]', knn_profile)]:
+  for query in ('*=>[KNN 0 @v $vec]',
+                '(@t:hello)=>[KNN 0 @v $vec]',
+                '*=>[KNN 0 @v $vec AS dist]'):
     prime_search_mode()
     actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', query,
                                       'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
     env.assertEqual(actual_res[0], [0], message=query)
     actual_profile = to_dict(actual_res[1][1][0])
-    env.assertEqual(actual_profile['Iterators profile'], expected_profile, message=query)
+    env.assertEqual(actual_profile['Iterators profile'], empty_profile, message=query)
     env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
-                    'STANDARD_KNN', message=query)
+                    'RANGE_QUERY', message=query)
 
 @skip(cluster=True)
 def testProfileVectorBatchSizeAfterSparseBatch(env):
@@ -1830,3 +1826,155 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
+
+def _test_distributed_profile_return_strict(protocol):
+  """STRICT profiles finish without waiting on the main thread for shard profiles."""
+  # Workers ensure the shards exercise STRICT as well as the coordinator.
+  env = Env(protocol=protocol, moduleArgs='ON_TIMEOUT RETURN-STRICT TIMEOUT 0 WORKERS 2')
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+  for i in range(12):
+    conn.execute_command('HSET', f'doc:{{{i}}}', 'n', i)
+
+  # Bound the test's client reads independently of the query timeout.
+  clients = []
+  for shard in shardsConnections(env):
+    kwargs = dict(shard.connection_pool.connection_kwargs)
+    kwargs.update(socket_timeout=5, socket_connect_timeout=5,
+                  retry=redis.retry.Retry(redis.backoff.NoBackoff(), 0))
+    clients.append(redis.Redis(**kwargs))
+  try:
+    before = [[c.execute_command(config_cmd(), 'GET', name)
+               for name in ('ON_TIMEOUT', 'TIMEOUT')] for c in clients]
+    for timeout in (0, 100000):
+      for mode in ([], ['LIMITED']):
+        # Check result and envelope compatibility for buffering pipelines.
+        for tail, total, expected in [
+            (['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 1], 12, [['n', '0']]),
+            (['GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'count'], 1, [['count', '12']])]:
+          res = clients[0].execute_command(
+            'FT.PROFILE', 'idx', 'AGGREGATE', *mode, 'QUERY', '*',
+            *tail, 'TIMEOUT', timeout)
+          if protocol == 2:
+            env.assertEqual(res[0], [total, *expected])
+          else:
+            env.assertEqual(res['Results']['results'], [
+              {'extra_attributes': dict(zip(row[::2], row[1::2])), 'values': []}
+              for row in expected])
+            env.assertEqual(res['Results']['warning'], [])
+          # Profile collection is best-effort under STRICT, including with TIMEOUT 0.
+          env.assertLessEqual(len(get_shards_profile(env, res)), env.shardsCount, message=res)
+          for c in clients:
+            env.assertTrue(c.ping())
+    after = [[c.execute_command(config_cmd(), 'GET', name)
+              for name in ('ON_TIMEOUT', 'TIMEOUT')] for c in clients]
+    env.assertEqual(after, before)
+  finally:
+    for c in clients:
+      c.close()
+
+
+@skip(cluster=False, min_shards=2)
+def test_distributed_profile_return_strict_resp2():
+  _test_distributed_profile_return_strict(2)
+
+
+@skip(cluster=False, min_shards=2)
+def test_distributed_profile_return_strict_resp3():
+  _test_distributed_profile_return_strict(3)
+
+
+def _test_strict_profile_pending_shards(protocol, paused_count):
+  """Drain buffered profiles, then reply while other shards are still paused."""
+  # Three shards distinguish an empty channel from one buffered terminal reply.
+  env = Env(protocol=protocol, shardsCount=3,
+            moduleArgs='ON_TIMEOUT RETURN-STRICT TIMEOUT 0 WORKERS 2')
+  skipIfNoEnableAssert(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+  conn = getConnectionByEnv(env)
+  for i in range(120):
+    conn.execute_command('HSET', f'doc:{{{i}}}', 'n', 1)
+  clients = []
+  for shard in shardsConnections(env):
+    kwargs = dict(shard.connection_pool.connection_kwargs)
+    kwargs.update(socket_timeout=5, socket_connect_timeout=5,
+                  retry=redis.retry.Retry(redis.backoff.NoBackoff(), 0))
+    clients.append(redis.Redis(**kwargs))
+  coord = clients[0]
+  try:
+    for c in clients:
+      env.assertGreater(c.dbsize(), 0)
+    paused = clients[1:1 + paused_count]
+    result = []
+    def query():
+      try:
+        result.append(coord.execute_command(
+          'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHOUTCOUNT',
+          'LOAD', 1, '@n', 'LIMIT', 0, 1, 'TIMEOUT', 0))
+      except Exception as e:
+        result.append(e)
+    thread = threading.Thread(target=query, daemon=True)
+    try:
+      for c in paused:
+        c.execute_command(debug_cmd(), 'WORKERS', 'pause')
+      coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                            'SET_PAUSE_BEFORE_STORE_RESULTS', 'true', 'NON_INTERNAL_ONLY')
+      thread.start()
+      wait_for_condition(lambda: (coord.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED') == 1, {}),
+        'Coordinator did not reach result handoff', timeout=5)
+      # Every responsive shard has queued its terminal/profile reply. The worker
+      # consumed one to satisfy LIMIT; any others remain for printAggProfile.
+      wait_for_condition(lambda: (coord.execute_command(
+        debug_cmd(), 'BG_PENDING_REPLIES') == paused_count, {}),
+        'Responsive shards did not finish', timeout=5)
+      coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+      thread.join(timeout=5)
+      env.assertFalse(thread.is_alive(), message='Profile waited for paused shards')
+      env.assertEqual(len(result), 1, message=result)
+      env.assertFalse(isinstance(result[0], Exception), message=result)
+      res = result[0]
+      if protocol == 2:
+        env.assertEqual(res[0], [1, ['n', '1']])
+      else:
+        env.assertEqual(res['Results']['results'], [
+          {'extra_attributes': {'n': '1'}, 'values': []}])
+        env.assertEqual(res['Results']['warning'], [])
+      env.assertEqual(len(get_shards_profile(env, res)), 3 - paused_count, message=res)
+      for c in clients:
+        env.assertTrue(c.ping())
+    finally:
+      try:
+        coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                              'SET_PAUSE_BEFORE_STORE_RESULTS', 'false')
+        if coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                 'GET_IS_STORE_RESULTS_PAUSED') == 1:
+          coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+      finally:
+        for c in paused:
+          c.execute_command(debug_cmd(), 'WORKERS', 'resume')
+        thread.join(timeout=5)
+  finally:
+    for c in clients:
+      c.close()
+
+
+@skip(cluster=False)
+def test_strict_profile_pending_shards_resp2():
+  _test_strict_profile_pending_shards(2, 1)
+
+
+@skip(cluster=False)
+def test_strict_profile_pending_shards_resp3():
+  _test_strict_profile_pending_shards(3, 1)
+
+
+@skip(cluster=False)
+def test_strict_profile_empty_channel_resp2():
+  _test_strict_profile_pending_shards(2, 2)
+
+
+@skip(cluster=False)
+def test_strict_profile_empty_channel_resp3():
+  _test_strict_profile_pending_shards(3, 2)

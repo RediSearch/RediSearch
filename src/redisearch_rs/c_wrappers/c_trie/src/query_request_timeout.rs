@@ -53,6 +53,25 @@ impl QueryRequestTimeoutHandle {
         Some(unsafe { &*timeout.cast::<QueryRequestTimeoutHandle>().as_ptr() })
     }
 
+    /// The deadline of the active clock cycle, or `None` when the cycle uses
+    /// any other timeout source.
+    pub fn clock_deadline(&self) -> Option<ffi::timespec> {
+        let timeout = self.inner.get();
+        // SAFETY: `from_raw` guarantees the object is live, and its cycle
+        // contract makes `kind` immutable while this handle is in use.
+        let kind = unsafe { (*timeout).kind };
+        if kind != ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE {
+            return None;
+        }
+        // SAFETY: the object is live, as above. Taking the place's address
+        // reads nothing.
+        let clock = unsafe { &raw const (*timeout).source.clock };
+        // SAFETY: `kind` selects `clock` as the active union member, and the
+        // cycle contract keeps its deadline immutable. Reading only this field
+        // leaves the non-atomic counter and the atomic marker untouched.
+        Some(unsafe { (*clock).deadline })
+    }
+
     /// Exposes the borrowed object to a synchronous C operation.
     ///
     /// The pointer must not be retained after the operation returns.

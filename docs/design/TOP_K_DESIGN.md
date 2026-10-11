@@ -301,7 +301,6 @@ enum Phase {
 pub struct TopKMetrics {
     pub num_batches: usize,
     pub strategy_switches: usize,
-    pub total_comparisons: usize,
 }
 ```
 
@@ -1050,5 +1049,5 @@ fn bench_rust_vs_c_batches(c: &mut Criterion);
 - [iterator_api.h](../../src/iterators/iterator_api.h) - C iterator API
 - [lib.rs](../../src/redisearch_rs/rqe_iterators/src/lib.rs) - Rust `RQEIterator` trait
 - [metric.rs](../../src/redisearch_rs/rqe_iterators/src/metric.rs) - Example of unsorted iterator
-- [hybrid_reader.c](../../src/iterators/hybrid_reader.c) - Current C hybrid implementation
+- [iterator.rs](../../src/redisearch_rs/top_k/src/iterator.rs) - Rust top-k iterator (replaced the C `hybrid_reader.c`)
 - [optimizer_reader.c](../../src/iterators/optimizer_reader.c) - Current C optimizer implementation

@@ -328,7 +328,8 @@ impl<'a> JsonValue<'a> {
         debug_assert!(!ptr.is_null());
 
         JsonValueRef {
-            // SAFETY: `new` asserts `allocJson` returned a non-null value.
+            // SAFETY: successful `getAt` or `nextKeyValue` calls initialize the inner value
+            // before it is exposed; the assertion above checks that inner pointer.
             ptr: unsafe { NonNull::new_unchecked(ptr) },
             api: self.api,
         }

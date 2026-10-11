@@ -9,10 +9,6 @@
 #pragma once
 #include "redismodule.h"
 
-void Backup_Globals();
-void Restore_Globals(RedisModuleCtx *ctx);
-void Discard_Globals_Backup(RedisModuleCtx *ctx);
-
 // For rdb short read
 
 #define LoadStringBufferAlloc_IOErrors(rdb, ptr, len, exclude_null_delimiter_from_len, cleanup_exp)  \

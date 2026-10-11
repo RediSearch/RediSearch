@@ -15,6 +15,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include <vector>
+#include <stdexcept>
 #include <algorithm>
 
 #define is_Idle(cur) ((cur)->pos != -1)
@@ -267,3 +268,61 @@ TEST_F(CursorsTest, UnwindCyclesUnlinksWithoutFreeing) {
     QueryRequest_Free(&reqs[i]->base);
   }
 }
+
+TEST_F(CursorsTest, DeferredCycleClearsModeBeforeInlineCursorRead) {
+  AREQ *req = AREQ_New(nullptr, 0);
+  Cursor *cursor = Cursors_Reserve(&g_CursorsList, StrongRef{0}, 1000, nullptr);
+  ASSERT_NE(cursor, nullptr);
+  cursor->query = &req->base;
+  req->base.blockedClientCycleActive = true;
+  req->base.replyDeferred = true;
+  req->base.cursorInfo.cursor = cursor;
+  req->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
+  const auto id = cursor->id;
+
+  ASSERT_TRUE(QueryRequest_UsesReplyCallback(&req->base));
+  QueryRequest_OnFree(nullptr, &req->base);
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), cursor);
+  EXPECT_FALSE(QueryRequest_UsesReplyCallback(&req->base));
+  EXPECT_FALSE(req->base.blockedClientCycleActive);
+  EXPECT_FALSE(req->base.reply.hasStoredResults);
+  EXPECT_EQ(req->base.reply.results, nullptr);
+
+  // The next blocked inline read starts with an independent reply count.
+  req->base.blockedClientCycleActive = true;
+  req->base.cursorInfo.cursor = cursor;
+  QueryRequest_RecordInlineReply(&req->base);
+  QueryRequest_OnFree(nullptr, &req->base);
+  EXPECT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr);
+}
+
+#ifdef ENABLE_ASSERT
+TEST_F(CursorsTest, ReplyContractRejectsMissingDuplicateAndMixedReplies) {
+  AREQ *req = AREQ_New(nullptr, 0);
+  req->base.blockedClientCycleActive = true;
+  EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
+
+  QueryRequest_RecordInlineReply(&req->base);
+  EXPECT_THROW(QueryRequest_RecordInlineReply(&req->base), std::runtime_error);
+
+  req->base.reply.hasStoredResults = true;
+  EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
+  req->base.reply.hasStoredResults = false;
+
+  req->base.replyDeferred = true;
+  EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
+  req->base.inlineReplyCount = 0;
+  EXPECT_THROW(QueryRequest_RecordInlineReply(&req->base), std::runtime_error);
+  QueryRequest_OnFree(nullptr, &req->base);
+}
+
+TEST_F(CursorsTest, InlineCycleRejectsBlockedClientTimer) {
+  if (!MainThread_GetBlockedQueries()) {
+    ASSERT_EQ(MainThread_InitBlockedQueries(), 0);
+  }
+  AREQ *req = AREQ_New(nullptr, 0);
+  EXPECT_THROW(BlockQueryClientWithTimeout(nullptr, &req->base, nullptr, nullptr, 1),
+               std::runtime_error);
+  QueryRequest_Free(&req->base);
+}
+#endif

@@ -34,16 +34,19 @@ impl Reducer {
         })
     }
 
-    /// Borrow `ptr` as a shared `Reducer`.
+    /// Borrow `ptr` as a shared [`Reducer`].
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid] pointer to an `ffi::Reducer` that is properly initialized.
-    ///    This also applies to any of its subfields.
+    /// 1. `ptr` must point to an initialized [`ffi::Reducer`] that remains [valid]
+    ///    for the returned lifetime. Its pointees must remain initialized and alive
+    ///    for that lifetime.
+    /// 2. The borrowed reducer must not be mutated for the returned lifetime,
+    ///    except through interior mutability.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: NonNull<ffi::Reducer>) -> &'a Self {
-        // SAFETY: ensured by caller (1.)
+        // SAFETY: the caller guarantees validity and shared access for the returned lifetime.
         unsafe { &*ptr.cast::<Self>().as_ptr() }
     }
 

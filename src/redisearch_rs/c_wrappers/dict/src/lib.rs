@@ -55,7 +55,7 @@ pub unsafe trait DictType {
     unsafe fn key_from_ptr<'a>(ptr: *mut c_void) -> Self::K<'a>;
 }
 
-/// [`DictType`] marker for the spec's `missingFieldDict`.
+/// [`DictType`] marker for the spec's `missing.indexes`.
 pub struct MissingFieldDictType;
 
 // SAFETY:

@@ -7,7 +7,7 @@
 
 """Shared helpers for the auto-backport resolve and apply scripts.
 
-These scripts are invoked from .github/workflows/task-backport_pr-agent.yml
+These scripts are invoked from .github/workflows/task-backport_pr.yml
 and .github/workflows/task-backport_pr-agent-fix.yml. Each workflow's
 resolve step calls one of resolve_create.py or resolve_fix.py, which both
 rely on this module for gh CLI access, $GITHUB_OUTPUT writing, and PR
@@ -360,3 +360,14 @@ def write_context(path: str, payload: dict) -> None:
 
     log(f"Context written to {path}")
     log(json.dumps(summary))
+
+
+def has_write_permission(login: str) -> bool:
+    """Fail closed when repository access cannot be verified."""
+    if not login or not all(c.isalnum() or c in "-[]" for c in login):
+        return False
+    try:
+        data = gh_json("api", f"repos/{os.environ['GITHUB_REPOSITORY']}/collaborators/{login}/permission")
+        return data.get("permission") in {"admin", "maintain", "write"}
+    except (OSError, subprocess.CalledProcessError, ValueError, AttributeError):
+        return False

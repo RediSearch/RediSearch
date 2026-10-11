@@ -16,16 +16,20 @@ use query_error::QueryError;
 pub struct ReducerOptions(ffi::ReducerOptions);
 
 impl ReducerOptions {
-    /// Borrow `ptr` as an exclusive `ReducerOptions`.
+    /// Borrow `ptr` as an exclusive [`ReducerOptions`].
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid] pointer to an `ffi::ReducerOptions` that is properly initialized.
-    ///    This also applies to any of its subfields.
+    /// 1. `ptr` must point to initialized [`ffi::ReducerOptions`] that remain [valid]
+    ///    for the returned lifetime. The [`ffi::ArgsCursor`] and [`QueryError`]
+    ///    pointees must remain initialized and alive for that lifetime.
+    /// 2. The options and their [`QueryError`] pointee must be exclusively accessible
+    ///    through this borrow for the returned lifetime. The [`ffi::ArgsCursor`]
+    ///    pointee must not be mutated while borrowed through [`Self::args`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw_mut<'a>(ptr: NonNull<ffi::ReducerOptions>) -> &'a mut Self {
-        // SAFETY: ensured by caller (1.)
+        // SAFETY: the caller guarantees validity and exclusive access for the returned lifetime.
         unsafe { &mut *ptr.cast::<Self>().as_ptr() }
     }
 

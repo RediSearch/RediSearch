@@ -11,7 +11,7 @@ on:
   pull_request:
     paths:
       - 'scripts/auto_backport/**'
-      - '.github/workflows/task-backport_pr-agent.yml'
+      - '.github/workflows/task-backport_pr.yml'
       - '.github/workflows/task-backport_pr-agent-fix.yml'
       - '.github/codex/prompts/pr-backport-auto.md'
       - '.github/codex/prompts/pr-backport-auto-fix.md'

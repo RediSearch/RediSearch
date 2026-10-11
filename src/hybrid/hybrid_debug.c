@@ -128,7 +128,7 @@ int parseHybridDebugParams(HybridDebugParams *params, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (RSGlobalConfig.timeoutConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
                         "FT.HYBRID debug timeout is not supported with ON_TIMEOUT RETURN-STRICT");
     return REDISMODULE_ERR;
@@ -197,10 +197,11 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hreq->requests[SEARCH_INDEX];
   cmd.vector = hreq->requests[VECTOR_INDEX];
-  cmd.cursorConfig = &hreq->cursorConfig;
+  cmd.cursorConfig = &hreq->base.cursorConfig;
   cmd.hybridParams = &hybridParams;
   cmd.tailPlan = &hreq->tailPipeline->ap;
-  cmd.reqConfig = &hreq->reqConfig;
+  cmd.reqConfig = &hreq->base.reqConfig;
+  cmd.timeoutConfig = &hreq->base.timeout.config;
   cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
