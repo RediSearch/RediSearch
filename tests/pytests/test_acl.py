@@ -298,3 +298,64 @@ def test_acl_key_permissions_validation(env):
                 "Document already exists",
             ]
             env.assertTrue(any([err in str(e) for err in possible_errors]))
+
+
+@skip(redis_less_than="8.0")
+def test_acl_metadata_commands(env):
+    """Authorize metadata changes before dispatching with internal privileges."""
+    env.expect('ACL', 'SETUSER', 'metadata_user', 'on', '>123', '~allowed:*', '+@all').ok()
+    env.expect('FT.CREATE', 'allowed', 'PREFIX', 1, 'allowed:',
+               'SCHEMA', 'text', 'TEXT').ok()
+
+    denied_commands = {
+        'drop_index': ['FT._DROPINDEXIFX', '{index}'],
+        'drop_legacy': ['FT._DROPIFX', '{index}', '_FORCEKEEPDOCS'],
+        'drop_index_by_alias': ['FT._DROPINDEXIFX', '{alias}'],
+        'drop_legacy_by_alias': ['FT._DROPIFX', '{alias}', '_FORCEKEEPDOCS'],
+        'add_alias': ['FT._ALIASADDIFNX', 'new_alias', '{index}'],
+        'delete_alias': ['FT.ALIASDEL', '{alias}'],
+        'delete_alias_if_exists': ['FT._ALIASDELIFX', '{alias}'],
+        'update_denied_source': ['FT.ALIASUPDATE', '{alias}', 'allowed'],
+        'update_denied_destination': ['FT.ALIASUPDATE', 'allowed_alias', '{index}'],
+    }
+    for scenario in denied_commands:
+        env.expect('FT.CREATE', scenario, 'PREFIX', 1, 'denied:',
+                   'SCHEMA', 'text', 'TEXT').ok()
+        env.expect('FT.ALIASADD', f'{scenario}_alias', scenario).ok()
+    env.expect('FT.ALIASADD', 'allowed_alias', 'allowed').ok()
+
+    env.expect('AUTH', 'metadata_user', '123').true()
+    for scenario, command in denied_commands.items():
+        command = [arg.format(index=scenario, alias=f'{scenario}_alias')
+                   for arg in command]
+        env.expect(*command).error().contains('User does not have the required permissions')
+
+    for command in ['FT.ALIASDEL', 'FT._ALIASDELIFX']:
+        env.expect(command, 'delete_alias_alias', 'extra').error().contains('wrong number of arguments')
+    for command in ['FT._DROPINDEXIFX', 'FT._DROPIFX']:
+        env.expect(command, 'drop_index', 'extra', 'extra').error().contains('wrong number of arguments')
+
+    # Check the state as admin: rejection must leave every index and alias intact.
+    env.expect('AUTH', 'default', '').true()
+    for scenario in denied_commands:
+        env.expect('FT.INFO', scenario).noError()
+        env.assertEqual(env.cmd('FT.ALIASLIST', scenario), [f'{scenario}_alias'])
+    env.assertEqual(env.cmd('FT.ALIASLIST', 'allowed'), ['allowed_alias'])
+
+    env.expect('AUTH', 'metadata_user', '123').true()
+    env.expect('FT._ALIASADDIFNX', 'ok_alias', 'allowed').ok()
+    env.expect('FT._ALIASADDIFNX', 'ok_alias', 'allowed').ok()
+    env.expect('FT.ALIASUPDATE', 'ok_alias', 'allowed').ok()
+    env.expect('FT.ALIASUPDATE', 'missing_alias', 'allowed').ok()
+    env.expect('FT.ALIASDEL', 'ok_alias').ok()
+    env.expect('FT._ALIASDELIFX', 'missing_alias').ok()
+    env.expect('FT._ALIASDELIFX', 'missing_alias').ok()
+    env.expect('FT.ALIASDEL', 'missing_alias').error().contains('Alias does not exist')
+    env.expect('FT._ALIASADDIFNX', 'bad_alias', 'allowed_alias').error().contains(
+        'Unknown index name (or name is an alias itself)')
+    for command in ['FT._DROPINDEXIFX', 'FT._DROPIFX']:
+        env.expect('FT.CREATE', 'to_drop', 'PREFIX', 1, 'allowed:',
+                   'SCHEMA', 'text', 'TEXT').ok()
+        env.expect(command, 'to_drop').ok()
+        env.expect(command, 'to_drop').ok()
+    env.expect('AUTH', 'default', '').true()
