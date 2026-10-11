@@ -899,3 +899,13 @@ def test_escaped_field_name_in_field_list(env):
         for query in [r'@sub\-title|title:hello', r'@title|sub\-title:hello', r'@title|body|sub\-title:hello']:
             res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(res, [1, 'doc1'], message=f'{query} DIALECT {dialect}')
+
+def test_unterminated_quotes_are_syntax_errors(env):
+    # A quote that is never closed is rejected, and a closed quoted `$name` is still a verbatim term.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    # The error is reported at the unterminated quote itself.
+    for query in ['"hello', '"$x', '"a b', '"$x y', '"$x )', '"*']:
+        env.expect('FT.EXPLAIN', 'idx', query).error().contains('SEARCH_SYNTAX Syntax error at offset 0 near "')
+    env.expect('FT.EXPLAIN', 'idx', '@t:"hello').error().contains('SEARCH_SYNTAX Syntax error at offset 3 near "')
+    env.expect('FT.EXPLAIN', 'idx', '"a" "b').error().contains('SEARCH_SYNTAX Syntax error at offset 4 near "')
+    env.expect('FT.EXPLAIN', 'idx', '"$x"').equal('EXACT {\n  $x\n}\n')

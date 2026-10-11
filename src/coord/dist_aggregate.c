@@ -314,14 +314,21 @@ static int rpnetCreateIterator(RPNet *nc) {
   MRIteratorCallback cb = nc->withCount ? withCountReplyCb : netCursorCallback;
   MRIteratorErrorCallback errCb = nc->withCount ? withCountErrorCb : NULL;
 
+  // The iterator takes the command's arguments; rpnet keeps reading only these reply-shape flags.
+  const MRCommand replyShape = {
+    .protocol = nc->cmd.protocol,
+    .forCursor = nc->cmd.forCursor,
+    .forProfiling = nc->cmd.forProfiling,
+  };
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  MRIterator *it = MR_CreateIterator(&nc->cmd, &(MRIteratorConfig){
+  MRIterator *it = MR_CreateIteratorTakingCmd(&nc->cmd, &(MRIteratorConfig){
     .successCB = cb,
     .errorCB = errCb,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .commandModifier = cmdModifier,
   });
+  nc->cmd = replyShape;
 
   if (!it) {
     // Iterator never created, so no callbacks are running and it did not take
@@ -797,7 +804,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     const char *query = AREQ_Query(r, &queryLen);
     if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(query, queryLen, r->searchopts.params, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
