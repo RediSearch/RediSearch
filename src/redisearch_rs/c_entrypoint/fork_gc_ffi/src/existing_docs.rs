@@ -39,8 +39,11 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
     gc: *mut ffi::ForkGC,
     sctx: *mut ffi::RedisSearchCtx,
 ) {
+    debug_assert!(!gc.is_null(), "`gc` must not be null");
+    // SAFETY: caller guarantees (1), which implies `gc` is non-null.
+    let fgc = unsafe { NonNull::new_unchecked(gc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
     // SAFETY: caller guarantees (2).
     let spec_ptr = unsafe { (*sctx).spec };
     // SAFETY: caller guarantees (3).
@@ -67,8 +70,11 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
 ///    alive for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleExistingDocs(gc: *mut ffi::ForkGC) -> FGCError {
+    debug_assert!(!gc.is_null(), "`gc` must not be null");
+    // SAFETY: caller guarantees (1), which implies `gc` is non-null.
+    let fgc = unsafe { NonNull::new_unchecked(gc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
     into_fgc_error(handle_existing_docs(fgc), "existing docs")
 }

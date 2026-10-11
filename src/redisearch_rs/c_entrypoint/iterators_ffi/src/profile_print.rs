@@ -98,7 +98,9 @@ pub unsafe extern "C" fn Profile_PrintIterators(
         return;
     };
 
-    let ctx = NonNull::new(ctx).expect("`ctx` must not be null");
+    debug_assert!(!ctx.is_null(), "`ctx` must not be null");
+    // SAFETY: precondition 1, which implies `ctx` is non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: precondition 1.
     let mut replier = unsafe { Replier::new(ctx) };
     let mut profile_ctx = ProfilePrintCtx::new(limited, print_profile_clock);
