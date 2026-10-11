@@ -175,6 +175,7 @@ def test_resp_schema_results():
                 args += ['sparse', 'value']
             conn.execute_command('HSET', f'{{doc{i}}}:1', *args)
         queries = [
+            [],
             ['LOAD', 3, '@id', '@sparse', '@binary', 'SORTBY', 2, '@id', 'ASC'],
             ['LOAD', '*', 'SORTBY', 2, '@id', 'ASC'],
             ['WITHCOUNT', 'LOAD', 1, '@id', 'SORTBY', 2, '@id', 'ASC', 'LIMIT', 0, 3],
@@ -186,7 +187,9 @@ def test_resp_schema_results():
         for policy in ('return', 'fail', 'return-strict'):
             with schema_mode(env, policy, 'search-on-timeout'):
                 for query in queries:
-                    compare_modes(env, 'FT.AGGREGATE', 'idx', '*', *query)
+                    reply = compare_modes(env, 'FT.AGGREGATE', 'idx', '*', *query)
+                    if not query:
+                        env.assertEqual(rows(env, reply), [{}] * 12)
         query = ['LOAD', '*', 'SORTBY', 2, '@id', 'ASC', 'LIMIT', 0, 12, 'WITHCURSOR', 'COUNT', 3]
         all_modes = []
         for mode in ('no', 'yes'):
