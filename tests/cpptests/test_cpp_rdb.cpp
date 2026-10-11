@@ -25,6 +25,9 @@ extern "C" {
 #include "indexes.h"
 #include "query_error_ffi.h"
 #include "rules.h"
+#include "alias.h"
+#include "triemap_ffi.h"
+#include "search_disk.h"
 #include "stopwords.h"
 #include "doc_table.h"
 #include "sorting_vector_ffi.h"
@@ -33,6 +36,7 @@ extern "C" {
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
+extern RedisSearchDiskAPI *disk;
 }
 
 
@@ -428,6 +432,109 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
     // Clean up
     Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
+}
+
+namespace {
+// Disk API stub under which a restore passes every check; each test makes one
+// step fail.
+struct ScopedMockDisk {
+    RedisSearchDiskAPI api{};
+    RedisSearchDiskAPI *savedDisk = disk;
+    RedisSearchDisk *savedDb = disk_db;
+    bool savedFlex = isFlex;
+
+    ScopedMockDisk() {
+        api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) {};
+        api.metrics.stopMetrics = [](RedisSearchDisk *) {};
+        api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
+        api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return true; };
+        api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
+                                     const char *, size_t, DocumentType, bool,
+                                     const SearchDiskCompactionCallbacks *, void *privateData) {
+            // Opaque to the caller, so the spec doubles as the handle.
+            return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
+        };
+        api.index.initializeMissingStorage = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
+            return true;
+        };
+        api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
+                                              RedisSearchDiskIndexSpec *) {};
+        api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
+        disk = &api;
+        disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
+        SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
+    }
+
+    ~ScopedMockDisk() {
+        SearchDisk_Close(nullptr);
+        disk = savedDisk;
+        disk_db = savedDb;
+        isFlex = savedFlex;
+    }
+};
+
+// Saves a memory-only spec that has a prefix and an alias, drops it, then
+// reloads it with disk enabled; a ScopedMockDisk must be installed. The load
+// must fail after IndexSpec_RdbLoad has published the spec, and must leave
+// neither entry pointing at the freed spec.
+void ExpectFailedLoadUnpublishes(bool indexMissing) {
+    static constexpr char prefix[] = "rdb_load_fail:";
+    static constexpr char aliasName[] = "test_load_fail_alias";
+    std::vector<const char *> args = {"ON", "HASH", "PREFIX", "1",
+                                      prefix, "SCHEMA", "title", "TEXT"};
+    if (indexMissing) {
+        args.push_back("INDEXMISSING");
+    }
+    QueryError err = QueryError_Default();
+    StrongRef spec_ref =
+        IndexSpec_ParseC(NULL, "test_load_fail_idx", args.data(), args.size(), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    HiddenString *alias = NewHiddenString(aliasName, sizeof(aliasName) - 1, false);
+    std::unique_ptr<HiddenString, void (*)(HiddenString *)> aliasPtr(
+        alias, [](HiddenString *s) { HiddenString_Free(s, false); });
+    ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(alias, spec_ref, 0, &err));
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, void (*)(RedisModuleIO *)> ioPtr(io, RMCK_FreeRdbIO);
+    RMCK_SaveUnsigned(io, 1);
+    IndexSpec_RdbSave(io, (IndexSpec *)StrongRef_Get(spec_ref), 0);
+    ASSERT_EQ(0, RMCK_IsIOError(io));
+
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
+    io->read_pos = 0;
+
+    isFlex = true;
+    EXPECT_EQ(REDISMODULE_ERR,
+              Indexes_RdbLoad(io, INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB));
+
+    EXPECT_EQ(TRIEMAP_NOTFOUND, TrieMap_Find(SchemaPrefixes_g, prefix, sizeof(prefix) - 1));
+    EXPECT_EQ(nullptr, IndexAlias_Get(alias).rm);
+}
+}  // namespace
+
+TEST_F(RdbMockTest, testFailedRestoreCapacityUnpublishesSpec) {
+    ScopedMockDisk mockDisk;
+    mockDisk.api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return false; };
+    ExpectFailedLoadUnpublishes(false);
+}
+
+TEST_F(RdbMockTest, testFailedDiskOpenUnpublishesSpec) {
+    ScopedMockDisk mockDisk;
+    mockDisk.api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
+                                          const char *, size_t, DocumentType, bool,
+                                          const SearchDiskCompactionCallbacks *, void *) {
+        return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
+    };
+    ExpectFailedLoadUnpublishes(false);
+}
+
+TEST_F(RdbMockTest, testFailedMissingStorageInitUnpublishesSpec) {
+    ScopedMockDisk mockDisk;
+    mockDisk.api.index.initializeMissingStorage = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
+        return false;
+    };
+    ExpectFailedLoadUnpublishes(true);
 }
 
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
