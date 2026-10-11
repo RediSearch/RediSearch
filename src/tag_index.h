@@ -19,7 +19,6 @@
 
 struct InvertedIndex;
 typedef struct TrieMapIterator TrieMapIterator;
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 #ifdef __cplusplus
 extern "C" {

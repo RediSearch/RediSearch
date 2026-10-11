@@ -138,20 +138,25 @@ static void MRConnPool_Free(void *privdata, void *p) {
   rm_free(pool);
 }
 
-/* Get a connection from the connection pool. We select the next available connected connection with
- * a round robin selector */
-static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
-
+/* Return pool->num when no connected slot exists. Leave selection state unchanged. */
+static uint32_t MRConnPool_FindConnected(const MRConnPool *pool) {
+  uint32_t index = pool->rr;
   for (uint32_t i = 0; i < pool->num; i++) {
-
-    MRConn *conn = pool->conns[pool->rr];
-    // increase the round-robin counter
-    pool->rr = (pool->rr + 1) % pool->num;
-    if (conn->state == MRConn_Connected) {
-      return conn;
+    if (pool->conns[index]->state == MRConn_Connected) {
+      return index;
     }
+    index = (index + 1) % pool->num;
   }
-  return NULL;
+  return pool->num;
+}
+
+static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
+  uint32_t index = MRConnPool_FindConnected(pool);
+  if (index == pool->num) {
+    return NULL;
+  }
+  pool->rr = (index + 1) % pool->num;
+  return pool->conns[index];
 }
 
 static dictType nodeIdToConnPoolType = {
@@ -234,7 +239,6 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 }
 
 
-/* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
@@ -242,6 +246,15 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
     return MRConnPool_GetConn(pool);
   }
   return NULL;
+}
+
+bool MRConnManager_HasConnectedConnection(MRConnManager *mgr, const char *id) {
+  dictEntry *entry = dictFind(mgr->map, id);
+  if (!entry) {
+    return false;
+  }
+  const MRConnPool *pool = dictGetVal(entry);
+  return MRConnPool_FindConnected(pool) != pool->num;
 }
 
 /* Get the state string of the first connection for a specific node by id.
@@ -599,12 +612,34 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   return ret;
 }
 
+/* Serves MREndpointTLS_LegacyFromLocalConfig only. The `tls-port` fallback is legacy Enterprise
+ * logic: `tls-cluster` should always be `yes` when `tls-port` is set, but dual port is not expected
+ * there, so `tls-port` alone also means the cluster ports are TLS. Elsewhere, `tls-port` says
+ * nothing about the cluster ports; a new path that must read the config live should check only
+ * `tls-cluster`, and preferably take the port type from the topology instead. */
+static bool legacyEnterpriseConfigUsesTLS(void) {
+  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModule_ThreadSafeContextLock(ctx);
+  bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return tls;
+}
+
+static bool MRConn_UsesTLS(const MRConn *conn) {
+  switch (conn->ep.tls) {
+    case MREndpointTLS_Off: return false;
+    case MREndpointTLS_On: return true;
+    case MREndpointTLS_LegacyFromLocalConfig: return legacyEnterpriseConfigUsesTLS();
+  }
+  RS_ABORT("Unknown MREndpointTLS");
+}
+
 /* If TLS is configured for the cluster, build an SSL context and bind it to
  * the given hiredis async context. Returns REDIS_OK on success (including
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  if (conn->ep.isTls == false) {
+  if (!MRConn_UsesTLS(conn)) {
     return REDIS_OK;
   }
 

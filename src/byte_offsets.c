@@ -60,10 +60,21 @@ void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
 }
 
 RSByteOffsets *LoadByteOffsets(Buffer *buf) {
+  // Buffer_Read does not check the buffer's bounds, so every read is checked against what
+  // RSByteOffsets_Serialize wrote: a u8 field count, a (u8 id, u32 first, u32 last) record per
+  // field, a u32 data length, and the data itself.
+  const size_t fieldRecordSize = sizeof(uint8_t) + 2 * sizeof(uint32_t);
   BufferReader r = NewBufferReader(buf);
 
-  RSByteOffsets *offsets = NewByteOffsets();
+  if (BufferReader_Remaining(&r) < sizeof(uint8_t)) {
+    return NULL;
+  }
   uint8_t numFields = Buffer_ReadU8(&r);
+  if (BufferReader_Remaining(&r) < numFields * fieldRecordSize + sizeof(uint32_t)) {
+    return NULL;
+  }
+
+  RSByteOffsets *offsets = NewByteOffsets();
   RSByteOffsets_ReserveFields(offsets, numFields);
 
   for (size_t ii = 0; ii < numFields; ++ii) {
@@ -75,6 +86,10 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   }
 
   uint32_t offsetsLen = Buffer_ReadU32(&r);
+  if (BufferReader_Remaining(&r) < offsetsLen) {
+    RSByteOffsets_Free(offsets);
+    return NULL;
+  }
   if (offsetsLen) {
     char *data = rm_malloc(offsetsLen);
     Buffer_Read(&r, data, offsetsLen);

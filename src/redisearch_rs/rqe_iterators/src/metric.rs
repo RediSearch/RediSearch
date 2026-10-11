@@ -62,7 +62,9 @@ pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     /// The handle is either:
     ///
     /// - [`None`], indicating that the iterator is not associated with a key.
-    /// - A valid pointer to a [`RLookupKeyHandle`] instance.
+    /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
+    ///   this iterator is dropped or the handle is replaced. The handle must permit
+    ///   exclusive mutable access when dropping the iterator clears its validity flag.
     key_handle: Option<NonNull<RLookupKeyHandle<'query>>>,
 }
 
@@ -182,7 +184,9 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     /// The provided `key_handle` can either be:
     ///
     /// - [`None`], indicating that the metric iterator does not have a key.
-    /// - A valid pointer to a [`RLookupKeyHandle`] instance.
+    /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
+    ///   this iterator is dropped or the handle is replaced. The handle must permit
+    ///   exclusive mutable access when dropping the iterator clears its validity flag.
     pub const unsafe fn set_handle(
         &mut self,
         key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
@@ -329,7 +333,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     /// The caller must guarantee that:
     ///
     /// 1. `slot` is aligned and points to an initialized
-    ///    `Metric<'index, SORTED_BY_ID>`.
+    ///    [`Metric`].
     /// 2. `slot` is unaliased for the duration of the call.
     pub(crate) unsafe fn suspend_in_place(
         slot: NonNull<Self>,

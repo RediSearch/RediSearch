@@ -13,15 +13,20 @@
 //! Index layout: doc `i` (1..=n) is `[i; dim]` under L2, so distance to query
 //! `[q; dim]` is `dim*(q-i)^2` and the nearest neighbours are the highest ids.
 
-use std::{cell::UnsafeCell, ffi::c_void, ptr, ptr::NonNull};
+use std::{
+    cell::UnsafeCell,
+    ffi::{c_int, c_void},
+    ptr,
+    ptr::NonNull,
+};
 
 use ffi::{
     AlgoParams, BFParams, HNSWParams, QueryRequestTimeout,
     QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode, VecSearchMode_EMPTY_MODE,
     VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
     VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
-    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
-    t_docId,
+    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
+    VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use top_k::Ascending;
@@ -105,6 +110,8 @@ impl TestIndex {
                     efConstruction: 100,
                     efRuntime: 0,
                     epsilon: 0.0,
+                    quantType: VecSimQuantType_VecSimQuant_NONE,
+                    quantParams: ptr::null(),
                 },
             },
             logCtx: ptr::null_mut(),
@@ -149,6 +156,16 @@ impl TestIndex {
     /// whose fixtures are all `FLOAT32`.
     fn expected_blob_len(&self) -> usize {
         self.dim * size_of::<f32>()
+    }
+
+    /// The request timeout every source built from this index is handed.
+    pub fn timeout_ptr(&self) -> *mut QueryRequestTimeout {
+        self.timeout.get()
+    }
+
+    /// The index handle, for tests that build iterators through a C entry point.
+    pub const fn as_ptr(&self) -> *mut VecSimIndex {
+        self.index.as_ptr()
     }
 
     /// Build a [`VectorScoreSource`] over this index for the `query` blob, with
@@ -285,4 +302,40 @@ pub fn make_child<'index>(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'i
 /// Drain an iterator into the doc ids it yields, in read order.
 pub fn collect_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
     std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
+}
+
+unsafe extern "C" {
+    fn VecSim_SetTimeoutCallbackFunction(cb: Option<unsafe extern "C" fn(*mut c_void) -> c_int>);
+}
+
+unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> c_int {
+    1
+}
+
+unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> c_int {
+    0
+}
+
+/// Makes every VecSim timeout check report expired until dropped, when it installs a callback
+/// that never times out.
+///
+/// The callback is process-global, so any VecSim query running concurrently in the same process
+/// observes it: tests that use this guard need a test binary of their own.
+#[must_use = "the mock timeout is removed when the guard is dropped"]
+pub struct MockTimeout(());
+
+impl MockTimeout {
+    /// Install the always-timed-out callback.
+    pub fn enable() -> Self {
+        // SAFETY: the fn pointer is valid for the whole program.
+        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
+        MockTimeout(())
+    }
+}
+
+impl Drop for MockTimeout {
+    fn drop(&mut self) {
+        // SAFETY: the fn pointer is valid for the whole program.
+        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
+    }
 }

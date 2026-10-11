@@ -186,37 +186,63 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Use this when building the record is expensive (e.g. a deep copy): the
     /// closure is not called for an element the heap discards, so a rejected
     /// candidate costs only the score comparison.
+    #[inline]
     pub fn push_with_record_lazy(
         &mut self,
         doc_id: DocId,
         score: f64,
         make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
     ) -> bool {
-        // The record never participates in ordering, so a record-less probe
-        // decides retention; the record is attached only on the accept branches.
-        let mut entry = HeapEntry {
-            result: ScoredResult { doc_id, score },
+        let result = ScoredResult { doc_id, score };
+        if self.is_full()
+            && self
+                .inner
+                .peek()
+                .is_some_and(|worst| !self.is_better(result, worst))
+        {
+            return false;
+        }
+        self.insert_retained(result, make_record);
+        true
+    }
+
+    /// Whether `candidate` outranks `worst` under [`HeapEntry`]'s ordering, and
+    /// so displaces it from a full heap.
+    ///
+    /// An exact match (same score and doc id) does not outrank it, so the heap
+    /// never holds a duplicate.
+    fn is_better(&self, candidate: ScoredResult, worst: &HeapEntry<'index, O>) -> bool {
+        let probe = HeapEntry {
+            result: candidate,
             record: None,
             order: self.order,
         };
+        probe < *worst
+    }
 
-        if !self.is_full() {
-            entry.record = make_record();
-            self.inner.push(entry);
-            true
-        }
-        // The heap is full. Only insert if the new element is strictly better than the
-        // current worst (root). `entry > worst` means entry is worse → discard.
-        // `entry < worst` means entry is better → evict worst, insert entry.
-        // Equal (same score AND same doc_id) → discard to avoid duplicates.
-        else if let Some(mut worst) = self.inner.peek_mut()
-            && entry < *worst
-        {
-            entry.record = make_record();
+    /// Inserts `result`, which [`push_with_record_lazy`](Self::push_with_record_lazy)
+    /// accepted, evicting the worst element when the heap is full.
+    ///
+    /// Kept out of line so the rejection test inlines into scan loops on its own.
+    #[inline(never)]
+    fn insert_retained(
+        &mut self,
+        result: ScoredResult,
+        make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
+    ) {
+        let entry = HeapEntry {
+            result,
+            record: make_record(),
+            order: self.order,
+        };
+        if self.is_full() {
+            let mut worst = self
+                .inner
+                .peek_mut()
+                .expect("a full heap has capacity > 0 and so holds a worst element");
             *worst = entry;
-            true
         } else {
-            false
+            self.inner.push(entry);
         }
     }
 
@@ -441,6 +467,7 @@ mod tests {
         assert!(!ids.contains(&10));
         assert!(ids.contains(&3));
     }
+
     #[test]
     fn heap_tiebreak_asc_evicts_higher_doc_id() {
         let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);

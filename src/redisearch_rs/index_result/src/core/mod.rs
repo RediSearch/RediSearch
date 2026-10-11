@@ -461,7 +461,7 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is aligned and points to an initialized `RSIndexResult<'a>`.
+    /// 1. `slot` is aligned and points to an initialized [`RSIndexResult`].
     /// 2. `slot` must be unaliased for the duration of the call: no other
     ///    reference or pointer may be used to access the slot while this runs,
     ///    since the value is moved out and written back through `slot` alone.
@@ -563,7 +563,7 @@ impl<'query> RawIndexResult<'query, Suspended> {
     /// The caller must guarantee that:
     ///
     /// 1. `slot` is aligned and points to an initialized
-    ///    `RawIndexResult<Suspended>`.
+    ///    [`RawIndexResult`] in the [`Suspended`] state.
     /// 2. `slot` must be unaliased for the duration of the call: no other
     ///    reference or pointer may be used to access the slot while this runs,
     ///    since the value is moved out and written back through `slot` alone.

@@ -15,6 +15,7 @@
 #include "util/arr.h"
 #include "util/strconv.h"
 #include <stdbool.h>
+#include "hiredis/sds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,8 +35,8 @@ typedef enum {
  *  ids - array of synonyms group ids that the term is belong to
  */
 typedef struct {
-  char* term;
-  char** groupIds;
+  sds term;
+  arrayof(sds) groupIds;
 } TermData;
 
 /**
@@ -130,6 +131,12 @@ SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap);
  * Save the given smap to an rdb
  */
 void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
+
+/**
+ * Stable 64-bit hash of the synonym content: equal maps hash equal on any host, regardless
+ * of dict iteration order.
+ */
+uint64_t SynonymMap_Fingerprint(const SynonymMap* smap);
 
 /**
  * Loading smap from an rdb

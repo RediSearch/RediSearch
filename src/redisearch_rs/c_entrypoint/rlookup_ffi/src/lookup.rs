@@ -13,7 +13,7 @@ use libc::size_t;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use redis_json_api::RedisJsonApi;
 use rlookup::JsonDocumentFormat;
-use rlookup::{DocumentLoader, HashDocumentFormat};
+use rlookup::{DocumentLoader, HashDocumentFormat, HashFieldNames};
 use rlookup::{
     IndexSpec, IndexSpecCache, LoadFieldProfile, OpaqueRLookup, OpaqueRLookupRow, RLookup,
     RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow,
@@ -21,7 +21,6 @@ use rlookup::{
 use std::{
     borrow::Cow,
     ffi::{CStr, CString, c_char, c_int},
-    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };
@@ -186,8 +185,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_read_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -238,8 +237,8 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_read_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -282,8 +281,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_write_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -333,8 +332,8 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_write_ptr(name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -383,8 +382,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
+        .get_key_load_ptr(name, field_name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Get an RLookup key for a given name.
@@ -440,52 +439,8 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
-        .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
-}
-
-/// Returns the number of visible fields in this RLookupRow.
-///
-/// Keys named after the schema rule's special fields (score, lang, payload)
-/// carry `RLOOKUP_F_HIDDEN` from creation (see the spec cache's rule names),
-/// so excluding `RLOOKUP_F_HIDDEN` also excludes them.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
-/// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
-/// 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetLength(
-    lookup: *const OpaqueRLookup,
-    row: *const OpaqueRLookupRow,
-    skip_field_index: *mut bool,
-    skip_field_index_len: size_t,
-    required_flags: u32,
-    excluded_flags: u32,
-) -> size_t {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
-    #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_GetLength");
-
-    // Safety: ensured by caller (2.)
-    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
-
-    assert!(
-        !skip_field_index.is_null(),
-        "`skip_field_index` must not be null"
-    );
-    // Safety: ensured by caller (3.)
-    let skip_field_index =
-        unsafe { slice::from_raw_parts_mut(skip_field_index, skip_field_index_len) };
-
-    let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
-    let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
-
-    row.get_length_no_alloc(lookup, required_flags, excluded_flags, skip_field_index)
+        .get_key_load_ptr(name, field_name, flags)
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
@@ -556,6 +511,27 @@ pub unsafe extern "C" fn RLookup_SetCache(
     lookup.set_cache(spcache);
 }
 
+/// Seal the lookup at the end of pipeline construction: from now on it is
+/// append-only. Creating new keys stays legal (document loaders and the
+/// coordinator append keys during execution), but overriding or mutating an
+/// existing key panics. Idempotent.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Seal(lookup: *mut OpaqueRLookup) {
+    // SAFETY: ensured by caller (1.)
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_Seal");
+
+    lookup.seal();
+}
+
 /// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
 ///
 /// # Safety
@@ -589,7 +565,9 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
     let lookup =
         unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_Cleanup");
+    // Key names and paths may be borrowed from pipeline steps that are destroyed before the
+    // lookup, so cleanup can only validate invariants that do not dereference borrowed data.
+    lookup.assert_structure_valid("RLookup_Cleanup");
 
     // Safety: ensured by caller (2.)
     unsafe { ptr::drop_in_place(lookup) };
@@ -710,6 +688,31 @@ pub struct LoadIndividualKeysOptions {
     /// Optional per-key profiling buffer, `nkeys` entries long, for the
     /// `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
     pub profile_fields: *mut LoadFieldProfile,
+    /// Optional [`HashFieldNames`] shared by every document this loader
+    /// processes (see [`HashFieldNames_New`]). Null makes each load build its
+    /// field names afresh.
+    pub field_names: *const HashFieldNames,
+}
+
+/// Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn HashFieldNames_New() -> *mut HashFieldNames {
+    Box::into_raw(Box::new(HashFieldNames::new()))
+}
+
+/// Free a cache created by [`HashFieldNames_New`]. Null is a no-op.
+///
+/// # Safety
+///
+/// 1. `names` must be null or a pointer returned by [`HashFieldNames_New`]. Each non-null
+///    pointer may be passed here exactly once, by exactly one thread, with no load in
+///    progress on it and no `LoadIndividualKeysOptions` referencing it used afterwards.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn HashFieldNames_Free(names: *mut HashFieldNames) {
+    if !names.is_null() {
+        // SAFETY: ensured by caller (1.)
+        drop(unsafe { Box::from_raw(names) });
+    }
 }
 
 /// Load values from the document `dmd` into `dst_row`
@@ -816,6 +819,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 /// 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
 ///    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
 ///    pointer to a properly initialized key that outlives this call.
+/// 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
+///    has not been freed, and no other thread may access it for the duration of this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -879,7 +884,11 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 
     let res = match dmd.type_() {
         DocumentType::Hash => {
-            let format = HashDocumentFormat::new(ctx, opts.force_string);
+            let mut format = HashDocumentFormat::new(ctx, opts.force_string);
+            // SAFETY: ensured by caller (6.)
+            if let Some(names) = unsafe { opts.field_names.as_ref() } {
+                format = format.with_field_names(names);
+            }
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
@@ -949,6 +958,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 3. `lookup` must not be mutated until the returned iterator is exhausted.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -958,51 +968,16 @@ pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLook
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_Iter");
 
-    let current = lookup.cursor().current().map_or(ptr::null(), ptr::from_ref);
+    let (current, remaining) = lookup.raw_key_ptrs();
 
-    RLookupIterator { current }
+    RLookupIterator { current, remaining }
 }
 
 /// An iterator over the keys in an `RLookup`, returning immutable pointers.
 #[repr(C)]
 pub struct RLookupIterator<'a> {
-    pub current: *const RLookupKey<'a>,
-}
-
-/// Return an iterator over an [`RLookup`]'s key list with editing operations.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
-/// 3. The caller must treat the returned `current` pointer as pinned. Specifically
-///    a. Not move (memcpy/memmove) out of the pointer.
-///    b. The pointed-to value must remain at its original address in memory and never be relocated.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_IterMut<'a>(lookup: *mut OpaqueRLookup) -> RLookupIteratorMut<'a> {
-    // Safety: ensured by caller (1.)
-    let lookup =
-        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
-    #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_IterMut");
-
-    let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
-        ptr::from_mut(
-            // Safety: ensured by caller (2., 3.)
-            // Both this function and the caller guarantee that the value behind the pointer is never moved.
-            unsafe { Pin::into_inner_unchecked(c) },
-        )
-    });
-
-    RLookupIteratorMut { current }
-}
-
-/// An iterator over the keys in an `RLookup`, returning mutable pointers.
-#[repr(C)]
-pub struct RLookupIteratorMut<'a> {
-    pub current: *mut RLookupKey<'a>,
+    pub current: *const *const RLookupKey<'a>,
+    pub remaining: size_t,
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

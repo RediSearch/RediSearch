@@ -789,8 +789,8 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-    // SAFETY: caller guarantees `status`, when present, points to a valid `QueryError` (4).
     let status = status.map(|status| {
+        // SAFETY: caller guarantees `status`, when present, points to a valid `QueryError`.
         unsafe { QueryError::from_opaque_mut_ptr(status.as_ptr().cast()) }
             .expect("`status` must not be null")
     });

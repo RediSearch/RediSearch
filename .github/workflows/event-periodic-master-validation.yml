@@ -90,11 +90,16 @@ jobs:
               )
 
           def last_validated_sha():
+              # Filter client-side: with branch/status query filters the API is
+              # served from a search index that intermittently returns a stale
+              # snapshot (weeks-old runs), which silently rewinds the baseline.
               runs = gh_api(
                   f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
-                  "?branch=master&status=success&per_page=20"
+                  "?per_page=100&exclude_pull_requests=true"
               ).get("workflow_runs", [])
               for run in runs:
+                  if run.get("head_branch") != "master" or run.get("conclusion") != "success":
+                      continue
                   if validation_passed(run):
                       return run.get("head_sha", "")
               return ""

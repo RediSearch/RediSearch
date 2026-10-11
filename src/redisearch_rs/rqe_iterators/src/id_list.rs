@@ -448,7 +448,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// The caller must guarantee that:
     ///
     /// 1. `slot` is aligned and points to an initialized
-    ///    `IdList<'index, SORTED>`.
+    ///    [`IdList`].
     /// 2. `slot` is unaliased for the duration of the call.
     pub(crate) unsafe fn suspend_in_place(
         slot: NonNull<Self>,

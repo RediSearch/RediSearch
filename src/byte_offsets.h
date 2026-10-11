@@ -50,6 +50,7 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
                                           uint32_t startPos);
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
+// Returns NULL if `buf` is shorter than the serialized offsets it describes.
 RSByteOffsets *LoadByteOffsets(Buffer *buf);
 
 typedef struct {

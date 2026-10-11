@@ -31,10 +31,8 @@ typedef struct {
   const char *scoreAlias;
 } HybridCombineWireParams;
 
-void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                        struct ConcurrentCmdCtx *cmdCtx);
-void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            struct ConcurrentCmdCtx *cmdCtx);
+void RSExecDistHybrid(void *arg);
+void DEBUG_RSExecDistHybrid(void *arg);
 
 int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

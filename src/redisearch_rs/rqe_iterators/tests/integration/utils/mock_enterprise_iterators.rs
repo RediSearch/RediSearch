@@ -85,6 +85,15 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         unimplemented!("MockEnterpriseIterators::new_tag_on_disk not used in these tests")
     }
 
+    fn new_missing_on_disk<'index>(
+        &self,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        _field_index: FieldIndex,
+        _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        unimplemented!("MockEnterpriseIterators::new_missing_on_disk not used in these tests")
+    }
+
     fn new_numeric_on_disk<'index>(
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
