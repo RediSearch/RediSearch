@@ -567,13 +567,15 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
   A = B;
 }
 
-termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
+// Only tag lists use a termlist: its words form one tag value, so they keep their case and escapes
+// for tag evaluation to normalize per the field's case sensitivity.
+termlist(A) ::= param_term_case(B) param_term_case(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
-termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
+termlist(A) ::= termlist(B) param_term_case(C) . [TERMLIST] {
   A = B;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }

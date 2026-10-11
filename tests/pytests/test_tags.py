@@ -335,6 +335,31 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
+def testTagMultiWordTermCaseAndEscapes(env):
+    """A multi-word tag term is one tag value: it keeps its case and is unescaped once."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'cs', 'PREFIX', '1', 'cs:', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE').ok()
+    env.expect('FT.CREATE', 'ci', 'PREFIX', '1', 'ci:', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'cs:upper', 't', 'Foo Bar')
+    conn.execute_command('HSET', 'cs:lower', 't', 'foo bar')
+    conn.execute_command('HSET', 'ci:backslash', 't', r'x\- y')
+    conn.execute_command('HSET', 'ci:plain', 't', 'x- y')
+
+    def ids(*args):
+        res = env.cmd('FT.SEARCH', *args, 'NOCONTENT')
+        return sorted(res[1:])
+
+    for dialect in range(1, set_max_dialect(env) + 1):
+        for query in ['@t:{Foo Bar}', '@t:{Baz|Foo Bar}']:
+            env.assertEqual(ids('cs', query, 'DIALECT', dialect), ['cs:upper'], message=f'{query} DIALECT {dialect}')
+            env.assertEqual(ids('cs', query.lower(), 'DIALECT', dialect), ['cs:lower'], message=f'{query} DIALECT {dialect}')
+        env.assertEqual(ids('ci', r'@t:{x\\\- y}', 'DIALECT', dialect), ['ci:backslash'], message=f'DIALECT {dialect}')
+        env.assertEqual(ids('ci', r'@t:{x\- y}', 'DIALECT', dialect), ['ci:plain'], message=f'DIALECT {dialect}')
+
+    for dialect in range(2, set_max_dialect(env) + 1):
+        env.assertEqual(ids('cs', '@t:{$a $b}', 'PARAMS', '4', 'a', 'Foo', 'b', 'Bar', 'DIALECT', dialect), ['cs:upper'],
+                        message=f'DIALECT {dialect}')
+
 @skip(cluster=True)
 def testTagGCClearEmpty(env):
 
