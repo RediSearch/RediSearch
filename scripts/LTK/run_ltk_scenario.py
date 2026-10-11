@@ -18,10 +18,12 @@ import os
 import random
 import re
 import sys
+import tempfile
 import threading
 import time
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,7 @@ from typing import Any
 INDEX_NAME = "idx:acs"
 S3_BUCKET = "rl-automation"
 S3_KEY = "rlauto/search-customer-scenarios/ltk/monitor.txt"
+S3_EXPECTED_BUCKET_OWNER = "620187402834"
 SEARCH_TIMEOUT_MS = 2_000
 FT_TIMEOUT_RATE_BUDGET = 0.01
 MIN_REPLAY_COMPLETION_RATIO = 0.99
@@ -208,6 +211,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--s3-bucket", default=S3_BUCKET)
     parser.add_argument("--s3-key", default=S3_KEY)
+    parser.add_argument("--s3-expected-bucket-owner", default=S3_EXPECTED_BUCKET_OWNER)
     parser.add_argument("--replay-duration", type=float, default=REPLAY_DURATION_SEC)
     parser.add_argument("--search-timeout-ms", type=int, default=SEARCH_TIMEOUT_MS)
     parser.add_argument("--ft-timeout-rate-budget", type=float, default=FT_TIMEOUT_RATE_BUDGET)
@@ -228,6 +232,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--replay-duration must be positive")
     if args.search_timeout_ms <= 0:
         parser.error("--search-timeout-ms must be positive")
+    if not re.fullmatch(r"\d{12}", args.s3_expected_bucket_owner):
+        parser.error("--s3-expected-bucket-owner must be a 12-digit AWS account ID")
     if not 0 <= args.ft_timeout_rate_budget <= 1:
         parser.error("--ft-timeout-rate-budget must be between 0 and 1")
     if not 0 < args.min_replay_completion_ratio <= 1:
@@ -347,11 +353,13 @@ def verify_search_timeout_on_primaries(redis_module: Any, args: argparse.Namespa
     )
 
 
-def obtain_monitor_trace(args: argparse.Namespace) -> Path:
+@contextmanager
+def obtain_monitor_trace(args: argparse.Namespace) -> Iterator[Path]:
     if args.monitor_trace is not None:
         if not args.monitor_trace.is_file():
             raise RuntimeError(f"monitor trace does not exist: {args.monitor_trace}")
-        return args.monitor_trace
+        yield args.monitor_trace
+        return
     try:
         import boto3
     except ImportError as error:
@@ -359,10 +367,16 @@ def obtain_monitor_trace(args: argparse.Namespace) -> Path:
             "boto3 is required to download the monitor trace; "
             "install boto3 or use --monitor-trace"
         ) from error
-    destination = Path("/tmp") / "ltk-monitor.txt"
-    LOGGER.info("Downloading s3://%s/%s to %s", args.s3_bucket, args.s3_key, destination)
-    boto3.client("s3").download_file(args.s3_bucket, args.s3_key, str(destination))
-    return destination
+    with tempfile.TemporaryDirectory(prefix="ltk-monitor-") as temp_dir_name:
+        destination = Path(temp_dir_name) / "monitor.txt"
+        LOGGER.info("Downloading s3://%s/%s to %s", args.s3_bucket, args.s3_key, destination)
+        boto3.client("s3").download_file(
+            args.s3_bucket,
+            args.s3_key,
+            str(destination),
+            ExtraArgs={"ExpectedBucketOwner": args.s3_expected_bucket_owner},
+        )
+        yield destination
 
 
 def unescape_monitor_token(value: str) -> str:
@@ -1180,10 +1194,9 @@ def main() -> int:
         verify_search_timeout_on_primaries(redis, args)
 
         LOGGER.info("Step: Load monitor trace")
-        trace_path = obtain_monitor_trace(args)
-
-        LOGGER.info("Step: Parse monitor trace")
-        buckets, totals = partition_monitor_trace(trace_path)
+        with obtain_monitor_trace(args) as trace_path:
+            LOGGER.info("Step: Parse monitor trace")
+            buckets, totals = partition_monitor_trace(trace_path)
         validate_trace_buckets(buckets)
         LOGGER.info(
             "Trace buckets: writes=%d ft=%d reads=%d inserts=%d deletes=%d expires=%d hdel=%d",

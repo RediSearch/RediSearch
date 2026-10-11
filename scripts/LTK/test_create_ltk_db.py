@@ -27,6 +27,25 @@ SPEC.loader.exec_module(setup)
 
 
 class DatabaseSetupTests(unittest.TestCase):
+    def test_rdb_preflight_verifies_expected_bucket_owner(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        class S3Client:
+            def head_object(self, **kwargs: object) -> None:
+                calls.append(kwargs)
+
+        args = SimpleNamespace(
+            s3_bucket="bucket",
+            s3_prefix="prefix",
+            s3_expected_bucket_owner="123456789012",
+        )
+        setup.verify_rdb_objects(args, S3Client())
+
+        self.assertEqual(len(calls), setup.RDB_COUNT)
+        self.assertTrue(
+            all(call["ExpectedBucketOwner"] == "123456789012" for call in calls)
+        )
+
     def test_temporary_redis_launches_are_serialized(self) -> None:
         active_launches = 0
         max_active_launches = 0

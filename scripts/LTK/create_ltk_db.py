@@ -30,6 +30,7 @@ from typing import Any
 RDB_COUNT = 20
 S3_BUCKET = "rl-automation"
 S3_PREFIX = "rlauto/search-customer-scenarios/ltk/rdbs-without-index"
+S3_EXPECTED_BUCKET_OWNER = "620187402834"
 SOURCE_START_TIMEOUT_SEC = 300.0
 LOGGER = logging.getLogger("ltk-db-setup")
 _SOURCE_LAUNCH_LOCK = threading.Lock()
@@ -48,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tls", action="store_true")
     parser.add_argument("--s3-bucket", default=S3_BUCKET)
     parser.add_argument("--s3-prefix", default=S3_PREFIX)
+    parser.add_argument("--s3-expected-bucket-owner", default=S3_EXPECTED_BUCKET_OWNER)
     parser.add_argument("--redis-server", default="redis-server")
     parser.add_argument("--redis-cli", default="redis-cli")
     parser.add_argument("--search-timeout-ms", type=int, default=2_000)
@@ -64,6 +66,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--port must be between 1 and 65535")
     if args.search_timeout_ms <= 0:
         parser.error("--search-timeout-ms must be positive")
+    if not args.s3_expected_bucket_owner.isdigit() or len(args.s3_expected_bucket_owner) != 12:
+        parser.error("--s3-expected-bucket-owner must be a 12-digit AWS account ID")
     if args.workers <= 0:
         parser.error("--workers must be positive")
     if not 1 <= args.start_ordinal <= RDB_COUNT:
@@ -174,7 +178,11 @@ def rdb_object_key(args: argparse.Namespace, ordinal: int) -> str:
 def verify_rdb_objects(args: argparse.Namespace, s3: Any) -> None:
     LOGGER.info("Checking %d LTK baseline objects in S3", RDB_COUNT)
     for ordinal in range(1, RDB_COUNT + 1):
-        s3.head_object(Bucket=args.s3_bucket, Key=rdb_object_key(args, ordinal))
+        s3.head_object(
+            Bucket=args.s3_bucket,
+            Key=rdb_object_key(args, ordinal),
+            ExpectedBucketOwner=args.s3_expected_bucket_owner,
+        )
 
 
 def reserve_source_port() -> int:
@@ -291,7 +299,12 @@ def import_rdb(redis_module: Any, args: argparse.Namespace, s3: Any, ordinal: in
         compressed_path = temp_dir / filename
         rdb_path = temp_dir / "dump.rdb"
         LOGGER.info("Downloading s3://%s/%s", args.s3_bucket, object_key)
-        s3.download_file(args.s3_bucket, object_key, str(compressed_path))
+        s3.download_file(
+            args.s3_bucket,
+            object_key,
+            str(compressed_path),
+            ExtraArgs={"ExpectedBucketOwner": args.s3_expected_bucket_owner},
+        )
         LOGGER.info("Decompressing %s", filename)
         with gzip.open(compressed_path, "rb") as source, rdb_path.open("wb") as destination:
             shutil.copyfileobj(source, destination, length=8 * 1024 * 1024)

@@ -14,7 +14,8 @@ usage() {
 Usage:
   run_ltk.sh [--monitor-trace PATH] [--s3-bucket BUCKET] [--s3-prefix PREFIX] \
     [--monitor-s3-key KEY] [--import-workers COUNT] [--port PORT] [--username USER] \
-    [--search-timeout-ms MILLISECONDS] SHARD_IP [SCENARIO_OPTIONS...]
+    [--search-timeout-ms MILLISECONDS] [--s3-expected-bucket-owner ACCOUNT_ID] \
+    SHARD_IP [SCENARIO_OPTIONS...]
 
 Downloads and imports the LTK baseline RDB shards from S3, creates idx:acs, then
 runs the LTK scenario after downloading its monitor trace from S3. A local trace
@@ -36,6 +37,7 @@ s3_prefix=rlauto/search-customer-scenarios/ltk/rdbs-without-index
 monitor_s3_key=rlauto/search-customer-scenarios/ltk/monitor.txt
 import_workers=4
 search_timeout_ms=2000
+s3_expected_bucket_owner=620187402834
 
 while (($# > 0)); do
   case "$1" in
@@ -83,6 +85,11 @@ while (($# > 0)); do
       search_timeout_ms=$2
       shift 2
       ;;
+    --s3-expected-bucket-owner)
+      (($# >= 2)) || { echo "error: --s3-expected-bucket-owner requires a value" >&2; exit 2; }
+      s3_expected_bucket_owner=$2
+      shift 2
+      ;;
     -h | --help)
       usage
       exit 0
@@ -113,6 +120,15 @@ while (($# > 0)); do
       search_timeout_ms=${1#*=}
       shift
       ;;
+    --s3-expected-bucket-owner)
+      (($# >= 2)) || { echo "error: --s3-expected-bucket-owner requires a value" >&2; exit 2; }
+      s3_expected_bucket_owner=$2
+      shift 2
+      ;;
+    --s3-expected-bucket-owner=*)
+      s3_expected_bucket_owner=${1#*=}
+      shift
+      ;;
     *)
       scenario_args+=("$1")
       shift
@@ -129,16 +145,18 @@ if [[ -n "$monitor_trace" ]]; then
 else
   monitor_args=(--s3-bucket "$s3_bucket" --s3-key "$monitor_s3_key")
 fi
+s3_owner_args=(--s3-expected-bucket-owner "$s3_expected_bucket_owner")
 
 echo "Configuring the cluster and importing the LTK baseline RDBs..."
 "$python" "$script_dir/create_ltk_db.py" "${common_args[@]}" \
   --s3-bucket "$s3_bucket" --s3-prefix "$s3_prefix" \
-  --workers "$import_workers" --search-timeout-ms "$search_timeout_ms" "$shard_ip"
+  "${s3_owner_args[@]}" --workers "$import_workers" \
+  --search-timeout-ms "$search_timeout_ms" "$shard_ip"
 
 echo "Creating the LTK index..."
 "$python" "$script_dir/create_acs_index.py" "${common_args[@]}" "$shard_ip"
 
 echo "Running the LTK scenario..."
 "$python" "$script_dir/run_ltk_scenario.py" "${common_args[@]}" \
-  "${monitor_args[@]}" --search-timeout-ms "$search_timeout_ms" \
+  "${monitor_args[@]}" "${s3_owner_args[@]}" --search-timeout-ms "$search_timeout_ms" \
   "$shard_ip" "${scenario_args[@]}"

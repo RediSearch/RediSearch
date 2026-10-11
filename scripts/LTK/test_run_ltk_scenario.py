@@ -87,6 +87,43 @@ class FakeSearch:
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_s3_trace_uses_secure_temporary_path_and_expected_owner(self) -> None:
+        calls: list[tuple[object, ...]] = []
+
+        class S3Client:
+            def download_file(self, *args: object, **kwargs: object) -> None:
+                calls.append((*args, kwargs))
+                Path(str(args[2])).write_text("trace")
+
+        s3 = S3Client()
+        boto3 = SimpleNamespace(client=lambda _service: s3)
+        args = SimpleNamespace(
+            monitor_trace=None,
+            s3_bucket="bucket",
+            s3_key="monitor.txt",
+            s3_expected_bucket_owner="123456789012",
+        )
+        with (
+            mock.patch.dict(sys.modules, {"boto3": boto3}),
+            scenario.obtain_monitor_trace(args) as trace_path,
+        ):
+            self.assertTrue(trace_path.is_file())
+            self.assertNotEqual(trace_path, Path("/tmp/ltk-monitor.txt"))
+            temporary_directory = trace_path.parent
+
+        self.assertFalse(temporary_directory.exists())
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "bucket",
+                    "monitor.txt",
+                    str(temporary_directory / "monitor.txt"),
+                    {"ExtraArgs": {"ExpectedBucketOwner": "123456789012"}},
+                )
+            ],
+        )
+
     def test_partition_splits_cross_slot_unlink(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             trace = Path(directory) / "monitor.txt"
