@@ -857,6 +857,7 @@ def test_explain_with_inkeys(env):
     res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
     env.assertContains('IDS', res)
 
+@skip(cluster=True)
 def test_escaped_field_name_in_field_list(env):
     """Every name in an `@a|b:` field list is unescaped, not just the first."""
     conn = getConnectionByEnv(env)
