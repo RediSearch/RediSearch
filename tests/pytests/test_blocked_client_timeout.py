@@ -328,9 +328,6 @@ def _setup_hybrid_index(env):
     for i in range(100):
         vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
         conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
-    # The background scan re-indexes these docs under the spec write lock, which
-    # fails a concurrent worker query's depleter try-lock.
-    waitForIndex(env, 'hybrid_idx')
     return np.array([0.0, 0.0], dtype=np.float32).tobytes()
 
 
@@ -3547,6 +3544,7 @@ def _compare_background_fail_replies(protocol):
     for n in range(12):
         env.cmd('HSET', f'doc:{n:02}', 'text', 'hello redis', 'n', n,
                 'binary', 'prefix\x00suffix\r\n', 'wide', 'w' * 4096)
+    waitForIndex(env, 'idx')
     queries = [
         ['FT.SEARCH', 'idx', '*', 'SORTBY', 'n', 'ASC', 'WITHSORTKEYS', 'LIMIT', 0, 12],
         ['FT.SEARCH', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE',
@@ -3586,6 +3584,7 @@ def _compare_background_fail_replies(protocol):
             env.assertTrue(env.cmd('PING'))
 
     query_vec = _setup_hybrid_index(env)
+    waitForIndex(env, 'hybrid_idx')
     with _preserve_config(env, 'search-workers'):
         for profile in (False, True):
             command = _background_hybrid_query(query_vec)
