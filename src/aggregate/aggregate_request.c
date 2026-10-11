@@ -1576,6 +1576,8 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
 
   // Set vector node as ast->root and use SetFilterNode for proper filter integration.
   // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
+  // Without explicit FILTER, skipFilterIntegration keeps the vector node as root,
+  // preserving BY_SCORE ordering from the iterator without a filter intersection.
   RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
                 "ast->root should be NULL when skipFilterIntegration is true");
   QueryNode *oldRoot = ast->root;
@@ -1752,6 +1754,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   unsigned long dialectVersion = req->base.reqConfig.dialectVersion;
 
+  // When skipFilterIntegration is true, the vector node replaces ast->root directly.
+  // Skip parsing the implicit wildcard query to avoid allocating and freeing it.
   bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
 
   if (!skipParse) {
