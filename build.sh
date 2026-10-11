@@ -772,20 +772,18 @@ prepare_cmake_arguments() {
     RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
     export RUSTDOCFLAGS
   fi
-  if [[ $COV == "1" ]]; then
-    if [[ $OS_NAME != "macos" ]]; then
-      # Rust is linked into redisearch.so as a static library, so rustc does not
-      # perform the final link and cannot add its profiling runtime automatically.
-      local rust_target_libdir
-      local rust_profile_runtimes
-      rust_target_libdir=$(rustc $RUST_TOOLCHAIN_MODIFIER --print target-libdir)
-      rust_profile_runtimes=("$rust_target_libdir"/libprofiler_builtins-*.rlib)
-      if [[ ${#rust_profile_runtimes[@]} -ne 1 || ! -f "${rust_profile_runtimes[0]}" ]]; then
-        echo "Error: expected one Rust profiling runtime in $rust_target_libdir" >&2
-        exit 1
-      fi
-      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_COVERAGE_PROFILE_RUNTIME=${rust_profile_runtimes[0]}"
+  if [[ $COV == "1" && $OS_NAME != "macos" ]]; then
+    # Rust is linked into redisearch.so as a static library, so rustc does not
+    # perform the final link and cannot add its profiling runtime automatically.
+    local rust_target_libdir
+    local rust_profile_runtimes
+    rust_target_libdir=$(rustc $RUST_TOOLCHAIN_MODIFIER --print target-libdir)
+    rust_profile_runtimes=("$rust_target_libdir"/libprofiler_builtins-*.rlib)
+    if [[ ${#rust_profile_runtimes[@]} -ne 1 || ! -f "${rust_profile_runtimes[0]}" ]]; then
+      echo "Error: expected one Rust profiling runtime in $rust_target_libdir" >&2
+      exit 1
     fi
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_COVERAGE_PROFILE_RUNTIME=${rust_profile_runtimes[0]}"
   fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
@@ -1438,6 +1436,12 @@ run_micro_benchmarks() {
 
 # Parse command line arguments
 parse_arguments "$@"
+
+if [[ "$COV" == "1" && "$LTO" == "1" ]]; then
+  echo "Error: COV=1 and LTO=1 are mutually exclusive." >&2
+  echo "Coverage builds are test-only and are not shipped; run coverage without LTO." >&2
+  exit 1
+fi
 
 # Set up test configuration based on input parameters
 setup_test_configuration

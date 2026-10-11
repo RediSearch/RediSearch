@@ -75,6 +75,10 @@ cargo_llvm_cov_ok() {
     [[ "$(cargo llvm-cov --version 2>/dev/null | awk '{print $2}' || true)" == "$CARGO_LLVM_COV_VERSION" ]]
 }
 
+cargo_nextest_ok() {
+    [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]]
+}
+
 nightly_coverage_component_ok() {
     rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^llvm-tools-'
 }
@@ -90,7 +94,7 @@ if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
         DEPS_MISSING="$DEPS_MISSING rust"
     fi
     if cargo_llvm_cov_ok; then DEPS_OK="$DEPS_OK cargo-llvm-cov"; else DEPS_MISSING="$DEPS_MISSING cargo-llvm-cov"; fi
-    if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]]; then DEPS_OK="$DEPS_OK cargo-nextest"; else DEPS_MISSING="$DEPS_MISSING cargo-nextest"; fi
+    if cargo_nextest_ok; then DEPS_OK="$DEPS_OK cargo-nextest"; else DEPS_MISSING="$DEPS_MISSING cargo-nextest"; fi
     if should_generate_headers; then
         if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then DEPS_OK="$DEPS_OK cheadergen"; else DEPS_MISSING="$DEPS_MISSING cheadergen"; fi
     fi
@@ -124,7 +128,7 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
     pinned_components_ok || _need=1
     nightly_coverage_component_ok || _need=1
     cargo_llvm_cov_ok || _need=1
-    [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]] || _need=1
+    cargo_nextest_ok || _need=1
     if should_generate_headers; then
         # pending unless the nightly toolchain has rust-docs-json (the install
         # adds it; "toolchain present" alone isn't enough — mirrors the pinned check)
@@ -201,7 +205,7 @@ fi
 
 # cargo-nextest — the runner `make test` / `make rust-tests` invoke. Pinned via
 # .nextest-version; Linux uses the static musl prebuilt (works on glibc & musl).
-if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" != "$NEXTEST_VERSION" ]]; then
+if ! cargo_nextest_ok; then
     if [[ "$OS_TYPE" == 'Darwin' ]]; then
         nextest_artifact="mac"
     elif [[ "$processor" =~ ^(aarch64|arm64)$ ]]; then

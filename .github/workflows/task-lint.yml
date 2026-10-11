@@ -116,6 +116,12 @@ jobs:
           for dependency in gcc llvm cargo-llvm-cov rust-llvm-tools-preview; do
             grep -Eq "^# dependency ${dependency}: (satisfied|install-required)" "$default_plan"
           done
+          incompatible_flags_output="$RUNNER_TEMP/incompatible-build-flags.log"
+          if ./build.sh COV=1 LTO=1 > "$incompatible_flags_output" 2>&1; then
+            echo "COV=1 LTO=1 unexpectedly succeeded"
+            exit 1
+          fi
+          grep -Fq 'COV=1 and LTO=1 are mutually exclusive' "$incompatible_flags_output"
       - name: Test coverage summary parser
         id: coverage-summary-tests
         continue-on-error: true
