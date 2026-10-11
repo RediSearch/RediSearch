@@ -87,8 +87,9 @@ protected:
     cmd.vector = result->requests[1];
     cmd.tailPlan = &result->tailPipeline->ap;
     cmd.hybridParams = &hybridParams;
-    cmd.reqConfig = &result->reqConfig;
-    cmd.cursorConfig = &result->cursorConfig;
+    cmd.reqConfig = &result->base.reqConfig;
+    cmd.timeoutConfig = &result->base.timeout.config;
+    cmd.cursorConfig = &result->base.cursorConfig;
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(result, &ac, args.size());

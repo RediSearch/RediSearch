@@ -66,7 +66,8 @@ const INVALID_GEOHASH: f64 = -1.0;
 ///
 /// # Safety
 ///
-/// - `xy` must be a [valid], non-null pointer to a writable `[f64; 2]`.
+/// - `xy` must be a [valid], non-null pointer to writable storage for `[f64; 2]`,
+///   properly aligned for [`f64`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

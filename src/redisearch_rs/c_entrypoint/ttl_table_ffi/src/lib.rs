@@ -244,7 +244,7 @@ pub unsafe extern "C" fn TimeToLiveTable_FieldSatisfiesPredicate(
 /// the full [`FieldMask`] width is walked.
 ///
 /// `ft_id_to_field_index` must point to at least
-/// `highest_set_bit(field_mask) + 1` [valid] `u16` entries.
+/// `highest_set_bit(field_mask) + 1` valid `u16` entries.
 /// May be `NULL` when `field_mask == 0`.
 ///
 /// # Returns
@@ -435,10 +435,8 @@ const fn highest_bit_plus_one_wide(mask: FieldMask) -> usize {
 ///
 /// # Safety
 ///
-/// The caller guarantees `ptr` covers at least `len` [valid] `u16`
+/// The caller guarantees `ptr` covers at least `len` valid `u16`
 /// entries.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[inline]
 unsafe fn build_ft_slice<'a>(ptr: *const u16, len: usize) -> &'a [u16] {
     if len == 0 {

@@ -17,12 +17,9 @@ use std::{
 
 mod find_prefixes;
 mod iter;
-mod iter_types;
-mod range;
 
 pub use find_prefixes::*;
 pub use iter::*;
-pub use range::*;
 
 /// The length of a key string in the trie.
 pub type tm_len_t = u16;
@@ -201,8 +198,8 @@ pub type freeCB = Option<unsafe extern "C" fn(*mut c_void)>;
 /// - if `func` is not NULL, it must be an [ABI-compatible] function pointer of the type
 ///   [`freeCB`].
 ///
-/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Delete(
     t: *mut TrieMap,

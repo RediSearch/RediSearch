@@ -86,6 +86,145 @@ def testCursorsBGEdgeCasesSanity():
         resp = env.expect(query).noError().res
         resp = exhaustCursor(env, 'idx', resp)
 
+@skip(cluster=True)
+def testCursorFilterTotalDoesNotUnderflow():
+    """A FILTER may reject a row that a previous cursor read already counted.
+
+    `SORTBY ... MAX` buffers every row during the first read, then hands them to the FILTER
+    across later reads -- by which point a read without WITHCOUNT has reset the running total
+    to zero. Rejecting one of those rows used to decrement from zero: a failed assertion in a
+    debug build, and an unsigned wrap to ~4.29 billion reported as the result count in a
+    release one.
+
+    Only reachable when the writes below are not reindexed, which is what
+    PARTIAL_INDEXED_DOCS switches on -- the same reason this went unnoticed, since it
+    defaults to off. The reported total is asserted, not just the absence of a crash, so a
+    release build is covered too.
+
+    Standalone only, like `testCursorsBGEdgeCasesSanity` next door: the totals asserted here
+    are one shard's, and in a cluster the documents are spread across shards while the
+    coordinator sums their counts, so neither the convergence on half the documents nor the
+    per-read bound describes what any single reply carries.
+    """
+    env = Env(moduleArgs='WORKERS 1 PARTIAL_INDEXED_DOCS 1')
+    if env.env == 'existing-env':
+        env.skip()
+    count = 100
+    loadDocs(env, count=count)
+    # `foo` is outside the schema, so with PARTIAL_INDEXED_DOCS these writes are not
+    # reindexed and the documents keep their doc-ids.
+    for x in range(0, count, 2):
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
+
+    sortby_filter = f'SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)'
+
+    # Every read, not just the first: the rows the sorter buffered are handed over later, so
+    # the underflow lands on a subsequent read. No read may claim more rows than exist -- the
+    # wrap presented as a count of ~4.29 billion.
+    resp = env.expect(f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 {sortby_filter}').noError().res
+    for results, _cursor in exhaustCursor(env, 'idx', resp):
+        env.assertLessEqual(results[0], count,
+                            message=f'reported total {results[0]} exceeds the {count} documents indexed')
+
+    # Without WITHCOUNT the total is per-read and resets, so reads after the first declare 0
+    # while still returning buffered rows. That predates this fix and holds for a buffering
+    # SORTBY with no FILTER at all, so it is not asserted here. WITHCOUNT is the mode that
+    # promises a total across reads, and it is where the accounting has to be right: the
+    # filter removes the half of the documents without `foo`, so the total must converge on
+    # exactly that half and never dip below it.
+    resp = env.expect(f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby_filter}').noError().res
+    totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertLessEqual(max(totals), count, message=f'totals {totals} exceed the {count} indexed')
+    env.assertEqual(totals[-1], count // 2,
+                    message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
+
+@skip(cluster=True)
+def testCursorTotalIsPerReadWithoutWithcount():
+    """Pin how a cursor read reports its total, so any change to it is a deliberate one.
+
+    Without WITHCOUNT the total is per-read: `finishSendChunk` zeroes it when a read finishes,
+    so a buffering `SORTBY ... MAX` hands rows to later reads that return them while declaring
+    a total of 0. Raised on #11230 against the FILTER clamp, but the clamp is not its cause --
+    the first case here has no FILTER in the pipeline at all and behaves identically. WITHCOUNT
+    is the mode that carries a total across reads, and the second case pins that it stays
+    correct.
+
+    Nobody has decided whether the zero totals should change. This records what they do today,
+    so a change shows up as a failing test rather than passing unnoticed.
+
+    Standalone only: the totals are one shard's, and a cluster spreads the documents.
+    """
+    env = Env(moduleArgs='WORKERS 1')
+    count = 100
+    loadDocs(env, count=count)
+    # Half the documents get a field outside the schema, for the FILTER below to reject on.
+    for x in range(0, count, 2):
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
+
+    sortby = f'SORTBY 1 @f1 MAX {count}'
+
+    # No FILTER: the zero totals are already here, so the clamp cannot be producing them.
+    resp = env.cmd(*f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 {sortby} LOAD 1 irrelevant'.split())
+    reads = [(results[0], len(results) - 1) for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    env.assertEqual(reads[0][0], count,
+                    message=f'first read should declare every match, got {reads}')
+    later = reads[1:]
+    env.assertTrue(all(total == 0 for total, _rows in later),
+                   message=f'reads after the first declare a per-read total of 0, got {reads}')
+    env.assertTrue(any(rows > 0 for _total, rows in later),
+                   message=f'and they do return rows while declaring it, got {reads}')
+
+    # WITHCOUNT keeps the total across reads, and the FILTER brings it down to the documents
+    # it keeps -- the half carrying `foo`.
+    resp = env.cmd(
+        *f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 WITHCOUNT {sortby} LOAD 1 foo FILTER exists(@foo)'.split())
+    totals = [results[0] for results, _cursor in exhaustCursor(env, 'idx', resp)]
+    # Only the endpoint and the bound are invariants. How the total gets there depends on
+    # where the filter's rejections land across the reads, which moves with the doc-id layout:
+    # `[100, 90, ..., 50]` when the writes above were skipped, a flat `[50, ...]` when they
+    # were reindexed. Asserting the first read's value would pin one of those two.
+    env.assertLessEqual(max(totals), count, message=f'totals {totals} exceed the {count} indexed')
+    env.assertEqual(totals[-1], count // 2,
+                    message=f'WITHCOUNT should settle on the {count // 2} matching documents, got {totals}')
+
+@skip(cluster=True)
+def testCursorTotalDoesNotUnderflowOnDroppedDocuments():
+    """`QITR_ReportedTotal` must not wrap when the loader drops buffered rows.
+
+    Same shape as the FILTER underflow, one function over and with no FILTER involved. A read
+    without WITHCOUNT resets both counters when it finishes, while `SORTBY ... MAX` hands rows
+    counted during the first read to the loader during later ones. A document that disappeared
+    in between is counted in `skippedResults` for a read whose `totalResults` is zero, so
+    `totalResults - skippedResults` underflowed: five such rows reported 4294967291, and an
+    assert-enabled build aborted on the `skippedResults <= totalResults` invariant instead.
+
+    Reported by Ofir on #11262. Note the clamp in `rpevalNext_filter` alone moves this rather
+    than fixing it: with both a filter and dropped documents, the total pins at zero and the
+    subtraction still wraps.
+
+    Standalone only: the totals are one shard's.
+    """
+    env = Env(moduleArgs='WORKERS 1')
+    count = 100
+    loadDocs(env, count=count)
+
+    resp = env.cmd(*f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo'.split())
+    results, cid = resp
+    totals = [results[0]]
+    env.assertTrue(cid, message='need an open cursor for the buffered rows to be read later')
+
+    # The sorter has already buffered every row. Removing the documents now means the loader
+    # meets rows whose documents are gone, on reads where the total has been reset.
+    for i in range(0, count, 2):
+        env.cmd('DEL', f'idx_doc{i}')
+
+    while cid:
+        results, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        totals.append(results[0])
+
+    env.assertLessEqual(max(totals), count,
+                        message=f'a read reported more rows than exist -- wrapped total: {totals}')
+
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
     loadDocs(env, idx='idx1', text='hello')
@@ -1112,3 +1251,4 @@ def testCursorReadsDocumentsWrittenBetweenReads(env):
     # already indexed when it started must all come back.
     env.assertEqual(sorted(f'doc:{i}' for i in range(seeded)),
                     sorted(k for k in keys if not k.startswith('doc:new')))
+

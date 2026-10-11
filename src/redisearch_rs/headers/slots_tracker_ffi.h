@@ -44,7 +44,7 @@ extern "C" {
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -74,7 +74,7 @@ struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -94,7 +94,7 @@ bool slots_tracker_has_fully_available_overlap(const struct RedisModuleSlotRange
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -116,7 +116,7 @@ void slots_tracker_mark_fully_available_slots(const struct RedisModuleSlotRangeA
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -136,7 +136,7 @@ uint32_t slots_tracker_mark_partially_available_slots(const struct RedisModuleSl
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -153,7 +153,7 @@ void slots_tracker_promote_to_local_slots(const struct RedisModuleSlotRangeArray
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -189,7 +189,7 @@ void slots_tracker_reset(void);
  *
  * This function must be called from the main thread only.
  * The `ranges` pointer must be [valid] and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` [valid] elements.
+ * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

@@ -61,11 +61,6 @@ typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
 #endif /* SMALLTHINVEC_C_VOID_DEFINED */
 
 /**
- * Callback type for passing to [`TrieMap_IterateRange`].
- */
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
-
-/**
  * Callback type for passing to [`TrieMap_Add`].
  */
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
@@ -215,8 +210,8 @@ int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, T
  * - if `func` is not NULL, it must be an [ABI-compatible] function pointer of the type
  *   [`freeCB`].
  *
- * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  */
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
@@ -258,6 +253,7 @@ void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
  * - `len` can be 0. If so, `str` is regarded as an empty string.
  *
  * [`NewTrieMap`]: crate::NewTrieMap
+ *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 TrieMapResultBuf TrieMap_FindPrefixes(const struct TrieMap *t, const char *str, tm_len_t len);
@@ -293,35 +289,6 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
 struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
 
 /**
- * Iterate the trie within the specified key range.
- *
- * If `minLen` is 0, `min` is regarded as an empty string. It `minlen` is -1, the itaration starts from the beginning of the trie.
- * If `maxLen` is 0, `max` is regarded as an empty string. If `maxlen` is -1, the iteration goes to the end of the trie.
- * `includeMin` and `includeMax` determine whether the min and max values are included in the iteration.
- *
- * The passed [`TrieMapRangeCallback`] function is called for each key found,
- * passing the key and its length, the value, and the `ctx` pointer passed to this
- * function.
- *
- * Panics in case the passed callback is NULL.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `trie` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `min` can be NULL only if `minlen == 0` or `minlen == -1`. It is not necessarily NULL-terminated.
- * - `minlen` can be 0. If so, `min` is regarded as an empty string.
- * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
- * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
- * - `callback` must be an [ABI-compatible] pointer to a function of type
- *   [`TrieMapRangeCallback`]
- *
- * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
- * [`NewTrieMap`]: crate::NewTrieMap
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
-
-/**
  * Iterate over the trie entries that match the given predicate.
  *
  * Depending on `iter_mode`, they can either be:
@@ -340,6 +307,8 @@ void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minle
  * - `t` must not be freed while the iterator lives.
  * - `prefix` must point to a [valid] pointer to a byte sequence of length `prefix_len`,
  *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+ * - `prefix` must stay [valid] and unmodified until the iterator is freed: the contains,
+ *   suffix and wildcard modes keep reading it while iterating.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

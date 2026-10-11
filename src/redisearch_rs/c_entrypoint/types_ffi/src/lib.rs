@@ -28,7 +28,8 @@ pub use inverted_index::{
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `filter` must point to a [valid] `NumericFilter` and cannot be NULL.
+/// - `filter` must be non-null, properly aligned, and point to an initialized
+///   [`NumericFilter`] that remains [valid] and unmodified for the call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

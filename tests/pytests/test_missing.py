@@ -692,3 +692,37 @@ def test_missing_field_name_with_interior_nul(env):
 
     # Verify the server is still alive.
     env.expect('PING').equal(True)
+
+def testMissingAlterAndReload():
+    """A field given INDEXMISSING through FT.ALTER indexes documents that lack
+    it, both for documents re-scanned after the ALTER and for documents added
+    later, and keeps doing so after an RDB reload."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ta', 'TAG').ok()
+    conn.execute_command('HSET', 'before_alter', 'ta', 'foo')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'te', 'TEXT', 'INDEXMISSING').ok()
+    waitForIndex(env, 'idx')
+    conn.execute_command('HSET', 'after_alter', 'ta', 'foo')
+    conn.execute_command('HSET', 'has_te', 'ta', 'foo', 'te', 'bar')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te)', 'NOCONTENT')
+    env.assertEqual(res[0], 2)
+    env.assertEqual(set(res[1:]), {'before_alter', 'after_alter'})
+
+    env.dumpAndReload()
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te)', 'NOCONTENT')
+    env.assertEqual(res[0], 2)
+    env.assertEqual(set(res[1:]), {'before_alter', 'after_alter'})
+
+    # The missing-fields bookkeeping is rebuilt from the loaded schema, so
+    # documents indexed after the reload are still tracked.
+    conn.execute_command('HSET', 'after_reload', 'ta', 'foo')
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te)', 'NOCONTENT')
+    env.assertEqual(res[0], 3)
+    env.assertEqual(set(res[1:]), {'before_alter', 'after_alter', 'after_reload'})

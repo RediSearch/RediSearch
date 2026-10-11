@@ -29,6 +29,16 @@ pub mod string_to_number;
 use std::ffi::{CString, c_char};
 
 use call::*;
+
+// C variadic shims from `variadic_shims.c` (see build.rs).
+unsafe extern "C" {
+    /// Mock of `RedisModule_HashGet`; forwards to [`key::RedisMock_HashGetFixed`].
+    fn RedisMock_HashGet(
+        key: *mut redis_module::raw::RedisModuleKey,
+        flags: ::std::ffi::c_int,
+        ...
+    ) -> ::std::ffi::c_int;
+}
 use context::*;
 pub use ffi;
 use key::*;
@@ -156,6 +166,7 @@ pub fn init_redis_module_mock() {
         redis_module::raw::RedisModule_ScanCursorDestroy = Some(RedisModule_ScanCursorDestroy)
     };
     unsafe { redis_module::raw::RedisModule_ScanKey = Some(RedisModule_ScanKey) };
+    unsafe { redis_module::raw::RedisModule_HashGet = Some(RedisMock_HashGet) };
 
     // Register call reply functions
     unsafe { redis_module::raw::RedisModule_CallReplyType = Some(RedisModule_CallReplyType) };

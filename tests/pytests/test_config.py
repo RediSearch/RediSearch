@@ -6,6 +6,7 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 import os
+import tempfile
 
 from RLTest import Env
 from includes import *
@@ -107,6 +108,7 @@ def testGetConfigOptions(env):
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
+    check_config('OPTIMIZE_PARTIAL_UPDATE')
     check_config('_BG_INDEX_MEM_PCT_THR')
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
@@ -142,6 +144,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', 'OPTIMIZE_PARTIAL_UPDATE', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
@@ -228,6 +231,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
+    env.assertEqual(res_dict['OPTIMIZE_PARTIAL_UPDATE'][0], 'true')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
@@ -293,6 +297,8 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
+    _test_config_str('OPTIMIZE_PARTIAL_UPDATE', 'true', 'true')
+    _test_config_str('OPTIMIZE_PARTIAL_UPDATE', 'false', 'false')
     _test_config_str('ON_OOM', 'return')
 
 @skip(cluster=True)
@@ -589,7 +595,7 @@ numericConfigs = [
     # configName, ftConfigName, defaultValue, minValue, maxValue, immutable, clusterConfig
     ('search-_numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False, False),
     ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True, False),
-    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False, False),
+    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, UINT32_MAX, False, False),
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
     ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
@@ -632,6 +638,7 @@ numericConfigs = [
 # Configs whose backing type narrowed from long long to uint32_t. Values above
 # UINT32_MAX are accepted but clamped (for backwards compatibility with persisted settings).
 CLAMPED_CONFIGS = {
+    'search-cursor-max-idle': UINT32_MAX,
     'search-max-prefix-expansions': UINT32_MAX,
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
@@ -649,6 +656,26 @@ SENTINEL_TRANSLATED_CONFIGS = {
     'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
     'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_cursor_max_idle_clamping(env):
+    """Both config interfaces saturate large inputs without changing adjacent cursor defaults."""
+    name = 'search-cursor-max-idle'
+    original = env.cmd('CONFIG', 'GET', name)[1]
+    read_size = env.cmd('INFO', 'MODULES')['search_cursor_read_size']
+    try:
+        for command in [('CONFIG', 'SET', name), (config_cmd(), 'SET', 'CURSOR_MAX_IDLE')]:
+            for value in [1, UINT32_MAX, UINT32_MAX + 1, LLONG_MAX]:
+                env.expect(*command, value).ok()
+                expected = str(min(value, UINT32_MAX))
+                env.expect('CONFIG', 'GET', name).equal([name, expected])
+                env.expect(config_cmd(), 'GET', 'CURSOR_MAX_IDLE').equal([['CURSOR_MAX_IDLE', expected]])
+                env.assertEqual(env.cmd('INFO', 'MODULES')['search_cursor_read_size'], read_size)
+            for value in [0, -1, LLONG_MAX + 1, 'invalid']:
+                env.expect(*command, value).error()
+                env.expect('CONFIG', 'GET', name).equal([name, str(UINT32_MAX)])
+    finally:
+        env.expect('CONFIG', 'SET', name, original).ok()
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -1650,6 +1677,7 @@ booleanConfigs = [
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
+    ('search-optimize-partial-update', 'OPTIMIZE_PARTIAL_UPDATE', 'yes', False, False),
 ]
 
 # CONFIG-only boolean parameters (no corresponding FT.CONFIG parameter / module argument)
@@ -2312,22 +2340,162 @@ def testDefaultScorerConfig(env):
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
 
 @skip(cluster=True)
-def test_flex_search_disk_buffer_percentage(env):
-    """Test search-disk-buffer-percentage validation in Flex mode"""
-    # Valid values should be accepted
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '50'])
+def test_flex_disk_resource_configs(env):
+    configs = {
+        'search-disk-memory-limit-percentage': '60',
+        'search-disk-write-buffer-min-percentage': '20',
+        'search-disk-write-buffer-per-index-mb': '3',
+        'search-disk-max-open-files': '200',
+    }
+    wildcard_result = env.cmd('CONFIG', 'GET', 'search-disk-*')
+    for name, default in configs.items():
+        env.expect('CONFIG', 'GET', name).equal([name, default])
+        env.assertNotIn(name, wildcard_result)
+        env.expect('CONFIG', 'SET', name, default).error()
 
-    # Boundary values
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '0').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '0'])
 
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '100').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '100'])
+def _disk_resource_startup_config(directives):
+    log_dir = tempfile.mkdtemp(prefix='redisearch-disk-resource-')
+    config_path = os.path.join(log_dir, 'redis.conf')
+    with open(config_path, 'w') as config:
+        for name, value in directives:
+            config.write(f'{name} {value}\n')
+    return log_dir, config_path
 
-    # Values above 100 should be rejected
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '101').error()\
-        .contains('argument must be between 0 and 100')
+
+def _disk_resource_startup_log(log_dir):
+    contents = []
+    for name in os.listdir(log_dir):
+        if name.endswith('.log'):
+            with open(os.path.join(log_dir, name), encoding='utf-8', errors='replace') as log:
+                contents.append(log.read())
+    return '\n'.join(contents)
+
+
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False,
+      missing_redis_command='bigstore')
+def test_flex_disk_resource_config_startup_boundaries():
+    accepted = (
+        {
+            'search-disk-memory-limit-percentage': '1',
+            'search-disk-write-buffer-min-percentage': '1',
+            'search-disk-write-buffer-per-index-mb': '1',
+            'search-disk-max-open-files': '138',
+        },
+        {
+            'search-disk-memory-limit-percentage': '60',
+            'search-disk-write-buffer-min-percentage': '20',
+            'search-disk-write-buffer-per-index-mb': '2',
+            'search-disk-max-open-files': '139',
+        },
+        {
+            'search-disk-memory-limit-percentage': '99',
+            'search-disk-write-buffer-min-percentage': '99',
+            'search-disk-write-buffer-per-index-mb': '3',
+            'search-disk-max-open-files': '140',
+        },
+        {
+            'search-disk-memory-limit-percentage': '100',
+            'search-disk-write-buffer-min-percentage': '100',
+            'search-disk-write-buffer-per-index-mb': '4',
+            'search-disk-max-open-files': str(INT_MAX),
+        },
+    )
+    for expected in accepted:
+        log_dir, config_path = _disk_resource_startup_config(expected.items())
+        env = Env(
+            noDefaultModuleArgs=True,
+            redisConfigFile=config_path,
+            logDir=log_dir,
+            freshEnv=True,
+        )
+        try:
+            env.assertTrue(env.isUp())
+            env.expect('CONFIG', 'GET', 'bigredis-enabled').equal(
+                ['bigredis-enabled', 'yes']
+            )
+            for name, value in expected.items():
+                env.expect('CONFIG', 'GET', name).equal([name, value])
+        finally:
+            env.stop()
+
+
+def _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue=None):
+    log_dir, config_path = _disk_resource_startup_config(directives)
+    candidate = None
+    try:
+        candidate = Env(
+            noDefaultModuleArgs=True,
+            redisConfigFile=config_path,
+            logDir=log_dir,
+            freshEnv=True,
+        )
+    except Exception:
+        pass
+    else:
+        is_up = candidate.isUp()
+        candidate.stop()
+        configured = ', '.join(f'{name}={value}' for name, value in directives)
+        assert not is_up, f'Flex unexpectedly started with {configured}'
+
+    startup_log = _disk_resource_startup_log(log_dir)
+    if config_issue is not None:
+        assert f'Issue during loading of configuration {config_issue} :' in startup_log
+    assert diagnostic in startup_log
+
+
+@skip(cluster=True, redis_less_than='7.9.227', asan=True, enterprise=False,
+      missing_redis_command='bigstore')
+def test_flex_disk_resource_config_startup_rejections():
+    invalid = (
+        (
+            (('search-disk-memory-limit-percentage', '0'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-memory-limit-percentage',
+        ),
+        (
+            (('search-disk-memory-limit-percentage', '101'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-memory-limit-percentage',
+        ),
+        (
+            (('search-disk-write-buffer-min-percentage', '0'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-write-buffer-min-percentage',
+        ),
+        (
+            (('search-disk-write-buffer-min-percentage', '101'),),
+            'argument must be between 1 and 100 inclusive',
+            'search-disk-write-buffer-min-percentage',
+        ),
+        (
+            (('search-disk-write-buffer-per-index-mb', '0'),),
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
+            'search-disk-write-buffer-per-index-mb',
+        ),
+        (
+            (('search-disk-write-buffer-per-index-mb',
+              str(UINT64_MAX // (1024 * 1024) + 1)),),
+            f'argument must be between 1 and {UINT64_MAX // (1024 * 1024)} inclusive',
+            'search-disk-write-buffer-per-index-mb',
+        ),
+        (
+            (('search-disk-max-open-files', '137'),),
+            f'argument must be between 138 and {INT_MAX} inclusive',
+            'search-disk-max-open-files',
+        ),
+        (
+            (
+                ('search-disk-write-buffer-min-percentage', '21'),
+                ('search-disk-memory-limit-percentage', '20'),
+            ),
+            'search-disk-write-buffer-min-percentage must not exceed '
+            'search-disk-memory-limit-percentage',
+            None,
+        ),
+    )
+    for directives, diagnostic, config_issue in invalid:
+        _assert_disk_resource_startup_rejected(directives, diagnostic, config_issue)
 
 @skip(cluster=True)
 def test_flex_search_disk_async_read_pool_size(env):

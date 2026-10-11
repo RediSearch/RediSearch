@@ -666,6 +666,37 @@ def testRewindWidensWindow(env):
 
 
 @skip(cluster=True)
+def testRetryGuardUnderfillsSparseChild(env):
+    """Characterization test: a sparse child whose matches all sit past the first
+    numeric window comes back short of LIMIT.
+
+    The optimizer only widens its window while the first window's document
+    estimate is below the child's estimate. The first window is sized to hold
+    `limit` matches at the child's selectivity, so for a child sparser than
+    about sqrt(limit / num_docs) it already exceeds the child's estimate, and
+    the retry never runs: the heap is drained as the first window left it.
+
+    This pins that under-fill, not the correct answer (the unoptimized query's).
+    A top-k implementation that keeps widening returns the full LIMIT, so this
+    test is expected to flip to the complete answer when one replaces it.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    num_docs = 10000
+    num_matches = num_docs // 100
+    first_match = num_docs - num_matches
+    load_sparse_matches(conn, num_docs, lambda i: i >= first_match)
+
+    limit = 10
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit, 'NOCONTENT']
+    top_matches = [str(i) for i in range(first_match, first_match + limit)]
+    env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
+    # Characterization: under-filled; flips to [limit] + top_matches once fixed.
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [0])
+
+
+@skip(cluster=True)
 def testDeletedDocsDuringCollection(env):
     """Documents deleted before their index entries are collected are skipped.
 

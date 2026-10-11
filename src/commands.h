@@ -120,9 +120,12 @@ bool IsEnterprise();
 #define RS_EXPLAINCLI_CMD "FT.EXPLAINCLI"
 #define RS_DICT_DUMP "FT.DICTDUMP"
 #define RS_SYNDUMP_CMD "FT.SYNDUMP"
-#define RS_INDEX_LIST_CMD "FT._LIST"
 #define RS_ALIASLIST_CMD "FT.ALIASLIST"
 #define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
+
+// Index listing is local unless WITHCLUSTERSTATE requests a coordinator fanout.
+#define RS_INDEX_LIST_CMD_PUBLIC "FT._LIST"
+#define RS_INDEX_LIST_CMD_INTERNAL "_" RS_INDEX_LIST_CMD_PUBLIC
 
 // Read commands always use the internal "_FT" prefix
 #define RS_CMD_READ_PREFIX "_FT"

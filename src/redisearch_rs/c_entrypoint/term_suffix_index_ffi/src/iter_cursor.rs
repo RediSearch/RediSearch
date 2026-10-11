@@ -59,7 +59,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// with [`TermSuffixIndexIterator_Free`].
 ///
 /// The string `*str` points at is NOT NUL-terminated, owned by the
-/// iterator, and only valid until the next call to
+/// iterator, and only [valid] until the next call to
 /// [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
 ///
 /// # Safety
@@ -131,8 +131,6 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIt
 pub struct TermSuffixIndexIterator<'si> {
     iter: Box<dyn Iterator<Item = String> + 'si>,
     /// Keeps the most recently yielded string alive so the pointer
-    /// stays [valid] until the next advance (or free).
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    /// stays valid until the next advance (or free).
     current: Option<String>,
 }

@@ -32,7 +32,8 @@ extern "C" {
 #include <stdio.h>
 
 extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                                   DocumentType type, RedisModuleKey *openKey);
+                                   DocumentType type, RedisModuleKey *openKey,
+                                   RedisModuleString **changedFields, size_t numChangedFields);
 
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
@@ -125,13 +126,16 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
   // This direct QAST test bypasses the QueryRequest that owns timeout state in production.
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  timeoutConfig.queryTimeoutMS = 0;
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   ctx.timeout = &timeout;
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "vec_field", "abcdefghijklmnop", false));
-  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash, NULL), REDISMODULE_OK);
+  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash, NULL, nullptr, 0), REDISMODULE_OK);
 
   ASSERT_NE(openVectorIndex(redisCtx, &ctx.spec->fields[1], DONT_CREATE_INDEX), nullptr);
 
@@ -879,7 +883,7 @@ TEST_F(QueryTest, testGeoQuery_v1) {
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(HiddenString_GetUnsafe(gn->gn.gf->fieldSpec->fieldName, NULL), "loc");
+  ASSERT_STREQ(HiddenString_GetUnsafe((ctx.spec->fields + gn->gn.gf->fieldIndex)->fieldName, NULL), "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
@@ -905,7 +909,7 @@ TEST_F(QueryTest, testGeoQuery_v2) {
 
   QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(HiddenString_GetUnsafe(gn->gn.gf->fieldSpec->fieldName, NULL), "loc");
+  ASSERT_STREQ(HiddenString_GetUnsafe((ctx.spec->fields + gn->gn.gf->fieldIndex)->fieldName, NULL), "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);

@@ -110,7 +110,7 @@ pub unsafe extern "C" fn SpellCheckDictionary_IterateFuzzy<'scd>(
 /// with [`SpellCheckDictionaryIterator_Free`].
 ///
 /// The string `*str` points at is NOT NUL-terminated, owned by the
-/// iterator, and only valid until the next call to
+/// iterator, and only [valid] until the next call to
 /// [`SpellCheckDictionaryIterator_Next`] or
 /// [`SpellCheckDictionaryIterator_Free`].
 ///
@@ -188,8 +188,6 @@ pub struct SpellCheckDictionaryIterator<'scd> {
     /// `# Safety` obligations.
     iter: Box<dyn Iterator<Item = String> + 'scd>,
     /// Keeps the most recently yielded string alive so the pointer
-    /// stays [valid] until the next advance (or free).
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    /// stays valid until the next advance (or free).
     current: Option<String>,
 }

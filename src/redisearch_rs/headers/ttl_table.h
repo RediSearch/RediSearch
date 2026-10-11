@@ -154,7 +154,7 @@ void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
  * the full [`FieldMask`] width is walked.
  *
  * `ft_id_to_field_index` must point to at least
- * `highest_set_bit(field_mask) + 1` [valid] `u16` entries.
+ * `highest_set_bit(field_mask) + 1` valid `u16` entries.
  * May be `NULL` when `field_mask == 0`.
  *
  * # Returns

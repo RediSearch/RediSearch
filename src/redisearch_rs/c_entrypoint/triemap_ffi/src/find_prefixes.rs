@@ -24,6 +24,7 @@ use thin_vec::SmallThinVec;
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 ///
 /// [`NewTrieMap`]: crate::NewTrieMap
+///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(

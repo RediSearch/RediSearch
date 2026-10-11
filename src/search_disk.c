@@ -10,6 +10,7 @@
 #include "search_disk.h"
 
 #include <stdatomic.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "config.h"
@@ -29,12 +30,105 @@ struct timespec;
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
+static size_t diskMemoryLimitBytes = 0;
+
+static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
+  RS_ASSERT(disk && disk_db && disk->basic.updateMemoryLimit);
+  return disk->basic.updateMemoryLimit(disk_db, diskMemoryLimitBytes, registeredIndexCount);
+}
+
+static size_t SearchDisk_CountDiskIndexes(bool includeStaged) {
+  if (!specDict_g) {
+    return 0;
+  }
+
+  size_t count = 0;
+  dictIterator *iterator = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iterator))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+    if (spec && (spec->diskRegistered || (includeStaged && spec->pendingDiskRdbState))) {
+      ++count;
+    }
+  }
+  dictReleaseIterator(iterator);
+  return count;
+}
+
+static size_t SearchDisk_RegisteredIndexCount(void) {
+  return SearchDisk_CountDiskIndexes(false);
+}
+
+static bool SearchDisk_HasMemoryForIndexCount(size_t count, bool restoring, QueryError *status) {
+  const size_t percentage = RSGlobalConfig.diskMaxMemoryPercentage;
+  if (diskMemoryLimitBytes == 0 || percentage == 0 || percentage > 100) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        restoring
+                            ? "Cannot restore disk index: invalid Search disk memory configuration"
+                            : "Cannot create disk index: invalid Search disk memory configuration");
+    return false;
+  }
+  const size_t maximumMemory =
+      (diskMemoryLimitBytes / 100) * percentage + ((diskMemoryLimitBytes % 100) * percentage) / 100;
+
+  const size_t budgetPerIndex = RSGlobalConfig.diskWbmBudgetPerIndexMB * 1024 * 1024;
+  if (count > maximumMemory / budgetPerIndex) {
+    QueryError_SetError(
+        status, QUERY_ERROR_CODE_DISK_CREATION,
+        restoring
+            ? "Cannot restore disk index: write-buffer budget exceeds Search disk maximum memory"
+            : "Cannot create disk index: write-buffer budget exceeds Search disk maximum memory");
+    return false;
+  }
+  return true;
+}
+
+bool SearchDisk_CanRestoreIndex(QueryError *status) {
+  RS_ASSERT(status);
+  const size_t total = SearchDisk_CountDiskIndexes(true) + 1;
+  if (!SearchDisk_HasMemoryForIndexCount(total, true, status)) {
+    return false;
+  }
+  RS_ASSERT(disk && disk_db && disk->basic.reserveRestoreOpenFiles);
+  const size_t unopened = total - SearchDisk_RegisteredIndexCount();
+  if (!disk->basic.reserveRestoreOpenFiles(disk_db, unopened)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Cannot restore disk index: not enough file descriptors available; "
+                        "lower search-disk-max-open-files or reduce the number of indexes");
+    return false;
+  }
+  return true;
+}
+
+bool SearchDisk_CanCreateIndex(QueryError *status) {
+  RS_ASSERT(status);
+  if (!SearchDisk_HasMemoryForIndexCount(SearchDisk_RegisteredIndexCount() + 1, false, status)) {
+    return false;
+  }
+
+  RS_ASSERT(disk && disk_db && disk->basic.reserveOpenFiles);
+  if (!disk->basic.reserveOpenFiles(disk_db)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
+                        "Cannot create disk index: not enough file descriptors available; "
+                        "lower search-disk-max-open-files or reduce the number of indexes");
+    return false;
+  }
+  return true;
+}
+
+void SearchDisk_ReleaseCreateFailure(void) {
+  RS_ASSERT(disk && disk_db && disk->basic.releaseOpenFiles);
+  disk->basic.releaseOpenFiles(disk_db);
+}
+
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
 
 // Throttle callbacks for vector disk tiered indexes
 static int VecSim_EnableThrottle(void);
 static int VecSim_DisableThrottle(void);
+
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -84,6 +178,9 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     return false;
   }
 
+  long long configured_memory_limit = getRedisConfigNumeric(ctx, "bigredis-max-ram", 0);
+  diskMemoryLimitBytes = (size_t)configured_memory_limit;
+
   disk = SearchDisk_GetAPI();
   if (!disk) {
     RedisModule_Log(ctx, "warning", "RediSearch disk API disabled");
@@ -96,85 +193,72 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
-                             RSGlobalConfig.diskMaxOpenFiles);
-  bool disk_initialized = disk_db != NULL;
-
-  if (!disk_initialized) {
-    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+  SearchDiskResourceConfig resource_config = {
+    .memoryLimitBytes = diskMemoryLimitBytes,
+    .maxMemoryPercentage = RSGlobalConfig.diskMaxMemoryPercentage,
+    .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
+    .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
+    .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
+  };
+  disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+  if (!disk_db) {
+    RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
   }
 
   // Register BigModule callbacks for disk usage reporting
   if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
     RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
+    SearchDisk_Close(ctx);
     return false;
   }
-  return disk_db != NULL;
+  return true;
 }
 
 bool SearchDisk_IsInitialized() {
   return disk_db != NULL;
 }
 
-// Callback for BigModuleRegister - returns total disk usage across all indexes
 static size_t getDiskUsageCallback(void) {
-  size_t total = 0;
-  if (!specDict_g) {
-    return total;
-  }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      total += SearchDisk_GetDiskUsage(sp->diskSpec);
-    }
-  }
-  dictReleaseIterator(iter);
-  return total;
+  return disk_db ? disk->metrics.getCachedTotalDiskUsage(disk_db) : 0;
 }
 
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
-  if (!RedisModule_BigModuleRegister) {
-    RedisModule_Log(ctx, "notice", "BigModuleRegister not available");
-    return false;
-  }
-
-  RedisModuleBigCallbacksV1 callbacks = {
-    .version = REDISMODULE_BIG_CALLBACKS_VERSION,
-    .getDiskUsage = getDiskUsageCallback,
-  };
-
-  if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
-    return false;
-  }
-
-  RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
+  if (!RedisModule_BigModuleRegister) return false;
+  RedisModuleBigCallbacks callbacks = {.version = REDISMODULE_BIG_CALLBACKS_VERSION, .getDiskUsage = getDiskUsageCallback};
+  if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) return false;
   return true;
+}
+
+void SearchDisk_StopMetrics(void) {
+  if (disk && disk_db) disk->metrics.stopMetrics(disk_db);
 }
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
+    SearchDisk_StopMetrics();
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
+    diskMemoryLimitBytes = 0;
   }
 }
 
-static void* Compaction_BeginUpdate(void *private_data) {
-    IndexSpec *sp = private_data;
-    RS_ASSERT(sp);
-    IndexSpec_AcquireWriteLock(sp);
-    return sp;
+// Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
+void SearchDisk_ActivateUsage(IndexSpec *spec) {
+  if (disk_db && spec && spec->diskSpec) {
+    disk->metrics.activateTarget(spec->diskSpec);
+  }
 }
 
-static bool Compaction_DecrementTrieTermCount(void *update_ctx,
-                                              const char *term,
-                                              size_t term_len,
+static void *Compaction_BeginUpdate(void *private_data) {
+  IndexSpec *sp = private_data;
+  RS_ASSERT(sp);
+  IndexSpec_AcquireWriteLock(sp);
+  return sp;
+}
+
+static bool Compaction_DecrementTrieTermCount(void *update_ctx, const char *term, size_t term_len,
                                               size_t doc_count_decrement) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
@@ -213,16 +297,39 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 }
 
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
-    RS_ASSERT(disk_db && c_index_spec);
-    SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-    RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
-    if (result) {
-        // Open atomically registers with BigModule, so the spec needs a
-        // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
-        c_index_spec->diskRegistered = true;
+static bool SearchDisk_PrepareLogicalOpen(void) {
+  return SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount() + 1);
+}
+
+static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, IndexSpec *spec) {
+  if (result) {
+    // Open atomically registers with BigModule, so the spec needs a
+    // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
+    spec->diskRegistered = true;
+    dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
+    if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
+      disk->metrics.activateTarget(result);
     }
-    return result;
+    return;
+  }
+  if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Failed to restore disk resource state after an index open failure");
+  }
+}
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
+                                               const char *obfuscatedName, DocumentType type,
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec) {
+  RS_ASSERT(disk_db && c_index_spec);
+  if (!SearchDisk_PrepareLogicalOpen()) {
+    return NULL;
+  }
+  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+  RedisSearchDiskIndexSpec *result =
+      disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName),
+                                type, deleteBeforeOpen, &callbacks, c_index_spec);
+  SearchDisk_CompleteLogicalOpen(result, c_index_spec);
+  return result;
 }
 
 ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, uint32_t reqflags,
@@ -249,12 +356,16 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
 }
 
 void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
-    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
-    if (!spec->diskRegistered) {
-        return;
-    }
-    disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
-    spec->diskRegistered = false;
+  RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
+  if (!spec->diskRegistered) {
+    return;
+  }
+  disk->basic.closeIndexOnMainThread(ctx, disk_db, spec->diskSpec);
+  spec->diskRegistered = false;
+  if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Failed to update disk resource state after an index close");
+  }
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
@@ -272,20 +383,19 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
   return disk->basic.loadRdbToTempObject(rdb);
 }
 
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const HiddenString *indexName,
-                                                            const char *obfuscatedName,
-                                                            DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState,
-                                                            IndexSpec *c_index_spec) {
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
+    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
+    DocumentType type, RedisSearchDiskRdbState *rdbState, IndexSpec *c_index_spec) {
   RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
-  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
-  if (result) {
-    // Open atomically registers with BigModule, so the spec needs a
-    // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
-    c_index_spec->diskRegistered = true;
+  if (!SearchDisk_PrepareLogicalOpen()) {
+    disk->basic.freeRdbState(rdbState);
+    return NULL;
   }
+  SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks,
+      c_index_spec);
+  SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   return result;
 }
 
@@ -330,6 +440,25 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
+}
+
+bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk);
+  return disk->index.initializeMissingStorage(ctx, index);
+}
+
+bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                   SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                                   size_t numFields, t_docId docId) {
+  RS_ASSERT(disk && index && batch && (fields || numFields == 0));
+  return disk->index.indexMissingFields(ctx, index, batch, fields, numFields, docId);
+}
+
+QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
+                                             const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                             QueryError *status) {
+  RS_ASSERT(disk && index && sctx && sctx->diskSnapshot);
+  return disk->index.newMissingIterator(index, fieldIndex, sctx->diskSnapshot, status);
 }
 
 bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex) {
@@ -557,7 +686,12 @@ bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
-uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
+CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.readCachedIndexMetrics(disk_db, index);
+}
+
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.collectIndexMetrics(disk_db, index);
 }
@@ -646,46 +780,10 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
   disk->index.closeConsistencyWindow(sp->diskSpec, reopenNumericGate);
 }
 
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
+void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   RS_ASSERT(disk && disk_db);
-
-  // Update the WriteBufferManager with the new budget and get the new budget value
-  size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
-  // Update write buffer size for all existing indexes
-  if (!specDict_g) {
-    return;
+  diskMemoryLimitBytes = memoryLimitBytes;
+  if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
+    RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
   }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
-    }
-  }
-  dictReleaseIterator(iter);
-}
-
-void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
-  RS_ASSERT(disk && disk_db);
-
-  // Store the configured value on the shared context so new DBs pick it up.
-  disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles);
-  // Reapply to every existing index's database.
-  if (!specDict_g) {
-    return;
-  }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      disk->index.updateMaxOpenFiles(sp->diskSpec, maxOpenFiles);
-    }
-  }
-  dictReleaseIterator(iter);
 }

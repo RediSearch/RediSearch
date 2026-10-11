@@ -190,6 +190,9 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
+  // Reducers and implicit loaders have resolved their inputs. Later stages use
+  // the group's output lookup, so the input keys must now remain append-only.
+  RLookup_Seal(lookup);
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 

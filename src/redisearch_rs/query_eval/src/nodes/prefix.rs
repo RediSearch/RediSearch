@@ -141,10 +141,10 @@ pub(crate) fn eval<'index>(
     // `QN_PREFIX` node reaching here is a text-field prefix, whose token is
     // written once when the node is built (or when its query parameter is
     // resolved) and never rewritten afterwards. The one place that mutates a
-    // prefix token in place, `tag_strtolower`, belongs to the tag expansion,
-    // which C dispatches through `Query_EvalTagNode` without ever re-entering
-    // this evaluator. Both the token and the iterator are owned by the query
-    // AST, so the string also outlives the iterator.
+    // prefix token in place, `RSTokenMut::normalize_tag`, belongs to the tag
+    // evaluator, which expands a tag node's prefix children itself without
+    // ever re-entering this evaluator. Both the token and the iterator are
+    // owned by the query AST, so the string also outlives the iterator.
     let iter = unsafe {
         build_union_with_q_str(
             children,
