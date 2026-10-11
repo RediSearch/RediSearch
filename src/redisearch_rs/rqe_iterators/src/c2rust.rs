@@ -369,9 +369,12 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
                 //   rather than manual `size_of` arithmetic, making it immune to alignment
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                // - `as_raw` returns the owning pointer, whose provenance spans the whole
+                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
+                //   header and make the read of `inner` UB.
                 let n = unsafe {
                     RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
-                        NonNull::from_ref(self.as_ref()),
+                        self.as_raw(),
                     )
                     .inner
                     .num_children()
@@ -387,9 +390,12 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
                 //   rather than manual `size_of` arithmetic, making it immune to alignment
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                // - `as_raw` returns the owning pointer, whose provenance spans the whole
+                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
+                //   header and make the read of `inner` UB.
                 let n = unsafe {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
-                        NonNull::from_ref(self.as_ref()),
+                        self.as_raw(),
                     )
                     .inner
                     .num_children_active()
