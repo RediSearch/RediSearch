@@ -14,10 +14,13 @@ import argparse
 import ipaddress
 import os
 import sys
+import time
 from typing import Any
 
 
 INDEX_NAME = "idx:acs"
+INDEX_WAIT_TIMEOUT_SEC = 7_200.0
+INDEX_POLL_INTERVAL_SEC = 5.0
 SCHEMA_FIELDS: list[list[str]] = [
     ["profile_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF"],
     ["post_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF"],
@@ -143,11 +146,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--tls", action="store_true")
     parser.add_argument("--connect-timeout", type=float, default=10.0)
+    parser.add_argument("--index-wait-timeout", type=float, default=INDEX_WAIT_TIMEOUT_SEC)
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     if args.connect_timeout <= 0:
         parser.error("--connect-timeout must be positive")
+    if args.index_wait_timeout <= 0:
+        parser.error("--index-wait-timeout must be positive")
     return args
 
 
@@ -182,6 +188,36 @@ def cluster_is_healthy(cluster_info: Any) -> bool:
     if isinstance(cluster_info, bytes):
         cluster_info = cluster_info.decode()
     return "cluster_state:ok" in str(cluster_info).splitlines()
+
+
+def info_dict(response: Any) -> dict[str, Any]:
+    if isinstance(response, dict):
+        return response
+    values = list(response)
+    return dict(zip(values[::2], values[1::2]))
+
+
+def wait_for_index(client: Any, timeout_sec: float) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_sec
+    while True:
+        info = info_dict(client.execute_command("FT.INFO", INDEX_NAME))
+        if "indexing" not in info:
+            raise RuntimeError(f"{INDEX_NAME} FT.INFO response has no indexing status")
+        indexing = int(info["indexing"])
+        percent_value = info.get("percent_indexed")
+        percent_indexed = float(percent_value) if percent_value is not None else None
+        if indexing == 0 and (percent_indexed is None or percent_indexed >= 1.0):
+            return info
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"{INDEX_NAME} did not finish indexing within {timeout_sec:.0f}s "
+                f"(indexing={indexing}, percent_indexed={percent_indexed})"
+            )
+        print(
+            f"Waiting for {INDEX_NAME}: indexing={indexing} "
+            f"percent_indexed={percent_indexed} num_docs={info.get('num_docs')}"
+        )
+        time.sleep(INDEX_POLL_INTERVAL_SEC)
 
 
 def main() -> int:
@@ -238,8 +274,14 @@ def main() -> int:
         if result != "OK":
             raise RuntimeError(f"FT.CREATE returned an unexpected response: {result!r}")
 
-        print(f"Inspecting {INDEX_NAME}...")
-        client.execute_command("FT.INFO", INDEX_NAME)
+        print(f"Waiting for {INDEX_NAME} to finish indexing...")
+        info = wait_for_index(client, args.index_wait_timeout)
+        indexing_failures = int(info.get("hash_indexing_failures", 0))
+        if indexing_failures:
+            raise RuntimeError(
+                f"{INDEX_NAME} completed with hash_indexing_failures={indexing_failures}"
+            )
+        print(f"{INDEX_NAME} indexed {info.get('num_docs')} documents")
     except (redis.exceptions.RedisError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

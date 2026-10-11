@@ -11,24 +11,27 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'EOF'
-Start a replicated Redis OSS Cluster across three remote hosts.
+Start a replicated Redis OSS Cluster across one to ten remote hosts.
 
 Usage:
-  start-redis-oss-cluster.sh [options] HOST1_IP HOST2_IP HOST3_IP REDIS_VERSION
+  start-redis-oss-cluster.sh [options] HOST_IP... REDIS_VERSION
 
 Arguments:
-  HOST1_IP..HOST3_IP  IPv4 addresses used for SSH and advertised by Redis.
-  REDIS_VERSION       Exact Redis version expected on all hosts (for example: 8.2.1).
+  HOST_IP              One to ten IPv4 addresses used for SSH.
+  REDIS_VERSION        Exact Redis version expected on all hosts (for example: 8.2.1).
 
 Options:
   --ssh-user USER         SSH user (default: current local user)
   --identity-file PATH    SSH private key
+  --cluster-ip IP          Private IPv4 address advertised by Redis; repeat once per
+                           host, in the same order (default: auto-detect on each host)
   --base-port PORT        First Redis port on each host (default: 7000)
   --remote-dir PATH       Remote state/log directory (default: unique path under /tmp)
   --redis-server PATH     Remote redis-server command or path (default: redis-server)
   --redis-cli PATH        Remote redis-cli command or path (default: redis-cli)
   --json-module PATH      Remote absolute path to rejson.so (required)
   --search-module PATH    Remote absolute path to redisearch.so (required)
+  --install               Install the exact Redis 8+ distribution on all hosts
   --shards COUNT          Number of primary shards (default: 20)
   --db-memory-gb GB       Logical primary capacity in GiB (default: 400)
   --startup-timeout SEC   Seconds to wait for startup and cluster health (default: 60)
@@ -39,15 +42,25 @@ Options:
 Example:
   scripts/start-redis-oss-cluster.sh --ssh-user ec2-user \
     --identity-file ~/.ssh/test.pem \
+    --install \
+    10.0.1.10 10.0.2.10 10.0.3.10 10.0.4.10 8.2.1
+
+Without --install, provide existing module paths:
+  scripts/start-redis-oss-cluster.sh --ssh-user ec2-user \
     --json-module /opt/redis/lib/rejson.so \
     --search-module /opt/redis/lib/redisearch.so \
     10.0.1.10 10.0.2.10 10.0.3.10 8.2.1
 
-The three hosts must be able to reach each other at the supplied IPs. Their security
-groups must allow the Redis ports and the corresponding cluster-bus ports (port +
-10000) between the hosts. Keep these ports off the public internet. Logical database
-capacity is divided evenly across primary shards; replicas have the same maxmemory,
-so replication doubles the physical memory capacity required by Redis.
+The hosts must be able to reach each other at the cluster IPs. By default, the script
+detects a private IPv4 address on each host; use --cluster-ip to override it. A dry run
+cannot perform detection and previews the SSH addresses unless --cluster-ip is supplied.
+Security groups must allow the Redis ports and corresponding cluster-bus ports (port +
+10000) between the hosts. The script checks every required path before creating the
+cluster. Keep these ports off the public internet. Logical database capacity is divided
+evenly across primary shards; replicas have the same maxmemory, so replication doubles
+the physical memory capacity required by Redis. With one host, replicas do not protect
+against host failure. --install changes system packages and requires dedicated hosts
+with root or passwordless sudo.
 EOF
 }
 
@@ -72,6 +85,25 @@ is_ipv4() {
   done
 }
 
+is_private_ipv4() {
+  local ip=$1 second_octet
+
+  is_ipv4 "$ip" || return 1
+  case "$ip" in
+    10.* | 192.168.*)
+      return 0
+      ;;
+    172.*)
+      second_octet=${ip#172.}
+      second_octet=${second_octet%%.*}
+      ((10#$second_octet >= 16 && 10#$second_octet <= 31))
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 # ssh joins remote arguments into a shell command, so values passed to the remote
 # shell must be restricted even though they are stored in local Bash arrays.
 is_safe_remote_value() {
@@ -80,12 +112,14 @@ is_safe_remote_value() {
 
 ssh_user=${USER:-}
 identity_file=
+declare -a cluster_hosts=()
 base_port=7000
 remote_dir=
 redis_server=redis-server
 redis_cli=redis-cli
 json_module=
 search_module=
+install_redis=0
 shards=20
 db_memory_gb=400
 startup_timeout=60
@@ -102,6 +136,11 @@ while (($# > 0)); do
     --identity-file)
       (($# >= 2)) || die "--identity-file requires a value"
       identity_file=$2
+      shift 2
+      ;;
+    --cluster-ip)
+      (($# >= 2)) || die "--cluster-ip requires an IPv4 address"
+      cluster_hosts+=("$2")
       shift 2
       ;;
     --base-port)
@@ -133,6 +172,10 @@ while (($# > 0)); do
       (($# >= 2)) || die "--search-module requires a value"
       search_module=$2
       shift 2
+      ;;
+    --install)
+      install_redis=1
+      shift
       ;;
     --shards)
       (($# >= 2)) || die "--shards requires a value"
@@ -174,21 +217,35 @@ while (($# > 0)); do
   esac
 done
 
-(($# == 4)) || {
+(($# >= 2 && $# <= 11)) || {
   usage >&2
   exit 2
 }
 
-host1=$1
-host2=$2
-host3=$3
-redis_version=$4
+redis_version=${!#}
+host_count=$(($# - 1))
+declare -a hosts=("${@:1:host_count}")
 
-is_ipv4 "$host1" || die "HOST1_IP is not a valid IPv4 address: $host1"
-is_ipv4 "$host2" || die "HOST2_IP is not a valid IPv4 address: $host2"
-is_ipv4 "$host3" || die "HOST3_IP is not a valid IPv4 address: $host3"
-[[ "$host1" != "$host2" && "$host1" != "$host3" && "$host2" != "$host3" ]] ||
-  die "the three host IPs must be different"
+if ((${#cluster_hosts[@]} != 0 && ${#cluster_hosts[@]} != host_count)); then
+  die "--cluster-ip must be omitted or repeated exactly once per host"
+fi
+
+for ((i = 0; i < host_count; i++)); do
+  is_ipv4 "${hosts[i]}" || die "host IP $((i + 1)) is invalid: ${hosts[i]}"
+  for ((j = 0; j < i; j++)); do
+    [[ "${hosts[i]}" != "${hosts[j]}" ]] || die "host IPs must be unique: ${hosts[i]}"
+  done
+done
+if ((${#cluster_hosts[@]} > 0)); then
+  for ((i = 0; i < host_count; i++)); do
+    is_ipv4 "${cluster_hosts[i]}" ||
+      die "cluster IP $((i + 1)) is invalid: ${cluster_hosts[i]}"
+    for ((j = 0; j < i; j++)); do
+      [[ "${cluster_hosts[i]}" != "${cluster_hosts[j]}" ]] ||
+        die "cluster IPs must be unique: ${cluster_hosts[i]}"
+    done
+  done
+fi
 if ! is_uint "$shards" || ((shards < 3)); then
   die "--shards must be an integer of at least 3"
 fi
@@ -201,32 +258,63 @@ fi
 if ! is_uint "$db_memory_gb" || ((db_memory_gb < 1)); then
   die "--db-memory-gb must be a positive integer"
 fi
-((db_memory_gb % shards == 0)) ||
-  die "--db-memory-gb must be evenly divisible by --shards"
+logical_memory_mb=$((db_memory_gb * 1024))
+((logical_memory_mb % shards == 0)) ||
+  die "--db-memory-gb must be evenly divisible by --shards at MiB precision"
 [[ "$ssh_user" =~ ^[a-zA-Z0-9_.-]+$ ]] || die "invalid SSH user: $ssh_user"
 is_safe_remote_value "$redis_server" || die "unsafe --redis-server value: $redis_server"
 is_safe_remote_value "$redis_cli" || die "unsafe --redis-cli value: $redis_cli"
-[[ -n "$json_module" ]] || die "--json-module is required"
-[[ -n "$search_module" ]] || die "--search-module is required"
-[[ "$json_module" == /* ]] || die "--json-module must be an absolute remote path"
-[[ "$search_module" == /* ]] || die "--search-module must be an absolute remote path"
-is_safe_remote_value "$json_module" || die "unsafe --json-module value: $json_module"
-is_safe_remote_value "$search_module" || die "unsafe --search-module value: $search_module"
 [[ "$redis_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?([.-][a-zA-Z0-9]+)*$ ]] ||
   die "REDIS_VERSION is invalid: $redis_version"
 
-host1_primaries=$(((shards + 2) / 3))
-host2_primaries=$(((shards + 1) / 3))
-host3_primaries=$((shards / 3))
-host1_nodes=$((host1_primaries + host3_primaries))
-host2_nodes=$((host2_primaries + host1_primaries))
-host3_nodes=$((host3_primaries + host2_primaries))
+if ((install_redis)); then
+  redis_major=${redis_version%%.*}
+  ((redis_major >= 8)) || die "--install supports Redis 8+, whose modules share the Redis version"
+  install_root="/opt/redis/$redis_version"
+  redis_server="$install_root/bin/redis-server"
+  redis_cli="$install_root/bin/redis-cli"
+  json_module="$install_root/lib/rejson.so"
+  search_module="$install_root/lib/redisearch.so"
+else
+  [[ -n "$json_module" ]] || die "--json-module is required without --install"
+  [[ -n "$search_module" ]] || die "--search-module is required without --install"
+fi
+[[ "$json_module" == /* ]] || die "--json-module must be an absolute remote path"
+[[ "$search_module" == /* ]] || die "--search-module must be an absolute remote path"
+is_safe_remote_value "$redis_server" || die "unsafe resolved redis-server path: $redis_server"
+is_safe_remote_value "$redis_cli" || die "unsafe resolved redis-cli path: $redis_cli"
+is_safe_remote_value "$json_module" || die "unsafe --json-module value: $json_module"
+is_safe_remote_value "$search_module" || die "unsafe --search-module value: $search_module"
+
 total_nodes=$((shards * 2))
-memory_per_node_gb=$((db_memory_gb / shards))
-physical_memory_gb=$((memory_per_node_gb * total_nodes))
-max_nodes_per_host=$host1_nodes
-((host2_nodes > max_nodes_per_host)) && max_nodes_per_host=$host2_nodes
-((host3_nodes > max_nodes_per_host)) && max_nodes_per_host=$host3_nodes
+memory_per_node_mb=$((logical_memory_mb / shards))
+physical_memory_mb=$((memory_per_node_mb * total_nodes))
+
+declare -a primary_counts=()
+declare -a replica_counts=()
+declare -a node_counts=()
+declare -a replica_next_ports=()
+for ((i = 0; i < host_count; i++)); do
+  primary_counts[i]=0
+  replica_counts[i]=0
+done
+for ((i = 0; i < shards; i++)); do
+  host_index=$((i % host_count))
+  primary_counts[host_index]=$((primary_counts[host_index] + 1))
+done
+replica_offset=$((host_count / 2))
+((replica_offset > 0)) || replica_offset=1
+for ((i = 0; i < host_count; i++)); do
+  replica_host=$(((i + replica_offset) % host_count))
+  replica_counts[replica_host]=$((replica_counts[replica_host] + primary_counts[i]))
+done
+
+max_nodes_per_host=0
+for ((i = 0; i < host_count; i++)); do
+  node_counts[i]=$((primary_counts[i] + replica_counts[i]))
+  replica_next_ports[i]=$((base_port + primary_counts[i]))
+  ((node_counts[i] <= max_nodes_per_host)) || max_nodes_per_host=${node_counts[i]}
+done
 highest_port=$((base_port + max_nodes_per_host - 1))
 ((highest_port + 10000 <= 65535)) ||
   die "shard and cluster-bus ports exceed 65535; choose a lower --base-port"
@@ -241,40 +329,81 @@ if [[ -n "$identity_file" && ! -f "$identity_file" ]]; then
   die "identity file does not exist: $identity_file"
 fi
 
+declare -a ssh_options=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+if [[ -n "$identity_file" ]]; then
+  ssh_options+=(-i "$identity_file")
+fi
+
+declare -a destinations=()
+for ((i = 0; i < host_count; i++)); do
+  destinations+=("$ssh_user@${hosts[i]}")
+done
+
+if ((${#cluster_hosts[@]} == 0)); then
+  if ((dry_run)); then
+    cluster_hosts=("${hosts[@]}")
+  else
+    command -v ssh >/dev/null || die "ssh is not installed locally"
+    echo "Detecting private cluster IPs..."
+    for ((i = 0; i < host_count; i++)); do
+      remote_addresses=$(ssh "${ssh_options[@]}" "${destinations[i]}" hostname -I)
+      cluster_ip=
+      for candidate in $remote_addresses; do
+        if is_private_ipv4 "$candidate"; then
+          cluster_ip=$candidate
+          break
+        fi
+      done
+      [[ -n "$cluster_ip" ]] ||
+        die "could not detect a private IPv4 address on ${hosts[i]}; supply --cluster-ip"
+      cluster_hosts+=("$cluster_ip")
+      echo "  ${hosts[i]} -> $cluster_ip"
+    done
+  fi
+fi
+
+for ((i = 0; i < host_count; i++)); do
+  for ((j = 0; j < i; j++)); do
+    [[ "${cluster_hosts[i]}" != "${cluster_hosts[j]}" ]] ||
+      die "cluster IPs must be unique: ${cluster_hosts[i]}"
+  done
+done
+
 declare -a primary_endpoints=()
 declare -a replica_endpoints=()
-for ((i = 0; i < host1_primaries; i++)); do
-  primary_endpoints+=("$host1:$((base_port + i))")
+for ((host_index = 0; host_index < host_count; host_index++)); do
+  for ((i = 0; i < primary_counts[host_index]; i++)); do
+    primary_endpoints+=("${cluster_hosts[host_index]}:$((base_port + i))")
+  done
 done
-for ((i = 0; i < host2_primaries; i++)); do
-  primary_endpoints+=("$host2:$((base_port + i))")
-done
-for ((i = 0; i < host3_primaries; i++)); do
-  primary_endpoints+=("$host3:$((base_port + i))")
-done
-for ((i = 0; i < host1_primaries; i++)); do
-  replica_endpoints+=("$host2:$((base_port + host2_primaries + i))")
-done
-for ((i = 0; i < host2_primaries; i++)); do
-  replica_endpoints+=("$host3:$((base_port + host3_primaries + i))")
-done
-for ((i = 0; i < host3_primaries; i++)); do
-  replica_endpoints+=("$host1:$((base_port + host1_primaries + i))")
+for ((primary_host = 0; primary_host < host_count; primary_host++)); do
+  replica_host=$(((primary_host + replica_offset) % host_count))
+  for ((i = 0; i < primary_counts[primary_host]; i++)); do
+    replica_endpoints+=("${cluster_hosts[replica_host]}:${replica_next_ports[replica_host]}")
+    replica_next_ports[replica_host]=$((replica_next_ports[replica_host] + 1))
+  done
 done
 declare -a endpoints=("${primary_endpoints[@]}" "${replica_endpoints[@]}")
 
 echo "Redis Cluster allocation ($shards primary shards, $shards replicas, $total_nodes nodes):"
+install_label=no
+((install_redis == 0)) || install_label=yes
+echo "  Install Redis: $install_label"
 echo "  Logical database memory: ${db_memory_gb} GiB"
-echo "  Maxmemory per primary/replica: ${memory_per_node_gb} GiB"
-echo "  Physical Redis capacity including replicas: ${physical_memory_gb} GiB"
+echo "  Maxmemory per primary/replica: ${memory_per_node_mb} MiB"
+echo "  Physical Redis capacity including replicas: $((physical_memory_mb / 1024)) GiB"
 echo "  Redis version: $redis_version"
 echo "  RedisJSON module: $json_module"
 echo "  RediSearch module: $search_module"
-echo "  $host1: $host1_nodes nodes, ports $base_port-$((base_port + host1_nodes - 1))"
-echo "  $host2: $host2_nodes nodes, ports $base_port-$((base_port + host2_nodes - 1))"
-echo "  $host3: $host3_nodes nodes, ports $base_port-$((base_port + host3_nodes - 1))"
-echo "  Planned primaries: $host1_primaries on $host1, $host2_primaries on $host2," \
-  "$host3_primaries on $host3"
+for ((i = 0; i < host_count; i++)); do
+  if ((node_counts[i] == 0)); then
+    port_range="none"
+  else
+    port_range="$base_port-$((base_port + node_counts[i] - 1))"
+  fi
+  echo "  ${hosts[i]} -> ${cluster_hosts[i]}: ${node_counts[i]} nodes" \
+    "(${primary_counts[i]} primaries, ${replica_counts[i]} replicas), ports $port_range"
+done
 echo "  Remote state: $remote_dir"
 echo "  Cluster-bus ports: $((base_port + 10000))-$((highest_port + 10000))"
 echo >&2
@@ -290,15 +419,6 @@ if ((dry_run)); then
 fi
 
 command -v ssh >/dev/null || die "ssh is not installed locally"
-
-declare -a ssh_options=(-o BatchMode=yes -o ConnectTimeout=10)
-if [[ -n "$identity_file" ]]; then
-  ssh_options+=(-i "$identity_file")
-fi
-
-host1_destination="$ssh_user@$host1"
-host2_destination="$ssh_user@$host2"
-host3_destination="$ssh_user@$host3"
 declare -a started_destinations=()
 
 cleanup() {
@@ -328,13 +448,190 @@ REMOTE_CLEANUP
 }
 trap cleanup ERR INT TERM
 
+install_host() {
+  local destination=$1
+
+  echo "Installing Redis $redis_version on $destination"
+  ssh "${ssh_options[@]}" "$destination" bash -s -- \
+    "$redis_version" "$install_root" <<'REMOTE_INSTALL'
+set -euo pipefail
+redis_version=$1
+install_root=$2
+server_target="$install_root/bin/redis-server"
+cli_target="$install_root/bin/redis-cli"
+json_target="$install_root/lib/rejson.so"
+search_target="$install_root/lib/redisearch.so"
+
+installed_version() {
+  "$1" --version 2>/dev/null | sed -n 's/.* v=\([^ ]*\).*/\1/p'
+}
+
+if [[ -x "$server_target" && -x "$cli_target" && -x "$json_target" &&
+  -x "$search_target" && "$(installed_version "$server_target")" == "$redis_version" ]]; then
+  echo "Redis $redis_version is already installed in $install_root"
+  exit 0
+fi
+
+if ((EUID == 0)); then
+  elevate=()
+else
+  command -v sudo >/dev/null || {
+    echo "--install requires root or passwordless sudo" >&2
+    exit 1
+  }
+  sudo -n true || {
+    echo "--install requires passwordless sudo on remote hosts" >&2
+    exit 1
+  }
+  elevate=(sudo -n)
+fi
+
+install_with_apt() {
+  "${elevate[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
+  "${elevate[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ca-certificates curl gpg
+
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  codename=${VERSION_CODENAME:-}
+  [[ -n "$codename" ]] || {
+    echo "could not determine the Debian/Ubuntu codename" >&2
+    exit 1
+  }
+
+  key_file=$(mktemp)
+  curl -fsSL https://packages.redis.io/gpg -o "$key_file"
+  "${elevate[@]}" gpg --batch --yes --dearmor \
+    -o /usr/share/keyrings/redis-archive-keyring.gpg "$key_file"
+  rm -f "$key_file"
+  "${elevate[@]}" chmod 0644 /usr/share/keyrings/redis-archive-keyring.gpg
+  printf '%s\n' \
+    "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $codename main" |
+    "${elevate[@]}" tee /etc/apt/sources.list.d/redis.list >/dev/null
+  "${elevate[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
+
+  package_version=$(apt-cache madison redis | awk -v requested="$redis_version" '
+    {
+      candidate = $3;
+      sub(/^[0-9]+:/, "", candidate);
+      if (package_version == "" && index(candidate, requested "-") == 1) {
+        package_version = $3;
+      }
+    }
+    END { print package_version }')
+  [[ -n "$package_version" ]] || {
+    echo "Redis $redis_version is not available from packages.redis.io for $codename" >&2
+    exit 1
+  }
+  "${elevate[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
+    "redis=$package_version" \
+    "redis-server=$package_version" \
+    "redis-sentinel=$package_version" \
+    "redis-tools=$package_version"
+}
+
+install_with_rpm() {
+  package_manager=$1
+  "${elevate[@]}" "$package_manager" install -y ca-certificates curl
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  case "${ID:-}" in
+    rocky | almalinux | rhel | centos)
+      rpm_major=${VERSION_ID%%.*}
+      [[ "$rpm_major" == 8 || "$rpm_major" == 9 ]] || {
+        echo "unsupported RPM distribution version: ${ID:-} ${VERSION_ID:-}" >&2
+        exit 1
+      }
+      ;;
+    amzn)
+      # Amazon Linux 2023 is RPM-compatible with the Rocky Linux 9 package.
+      [[ "${VERSION_ID:-}" == 2023 ]] || {
+        echo "--install supports Amazon Linux 2023, not ${VERSION_ID:-unknown}" >&2
+        exit 1
+      }
+      rpm_major=9
+      ;;
+    *)
+      echo "unsupported RPM distribution: ${ID:-unknown}" >&2
+      exit 1
+      ;;
+  esac
+
+  repo_file=$(mktemp)
+  printf '%s\n' \
+    '[Redis]' \
+    'name=Redis' \
+    "baseurl=https://packages.redis.io/rpm/rockylinux$rpm_major" \
+    'enabled=1' \
+    'gpgcheck=1' >"$repo_file"
+  "${elevate[@]}" install -m 0644 "$repo_file" /etc/yum.repos.d/redis.repo
+  rm -f "$repo_file"
+  key_file=$(mktemp)
+  curl -fsSL https://packages.redis.io/gpg -o "$key_file"
+  "${elevate[@]}" rpm --import "$key_file"
+  rm -f "$key_file"
+  "${elevate[@]}" "$package_manager" makecache -y
+
+  package_version=$("$package_manager" --showduplicates list redis 2>/dev/null |
+    awk -v requested="$redis_version" '$1 ~ /^redis\./ {
+      candidate = $2;
+      sub(/^[0-9]+:/, "", candidate);
+      if (index(candidate, requested "-") == 1) version = $2;
+    } END { print version }')
+  [[ -n "$package_version" ]] || {
+    echo "Redis $redis_version is not available from the Redis RPM repository" >&2
+    exit 1
+  }
+  "${elevate[@]}" "$package_manager" install -y "redis-$package_version"
+}
+
+if command -v apt-get >/dev/null; then
+  install_with_apt
+elif command -v dnf >/dev/null; then
+  install_with_rpm dnf
+elif command -v yum >/dev/null; then
+  install_with_rpm yum
+else
+  echo "--install supports apt, dnf, or yum hosts" >&2
+  exit 1
+fi
+
+if command -v systemctl >/dev/null; then
+  "${elevate[@]}" systemctl stop redis-server.service redis.service 2>/dev/null || true
+fi
+
+server_source=$(command -v redis-server)
+cli_source=$(command -v redis-cli)
+json_source=$(find /usr/lib /usr/local/lib -type f -name rejson.so \
+  ! -path "$install_root/*" -print -quit 2>/dev/null || true)
+search_source=$(find /usr/lib /usr/local/lib -type f -name redisearch.so \
+  ! -path "$install_root/*" -print -quit 2>/dev/null || true)
+[[ -n "$json_source" && -n "$search_source" ]] || {
+  echo "Redis $redis_version packages did not provide rejson.so and redisearch.so" >&2
+  exit 1
+}
+
+"${elevate[@]}" install -d -m 0755 "$install_root/bin" "$install_root/lib"
+"${elevate[@]}" install -m 0755 "$server_source" "$server_target"
+"${elevate[@]}" install -m 0755 "$cli_source" "$cli_target"
+"${elevate[@]}" install -m 0755 "$json_source" "$json_target"
+"${elevate[@]}" install -m 0755 "$search_source" "$search_target"
+
+[[ "$(installed_version "$server_target")" == "$redis_version" ]] || {
+  echo "installed redis-server does not report version $redis_version" >&2
+  exit 1
+}
+echo "Installed Redis $redis_version with Search and JSON in $install_root"
+REMOTE_INSTALL
+}
+
 preflight_host() {
   local destination=$1 count=$2
 
   echo "Preflight: $destination"
   ssh "${ssh_options[@]}" "$destination" bash -s -- \
     "$base_port" "$count" "$remote_dir" "$redis_server" "$redis_cli" "$redis_version" \
-    "$json_module" "$search_module" "$memory_per_node_gb" <<'REMOTE_PREFLIGHT'
+    "$json_module" "$search_module" "$memory_per_node_mb" <<'REMOTE_PREFLIGHT'
 set -euo pipefail
 base_port=$1
 count=$2
@@ -344,7 +641,7 @@ redis_cli=$5
 expected_redis_version=$6
 json_module=$7
 search_module=$8
-memory_per_node_gb=$9
+memory_per_node_mb=$9
 
 resolve_command() {
   if [[ "$1" == */* ]]; then
@@ -356,6 +653,7 @@ resolve_command() {
 
 resolve_command "$redis_server"
 resolve_command "$redis_cli"
+resolve_command timeout
 [[ -r "$json_module" ]] || {
   echo "RedisJSON module is not readable: $json_module" >&2
   exit 1
@@ -378,9 +676,9 @@ installed_redis_version=$(sed -n 's/.* v=\([^ ]*\).*/\1/p' <<<"$version_output")
 
 if [[ -r /proc/meminfo ]]; then
   total_memory_kib=$(awk '$1 == "MemTotal:" { print $2 }' /proc/meminfo)
-  required_memory_kib=$((count * memory_per_node_gb * 1024 * 1024))
+  required_memory_kib=$((count * memory_per_node_mb * 1024))
   ((total_memory_kib >= required_memory_kib)) || {
-    echo "insufficient RAM: $count nodes at ${memory_per_node_gb} GiB each require at least" \
+    echo "insufficient RAM: $count nodes at ${memory_per_node_mb} MiB each require at least" \
       "$((required_memory_kib / 1024 / 1024)) GiB, host has $((total_memory_kib / 1024 / 1024)) GiB" >&2
     exit 1
   }
@@ -413,7 +711,7 @@ start_host() {
   echo "Starting $count shards on $destination"
   ssh "${ssh_options[@]}" "$destination" bash -s -- \
     "$announce_ip" "$base_port" "$count" "$remote_dir" "$redis_server" "$redis_cli" \
-    "$startup_timeout" "$json_module" "$search_module" "$memory_per_node_gb" <<'REMOTE_START'
+    "$startup_timeout" "$json_module" "$search_module" "$memory_per_node_mb" <<'REMOTE_START'
 set -euo pipefail
 announce_ip=$1
 base_port=$2
@@ -424,7 +722,7 @@ redis_cli=$6
 startup_timeout=$7
 json_module=$8
 search_module=$9
-memory_per_node_gb=${10}
+memory_per_node_mb=${10}
 
 mkdir -p -m 700 "$remote_dir"
 for ((i = 0; i < count; i++)); do
@@ -439,7 +737,7 @@ for ((i = 0; i < count; i++)); do
     --dir "$node_dir" \
     --dbfilename dump.rdb \
     --appendonly no \
-    --maxmemory "${memory_per_node_gb}gb" \
+    --maxmemory "${memory_per_node_mb}mb" \
     --maxmemory-policy noeviction \
     --cluster-enabled yes \
     --cluster-config-file nodes.conf \
@@ -478,7 +776,7 @@ for ((i = 0; i < count; i++)); do
   fi
   configured_maxmemory=$("$redis_cli" -h 127.0.0.1 -p "$port" --raw CONFIG GET maxmemory |
     tail -1)
-  expected_maxmemory=$((memory_per_node_gb * 1024 * 1024 * 1024))
+  expected_maxmemory=$((memory_per_node_mb * 1024 * 1024))
   if [[ "$configured_maxmemory" != "$expected_maxmemory" ]]; then
     echo "shard on port $port has maxmemory $configured_maxmemory, expected $expected_maxmemory" >&2
     exit 1
@@ -487,19 +785,67 @@ done
 REMOTE_START
 }
 
-preflight_host "$host1_destination" "$host1_nodes"
-preflight_host "$host2_destination" "$host2_nodes"
-preflight_host "$host3_destination" "$host3_nodes"
+check_cluster_ports() {
+  local destination=$1
 
-started_destinations+=("$host1_destination")
-start_host "$host1_destination" "$host1" "$host1_nodes"
-started_destinations+=("$host2_destination")
-start_host "$host2_destination" "$host2" "$host2_nodes"
-started_destinations+=("$host3_destination")
-start_host "$host3_destination" "$host3" "$host3_nodes"
+  echo "Checking Redis and cluster-bus ports from $destination"
+  ssh "${ssh_options[@]}" "$destination" bash -s -- \
+    "$redis_cli" "${endpoints[@]}" <<'REMOTE_CHECK_PORTS'
+set -euo pipefail
+redis_cli=$1
+shift
+endpoints=("$@")
+declare -a check_pids=()
+declare -a check_labels=()
+
+for endpoint in "${endpoints[@]}"; do
+  host=${endpoint%:*}
+  port=${endpoint##*:}
+  bus_port=$((port + 10000))
+
+  (timeout 3 "$redis_cli" -h "$host" -p "$port" --raw PING 2>/dev/null |
+    grep -qx PONG) &
+  check_pids+=("$!")
+  check_labels+=("Redis port $host:$port")
+
+  timeout 3 bash -c ': </dev/tcp/$1/$2' _ "$host" "$bus_port" 2>/dev/null &
+  check_pids+=("$!")
+  check_labels+=("cluster-bus port $host:$bus_port")
+done
+
+failed=0
+for ((i = 0; i < ${#check_pids[@]}; i++)); do
+  if ! wait "${check_pids[i]}"; then
+    echo "unreachable ${check_labels[i]}" >&2
+    failed=1
+  fi
+done
+((failed == 0))
+REMOTE_CHECK_PORTS
+}
+
+if ((install_redis)); then
+  for destination in "${destinations[@]}"; do
+    install_host "$destination"
+  done
+fi
+
+for ((i = 0; i < host_count; i++)); do
+  preflight_host "${destinations[i]}" "${node_counts[i]}"
+done
+
+for ((i = 0; i < host_count; i++)); do
+  ((node_counts[i] > 0)) || continue
+  started_destinations+=("${destinations[i]}")
+  start_host "${destinations[i]}" "${cluster_hosts[i]}" "${node_counts[i]}"
+done
+
+for destination in "${started_destinations[@]}"; do
+  check_cluster_ports "$destination"
+done
 
 echo "Creating cluster and assigning all 16384 slots..."
-ssh "${ssh_options[@]}" "$host1_destination" bash -s -- \
+ssh "${ssh_options[@]}" "${destinations[0]}" bash -s -- \
   "$redis_cli" "${endpoints[@]}" <<'REMOTE_CREATE'
 set -euo pipefail
 redis_cli=$1
@@ -508,14 +854,16 @@ shift
 REMOTE_CREATE
 
 echo "Waiting for cluster health..."
-ssh "${ssh_options[@]}" "$host1_destination" bash -s -- \
-  "$redis_cli" "$shards" "$total_nodes" "$startup_timeout" "${endpoints[@]}" <<'REMOTE_VERIFY'
+ssh "${ssh_options[@]}" "${destinations[0]}" bash -s -- \
+  "$redis_cli" "$shards" "$total_nodes" "$host_count" "$startup_timeout" \
+  "${endpoints[@]}" <<'REMOTE_VERIFY'
 set -euo pipefail
 redis_cli=$1
 expected_shards=$2
 expected_nodes=$3
-startup_timeout=$4
-shift 4
+expected_hosts=$4
+startup_timeout=$5
+shift 5
 endpoints=("$@")
 first_host=${endpoints[0]%:*}
 first_port=${endpoints[0]##*:}
@@ -542,7 +890,7 @@ while ((SECONDS < deadline)); do
   if ((all_ping)) && [[ "$state" == ok && "$assigned" == 16384 && "$slots_ok" == 16384 &&
     "$known_nodes" == "$expected_nodes" ]]; then
     nodes=$("$redis_cli" -h "$first_host" -p "$first_port" --raw CLUSTER NODES | tr -d '\r')
-    if awk -v expected="$expected_shards" '
+    if awk -v expected="$expected_shards" -v expected_hosts="$expected_hosts" '
       function node_ip(address, bus, parts) {
         split(address, bus, "@");
         split(bus[1], parts, ":");
@@ -563,7 +911,8 @@ while ((SECONDS < deadline)); do
         if (master_count != expected || replica_count != expected) exit 1;
         for (replica in replica_master) {
           master = replica_master[replica];
-          if (!(master in masters) || ips[replica] == ips[master]) exit 1;
+          if (!(master in masters)) exit 1;
+          if (expected_hosts > 1 && ips[replica] == ips[master]) exit 1;
           replicas_per_master[master]++;
         }
         for (master in masters) {
