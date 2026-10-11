@@ -62,14 +62,13 @@ impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
         // initialised, uniquely owned). `&raw mut` forms a field pointer to the
         // `result` slot without creating a reference.
         let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `raw`, so it is
+        // non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `result_slot` points at an initialised `RSIndexResult<'index>`
         // and is unaliased; `into_suspended_in_place` is a safe widening
         // conversion with no further precondition.
-        unsafe {
-            <index_result::RSIndexResult<'index>>::into_suspended_in_place(
-                NonNull::new(result_slot).expect("`result_slot` must not be null"),
-            )
-        };
+        unsafe { <index_result::RSIndexResult<'index>>::into_suspended_in_place(result_slot) };
         // SAFETY: `Infinite<'index>` and `InfiniteSuspended<'index>` are
         // layout-identical (const proof above); the allocation is reused, so the
         // box address is preserved and the field is now the suspended form.
@@ -97,6 +96,9 @@ impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
         // SAFETY: `raw` came from `Box::into_raw`; `&raw mut` forms a field
         // pointer to the `result` slot without creating a reference.
         let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `raw`, so it is
+        // non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `result_slot` points at an initialised
         // `SuspendedIndexResult<'query>` and is unaliased. `into_active`'s
         // preconditions hold: this mock only ever stores a virtual result over
@@ -104,9 +106,7 @@ impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
         // pointers to re-validate; any borrowed query-pipeline data is covered by
         // the `'query: 'a` bound.
         unsafe {
-            <index_result::SuspendedIndexResult<'query>>::into_active_in_place::<'a>(
-                NonNull::new(result_slot).expect("`result_slot` must not be null"),
-            )
+            <index_result::SuspendedIndexResult<'query>>::into_active_in_place::<'a>(result_slot)
         };
         // SAFETY: layout-identical (const proof above); the allocation is reused,
         // so the box address is preserved and the field is now active for `'a`.

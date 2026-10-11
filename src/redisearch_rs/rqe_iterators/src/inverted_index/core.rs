@@ -664,15 +664,14 @@ where
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // provenance over the whole allocation intact for the reborrow below.
         let result_slot = &raw mut self.result;
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `self`, so it
+        // is non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `into_active_in_place`'s preconditions for `'a` hold — the
         // caller's read lock (witnessed by `guard`) plus the `refresh_pointers`
         // call above ensure every index-backed pointer inside `result` is
         // dereferenceable for `'a`; `result_slot` is initialized and unaliased.
-        unsafe {
-            RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(
-                NonNull::new(result_slot).expect("`result_slot` must not be null"),
-            )
-        };
+        unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
         // SAFETY: `result` is now the active form; the remaining `Rf`-dependent
         // fields (`reader`, the `fn` pointers) are layout-identical across modes
         // by invariant 1 on `RawInvIndIterator` (const proof above) given
@@ -742,17 +741,16 @@ where
         // pointer without creating a reference, leaving provenance over the
         // whole allocation intact for the cast below.
         let result_slot = unsafe { &raw mut (*active).result };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `active`, so it
+        // is non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `result_slot` points at an initialized `RSIndexResult<'index>`
         // and is unaliased. Suspending only loosens validity, so there is no
         // further precondition. Converting the `Rf`-carrying `result` field
         // through the canonical in-place conversion — rather than folding it
         // into the blanket struct reinterpretation below — keeps the
         // borrowed-data transition explicit and auditable.
-        unsafe {
-            RawIndexResult::<Active<'index>>::into_suspended_in_place(
-                NonNull::new(result_slot).expect("`result_slot` must not be null"),
-            )
-        };
+        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
 
         // SAFETY: `result` is now the suspended form; the only other `Rf`-dependent
         // field, `reader`, is reinterpreted `R -> R::Suspended` — sound by
