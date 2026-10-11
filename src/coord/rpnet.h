@@ -37,6 +37,7 @@ typedef struct {
     MRReply *root;  // Root reply. We need to free this when done with the rows
     MRReply *rows;  // Array containing reply rows for quick access
     MRReply *meta;  // Metadata for the current reply, if any (RESP3)
+    arrayof(const RLookupKey *) schemaKeys;  // Owned mapping for this reply only
   } current;
   // Lookup - the rows are written in here
   RLookup *lookup;
@@ -101,6 +102,11 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
+
+#ifdef ENABLE_ASSERT
+// Exercises the decoder's validation and mapping with synthetic shard chunks.
+bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns);
+#endif
 
 // Get the next reply from the channel.
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies

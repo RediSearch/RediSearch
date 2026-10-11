@@ -716,6 +716,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
     do {
       MRReply_Free(rpnet->current.root);
+      RPNet_resetCurrent(rpnet);
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
     rpnet->breakdown.waitTime = waitTime;
     rpnet->breakdown.convertTime = convertTime;

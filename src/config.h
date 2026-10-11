@@ -99,6 +99,8 @@ typedef struct {
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;
+  // Snapshot enablement before worker dispatch; internal opt-in is parsed separately.
+  bool internalRespSchemaEnabled;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
