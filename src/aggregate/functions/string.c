@@ -143,9 +143,10 @@ int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
       RSValue_MakeReference(result, v);
       break;
     case RSValueType_RedisString: {
+      // Copied, not borrowed: the result can outlive the row that owns `v`, as a group key does.
       size_t sz;
       const char *str = RSValue_StringPtrLen(v, &sz);
-      RSValue_SetConstString(result, str, sz);
+      RSValue_SetString(result, rm_strndup(str, sz), sz);
       break;
     }
     case RSValueType_Number: {
