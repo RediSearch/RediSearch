@@ -1210,15 +1210,7 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
 // caller still owns both.
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
-  const bool runInThread = RunInThread(ctx);
-  if (sctx->spec->diskSpec &&
-      (!runInThread || (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING))) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                        "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
-                        "is not supported in Redis Flex");
-    return REDISMODULE_ERR;
-  }
-  if (runInThread) {
+  if (RunInThread(ctx)) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
@@ -1347,6 +1339,11 @@ static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridReques
 
 }
 
+static bool canExecuteDiskHybridQuery(RedisModuleCtx *ctx) {
+  return RunInThread(ctx) &&
+         !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING);
+}
+
 /**
  * Main command handler for FT.HYBRID command.
  *
@@ -1465,6 +1462,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // be read afterwards.
   const unsigned int dialectVersion = hybridRequest->base.reqConfig.dialectVersion;
   IndexSpec *spec = sctx->spec;
+
+  if (sctx->spec->diskSpec && !canExecuteDiskHybridQuery(ctx)) {
+    QueryError_SetError(&status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                        "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
+                        "is not supported in Redis Flex");
+    return CleanupAndReplyStatus(ctx, hybridRequest, cmd.hybridParams, &status, internal);
+  }
 
   if (HybridRequest_BuildPipelineAndExecute(hybridRequest, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
