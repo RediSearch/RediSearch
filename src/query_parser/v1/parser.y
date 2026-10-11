@@ -460,11 +460,13 @@ modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
     char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
+    C.len = unescapen((char*)C.s, C.len);
     s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+    C.len = unescapen((char*)C.s, C.len);
     char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
