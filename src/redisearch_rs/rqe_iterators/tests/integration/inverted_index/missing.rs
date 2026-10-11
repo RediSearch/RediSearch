@@ -93,7 +93,6 @@ mod not_miri {
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
     use inverted_index::opaque::OpaqueEncoding;
     use rqe_iterators::RQEValidateStatus;
-    use std::ffi::CStr;
 
     struct MissingRevalidateTest {
         test: RevalidateTest,
@@ -266,12 +265,7 @@ mod not_miri {
         let test = MissingRevalidateTest::new(10);
         let it = test.create_iterator();
 
-        let (field_name, field_name_len) = it.field_name();
-        // SAFETY: `field_name()` returns a valid pointer to the field name stored in the live spec.
-        let field_name = unsafe { CStr::from_ptr(field_name.as_ptr()) };
-
-        assert_eq!(field_name.to_bytes().len(), field_name_len);
-        assert_eq!(field_name.to_bytes(), b"text_field");
+        assert_eq!(it.field_name(), c"text_field");
     }
 
     mod via_resume {
