@@ -156,6 +156,49 @@ class ScenarioTests(unittest.TestCase):
                 scenario.ReplayBuckets(writes=[("HSET", b"key", b"field", b"value")])
             )
 
+    def test_trace_rejects_incomplete_artifact(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "monitor trace is incomplete"):
+            scenario.validate_trace_buckets(
+                scenario.ReplayBuckets(
+                    writes=[("HSET", b"key", b"field", b"value")],
+                    ft=[("FT.SEARCH", "idx", "*")],
+                    reads=[("HGETALL", b"key")],
+                )
+            )
+
+    def test_timeout_clamp_skips_params_payload(self) -> None:
+        command = (
+            "FT.SEARCH",
+            "idx",
+            "@score:[$TIMEOUT +inf]",
+            "PARAMS",
+            "2",
+            "TIMEOUT",
+            "1",
+            "TIMEOUT",
+            "10",
+            "DIALECT",
+            "2",
+        )
+        adjusted, changed = scenario.clamp_inline_timeout(command, 2_000)
+        self.assertTrue(changed)
+        self.assertEqual(adjusted[5:7], ("TIMEOUT", "1"))
+        self.assertEqual(adjusted[7:9], ("TIMEOUT", "2000"))
+
+    def test_params_key_named_timeout_is_not_an_inline_timeout(self) -> None:
+        command = (
+            "FT.SEARCH",
+            "idx",
+            "@score:[$TIMEOUT +inf]",
+            "PARAMS",
+            "2",
+            "TIMEOUT",
+            "1",
+            "DIALECT",
+            "2",
+        )
+        self.assertEqual(scenario.clamp_inline_timeout(command, 2_000), (command, False))
+
     def test_non_timeout_ft_error_fails(self) -> None:
         args = SimpleNamespace(ft_timeout_rate_budget=1.0, min_replay_completion_ratio=1.0)
         buckets = scenario.ReplayBuckets(
@@ -243,6 +286,63 @@ class ScenarioTests(unittest.TestCase):
             scenario.parse_args()
         self.assertEqual(error.exception.code, 2)
 
+    def test_final_ft_info_sample_detects_late_indexing_failure(self) -> None:
+        baseline = scenario.FtInfoSample(100, 0, 0, 2)
+        report = scenario.ValidatorReport()
+        scenario.validate_ft_info_sample(
+            report,
+            scenario.FtInfoSample(100, 0, 0, 3),
+            baseline,
+            scenario.TraceTotals(),
+            0,
+        )
+        self.assertEqual(len(report.info_samples), 1)
+        self.assertIn("hash_indexing_failures increased from 2 to 3", report.failures)
+
+    def test_replay_takes_final_ft_info_after_all_workers_finish(self) -> None:
+        completed: set[str] = set()
+
+        def fake_replay(
+            _redis_module: object,
+            _args: object,
+            name: str,
+            _commands: object,
+            _stop_event: object,
+            **_kwargs: object,
+        ) -> dict[str, int]:
+            completed.add(name)
+            return {"ok": 1, "err": 0, "timeout": 0, "processed": 1}
+
+        def fake_capture(_search: object) -> scenario.FtInfoSample:
+            self.assertEqual(completed, {"ft", "writes", "reads"})
+            return scenario.FtInfoSample(100, 0, 0, 0)
+
+        search = SimpleNamespace(close=lambda: None)
+        with (
+            mock.patch.object(scenario, "replay_bucket", side_effect=fake_replay),
+            mock.patch.object(
+                scenario,
+                "run_validator",
+                return_value=scenario.ValidatorReport(),
+            ),
+            mock.patch.object(scenario, "make_search_client", return_value=search),
+            mock.patch.object(scenario, "capture_ft_info", side_effect=fake_capture),
+        ):
+            report, ft_error, *_stats = scenario.run_replay_and_validator(
+                object(),
+                SimpleNamespace(ttl_probe_count=0),
+                scenario.ReplayBuckets(
+                    writes=[("HSET", b"key", b"field", b"value")],
+                    ft=[("FT.SEARCH", "idx", "*")],
+                    reads=[("HGETALL", b"key")],
+                ),
+                scenario.TraceTotals(),
+                scenario.FtInfoSample(100, 0, 0, 0),
+            )
+
+        self.assertIsNone(ft_error)
+        self.assertEqual(report.info_samples, [scenario.FtInfoSample(100, 0, 0, 0)])
+
     def test_zero_sized_ttl_set_does_not_scan_or_mutate(self) -> None:
         key_set = scenario.seed_ttl_keys(
             object(),
@@ -316,7 +416,7 @@ class ScenarioTests(unittest.TestCase):
         schema = scenario.capture_index_schema(InfoClient())
         self.assertEqual(schema.sortable_paths, frozenset({"score"}))
 
-    def test_sortable_presence_uses_index_result_and_accepts_numeric_zero(self) -> None:
+    def test_sortable_values_accept_equivalent_numeric_representations(self) -> None:
         key = b"A#PR#1"
         schema = scenario.IndexSchema(
             fields=frozenset({"score"}),
@@ -324,9 +424,25 @@ class ScenarioTests(unittest.TestCase):
             paths={"score": "score"},
             sortable_paths=frozenset({"score"}),
         )
-        cluster = FakeCluster(hashes={key: {b"score": b"0"}}, existing={key})
-        search = FakeSearch({key: {b"score": 0}})
+        cluster = FakeCluster(hashes={key: {b"score": b"10.0"}}, existing={key})
+        search = FakeSearch({key: {b"score": 10}})
         scenario.cross_check_tracked_keys(cluster, search, schema, [key])
+
+    def test_stale_sortable_value_fails_cross_check(self) -> None:
+        key = b"A#PR#1"
+        schema = scenario.IndexSchema(
+            fields=frozenset({"score"}),
+            types={"score": "NUMERIC"},
+            paths={"score": "score"},
+            sortable_paths=frozenset({"score"}),
+        )
+        with self.assertRaisesRegex(RuntimeError, "value_mismatches=\\['score'\\]"):
+            scenario.cross_check_tracked_keys(
+                FakeCluster(hashes={key: {b"score": b"20"}}, existing={key}),
+                FakeSearch({key: {b"score": 10}}),
+                schema,
+                [key],
+            )
 
     def test_indexed_document_absent_from_redis_fails_cross_check(self) -> None:
         key = b"A#PR#1"

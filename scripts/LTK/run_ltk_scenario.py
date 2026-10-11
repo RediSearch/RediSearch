@@ -25,6 +25,7 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,7 @@ TTL_SURVIVOR_EXPIRE_SEC = 7 * 24 * 3600
 TRACKED_KEYS_BY_PREFIX = {"A#PR#*": 24_000, "A#PO#*": 3_000, "A#CR#*": 3_000}
 FT_WALK_TIMEOUT_MS = 1_000_000
 INDEX_LOOKUP_BATCH = 200
+MIN_TRACE_COMMANDS = {"writes": 18_000, "FT queries": 3_900, "reads": 1_800_000}
 LTK_SEARCH_CONFIG = {
     "search-workers": "12",
     "search-cursor-max-idle": "60000",
@@ -450,19 +452,23 @@ def partition_monitor_trace(path: Path) -> tuple[ReplayBuckets, TraceTotals]:
 
 
 def validate_trace_buckets(buckets: ReplayBuckets) -> None:
-    empty = [
-        name
-        for name, commands in (
-            ("writes", buckets.writes),
-            ("FT queries", buckets.ft),
-            ("reads", buckets.reads),
-        )
-        if not commands
-    ]
+    command_buckets = (
+        ("writes", buckets.writes),
+        ("FT queries", buckets.ft),
+        ("reads", buckets.reads),
+    )
+    empty = [name for name, commands in command_buckets if not commands]
     if empty:
         raise RuntimeError(
             "monitor trace did not produce required command buckets: " + ", ".join(empty)
         )
+    incomplete = [
+        f"{name}={len(commands)} (need at least {MIN_TRACE_COMMANDS[name]})"
+        for name, commands in command_buckets
+        if len(commands) < MIN_TRACE_COMMANDS[name]
+    ]
+    if incomplete:
+        raise RuntimeError("monitor trace is incomplete: " + ", ".join(incomplete))
 
 
 def derive_product_id(key: bytes) -> str:
@@ -594,8 +600,20 @@ def capture_index_schema(search: Any) -> IndexSchema:
 
 
 def clamp_inline_timeout(command: Command, floor_ms: int) -> tuple[Command, bool]:
-    for index in range(len(command) - 1):
-        if decode(command[index]).upper() != "TIMEOUT":
+    index = 3
+    while index < len(command) - 1:
+        option = decode(command[index]).upper()
+        if option == "PARAMS":
+            try:
+                parameter_count = int(command[index + 1])
+            except (TypeError, ValueError):
+                return command, False
+            if parameter_count < 0:
+                return command, False
+            index += 2 + parameter_count
+            continue
+        if option != "TIMEOUT":
+            index += 1
             continue
         try:
             current = int(command[index + 1])
@@ -608,6 +626,27 @@ def clamp_inline_timeout(command: Command, floor_ms: int) -> tuple[Command, bool
             replacement = replacement.encode()
         return command[: index + 1] + (replacement,) + command[index + 2 :], True
     return command, False
+
+
+def validate_ft_info_sample(
+    report: ValidatorReport,
+    sample: FtInfoSample,
+    baseline: FtInfoSample,
+    totals: TraceTotals,
+    ttl_probe_count: int,
+) -> None:
+    lower_bound = baseline.num_docs - totals.deletes - totals.expires - ttl_probe_count
+    upper_bound = baseline.num_docs + totals.inserts
+    report.info_samples.append(sample)
+    if not lower_bound <= sample.num_docs <= upper_bound:
+        report.failures.append(
+            f"num_docs={sample.num_docs} outside [{lower_bound}, {upper_bound}]"
+        )
+    if sample.hash_indexing_failures > baseline.hash_indexing_failures:
+        report.failures.append(
+            "hash_indexing_failures increased from "
+            f"{baseline.hash_indexing_failures} to {sample.hash_indexing_failures}"
+        )
 
 
 def replay_bucket(
@@ -721,23 +760,14 @@ def run_validator(
 ) -> ValidatorReport:
     report = ValidatorReport()
     search = make_search_client(redis_module, args, PROBE_SOCKET_TIMEOUT_SEC)
-    lower_bound = baseline.num_docs - totals.deletes - totals.expires - args.ttl_probe_count
-    upper_bound = baseline.num_docs + totals.inserts
     try:
         while not stop_event.is_set():
             cycle_started = time.perf_counter()
             try:
                 sample = capture_ft_info(search)
-                report.info_samples.append(sample)
-                if not lower_bound <= sample.num_docs <= upper_bound:
-                    report.failures.append(
-                        f"num_docs={sample.num_docs} outside [{lower_bound}, {upper_bound}]"
-                    )
-                if sample.hash_indexing_failures > baseline.hash_indexing_failures:
-                    report.failures.append(
-                        "hash_indexing_failures increased from "
-                        f"{baseline.hash_indexing_failures} to {sample.hash_indexing_failures}"
-                    )
+                validate_ft_info_sample(
+                    report, sample, baseline, totals, args.ttl_probe_count
+                )
             except Exception as error:  # noqa: BLE001 - validator records and continues
                 report.failures.append(
                     f"FT.INFO probe raised {type(error).__name__}: {error}"
@@ -820,7 +850,6 @@ def run_replay_and_validator(
             stop_event,
         )
         concurrent.futures.wait((ft_future, writes_future, reads_future))
-        stop_event.set()
         ft_exception: BaseException | None = None
         try:
             ft_stats = ft_future.result()
@@ -842,7 +871,29 @@ def run_replay_and_validator(
                     write_stats["err"] = 1
                 else:
                     read_stats["err"] = 1
+        final_info_sample: FtInfoSample | None = None
+        final_info_error: BaseException | None = None
+        try:
+            final_search = make_search_client(redis_module, args, PROBE_SOCKET_TIMEOUT_SEC)
+            try:
+                final_info_sample = capture_ft_info(final_search)
+            finally:
+                final_search.close()
+        except BaseException as error:  # noqa: BLE001 - reported with validator evidence
+            final_info_error = error
+        finally:
+            stop_event.set()
         report = validator_future.result()
+        if final_info_error is not None:
+            report.failures.append(
+                "final FT.INFO probe raised "
+                f"{type(final_info_error).__name__}: {final_info_error}"
+            )
+        else:
+            assert final_info_sample is not None
+            validate_ft_info_sample(
+                report, final_info_sample, baseline, totals, args.ttl_probe_count
+            )
     return report, ft_exception, ft_stats, write_stats, read_stats
 
 
@@ -912,7 +963,7 @@ def assert_replay_and_validator(
 def absorb_search_results(
     response: Any,
     identifiers: list[str],
-    output: dict[bytes, set[str]],
+    output: dict[bytes, dict[str, Any]],
 ) -> None:
     if isinstance(response, dict):
         for result in response.get("results") or response.get(b"results") or []:
@@ -925,7 +976,7 @@ def absorb_search_results(
             key = raw_key if isinstance(raw_key, bytes) else str(raw_key).encode("latin-1")
             fields = flat_pairs(raw_fields)
             output[key] = {
-                name
+                name: fields[name]
                 for name in identifiers
                 if name in fields and fields[name] not in (None, b"", "")
             }
@@ -940,21 +991,21 @@ def absorb_search_results(
         key = raw_key if isinstance(raw_key, bytes) else str(raw_key).encode("latin-1")
         fields = flat_pairs(raw_fields)
         output[key] = {
-            name
+            name: fields[name]
             for name in identifiers
             if name in fields and fields[name] not in (None, b"", "")
         }
 
 
-def walk_index_field_presence(
+def walk_index_field_values(
     search: Any,
     schema: IndexSchema,
     tracked: set[bytes],
-) -> dict[bytes, set[str]]:
+) -> dict[bytes, dict[str, Any]]:
     # SORTABLE UNF values are served from Search's sorting vector. Other RETURN
     # fields may be reloaded from the live hash and cannot validate indexed state.
     identifiers = sorted(schema.sortable_paths)
-    output: dict[bytes, set[str]] = {}
+    output: dict[bytes, dict[str, Any]] = {}
     tracked_keys = list(tracked)
     for start in range(0, len(tracked_keys), INDEX_LOOKUP_BATCH):
         keys = tracked_keys[start : start + INDEX_LOOKUP_BATCH]
@@ -981,12 +1032,12 @@ def walk_index_field_presence(
     return output
 
 
-def capture_redis_field_presence(
+def capture_redis_field_values(
     cluster: Any,
     tracked_keys: list[bytes],
     identifiers: frozenset[str],
-) -> tuple[dict[bytes, set[str]], set[bytes]]:
-    output: dict[bytes, set[str]] = {}
+) -> tuple[dict[bytes, dict[str, Any]], set[bytes]]:
+    output: dict[bytes, dict[str, Any]] = {}
     existing: set[bytes] = set()
     for start in range(0, len(tracked_keys), 200):
         keys = tracked_keys[start : start + 200]
@@ -997,11 +1048,21 @@ def capture_redis_field_presence(
             if raw_hash:
                 existing.add(key)
             output[key] = {
-                decode(raw_field)
+                decode(raw_field): raw_value
                 for raw_field, raw_value in (raw_hash or {}).items()
                 if raw_value not in (None, b"", "") and decode(raw_field) in identifiers
             }
     return output, existing
+
+
+def normalize_sortable_value(value: Any, field_type: str) -> Any:
+    decoded = decode(value)
+    if field_type == "NUMERIC":
+        try:
+            return Decimal(decoded)
+        except (InvalidOperation, ValueError):
+            return decoded
+    return decoded
 
 
 def cross_check_tracked_keys(
@@ -1013,11 +1074,17 @@ def cross_check_tracked_keys(
     identifiers = schema.sortable_paths
     if not identifiers:
         raise RuntimeError("index schema has no SORTABLE UNF fields to cross-check")
-    actual = walk_index_field_presence(search, schema, set(keys))
-    expected, existing = capture_redis_field_presence(cluster, keys, identifiers)
+    actual = walk_index_field_values(search, schema, set(keys))
+    expected, existing = capture_redis_field_values(cluster, keys, identifiers)
+    field_types = {
+        path: schema.types[name]
+        for name, path in schema.paths.items()
+        if path in identifiers
+    }
     failures: list[str] = []
     missing_fields: Counter[str] = Counter()
     phantom_fields: Counter[str] = Counter()
+    value_mismatches: Counter[str] = Counter()
     for key, expected_fields in expected.items():
         actual_fields = actual.get(key)
         if key not in existing and actual_fields is not None:
@@ -1027,16 +1094,28 @@ def cross_check_tracked_keys(
             if key in existing:
                 failures.append(f"{decode(key)} missing from index walk")
             continue
-        missing = expected_fields - actual_fields
-        phantom = actual_fields - expected_fields
+        missing = expected_fields.keys() - actual_fields.keys()
+        phantom = actual_fields.keys() - expected_fields.keys()
+        mismatched = {
+            field
+            for field in expected_fields.keys() & actual_fields.keys()
+            if normalize_sortable_value(expected_fields[field], field_types.get(field, ""))
+            != normalize_sortable_value(actual_fields[field], field_types.get(field, ""))
+        }
         missing_fields.update(missing)
         phantom_fields.update(phantom)
-        if missing or phantom:
-            failures.append(f"{decode(key)} missing={sorted(missing)} phantom={sorted(phantom)}")
+        value_mismatches.update(mismatched)
+        if missing or phantom or mismatched:
+            failures.append(
+                f"{decode(key)} missing={sorted(missing)} phantom={sorted(phantom)} "
+                f"value_mismatches={sorted(mismatched)}"
+            )
     if missing_fields:
         LOGGER.error("Missing-field histogram: %s", missing_fields.most_common(15))
     if phantom_fields:
         LOGGER.error("Phantom-field histogram: %s", phantom_fields.most_common(15))
+    if value_mismatches:
+        LOGGER.error("Value-mismatch histogram: %s", value_mismatches.most_common(15))
     if failures:
         raise RuntimeError(
             f"{len(failures)} tracked documents disagree between Redis and the index:\n  "
