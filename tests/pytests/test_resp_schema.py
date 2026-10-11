@@ -70,7 +70,7 @@ def load_sparse(env, count, key_pattern):
 
 @skip(cluster=False)
 def test_resp_schema_format_selection():
-    """Verify internal opt-in and coordinator authority across flag settings in both protocols."""
+    """Verify shard-local format selection across flag settings in both protocols."""
     for protocol in (2, 3):
         env = Env(protocol=protocol)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'id', 'NUMERIC', 'SORTABLE').ok()
@@ -83,10 +83,9 @@ def test_resp_schema_format_selection():
         command = ['_FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'TIMEOUT', 0]
         for mode in ('no', 'yes'):
             with schema_mode(env, mode):
-                for opt_in in ([], ['_RESP_SCHEMA']):
-                    raw = payload(env, shard.execute_command(*command, *opt_in))
-                    env.assertEqual(raw[0] == TAG, bool(opt_in), message=raw)
-        # The coordinator chooses the format even when every other shard differs.
+                raw = payload(env, shard.execute_command(*command))
+                env.assertEqual(raw[0] == TAG, mode == 'yes', message=raw)
+        # The coordinator accepts either format regardless of its own setting.
         command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'TIMEOUT', 0]
         coordinator = env.getConnection()
         for shard_mode, coordinator_mode in (('no', 'yes'), ('yes', 'no')):
@@ -95,11 +94,11 @@ def test_resp_schema_format_selection():
                 env.assertEqual(rows(env, env.cmd(*command)),
                                 [{'id': '1'}, {'id': '2'}, {'id': '3'}])
 
-        with schema_mode(env, 'yes'):
-            metadata = ['_FT.AGGREGATE', 'idx', '*', 'WITHRAWIDS', 'LOAD', 1, '@id']
-            legacy = shard.execute_command(*metadata)
-            for command in (metadata + ['_RESP_SCHEMA'],
-                            metadata[:3] + ['_RESP_SCHEMA'] + metadata[3:]):
+        for command in (['_FT.AGGREGATE', 'idx', '*', 'WITHRAWIDS', 'LOAD', 1, '@id'],
+                        ['_FT.SEARCH', 'idx', '*']):
+            with schema_mode(env, 'no'):
+                legacy = shard.execute_command(*command)
+            with schema_mode(env, 'yes'):
                 env.assertEqual(shard.execute_command(*command), legacy, message=command)
 
 
@@ -121,14 +120,9 @@ def test_resp_schema_wire():
             shard = next(c for c in env.getOSSMasterNodesConnectionList()
                          if c.execute_command('DBSIZE'))
             shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
-            try:
-                shard.execute_command('_FT.SEARCH', 'idx', '*', '_RESP_SCHEMA')
-                env.assertTrue(False, message='SEARCH accepted aggregate schema opt-in')
-            except redis.ResponseError as error:
-                env.assertContains('Unknown argument', str(error))
             reply = shard.execute_command('_FT.AGGREGATE', 'idx', '*',
                                           'LOAD', '*',
-                                          'WITHCURSOR', 'COUNT', 2, '_RESP_SCHEMA')
+                                          'WITHCURSOR', 'COUNT', 2)
             chunk = payload(env, reply[0])
             env.assertEqual(chunk[0], TAG)
             env.assertEqual(len(chunk), 3)
@@ -151,8 +145,9 @@ def test_resp_schema_wire():
                     for policy in ('return', 'fail', 'return-strict'):
                         with schema_mode(env, policy, 'search-on-timeout'):
                             command = ['_FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'LOAD', 1, '@id']
-                            expected = rows(env, shard.execute_command(*command))
-                            scored = shard.execute_command(*command, '_RESP_SCHEMA')
+                            with schema_mode(env, 'no'):
+                                expected = rows(env, shard.execute_command(*command))
+                            scored = shard.execute_command(*command)
                             scored = payload(env, scored)
                             env.assertEqual(scored[0], TAG)
                             scored_rows = wire_rows(env, scored)
@@ -247,8 +242,10 @@ def test_resp_schema_json():
                    'DIALECT', 2, 'TIMEOUT', 0]
         if protocol == 3:
             command += ['FORMAT', 'EXPAND']
-        legacy = rows(env, shard.execute_command(*command))
-        compact = payload(env, shard.execute_command(*command, '_RESP_SCHEMA'))
+        with schema_mode(env, 'no'):
+            legacy = rows(env, shard.execute_command(*command))
+        with schema_mode(env, 'yes'):
+            compact = payload(env, shard.execute_command(*command))
         env.assertEqual(compact[0], TAG)
         env.assertEqual(compact[2], ['a', 'b', 'c', 'd'])
         env.assertEqual([(mask, len(values)) for mask, values in wire_rows(env, compact)],
@@ -341,7 +338,7 @@ def test_resp_schema_buffered_timeout():
                         try:
                             results.append(query.execute_command(
                                 '_FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@id', '@optional',
-                                'TIMEOUT', 0, 'WITHCURSOR', 'COUNT', 6, '_RESP_SCHEMA'))
+                                'TIMEOUT', 0, 'WITHCURSOR', 'COUNT', 6))
                         except Exception as error:
                             results.append(error)
 

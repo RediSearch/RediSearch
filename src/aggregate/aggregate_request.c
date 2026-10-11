@@ -400,9 +400,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE) &&
-             papCtx->internalRespSchema && AC_AdvanceIfMatch(ac, "_RESP_SCHEMA")) {
-    *papCtx->internalRespSchema = true;
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
@@ -625,7 +622,6 @@ static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->base.reqConfig,
-    .internalRespSchema = &req->internalRespSchema,
     .timeoutConfig = &req->base.timeout.config,
     .searchopts = &req->searchopts,
     .prefixesOffset = &req->prefixesOffset,
@@ -1343,9 +1339,9 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
     goto error;
   }
 
-  // Metadata options can follow _RESP_SCHEMA, so finalize the format after parsing all arguments.
+  // Finalize the format after parsing metadata options and retain it across cursor reads.
   req->internalRespSchema =
-      req->internalRespSchema && IsInternal(req) &&
+      req->base.reqConfig.internalRespSchemaEnabled && IsInternal(req) && IsAggregate(req) &&
       !(AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS |
                                   QEXEC_F_SEND_SORTKEYS | QEXEC_F_REQUIRED_FIELDS));
 

@@ -73,7 +73,6 @@ typedef struct {
   QEFlags *reqflags;                // Request flags
   RequestConfig *reqConfig;         // Request configuration
   TimeoutConfig *timeoutConfig;
-  bool *internalRespSchema;         // Internal aggregate wire format opt-in
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset
   CursorConfig *cursorConfig;       // Cursor configuration
