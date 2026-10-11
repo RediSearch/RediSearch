@@ -1696,11 +1696,35 @@ static int CreateArbitraryWriteSearchCommands(RedisModuleCtx *ctx, const SearchC
   return REDISMODULE_OK;
 }
 
+static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
+  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+}
+
+static bool rejectDiskHybridExecution(RedisModuleCtx *ctx, bool internal) {
+  if (!SearchDisk_IsEnabled() || (RunInThread(ctx) && !cannotBlockCtx(ctx))) {
+    return false;
+  }
+
+  QueryError status = QueryError_Default();
+  QueryError_SetError(&status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                      "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
+                      "is not supported in Redis Flex");
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, !internal);
+  QueryError_ReplyAndClear(ctx, &status);
+  return true;
+}
+
 int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc >= 2 && rejectDiskHybridExecution(ctx, true)) {
+    return REDISMODULE_OK;
+  }
 return hybridCommandHandler(ctx, argv, argc, true, EXEC_NO_FLAGS, NULL);
 }
 
 int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc >= 2 && rejectDiskHybridExecution(ctx, false)) {
+    return REDISMODULE_OK;
+  }
   return hybridCommandHandler(ctx, argv, argc, false, EXEC_NO_FLAGS, NULL);
 }
 
@@ -1773,7 +1797,9 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (cmdType == COMMAND_HYBRID) {
     RedisModuleString *command = argv[0];
     bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
-    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
+    if (!rejectDiskHybridExecution(ctx, internal)) {
+      hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
+    }
   } else {
     // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
     execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
@@ -4008,6 +4034,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+
+  if (rejectDiskHybridExecution(ctx, false)) {
+    return REDISMODULE_OK;
   }
 
   // Memory guardrail

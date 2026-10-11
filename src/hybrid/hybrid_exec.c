@@ -1458,13 +1458,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   const unsigned int dialectVersion = hybridRequest->base.reqConfig.dialectVersion;
   IndexSpec *spec = sctx->spec;
 
-  if (sctx->spec->diskSpec && (!RunInThread(ctx) || cannotBlockCtx(ctx))) {
-    QueryError_SetError(&status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                        "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
-                        "is not supported in Redis Flex");
-    return CleanupAndReplyStatus(ctx, hybridRequest, cmd.hybridParams, &status, internal);
-  }
-
   if (HybridRequest_BuildPipelineAndExecute(hybridRequest, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);

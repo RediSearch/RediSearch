@@ -2196,6 +2196,16 @@ DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
   if (argc < 9) {
     return RedisModule_WrongArity(ctx);
   }
+  if (SearchDisk_IsEnabled() &&
+      (!RunInThread(ctx) ||
+       (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING))) {
+    QueryError status = QueryError_Default();
+    QueryError_SetError(&status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                        "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
+                        "is not supported in Redis Flex");
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, SHARD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
   // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
   ++argv; --argc;
 
@@ -2220,11 +2230,6 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   if (argc < 9) {
     // Minimum: _FT.DEBUG FT.HYBRID idx SEARCH query VSIM field vector DEBUG_PARAMS_COUNT count
     return RedisModule_WrongArity(ctx);
-  }
-
-  if (GetNumShards_UnSafe() == 1) {
-    // Single shard — use standalone handler (skip _FT.DEBUG)
-    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
   }
 
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);

@@ -99,10 +99,6 @@ static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
          (flags & (REDISMODULE_CTX_FLAGS_LOADING | REDISMODULE_CTX_FLAGS_ASYNC_LOADING));
 }
 
-static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
-  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
-}
-
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
