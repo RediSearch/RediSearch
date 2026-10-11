@@ -10,6 +10,7 @@
 
 #include <uv.h>
 #include <openssl/ssl.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/time.h>
 
@@ -502,8 +503,20 @@ static int MRConn_SendAuth(MRConn *conn) {
   if (!IsEnterprise()) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
-    size_t len;
+    size_t len = 0;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
+    if (!internal_secret) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+      // Redis has no internal secret outside cluster mode, which cannot change at runtime, so
+      // warn once rather than on every reconnect attempt.
+      static atomic_flag warned = ATOMIC_FLAG_INIT;
+      if (!atomic_flag_test_and_set(&warned)) {
+        CONN_LOG_WARNING(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      } else {
+        CONN_LOG(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      }
+      return REDIS_ERR;
+    }
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
