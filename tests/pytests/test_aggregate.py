@@ -1114,6 +1114,25 @@ def testStrLen(env):
               ['t', '', 'length', '0']]
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
 
+def testToStrOfLoadedFieldAsGroupKey(env):
+    # GROUPBY keeps each group key after it discards the row the key was computed from, and the
+    # row owns the HASH value that LOAD read.
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+    # Longer than Redis embeds in a string object, so the bytes have an allocation of their own.
+    values = [f'value-{i:03d}'.ljust(64, 'x') for i in range(50)]
+    for i, value in enumerate(values):
+        conn.execute_command('HSET', f'doc{i}', 't', 'hello', 'f', value)
+
+    # Undecoded, because a key read from released memory need not be valid UTF-8.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f',
+                  'APPLY', 'to_str(@f)', 'AS', 'x',
+                  'GROUPBY', 1, '@x', 'REDUCE', 'COUNT', 0, 'AS', 'c',
+                  'LIMIT', 0, len(values), NEVER_DECODE=True)
+    keys = sorted(row[1] for row in res[1:])
+    env.assertEqual(keys, sorted(value.encode() for value in values),
+                    message='to_str group key does not match the loaded field value')
+
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
