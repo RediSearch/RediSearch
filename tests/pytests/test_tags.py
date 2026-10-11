@@ -378,6 +378,20 @@ def testTagMultiWordTermCaseAndEscapes(env):
     # Explain shows the evaluated value: case kept on a CASESENSITIVE field, escapes removed.
     env.expect('FT.EXPLAIN', 'cs', r'@t:{Foo Bar|x\- y}', 'DIALECT', 2).equal('TAG:@t {\n  Foo Bar\n  x- y\n}\n')
 
+    # Profile reports the same evaluated values as the iterator terms.
+    conn.execute_command('HSET', 'cs:dash', 't', 'x- y')
+    res = env.cmd('FT.PROFILE', 'cs', 'SEARCH', 'QUERY', r'@t:{Foo Bar|x\- y}', 'NOCONTENT', 'DIALECT', 2)
+
+    def terms(node):
+        if isinstance(node, dict):
+            node = [x for kv in node.items() for x in kv]
+        if not isinstance(node, list):
+            return []
+        found = [node[i + 1] for i in range(len(node) - 1) if node[i] == 'Term']
+        return found + [t for child in node for t in terms(child)]
+
+    env.assertEqual(sorted(terms(res)), ['Foo Bar', 'x- y'])
+
 @skip(cluster=True)
 def testTagGCClearEmpty(env):
 
