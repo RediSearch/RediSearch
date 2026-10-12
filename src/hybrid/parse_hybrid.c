@@ -43,7 +43,6 @@
 #include "result_processor.h"
 #include "result_processor_ffi.h"
 #include "search_options.h"
-#include "search_disk.h"
 #include "slot_ranges.h"
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
@@ -534,10 +533,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // An implicit wildcard must not turn disk KNN into a pre-filtered query requiring POLICY.
-  // RANGE also needs a bare vector root to preserve distance ordering.
-  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE &&
-      (vq->type == VECSIM_QT_RANGE || SearchDisk_IsEnabledForValidation())) {
+  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
     pvd->skipFilterIntegration = true;
   }
 

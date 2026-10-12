@@ -115,6 +115,31 @@ def test_hybrid_ram_nonblocking_contexts(env):
     env.expect(*command, 'WITHCURSOR').error().contains('WITHCURSOR: Unknown argument')
 
 
+@skip(cluster=True)
+def test_hybrid_knn_implicit_filter_matches_wildcard(env):
+    """Bare RAM KNN preserves wildcard-filter results, ordering, scores, and profiling."""
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    for algorithm in ['FLAT', 'HNSW']:
+        index = algorithm.lower()
+        env.expect('FT.CREATE', index, 'PREFIX', 1, f'{index}:', 'SCHEMA', 't', 'TEXT',
+                   'v', 'VECTOR', algorithm, 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+                   'DISTANCE_METRIC', 'L2').ok()
+        keys = [f'{index}:{i}' for i in range(1, 4)]
+        for i, key in enumerate(keys, 1):
+            vector = np.array([float(i), 0.0], dtype=np.float32).tobytes()
+            env.expect('HSET', key, 't', 'hello', 'v', vector).equal(2)
+        args = [index, 'SEARCH', 'hello', 'VSIM', '@v', '$b', 'KNN', 2, 'K', 3]
+        params = ['PARAMS', 2, 'b', blob]
+        expected = get_results_from_hybrid_response(
+            env.cmd('FT.HYBRID', *args, 'FILTER', 1, '*', *params))
+        actual = get_results_from_hybrid_response(env.cmd('FT.HYBRID', *args, *params))
+        env.assertEqual(actual, expected)
+        env.assertEqual(list(actual[0]), keys)
+        profile = env.cmd('FT.PROFILE', index, 'HYBRID', 'QUERY', *args[1:], *params)
+        env.assertEqual(get_results_from_hybrid_response(profile), expected)
+        env.assertContains('STANDARD_KNN', str(profile))
+
+
 def test_invalid_ef_runtime():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index_hnsw(env)

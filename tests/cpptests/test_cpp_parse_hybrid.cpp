@@ -858,9 +858,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vq->knn.k, 5);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
-  // Verify wildcard query is the child of the vector querynode
-  ASSERT_TRUE(vn->children != NULL);
-  ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
+  ASSERT_EQ(QueryNode_NumChildren(vn), 0);
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
