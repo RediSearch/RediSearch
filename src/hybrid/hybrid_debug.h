@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "redismodule.h"
 
 typedef struct QueryError QueryError;

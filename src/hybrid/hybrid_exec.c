@@ -40,6 +40,7 @@
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
+#include "search_disk.h"
 #include "search_disk_utils.h"
 #include "VecSim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
