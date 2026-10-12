@@ -162,7 +162,8 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   // Set up params for the pre-filtered KNN query.
   opts.params = Param_DictCreate();
   ASSERT_NE(opts.params, nullptr);
-  ASSERT_EQ(Param_DictAdd(opts.params, "BLOB", "abcdefghijklmnop", 16, &iterErr),
+  RedisModuleString *blob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
+  ASSERT_EQ(Param_DictAdd(opts.params, "BLOB", blob, &iterErr),
             DICT_OK) << QueryError_GetUserError(&iterErr);
 
   // Parse the pre-filtered KNN query without HYBRID_POLICY.
@@ -185,6 +186,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   it->Free(it);
   QAST_Destroy(&ast);
   Param_DictFree(opts.params);
+  RedisModule_FreeString(NULL, blob);
   QueryError_ClearError(&iterErr);
 
   SearchOptionsCXX opts_missing_attrs;
@@ -193,7 +195,8 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   // Set up params for query-attributes syntax without HYBRID_POLICY.
   opts_missing_attrs.params = Param_DictCreate();
   ASSERT_NE(opts_missing_attrs.params, nullptr);
-  ASSERT_EQ(Param_DictAdd(opts_missing_attrs.params, "BLOB", "abcdefghijklmnop", 16,
+  RedisModuleString *missingAttrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
+  ASSERT_EQ(Param_DictAdd(opts_missing_attrs.params, "BLOB", missingAttrsBlob,
                           &iterErrMissingAttrs),
             DICT_OK)
       << QueryError_GetUserError(&iterErrMissingAttrs);
@@ -225,6 +228,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   it_missing_attrs->Free(it_missing_attrs);
   QAST_Destroy(&ast_missing_attrs);
   Param_DictFree(opts_missing_attrs.params);
+  RedisModule_FreeString(NULL, missingAttrsBlob);
   QueryError_ClearError(&iterErrMissingAttrs);
 
   SearchOptionsCXX opts_attrs;
@@ -233,7 +237,8 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   // Set up params for query-attributes syntax with HYBRID_POLICY.
   opts_attrs.params = Param_DictCreate();
   ASSERT_NE(opts_attrs.params, nullptr);
-  ASSERT_EQ(Param_DictAdd(opts_attrs.params, "BLOB", "abcdefghijklmnop", 16, &iterErrAttrs),
+  RedisModuleString *attrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
+  ASSERT_EQ(Param_DictAdd(opts_attrs.params, "BLOB", attrsBlob, &iterErrAttrs),
             DICT_OK) << QueryError_GetUserError(&iterErrAttrs);
 
   // Parse query-attributes syntax with explicit HYBRID_POLICY.
@@ -256,6 +261,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   it_attrs->Free(it_attrs);
   QAST_Destroy(&ast_attrs);
   Param_DictFree(opts_attrs.params);
+  RedisModule_FreeString(NULL, attrsBlob);
   QueryError_ClearError(&iterErrAttrs);
 
   Indexes_RemoveSpecFromGlobals(ref, false);
@@ -1124,7 +1130,8 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   value[0] = 'a';
   value[1] = '\0';
   memset(value + 2, 'b', sizeof(value) - 2);
-  ASSERT_EQ(0, Param_DictAdd(params, "p", value, sizeof(value), &err));
+  RedisModuleString *rvalue = RedisModule_CreateString(NULL, value, sizeof(value));
+  ASSERT_EQ(0, Param_DictAdd(params, "p", rvalue, &err));
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   char *resolved = NULL;
@@ -1149,4 +1156,5 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
 
   rm_free(resolved);
   Param_DictFree(params);
+  RedisModule_FreeString(NULL, rvalue);
 }

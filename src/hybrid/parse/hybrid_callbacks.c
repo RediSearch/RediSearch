@@ -232,12 +232,12 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    size_t value_len;
     int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
         const char *param = AC_GetStringNC(paramsArgs, NULL);
-        const char *value = AC_GetStringNC(paramsArgs, &value_len);
-        if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+        RedisModuleString *value;
+        AC_GetRString(paramsArgs, &value, 0);
+        if (DICT_ERR == Param_DictAdd(params, param, value, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
         }
