@@ -97,24 +97,30 @@ impl<'a> HllSum<'a> {
 }
 
 impl Accumulator for HllSum<'_> {
-    type State = Hll;
+    /// Allocated on the first well-formed value, so groups without one cost only a
+    /// pointer.
+    type State = Option<Box<Hll>>;
 
-    fn init(&self) -> Hll {
-        Hll::new()
+    fn init(&self) -> Option<Box<Hll>> {
+        None
     }
 
-    fn add(&self, hll: &mut Hll, row: &RLookupRow<'_>) {
-        if let Some(other) = row
+    fn add(&self, state: &mut Option<Box<Hll>>, row: &RLookupRow<'_>) {
+        let Some(other) = row
             .get(self.key)
             .and_then(|value| value.as_str_bytes())
             .and_then(parse_registers)
-        {
-            hll.merge(&other);
+        else {
+            return;
+        };
+        match state {
+            Some(hll) => hll.merge(&other),
+            None => *state = Some(Box::new(other)),
         }
     }
 
-    fn finalize(&self, hll: &Hll) -> SharedValue {
-        SharedValue::new_num(hll.count() as f64)
+    fn finalize(&self, state: &Option<Box<Hll>>) -> SharedValue {
+        SharedValue::new_num(state.as_ref().map_or(0, |hll| hll.count()) as f64)
     }
 }
 

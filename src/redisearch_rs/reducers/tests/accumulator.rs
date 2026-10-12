@@ -546,8 +546,8 @@ fn interleaved_groups_are_kept_apart() {
 #[test]
 fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
-        CountDistinctReducer_Create, FirstValueReducer_Create, StdDevReducer_Create,
-        SumReducer_Create,
+        CountDistinctReducer_Create, CountDistinctishReducer_Create, FirstValueReducer_Create,
+        HllSumReducer_Create, StdDevReducer_Create, SumReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -574,4 +574,10 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let distinct = unsafe { CountDistinctReducer_Create(key_ptr) };
     assert!(frees_states(distinct));
+    // SAFETY: as above.
+    let distinctish = unsafe { CountDistinctishReducer_Create(key_ptr, false) };
+    assert!(!frees_states(distinctish));
+    // SAFETY: as above.
+    let hll_sum = unsafe { HllSumReducer_Create(key_ptr) };
+    assert!(frees_states(hll_sum));
 }
