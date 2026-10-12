@@ -172,6 +172,21 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   return REDISMODULE_OK;
 }
 
+static int parseRerankClause(ArgsCursor *ac, VectorQuery *vq, bool *hasRerank, QueryError *status) {
+  if (*hasRerank) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+    return REDISMODULE_ERR;
+  }
+  if (CheckEnd(ac, "RERANK", status) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+  size_t valueLen;
+  const char *value = AC_GetStringNC(ac, &valueLen);
+  addVectorQueryParam(vq, VECSIM_RERANK, sizeof(VECSIM_RERANK) - 1, value, valueLen);
+  *hasRerank = true;
+  return REDISMODULE_OK;
+}
+
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
@@ -190,6 +205,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasRerank = false;
   bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
@@ -230,6 +246,11 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
       if (hasShardKRatio) {
@@ -274,6 +295,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
   bool hasRadius = false;
   bool hasEpsilon = false;
+  bool hasRerank = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -313,6 +335,11 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
 
     } else {
       const char *current;
