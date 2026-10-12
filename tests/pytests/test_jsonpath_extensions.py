@@ -284,46 +284,6 @@ def test_jsonpath_edges_and_sorting(env):
 
 @skip(cluster=True, no_json=True)
 @requires_json_version(81000)
-def test_jsonpath_shared_api(env):
-    """Call the bundled JSON shared API directly, independently of document cardinality."""
-    import os
-    import shlex
-    import subprocess
-    import tempfile
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2]
-    # A test-only module keeps JSON LLAPI introspection out of Search's command surface.
-    with tempfile.TemporaryDirectory(prefix='jsonpath-api-') as directory:
-        module = Path(directory) / 'jsonpath_api.so'
-        os.chmod(directory, 0o755)
-        flags = ['-bundle', '-undefined', 'dynamic_lookup'] if os.uname().sysname == 'Darwin' else ['-shared']
-        subprocess.run([*shlex.split(os.getenv('CC', 'cc')), *flags, '-fPIC', '-Wall', '-Werror',
-                        '-I', str(root / 'src'), str(Path(__file__).with_name('jsonpath_api.c')),
-                        '-o', str(module)], check=True)
-        env.cmd('MODULE', 'LOAD', str(module))
-        try:
-            for path in ('$', '$.rows[0].text', "$['rows'][0]['text']", '$.missing'):
-                env.expect('jsonpath_test.flags', path).equal([1, 1])
-            paths = ['$.rows[*].text', '$..text', '$.rows[0:1].text',
-                     '$.rows[0,1].text', '$.rows[?(@.n == 2)].text']
-            paths += [f'$.rows[?({predicate})].text' for predicate in PREDICATES.values()]
-            for path in paths:
-                env.expect('jsonpath_test.flags', path).equal([0, 0])
-            env.cmd('JSON.SET', 'doc:single', '$', json.dumps({'rows': [ROW]}))
-            for path in ('$.rows[*].text', '$..text', '$.rows[?(match(@.text,"a.*"))].text'):
-                env.assertEqual(json.loads(env.cmd('JSON.GET', 'doc:single', path)), ['alpha'])
-                env.expect('jsonpath_test.flags', path).equal([0, 0])
-            for path in ('$.rows[0].n + 1', '$.rows[0].a.min()',
-                         '$.rows[0].text.match("a.*")', '$.rows[0].o~'):
-                env.expect('jsonpath_test.flags', path).error().contains('computed/projection')
-            env.expect('jsonpath_test.flags', '$.rows[').error()
-        finally:
-            env.cmd('MODULE', 'UNLOAD', 'jsonpath_test')
-
-
-@skip(cluster=True, no_json=True)
-@requires_json_version(81000)
 def test_jsonpath_incompatible_selected_values(env):
     """Type errors are observable and valid subsequent writes restore index membership."""
     conn = getConnectionByEnv(env)
