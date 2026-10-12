@@ -7,6 +7,7 @@
 
 import json
 import math
+from functools import wraps
 
 from common import getConnectionByEnv, skip, waitForIndex
 
@@ -69,13 +70,19 @@ PREDICATES = {
 }
 
 
-def require_extensions(env):
-    modules = [dict(zip(m[::2], m[1::2])) for m in env.cmd('MODULE', 'LIST')]
-    versions = {m['name']: m['ver'] for m in modules}
-    if versions.get('ReJSON', 0) < 81000:
-        env.skip()
-    print(f"JSONPath versions: Redis={env.cmd('INFO', 'server')['redis_version']} "
-          f"modules={versions}")
+def requires_json_version(min_version):
+    def decorate(test):
+        @wraps(test)
+        def wrapper(env):
+            modules = [dict(zip(m[::2], m[1::2])) for m in env.cmd('MODULE', 'LIST')]
+            versions = {m['name']: m['ver'] for m in modules}
+            if versions.get('ReJSON', 0) < min_version:
+                return env.skip()
+            print(f"JSONPath versions: Redis={env.cmd('INFO', 'server')['redis_version']} "
+                  f"modules={versions}")
+            return test(env)
+        return wrapper
+    return decorate
 
 
 def create_index(env, name, predicate):
@@ -112,7 +119,6 @@ def assert_selected(env, index, base, keys, values):
 
 
 def check_predicate(env, predicate):
-    require_extensions(env)
     conn = getConnectionByEnv(env)
     document = {'rows': [ROW, OTHER]}
     conn.execute_command('JSON.SET', 'doc:before', '$', json.dumps(document))
@@ -142,6 +148,7 @@ def check_predicate(env, predicate):
 
 def predicate_test(name, predicate):
     @skip(cluster=True, no_json=True)
+    @requires_json_version(81000)
     def test(env):
         """Index and load stored nodes selected by an extended JSONPath predicate."""
         check_predicate(env, predicate)
@@ -154,9 +161,9 @@ for _name, _predicate in PREDICATES.items():
 
 
 @skip(cluster=True, no_json=True)
+@requires_json_version(81000)
 def test_jsonpath_projection_rejection(env):
     """Projections fail validated TEXT schemas and are omitted from RETURN/LOAD."""
-    require_extensions(env)
     env.cmd('JSON.SET', 'doc:1', '$', json.dumps({'rows': [ROW]}))
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.rows[*].text', 'AS', 't', 'TEXT').ok()
     waitForIndex(env, 'idx')
@@ -202,9 +209,9 @@ def test_jsonpath_projection_rejection(env):
 
 
 @skip(cluster=True, no_json=True)
+@requires_json_version(81000)
 def test_jsonpath_updates_and_reload(env):
     """Predicate inputs and selected values stay consistent across writes and RDB reload."""
-    require_extensions(env)
     conn = getConnectionByEnv(env)
     for name in ('match', 'min', 'arithmetic'):
         predicate = {'match': 'match(@.text,"a.*")', 'min': 'min(@.a) == 1',
@@ -242,9 +249,9 @@ def test_jsonpath_updates_and_reload(env):
 
 
 @skip(cluster=True, no_json=True)
+@requires_json_version(81000)
 def test_jsonpath_edges_and_sorting(env):
     """Empty and incompatible predicate inputs do not index stale or fabricated values."""
-    require_extensions(env)
     conn = getConnectionByEnv(env)
     base = create_index(env, 'idx', 'min(@.a) == 1 && match(@.text,"a.*")')
     for number in (2, 3):
@@ -279,6 +286,7 @@ def test_jsonpath_edges_and_sorting(env):
 
 
 @skip(cluster=True, no_json=True)
+@requires_json_version(81000)
 def test_jsonpath_shared_api(env):
     """Call the bundled JSON shared API directly, independently of document cardinality."""
     import os
@@ -287,7 +295,6 @@ def test_jsonpath_shared_api(env):
     import tempfile
     from pathlib import Path
 
-    require_extensions(env)
     root = Path(__file__).resolve().parents[2]
     # A test-only module keeps JSON LLAPI introspection out of Search's command surface.
     with tempfile.TemporaryDirectory(prefix='jsonpath-api-') as directory:
@@ -319,9 +326,9 @@ def test_jsonpath_shared_api(env):
 
 
 @skip(cluster=True, no_json=True)
+@requires_json_version(81000)
 def test_jsonpath_incompatible_selected_values(env):
     """Type errors are observable and valid subsequent writes restore index membership."""
-    require_extensions(env)
     conn = getConnectionByEnv(env)
     create_index(env, 'idx', 'min(@.a) == 1')
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'rows': [dict(ROW, n='wrong')]}))
@@ -339,9 +346,9 @@ def test_jsonpath_incompatible_selected_values(env):
 
 
 @skip(cluster=True, no_json=True)
+@requires_json_version(81000)
 def test_jsonpath_set_relation_functions(env):
     """Search agrees with JSON.GET, including versions without relation functions."""
-    require_extensions(env)
     env.cmd('JSON.SET', 'doc:1', '$', json.dumps({'rows': [ROW]}))
     for name in ('subsetof', 'anyof', 'noneof'):
         rhs = '[9]' if name == 'noneof' else '[1,2,3]'
