@@ -290,6 +290,30 @@ Violations (report as suggestions):
 - A test calling `*_ffi` constructors or vtable callbacks where the crate's safe API
   covers the same path.
 
+#### 3i. `Box::leak` vs `Box::into_raw`
+
+[`Box::leak`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak) is meant
+for data that lives for the remainder of the program: it hands back a `&mut T` the caller
+can keep for as long as it likes. When a value is handed to C and Rust later reclaims it
+with `Box::from_raw`, [`Box::into_raw`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw)
+states that ownership transfer directly and pairs with `Box::from_raw` by design, while
+`Box::leak` reaches the same raw pointer by way of a reference that suggests the value is
+never freed. Both are sound — the `Box::leak` docs themselves say to reclaim its result
+with `Box::from_raw` — so this check is about stating intent, not soundness.
+
+`Box::leak` is fine for genuinely process-lifetime values (e.g. a global initialized once
+and never dropped), where the reference is actually used.
+
+Violations:
+- `Box::leak` whose result is only turned into a raw pointer (e.g. `Box::leak(b) as *mut T`,
+  `NonNull::from(Box::leak(b))`), whether or not it is later reclaimed with
+  `Box::from_raw` — suggestion: use `Box::into_raw` to state the ownership transfer.
+
+Switching to `Box::into_raw` does not free anything. A leak on a path that repeats (per
+query, per index, per document) with no matching `Box::from_raw` is unbounded allocation,
+reported under 3e rather than as a 3i suggestion, unless the allocation is verified to be
+bounded and process-lifetime.
+
 ### 4. Porting-mode checks (only when porting mode = true)
 
 #### 4a. Semantic equivalence
@@ -353,5 +377,6 @@ denial of service, plus the first two 3g violations (behavior with no test, and
 uncovered code paths).
 Suggestions: issues in 3c (debug-assert pre-conditions), 3d (intra-doc links),
 3f (reaching Rust-native types/functions through `ffi` instead of their owning
-crate), 3h (avoidable `unsafe`), low-risk robustness improvements in 3e, and tests
-that exist but are misplaced or otherwise deviate from the guidelines (3g).
+crate), 3h (avoidable `unsafe`), `Box::leak` used only to obtain a raw pointer (3i),
+low-risk robustness improvements in 3e, and tests that exist but are misplaced or
+otherwise deviate from the guidelines (3g).
