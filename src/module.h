@@ -49,7 +49,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 extern redisearch_thpool_t *depleterPool;
 
 int IsMaster();
-bool IsEnterprise();
+bool RS_IsEnterpriseServer(void);
 
 size_t GetNumShards_UnSafe();
 

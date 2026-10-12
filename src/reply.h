@@ -185,6 +185,9 @@ int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
 /* Based on the value type, serialize the value into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
+// Use the same JSON multi-value selection as lookup-row serialization.
+int RedisModule_Reply_RowValue(RedisModule_Reply *reply, const RSValue *v,
+                               SendReplyFlags flags, unsigned int apiVersion);
 
 struct RLookup;
 struct RLookupRow;
