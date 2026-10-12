@@ -500,7 +500,7 @@ cleanup:
 static int MRConn_SendAuth(MRConn *conn) {
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  if (!IsEnterprise()) {
+  if (!RS_UsesProxyCoordination()) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     size_t len = 0;
@@ -724,9 +724,9 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // Authenticate on OSS always (as an internal connection), or on Enterprise if
-  // a password is set to the `default` ACL user.
-  if (!IsEnterprise() || conn->ep.password) {
+  // Without a proxy, authenticate as an internal connection. With a proxy,
+  // authenticate when the topology supplies a password.
+  if (!RS_UsesProxyCoordination() || conn->ep.password) {
     MRConn_SwitchState(conn, MRConn_Authenticating);
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);
