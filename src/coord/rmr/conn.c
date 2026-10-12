@@ -10,6 +10,7 @@
 
 #include <uv.h>
 #include <openssl/ssl.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/time.h>
 
@@ -499,11 +500,23 @@ cleanup:
 static int MRConn_SendAuth(MRConn *conn) {
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  if (!IsEnterprise()) {
+  if (!RS_UsesProxyCoordination()) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
-    size_t len;
+    size_t len = 0;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
+    if (!internal_secret) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+      // Redis has no internal secret outside cluster mode, which cannot change at runtime, so
+      // warn once rather than on every reconnect attempt.
+      static atomic_flag warned = ATOMIC_FLAG_INIT;
+      if (!atomic_flag_test_and_set(&warned)) {
+        CONN_LOG_WARNING(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      } else {
+        CONN_LOG(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      }
+      return REDIS_ERR;
+    }
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
@@ -711,9 +724,9 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // Authenticate on OSS always (as an internal connection), or on Enterprise if
-  // a password is set to the `default` ACL user.
-  if (!IsEnterprise() || conn->ep.password) {
+  // Without a proxy, authenticate as an internal connection. With a proxy,
+  // authenticate when the topology supplies a password.
+  if (!RS_UsesProxyCoordination() || conn->ep.password) {
     MRConn_SwitchState(conn, MRConn_Authenticating);
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);

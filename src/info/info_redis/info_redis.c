@@ -91,7 +91,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   GetFormattedRedisVersion(ver, sizeof(ver));
   RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
   // Redis Enterprise version
-  if (IsEnterprise()) {
+  if (RS_IsEnterpriseServer()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
