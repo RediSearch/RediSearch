@@ -338,6 +338,9 @@ static TrieAddChildResult __trieNode_addChild_lex(
       break;
     }
   }
+  if (n->numChildren == UINT16_MAX) {
+    return (TrieAddChildResult){.node = n, .rc = TRIE_ERR_TOO_MANY_CHILDREN};
+  }
   n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
   updateScore(n, score);
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
@@ -398,6 +401,9 @@ static TrieAddChildResult __trieNode_addChild_score(
   // if there is an index that fit the score, use it, else, place at the end
   if (scoreIdx != REDISEARCH_UNINITIALIZED) {
     idx = scoreIdx;
+  }
+  if (n->numChildren == UINT16_MAX) {
+    return (TrieAddChildResult){.node = n, .rc = TRIE_ERR_TOO_MANY_CHILDREN};
   }
   n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
   updateScore(n, score);

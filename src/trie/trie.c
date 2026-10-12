@@ -404,6 +404,11 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
           "RDB Load: Failed to insert trie entry (payload overflow)");
       goto cleanup;
     }
+    if (rc == TRIE_ERR_TOO_MANY_CHILDREN) {
+      RedisModule_LogIOError(rdb, "warning",
+                             "RDB Load: Failed to insert trie entry (too many children)");
+      goto cleanup;
+    }
   }
   return tree;
 
