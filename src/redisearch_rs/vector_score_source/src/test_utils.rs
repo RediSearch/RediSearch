@@ -13,7 +13,12 @@
 //! Index layout: doc `i` (1..=n) is `[i; dim]` under L2, so distance to query
 //! `[q; dim]` is `dim*(q-i)^2` and the nearest neighbours are the highest ids.
 
-use std::{cell::UnsafeCell, ffi::c_void, ptr, ptr::NonNull};
+use std::{
+    cell::UnsafeCell,
+    ffi::{c_int, c_void},
+    ptr,
+    ptr::NonNull,
+};
 
 use ffi::{
     AlgoParams, BFParams, HNSWParams, QueryRequestTimeout,
@@ -158,6 +163,11 @@ impl TestIndex {
         self.timeout.get()
     }
 
+    /// The index handle, for tests that build iterators through a C entry point.
+    pub const fn as_ptr(&self) -> *mut VecSimIndex {
+        self.index.as_ptr()
+    }
+
     /// Build a [`VectorScoreSource`] over this index for the `query` blob, with
     /// no pinned `HYBRID_POLICY`. `ef` seeds HNSW's `efRuntime`; `child_est`
     /// seeds the batch-size heuristic.
@@ -292,4 +302,40 @@ pub fn make_child<'index>(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'i
 /// Drain an iterator into the doc ids it yields, in read order.
 pub fn collect_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
     std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
+}
+
+unsafe extern "C" {
+    fn VecSim_SetTimeoutCallbackFunction(cb: Option<unsafe extern "C" fn(*mut c_void) -> c_int>);
+}
+
+unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> c_int {
+    1
+}
+
+unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> c_int {
+    0
+}
+
+/// Makes every VecSim timeout check report expired until dropped, when it installs a callback
+/// that never times out.
+///
+/// The callback is process-global, so any VecSim query running concurrently in the same process
+/// observes it: tests that use this guard need a test binary of their own.
+#[must_use = "the mock timeout is removed when the guard is dropped"]
+pub struct MockTimeout(());
+
+impl MockTimeout {
+    /// Install the always-timed-out callback.
+    pub fn enable() -> Self {
+        // SAFETY: the fn pointer is valid for the whole program.
+        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
+        MockTimeout(())
+    }
+}
+
+impl Drop for MockTimeout {
+    fn drop(&mut self) {
+        // SAFETY: the fn pointer is valid for the whole program.
+        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
+    }
 }

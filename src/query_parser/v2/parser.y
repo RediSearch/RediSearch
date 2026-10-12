@@ -260,8 +260,8 @@ static inline const char *toksep2(const char **s, const char *end, size_t *tokLe
 %type verbatim { QueryNode * }
 %destructor verbatim { QueryNode_Free($$); }
 
-%type termlist { QueryNode * }
-%destructor termlist { QueryNode_Free($$); }
+%type tag_termlist { QueryNode * }
+%destructor tag_termlist { QueryNode_Free($$); }
 
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
@@ -545,13 +545,14 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
   A = B;
 }
 
-termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
+// Tag evaluation normalizes the words once, per the field's case sensitivity.
+tag_termlist(A) ::= param_term_case(B) param_term_case(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
-termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
+tag_termlist(A) ::= tag_termlist(B) param_term_case(C) . [TERMLIST] {
   A = B;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
@@ -746,7 +747,7 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
   QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= termlist(B) . [TAGLIST] {
+tag_list(A) ::= tag_termlist(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, B);
 }
@@ -766,7 +767,7 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
   A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR tag_termlist(C) . [TAGLIST] {
   QueryNode_AddChild(B, C);
   A = B;
 }
