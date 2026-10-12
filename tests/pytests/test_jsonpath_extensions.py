@@ -9,7 +9,7 @@ import json
 import math
 from functools import wraps
 
-from common import getConnectionByEnv, skip, waitForIndex
+from common import getConnectionByEnv, module_ver_filter, skip, waitForIndex
 
 
 ROW = {'n': 2, 'fraction': 2.1, 'text': 'alpha', 'tag': 'red',
@@ -74,12 +74,9 @@ def requires_json_version(min_version):
     def decorate(test):
         @wraps(test)
         def wrapper(env):
-            modules = [dict(zip(m[::2], m[1::2])) for m in env.cmd('MODULE', 'LIST')]
-            versions = {m['name']: m['ver'] for m in modules}
-            if versions.get('ReJSON', 0) < min_version:
+            if not module_ver_filter(env, 'ReJSON',
+                                     lambda version: version == 999999 or version >= min_version):
                 return env.skip()
-            print(f"JSONPath versions: Redis={env.cmd('INFO', 'server')['redis_version']} "
-                  f"modules={versions}")
             return test(env)
         return wrapper
     return decorate
