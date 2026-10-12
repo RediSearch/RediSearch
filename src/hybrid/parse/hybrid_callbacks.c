@@ -345,22 +345,19 @@ void handleApply(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    HiddenString* expression = NewHiddenString(expr, exprLen, false);
-    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_APPLY);
-    HiddenString_Free(expression, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_APPLY);
     AGPLN_AddStep(ctx->plan, &stp->base);
 
     // Check for optional AS alias in remaining arguments
     if (AC_AdvanceIfMatch(ac, "AS")) {
         const char *alias;
-        size_t aliasLen;
-        if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
+        if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
             QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
             goto error;
         }
-        stp->base.alias = rm_strndup(alias, aliasLen);
+        stp->base.alias = alias;
     } else {
-        stp->base.alias = rm_strndup(expr, exprLen);
+        stp->base.alias = expr;
     }
     return;
 
@@ -429,9 +426,7 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    HiddenString* expression = NewHiddenString(expr, exprLen, false);
-    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_FILTER);
-    HiddenString_Free(expression, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_FILTER);
     AGPLN_AddStep(ctx->plan, &stp->base);
 }
 
