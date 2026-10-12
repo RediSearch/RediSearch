@@ -70,7 +70,8 @@ impl Accumulator for CountDistinctish<'_> {
         match self.output {
             Output::Count => SharedValue::new_num(hll.count() as f64),
             Output::Registers => {
-                let mut buf = Vec::with_capacity(HEADER_LEN + Hll::size());
+                // One more byte for the terminator `SharedValue::new_string` appends.
+                let mut buf = Vec::with_capacity(HEADER_LEN + Hll::size() + 1);
                 buf.extend_from_slice(&0u32.to_ne_bytes());
                 buf.push(Hll::bits());
                 buf.extend_from_slice(hll.registers());
@@ -83,8 +84,8 @@ impl Accumulator for CountDistinctish<'_> {
 /// `HLL_SUM`: the estimated number of distinct values across the registers
 /// serialized by `HLL`.
 ///
-/// Values that are not strings holding well-formed registers of the same width are
-/// skipped.
+/// Values other than strings holding the registers of a [`HyperLogLog8`], each a
+/// rank a 32-bit hash can produce, are skipped.
 pub struct HllSum<'a> {
     key: &'a RLookupKey<'a>,
 }

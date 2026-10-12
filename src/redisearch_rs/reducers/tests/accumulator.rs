@@ -440,11 +440,15 @@ fn hll_sum_of_shards_matches_count_distinctish_of_their_union() {
 #[test]
 fn hll_sum_skips_malformed_values() {
     let key = key();
+    let hll_sum = |rows: &[Option<SharedValue>]| reduce(HllSum::new(&key), &key, rows);
     let valid = hll(0..500);
-    let expected = reduce(HllSum::new(&key), &key, std::slice::from_ref(&valid));
-    assert!(expected > 0.0);
+    let expected = hll_sum(std::slice::from_ref(&valid));
 
-    let bytes = valid.as_ref().unwrap().as_str_bytes().unwrap().to_vec();
+    // Disjoint from `valid`, so merging anything made from it would change the estimate.
+    let other = hll(500..1500);
+    assert_ne!(hll_sum(&[valid.clone(), other.clone()]), expected);
+
+    let bytes = other.as_ref().unwrap().as_str_bytes().unwrap().to_vec();
     let with = |edit: &dyn Fn(&mut Vec<u8>)| {
         let mut bytes = bytes.clone();
         edit(&mut bytes);
@@ -453,7 +457,7 @@ fn hll_sum_skips_malformed_values() {
     let malformed = [
         None,
         num(1.0),
-        Some(SharedValue::new(Value::Ref(valid.clone().unwrap()))),
+        Some(SharedValue::new(Value::Ref(other.clone().unwrap()))),
         with(&|b| b.truncate(4)),
         with(&|b| b.truncate(5 + 128)),
         with(&|b| b.push(0)),
@@ -467,13 +471,28 @@ fn hll_sum_skips_malformed_values() {
     ];
     for value in &malformed {
         let rows = [valid.clone(), value.clone()];
-        assert_eq!(
-            reduce(HllSum::new(&key), &key, &rows),
-            expected,
-            "{value:?}"
-        );
+        assert_eq!(hll_sum(&rows), expected, "{value:?}");
     }
-    assert_eq!(reduce(HllSum::new(&key), &key, &malformed), 0.0);
+    assert_eq!(hll_sum(&malformed), 0.0);
+}
+
+/// The largest rank a 32-bit hash can produce is merged, not mistaken for a malformed one.
+#[test]
+fn hll_sum_accepts_the_largest_rank() {
+    let key = key();
+    let with_first_register = |rank| {
+        let mut bytes = hll(0..0).unwrap().as_str_bytes().unwrap().to_vec();
+        bytes[5] = rank;
+        Some(SharedValue::new_string(bytes))
+    };
+    assert_eq!(
+        reduce(HllSum::new(&key), &key, &[with_first_register(25)]),
+        1.0
+    );
+    assert_eq!(
+        reduce(HllSum::new(&key), &key, &[with_first_register(26)]),
+        0.0
+    );
 }
 
 /// Runs `accumulator` over two groups the way the grouper does: a state per
