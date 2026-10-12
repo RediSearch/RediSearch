@@ -40,6 +40,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimQueryReply_GetIterator",
             "VecSimQueryReply_IteratorFree",
             "VecSimQueryReply_IteratorNext",
+            "VecSimQueryReply_Len",
             "VecSimQueryResult_GetId",
             "VecSimQueryResult_GetScore",
         ],
@@ -67,6 +68,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimIndex_IndexSize",
             "VecSimIndex_New",
             "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_RangeQuery",
             "VecSimIndex_TopKQuery",
             "VecSimParams_GetQueryBlobSize",
             "VecSimTieredIndex_AcquireSharedLocks",
@@ -408,7 +410,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
         fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
-        types: &[],
+        types: &["rune"],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
