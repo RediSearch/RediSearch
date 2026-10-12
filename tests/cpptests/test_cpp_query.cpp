@@ -160,7 +160,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast = {0};
   QueryError iterErr = QueryError_Default();
   // Set up params for the pre-filtered KNN query.
-  opts.params = Param_DictCreate();
+  opts.params = Param_DictCreate(1);
   ASSERT_NE(opts.params, nullptr);
   RedisModuleString *blob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts.params, "BLOB", 4, blob, &iterErr),
@@ -193,7 +193,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast_missing_attrs = {0};
   QueryError iterErrMissingAttrs = QueryError_Default();
   // Set up params for query-attributes syntax without HYBRID_POLICY.
-  opts_missing_attrs.params = Param_DictCreate();
+  opts_missing_attrs.params = Param_DictCreate(1);
   ASSERT_NE(opts_missing_attrs.params, nullptr);
   RedisModuleString *missingAttrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts_missing_attrs.params, "BLOB", 4, missingAttrsBlob,
@@ -235,7 +235,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast_attrs = {0};
   QueryError iterErrAttrs = QueryError_Default();
   // Set up params for query-attributes syntax with HYBRID_POLICY.
-  opts_attrs.params = Param_DictCreate();
+  opts_attrs.params = Param_DictCreate(1);
   ASSERT_NE(opts_attrs.params, nullptr);
   RedisModuleString *attrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts_attrs.params, "BLOB", 4, attrsBlob, &iterErrAttrs),
@@ -1122,7 +1122,7 @@ TEST_F(QueryTest, testWildcard) {
 // AddressSanitizer — while also asserting the value is preserved intact.
 TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   QueryError err = QueryError_Default();
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(1);
 
   // 'a', interior NUL, then a long tail. rm_strdup would stop at the NUL and
   // allocate only 2 bytes while still reporting the full length.
@@ -1163,7 +1163,7 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
 // long names must resolve too.
 TEST_F(QueryTest, testParamDictGetByLength) {
   QueryError err = QueryError_Default();
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(2);
   const std::string longName(100, 'n');
   RedisModuleString *shortValue = RedisModule_CreateString(NULL, "v1", 2);
   RedisModuleString *longValue = RedisModule_CreateString(NULL, "v2", 2);
