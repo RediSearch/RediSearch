@@ -2197,20 +2197,7 @@ DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
     return RedisModule_WrongArity(ctx);
   }
   // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
-  ++argv; --argc;
-
-  QueryError status = QueryError_Default();
-  HybridDebugParams params = parseHybridDebugParamsCount(argv, argc, &status);
-  if (QueryError_HasError(&status)) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-  if (parseHybridDebugParams(&params, &status) != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  // Strip debug params from argc so hybridCommandHandler sees a normal command
-  int stripped_argc = argc - (int)params.debug_params_count - 2;
-  return hybridCommandHandler(ctx, argv, stripped_argc, true, EXEC_NO_FLAGS, &params);
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
@@ -2223,8 +2210,7 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   }
 
   if (GetNumShards_UnSafe() == 1) {
-    // Single shard — use standalone handler (skip _FT.DEBUG)
-    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc, false);
   }
 
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);

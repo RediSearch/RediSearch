@@ -533,17 +533,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // No explicit FILTER: the sub-request has no query argument, and AREQ_Query
-  // defaults to matching everything ("*").
-  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
-  // so the vector node becomes the root directly (no PHRASE/intersection needed).
-  // This preserves BY_SCORE ordering from the iterator.
   if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
-    // For RANGE without explicit filter, skip the filter integration
-    // so the vector node is the root and returns results sorted by score.
-    if (vq->type == VECSIM_QT_RANGE) {
-      pvd->skipFilterIntegration = true;
-    }
+    pvd->skipFilterIntegration = true;
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
