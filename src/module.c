@@ -1696,35 +1696,11 @@ static int CreateArbitraryWriteSearchCommands(RedisModuleCtx *ctx, const SearchC
   return REDISMODULE_OK;
 }
 
-static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
-  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
-}
-
-static bool rejectDiskHybridExecution(RedisModuleCtx *ctx, bool internal) {
-  if (!SearchDisk_IsEnabled() || (RunInThread(ctx) && !cannotBlockCtx(ctx))) {
-    return false;
-  }
-
-  QueryError status = QueryError_Default();
-  QueryError_SetError(&status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                      "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts) "
-                      "is not supported in Redis Flex");
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, !internal);
-  QueryError_ReplyAndClear(ctx, &status);
-  return true;
-}
-
 int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc >= 2 && rejectDiskHybridExecution(ctx, true)) {
-    return REDISMODULE_OK;
-  }
 return hybridCommandHandler(ctx, argv, argc, true, EXEC_NO_FLAGS, NULL);
 }
 
 int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc >= 2 && rejectDiskHybridExecution(ctx, false)) {
-    return REDISMODULE_OK;
-  }
   return hybridCommandHandler(ctx, argv, argc, false, EXEC_NO_FLAGS, NULL);
 }
 
@@ -1797,9 +1773,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (cmdType == COMMAND_HYBRID) {
     RedisModuleString *command = argv[0];
     bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
-    if (!rejectDiskHybridExecution(ctx, internal)) {
-      hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
-    }
+    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
   } else {
     // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
     execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
@@ -3691,6 +3665,10 @@ cleanup:
   return REDISMODULE_OK;
 }
 
+static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
+  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+}
+
 static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
 }
@@ -4036,10 +4014,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_WrongArity(ctx);
   }
 
-  if (rejectDiskHybridExecution(ctx, false)) {
-    return REDISMODULE_OK;
-  }
-
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
@@ -4080,7 +4054,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (NumShards == 1) {
     if (isDebug) {
       // argv still contains debug params; the non-debug handler would reject them as unknown args.
-      return DEBUG_hybridCommandHandler(ctx, argv, argc);
+      return DEBUG_hybridCommandHandler(ctx, argv, argc, false);
     }
     return RSClientHybridCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {

@@ -1210,7 +1210,10 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
 // caller still owns both.
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
-  if (RunInThread(ctx)) {
+  const bool denyBlocking = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+  const bool runInThread =
+      RunInThread(ctx) && !(SearchDisk_IsEnabledForValidation() && denyBlocking);
+  if (runInThread) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
@@ -1261,6 +1264,10 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     return REDISMODULE_OK;
   } else {
     // Single-threaded execution path
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(
+            "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts)", status)) {
+      return REDISMODULE_ERR;
+    }
     int rc = buildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal, false);
     if (rc == REDISMODULE_OK) {
       HybridRequest_Free(hreq);
