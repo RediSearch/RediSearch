@@ -659,6 +659,71 @@ mod via_resume {
         );
     }
 
+    /// Children whose union stays on doc 100 when the last one aborts: a
+    /// scored child carrying a metric, a sibling on the same document, and a
+    /// doomed child ahead of the union.
+    fn children_settling_back_onto_100<'index>() -> Vec<TypeErasedRQEIterator<'index>> {
+        let scored = rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.5]);
+        let sibling: Mock<'_, 2> = Mock::new([100, 200]);
+        sibling
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        let doomed: Mock<'_, 2> = Mock::new([150, 300]);
+        doomed
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        vec![
+            TypeErasedRQEIterator::new(Box::new(scored)),
+            TypeErasedRQEIterator::new(Box::new(sibling)),
+            TypeErasedRQEIterator::new(Box::new(doomed)),
+        ]
+    }
+
+    /// The same metric, but with a sibling that aborts, so the union goes
+    /// through the settle rather than keeping its aggregate. The union stays on
+    /// its document, and the metric it gathered there must stay with it.
+    #[track_caller]
+    fn assert_settling_back_keeps_the_metrics<'index, U>(mut union: Box<U>)
+    where
+        U: RQEIteratorBoxed<'index>,
+    {
+        let first = union.read().expect("read failed").expect("doc 100");
+        assert_eq!(first.doc_id, 100);
+        assert_eq!(
+            first.metrics.len(),
+            1,
+            "the aggregate gathered the scored child's metric",
+        );
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let ResumeOutcome::Ok(mut resumed) = union.suspend().resume(&guard).expect("no error")
+        else {
+            panic!("a sibling ahead of the union aborting leaves it in place");
+        };
+        let current = resumed.current().expect("still on doc 100");
+        assert_eq!(current.doc_id, 100);
+        assert_eq!(
+            current.metrics.len(),
+            1,
+            "the metric must survive the settle",
+        );
+    }
+
+    #[test]
+    fn settling_back_onto_the_same_document_keeps_the_metrics() {
+        assert_settling_back_keeps_the_metrics(Box::new(UnionFullFlat::new(
+            children_settling_back_onto_100(),
+        )));
+    }
+
+    #[test]
+    fn quick_settling_back_onto_the_same_document_keeps_the_metrics() {
+        assert_settling_back_keeps_the_metrics(Box::new(UnionQuickFlat::new(
+            children_settling_back_onto_100(),
+        )));
+    }
+
     /// A quick union reports a single child, so the rebuild stops at the first
     /// one it finds on the union's document rather than aggregating every match.
     ///

@@ -14,7 +14,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, FieldMask};
 use std::marker::PhantomData;
 
-use crate::union::SettleOutcome;
+use crate::union::{SettleOutcome, restore_gathered_metrics};
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
@@ -311,6 +311,10 @@ where
         &mut self,
         original_last_doc_id: DocId,
     ) -> Result<SettleOutcome, RQEIteratorError> {
+        // A move to another document publishes that document's metrics, drained
+        // afresh by the rebuild; staying put has to restore these.
+        let gathered = std::mem::take(&mut self.result.metrics);
+
         // Only a child that has run past its last result is dropped: one that has
         // merely returned its final document still owes it, and dropping it would
         // lose that document — or report EOF for the whole union, if it was the
@@ -384,6 +388,7 @@ where
                     "staying put must leave the position untouched",
                 );
 
+                restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
                 return Ok(SettleOutcome::Unchanged);
             }
 
@@ -419,6 +424,7 @@ where
                                 "staying put must leave the position untouched",
                             );
 
+                            restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
                             return Ok(SettleOutcome::Unchanged);
                         }
                         i += 1;
@@ -467,6 +473,7 @@ where
         }
 
         if self.last_doc_id() == original_last_doc_id {
+            restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
             return Ok(SettleOutcome::Unchanged);
         }
 
@@ -1094,7 +1101,8 @@ enum RebuildOutcome {
 /// them for good — a KNN child's `__vector_score` vanishing from the reply. The
 /// cost of keeping them is that a metric contributed by a child that has since
 /// been dropped stays; the alternative loses the surviving children's metrics
-/// too, to remove it.
+/// too, to remove it. Should the union then re-settle,
+/// [`restore_gathered_metrics`] decides which of them it goes on publishing.
 ///
 /// `doc_id` is the document the rebuild is *for*: the input to the contributor
 /// test rather than an output of it.
